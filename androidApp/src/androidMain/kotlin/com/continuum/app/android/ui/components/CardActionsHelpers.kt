@@ -1,0 +1,71 @@
+package com.continuum.app.android.ui.components
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import com.continuum.app.domain.MediaActionsCoordinator
+import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.model.catalog.MediaItemUserState
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
+
+/**
+ * Returns a [MediaCardActions] that delegates to a Koin-injected
+ * [MediaActionsCoordinator]. Each invocation also exposes the *current* state
+ * (after any optimistic update) via the trailing [view] block so callers can
+ * render the up-to-date watched / favorite / watchlist state on the card.
+ *
+ * Use this for grid screens (search, catalog, library, person detail) whose
+ * ViewModels don't yet manage these actions. The Home screen wires actions
+ * through [com.continuum.app.viewmodel.HomeViewModel] instead so that
+ * dismissing from Continue Watching mutates the resolved sections list.
+ */
+@Composable
+fun rememberBrowseItemCardActions(
+    item: BrowseItem,
+): Pair<MediaCardActions, MediaItemUserState> {
+    val coordinator: MediaActionsCoordinator = koinInject()
+    val scope = rememberCoroutineScope()
+
+    var state by remember(item.contentId) {
+        mutableStateOf(item.userState ?: MediaItemUserState())
+    }
+
+    val actions = MediaCardActions(
+        onSetWatched = { watched ->
+            val previous = state
+            state = state.copy(played = watched)
+            scope.launch {
+                if (coordinator.setWatched(item.contentId, watched).isFailure()) {
+                    state = previous
+                }
+            }
+        },
+        onToggleFavorite = { favorite ->
+            val previous = state
+            state = state.copy(isFavorite = favorite)
+            scope.launch {
+                if (coordinator.toggleFavorite(item.contentId, favorite).isFailure()) {
+                    state = previous
+                }
+            }
+        },
+        onToggleWatchlist = { inWatchlist ->
+            val previous = state
+            state = state.copy(inWatchlist = inWatchlist)
+            scope.launch {
+                if (coordinator.toggleWatchlist(item.contentId, inWatchlist).isFailure()) {
+                    state = previous
+                }
+            }
+        },
+    )
+
+    return actions to state
+}
+
+private fun com.continuum.app.network.ApiResult<Unit>.isFailure(): Boolean =
+    this !is com.continuum.app.network.ApiResult.Success

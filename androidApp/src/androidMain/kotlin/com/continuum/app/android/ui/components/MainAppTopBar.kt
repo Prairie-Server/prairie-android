@@ -1,0 +1,230 @@
+package com.continuum.app.android.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.continuum.app.android.ui.screens.profiles.ProfileAvatar
+import com.continuum.app.model.profile.Profile
+
+val MainAppHeaderContentPadding = 104.dp
+
+@Composable
+fun MainAppTopBar(
+    activeProfile: Profile?,
+    isProfileLoading: Boolean,
+    onSearchClick: () -> Unit,
+    onPersonalListsClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onSwitchProfileClick: () -> Unit,
+    onSwitchServerClick: () -> Unit,
+    leadingContent: @Composable () -> Unit = {
+        ContinuumWordmark()
+    },
+) {
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
+    val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.96f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.82f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.42f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0f),
+                    ),
+                ),
+            )
+            .padding(
+                top = statusBarPadding.calculateTopPadding() + 6.dp,
+                start = 16.dp,
+                end = 16.dp,
+                bottom = 28.dp,
+            ),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Box(
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                leadingContent()
+            }
+
+            Row(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HeaderActionButton(
+                    onClick = onSearchClick,
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = null,
+                    )
+                }
+
+                Box {
+                    HeaderActionButton(
+                        onClick = { menuExpanded = true },
+                    ) {
+                        if (activeProfile != null) {
+                            ProfileAvatar(
+                                avatar = activeProfile.avatar,
+                                name = activeProfile.name,
+                                size = 34.dp,
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = Icons.Outlined.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Favorites & Watchlist") },
+                            onClick = {
+                                menuExpanded = false
+                                onPersonalListsClick()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Settings") },
+                            onClick = {
+                                menuExpanded = false
+                                onSettingsClick()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Switch Profile") },
+                            onClick = {
+                                menuExpanded = false
+                                onSwitchProfileClick()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Switch Server") },
+                            onClick = {
+                                menuExpanded = false
+                                onSwitchServerClick()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeaderActionButton(
+    onClick: () -> Unit,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = Color.White.copy(alpha = 0.06f),
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .padding(4.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun ContinuumWordmark(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.05f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text = "Silo",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Media",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}

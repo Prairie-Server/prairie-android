@@ -1,0 +1,163 @@
+package com.continuum.app.tv.ui.screens.detail
+
+import com.continuum.app.model.catalog.FileVersion
+import com.continuum.app.model.catalog.ItemDetail
+import kotlin.math.round
+
+/**
+ * Pure functions that build the hero metadata for the cinematic detail
+ * layout. Mirrors `TVHeroMetadata` from the tvOS app — the same source of
+ * truth lives in two languages so the two clients stay visually aligned.
+ */
+internal object TvDetailMetadata {
+
+    fun sourceTokens(detail: ItemDetail): List<String> = when (detail.type.lowercase()) {
+        "episode" -> buildList {
+            episodeNumberLabel(detail)?.let { add(it) }
+            detail.genres.firstOrNull { it.isNotBlank() }?.let { add(it) }
+        }
+        "series" -> buildList {
+            add("TV Show")
+            detail.genres.filter { it.isNotBlank() }.take(2).forEach { add(it) }
+        }
+        else -> buildList {
+            add(typeLabel(detail))
+            detail.genres.filter { it.isNotBlank() }.take(2).forEach { add(it) }
+        }
+    }
+
+    fun ratingChip(detail: ItemDetail): String? =
+        detail.contentRating?.trim()?.takeIf { it.isNotEmpty() }
+
+    fun factsLine(detail: ItemDetail): List<TvHeroFactToken> {
+        val tokens = mutableListOf<TvHeroFactToken>()
+        if (detail.year > 0) tokens += TvHeroFactToken.TextToken(detail.year.toString())
+        when {
+            detail.type.equals("series", ignoreCase = true) ->
+                detail.seasonCount?.takeIf { it > 0 }?.let {
+                    tokens += TvHeroFactToken.TextToken("$it Season${if (it == 1) "" else "s"}")
+                }
+            else ->
+                runtimeLabel(detail.runtime)?.let { tokens += TvHeroFactToken.TextToken(it) }
+        }
+        detail.ratingImdb?.let {
+            tokens += TvHeroFactToken.TextToken("★ ${formatOneDecimal(it)}")
+        }
+        tokens += qualityTokens(detail)
+        return tokens
+    }
+
+    fun eyebrow(detail: ItemDetail): String? {
+        if (detail.type.equals("episode", ignoreCase = true)) {
+            return detail.seriesTitle?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        if (detail.type.equals("series", ignoreCase = true)) {
+            when (detail.status?.trim()?.lowercase()) {
+                "continuing", "returning series", "returning" -> return "Continuing Series"
+                "ended" -> return "Complete Series"
+                "in production" -> return "New Season Coming"
+                else -> Unit
+            }
+        }
+        val tagline = detail.tagline?.trim()?.takeIf { it.isNotEmpty() }
+        if (tagline != null && tagline.length <= 44) return tagline
+        return null
+    }
+
+    fun starringText(detail: ItemDetail): String? {
+        val names = detail.cast.take(3).map { it.name.trim() }.filter { it.isNotEmpty() }
+        if (names.isEmpty()) return null
+        return "Starring ${names.joinToString(", ")}"
+    }
+
+    private fun typeLabel(detail: ItemDetail): String = when (detail.type.lowercase()) {
+        "movie" -> "Movie"
+        "series" -> "TV Show"
+        "episode" -> "Episode"
+        else -> detail.type.replaceFirstChar { it.titlecase() }
+    }
+
+    private fun episodeNumberLabel(detail: ItemDetail): String? {
+        val seasonPart = detail.seasonNumber?.let { n ->
+            if (n == 0) "Specials" else "Season $n"
+        }
+        val episodePart = detail.episodeNumber?.takeIf { it > 0 }?.let { "Episode $it" }
+        return when {
+            seasonPart != null && episodePart != null -> "$seasonPart · $episodePart"
+            seasonPart != null -> seasonPart
+            episodePart != null -> episodePart
+            else -> null
+        }
+    }
+
+    private fun runtimeLabel(minutes: Int): String? {
+        if (minutes <= 0) return null
+        return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "$minutes min"
+    }
+
+    private fun formatOneDecimal(value: Double): String {
+        val rounded = round(value * 10.0) / 10.0
+        val whole = rounded.toInt()
+        val tenths = (round((rounded - whole) * 10.0)).toInt().coerceIn(0, 9)
+        return "$whole.$tenths"
+    }
+
+    private fun qualityTokens(detail: ItemDetail): List<TvHeroFactToken> {
+        val version = preferredVersion(detail) ?: return emptyList()
+        val tokens = mutableListOf<TvHeroFactToken>()
+        resolutionLabel(version.resolution)?.let { tokens += TvHeroFactToken.Chip(it) }
+        if (version.hdr) tokens += TvHeroFactToken.Chip(dolbyVisionLabel(version) ?: "HDR")
+        primaryAudioLabel(version)?.let { tokens += TvHeroFactToken.Chip(it) }
+        if (hasSubtitles(version, detail)) tokens += TvHeroFactToken.Chip("CC")
+        return tokens
+    }
+
+    private fun preferredVersion(detail: ItemDetail): FileVersion? {
+        val versions = detail.versions
+        if (versions.isEmpty()) return null
+        val lastId = detail.userData?.lastFileId
+        if (lastId != null) {
+            versions.firstOrNull { it.fileId == lastId }?.let { return it }
+        }
+        return versions.first()
+    }
+
+    private fun resolutionLabel(raw: String?): String? {
+        val v = raw?.lowercase() ?: return null
+        return when {
+            "2160" in v || "4k" in v -> "4K"
+            "1080" in v -> "HD"
+            "720" in v -> "HD"
+            "480" in v -> "SD"
+            else -> null
+        }
+    }
+
+    private fun dolbyVisionLabel(version: FileVersion): String? {
+        // FileVersion's video tracks don't carry a Dolby Vision flag in the
+        // shared model. The chip falls back to "HDR" for any HDR encode.
+        return null
+    }
+
+    private fun primaryAudioLabel(version: FileVersion): String? {
+        val tracks = version.audioTracks ?: return null
+        val track = tracks.firstOrNull { it.isDefault } ?: tracks.firstOrNull() ?: return null
+        track.channelLayout?.lowercase()?.let { layout ->
+            if ("atmos" in layout) return "ATMOS"
+            if ("7.1" in layout) return "7.1"
+            if ("5.1" in layout) return "5.1"
+            if ("stereo" in layout || layout == "2.0") return null
+        }
+        return when (track.channels) {
+            8 -> "7.1"
+            6 -> "5.1"
+            else -> null
+        }
+    }
+
+    private fun hasSubtitles(version: FileVersion, detail: ItemDetail): Boolean {
+        val versionSubs = version.subtitleTracks
+        if (!versionSubs.isNullOrEmpty()) return true
+        return detail.subtitles.isNotEmpty()
+    }
+}

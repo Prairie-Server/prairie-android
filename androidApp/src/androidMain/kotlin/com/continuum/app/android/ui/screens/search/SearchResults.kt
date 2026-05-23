@@ -1,0 +1,116 @@
+package com.continuum.app.android.ui.screens.search
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.continuum.app.android.ui.components.MediaCard
+import com.continuum.app.android.ui.components.rememberBrowseItemCardActions
+import com.continuum.app.model.catalog.BrowseItem
+
+/**
+ * Displays search results in a vertical grid of media cards.
+ *
+ * Supports infinite scroll to load additional results.
+ *
+ * @param results The search result items to display.
+ * @param total Total number of matching results.
+ * @param isSearching Whether a search request is in flight.
+ * @param hasMore Whether more results are available.
+ * @param onItemClick Callback with content ID when a result card is tapped.
+ * @param onLoadMore Callback to load the next page of results.
+ * @param modifier Compose modifier.
+ */
+@Composable
+fun SearchResults(
+    results: List<BrowseItem>,
+    total: Int,
+    isSearching: Boolean,
+    hasMore: Boolean,
+    onItemClick: (String) -> Unit,
+    onLoadMore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val gridState = rememberLazyGridState()
+
+    // Trigger load more when scrolled near bottom
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = gridState.layoutInfo.totalItemsCount
+            hasMore && !isSearching && lastVisible >= totalItems - 6
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore) onLoadMore()
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        state = gridState,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = modifier,
+    ) {
+        // Result count header
+        item(span = { GridItemSpan(3) }) {
+            Text(
+                text = "$total results",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+
+        items(
+            items = results,
+            key = { it.contentId },
+        ) { item ->
+            val (actions, userState) = rememberBrowseItemCardActions(item)
+            MediaCard(
+                title = item.title,
+                posterUrl = item.posterUrl,
+                posterThumbhash = item.posterThumbhash,
+                year = item.year,
+                type = item.type,
+                userState = userState,
+                onClick = { onItemClick(item.contentId) },
+                width = 120.dp,
+                actions = actions,
+            )
+        }
+
+        // Loading indicator
+        if (isSearching && results.isNotEmpty()) {
+            item(span = { GridItemSpan(3) }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+        }
+    }
+}

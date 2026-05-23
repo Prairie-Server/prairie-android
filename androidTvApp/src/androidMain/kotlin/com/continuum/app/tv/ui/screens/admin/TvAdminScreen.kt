@@ -1,0 +1,169 @@
+package com.continuum.app.tv.ui.screens.admin
+
+import com.continuum.app.viewmodel.AdminViewModel
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.continuum.app.model.admin.AdminStats
+import com.continuum.app.tv.ui.components.TvErrorScreen
+import com.continuum.app.tv.ui.components.TvLoadingScreen
+import org.koin.compose.viewmodel.koinViewModel
+
+/**
+ * Admin dashboard — just shows a 2-column grid of stats. Admin user
+ * management and library management are deferred to a follow-up phase.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvAdminScreen(
+    onBack: () -> Unit,
+    viewModel: AdminViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectAsState()
+
+    BackHandler(enabled = true) { onBack() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Header()
+
+        when {
+            state.isLoading && state.stats == null -> TvLoadingScreen()
+            state.error != null && state.stats == null -> TvErrorScreen(
+                message = state.error!!,
+                onRetry = viewModel::loadAdminData,
+            )
+            state.stats != null -> StatsGrid(stats = state.stats!!)
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun Header() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 48.dp, vertical = 32.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.AdminPanelSettings,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(40.dp),
+        )
+        Text(
+            text = "Admin Dashboard",
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun StatsGrid(stats: AdminStats) {
+    val tiles = listOf(
+        StatTile("Total Items", stats.totalItems.toString()),
+        StatTile("Movies", stats.totalMovies.toString()),
+        StatTile("TV Shows", stats.totalShows.toString()),
+        StatTile("Users", stats.totalUsers.toString()),
+        StatTile("Active Streams", stats.activeStreams.toString()),
+        StatTile("Storage", formatBytes(stats.totalStorageBytes)),
+    )
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(32.dp),
+        verticalArrangement = Arrangement.spacedBy(32.dp),
+    ) {
+        items(tiles, key = { it.label }) { tile ->
+            StatCard(tile)
+        }
+    }
+}
+
+private data class StatTile(val label: String, val value: String)
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun StatCard(tile: StatTile) {
+    Card(
+        onClick = {},
+        shape = CardDefaults.shape(shape = RoundedCornerShape(20.dp)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = tile.label,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = tile.value,
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return "%.1f KB".format(kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return "%.1f MB".format(mb)
+    val gb = mb / 1024.0
+    if (gb < 1024) return "%.1f GB".format(gb)
+    val tb = gb / 1024.0
+    return "%.2f TB".format(tb)
+}
+
+// Hint to the compiler that the tile icon helper is exported for future use.
+@Suppress("unused")
+private fun iconForTile(label: String): ImageVector = Icons.Filled.AdminPanelSettings

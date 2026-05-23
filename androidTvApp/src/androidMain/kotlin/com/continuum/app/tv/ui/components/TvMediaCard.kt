@@ -1,0 +1,199 @@
+package com.continuum.app.tv.ui.components
+
+import com.continuum.app.common.ui.components.ThumbhashImage
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.continuum.app.model.catalog.MediaItemUserState
+import com.continuum.app.tv.ui.theme.ContinuumBlue
+import com.continuum.app.tv.ui.theme.DarkOnPrimary
+import com.continuum.app.tv.ui.theme.ProgressTrack
+import com.continuum.app.tv.ui.theme.ProgressFill
+import com.continuum.app.tv.ui.theme.SelectedContainer
+import com.continuum.app.tv.ui.theme.continuumCardDefaults
+
+/**
+ * The core focusable media card used throughout the TV app.
+ *
+ * Displays a 2:3 poster with progress bar overlay, watched badge, favorite
+ * indicator, and a title/year caption below. Uses Compose for TV's [Card]
+ * so the native `.card` focus behavior (scale + shadow lift) activates
+ * when the user moves a D-pad onto it.
+ *
+ * This is the TV counterpart to the phone app's `MediaCard`. Deliberately
+ * doesn't call into the phone class — keeping the two apps' UI layers
+ * isolated so we can iterate on TV sizing/focus without breaking mobile.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvMediaCard(
+    title: String,
+    posterUrl: String?,
+    posterThumbhash: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    year: Int? = null,
+    userState: MediaItemUserState? = null,
+    progress: Float? = null,
+    width: Dp = TvCardWidth,
+    fillWidth: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    cardModifier: Modifier = Modifier,
+    actions: TvMediaCardActions = TvMediaCardActions(),
+) {
+    val height = width * 3f / 2f
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val cardShape = RoundedCornerShape(8.dp)
+    val cardFocus = continuumCardDefaults(shape = cardShape)
+
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = if (fillWidth) {
+            modifier
+        } else {
+            modifier.width(width)
+        },
+    ) {
+        Card(
+            onClick = onClick,
+            onLongClick = if (actions.isEmpty) null else { { menuExpanded = true } },
+            interactionSource = interactionSource,
+            shape = CardDefaults.shape(shape = cardShape),
+            scale = cardFocus.scale,
+            border = cardFocus.border,
+            glow = cardFocus.glow,
+            modifier = if (fillWidth) {
+                cardModifier
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+            } else {
+                cardModifier
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                    .size(width, height)
+            },
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                ThumbhashImage(
+                    url = posterUrl,
+                    thumbhash = posterThumbhash,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                if (userState?.played == true) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .size(12.dp)
+                            .background(ContinuumBlue, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Watched",
+                            tint = DarkOnPrimary,
+                            modifier = Modifier.size(7.dp),
+                        )
+                    }
+                }
+
+                if (progress != null && progress > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .align(Alignment.BottomStart)
+                            .background(ProgressTrack),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .height(3.dp)
+                                .background(ProgressFill),
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = if (isFocused) {
+                Color.White
+            } else {
+                Color.White.copy(alpha = 0.78f)
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        if (year != null && year > 0) {
+            Text(
+                text = year.toString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.70f),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        TvMediaCardContextMenu(
+            expanded = menuExpanded,
+            onDismiss = { menuExpanded = false },
+            actions = actions,
+            isPlayed = userState?.played == true,
+            isFavorite = userState?.isFavorite == true,
+            isInWatchlist = userState?.inWatchlist == true,
+        )
+    }
+}
+
+/**
+ * Default width used by the TV media card. 200dp matches the tvOS poster size
+ * (260×390pt at scale per `RowDimens.PosterWidth`) — the spec calls for
+ * 200×300dp posters across rows and grids on Android TV.
+ */
+val TvCardWidth: Dp = 130.dp

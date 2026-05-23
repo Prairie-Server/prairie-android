@@ -1,0 +1,400 @@
+package com.continuum.app.tv.ui.screens.player
+
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Icon
+import androidx.tv.material3.Text
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * Glass-capsule scrubber matching `iosApp/.../tvOS/TVPlayerScrubber.swift`.
+ *
+ * The Compose remote-key model differs from tvOS's `MoveCommand` /
+ * `PressCapture` split: ACTION_DOWN repeats fire while a key is held, so we
+ * derive "tap" vs "hold" from press duration (a single short press without
+ * a long-press timer firing = tap; a held press triggers timeline auto-seek).
+ *
+ * - **Tap left/right** (idle): ±10 s quick skip via [onSkipBack] / [onSkipForward].
+ * - **Tap left/right** (timeline scrub): ±10 s nudge of the in-flight preview.
+ * - **Hold left/right**: enter timeline auto-seek at ±2x → tap again to bump
+ *   the rate up to ±32x.
+ * - **OK / Select**: commit an in-flight preview (or enter timeline scrub).
+ * - **Back / Down**: cancel the preview / move focus to transport.
+ *
+ * Visual layout follows the spec: 7 dp track unfocused → 12 dp during
+ * timeline scrub, 30 dp puck unfocused → 42 dp focused/scrubbing, chapter
+ * ticks rendered as 3 dp white verticals on top of the played fill.
+ */
+/**
+ * Lightweight chapter marker. Mirrors `PlayerCore.ChapterInfo` on tvOS — name
+ * + start time in seconds. Defined locally so the scrubber stays decoupled
+ * from any specific ExoPlayer/Media3 chapter representation.
+ */
+data class ChapterInfo(
+    val timeSec: Double,
+    val title: String? = null,
+)
+
+@Composable
+fun TvPlayerScrubber(
+    positionSec: Double,
+    durationSec: Double,
+    bufferedAheadSec: Double,
+    isScrubbing: Boolean,
+    scrubPreviewSec: Double,
+    chapters: List<ChapterInfo>,
+    cancelOnBlur: Boolean,
+    onSkipBack: () -> Unit,
+    onSkipForward: () -> Unit,
+    onBeginScrub: () -> Unit,
+    onUpdateScrub: (Double) -> Unit,
+    onCommitScrub: () -> Unit,
+    onCancelScrub: () -> Unit,
+    onRequestFocus: FocusRequester,
+    onMoveDownToTransport: () -> Unit,
+    onExitWhenIdle: () -> Unit,
+    onRateChanged: (Int) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    // Trailing-edge auto-seek state. tvOS owns this in the scrubber view too.
+    var isTimelineScrubbing by remember { mutableStateOf(false) }
+    var autoSeekRate by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+    var autoSeekJob by remember { mutableStateOf<Job?>(null) }
+    // Time-based ramp ladder. Sustained press climbs through ±[1, 2, 4, 8] at
+    // fixed elapsed-time milestones (1.0s / 2.0s / 3.0s); subsequent repeat
+    // bumps via `bumpRate` can carry past 8 up to 32.
+    var holdRampJob by remember { mutableStateOf<Job?>(null) }
+
+    val rates = remember { listOf(-32, -16, -8, -4, -2, -1, 1, 2, 4, 8, 16, 32) }
+
+    fun setRate(rate: Int) {
+        autoSeekRate = rate
+        onRateChanged(rate)
+    }
+
+    fun stopAutoSeek() {
+        autoSeekJob?.cancel()
+        autoSeekJob = null
+        holdRampJob?.cancel()
+        holdRampJob = null
+        setRate(0)
+    }
+
+    fun beginAutoSeek(direction: Int) {
+        if (!isScrubbing) onBeginScrub()
+        isTimelineScrubbing = true
+        val sign = if (direction < 0) -1 else 1
+        setRate(sign)
+        autoSeekJob?.cancel()
+        autoSeekJob = scope.launch {
+            while (isActive) {
+                val rate = autoSeekRate
+                if (rate == 0) break
+                val base = scrubPreviewSec + 2.0 * rate
+                onUpdateScrub(base)
+                delay(100)
+            }
+        }
+        // Time-based progression: 1.0s -> ±2, 2.0s -> ±4, 3.0s -> ±8. Stops at
+        // 8 — repeat-key bumps can still climb to ±16/±32. Cancelled in
+        // stopAutoSeek when the user releases / commits / cancels.
+        holdRampJob?.cancel()
+        holdRampJob = scope.launch {
+            delay(1000)
+            // Only bump if the user is still holding the same direction (rate
+            // sign matches). Avoids races where the user released and a
+            // separate press flipped direction before the timer fired.
+            if (autoSeekRate == sign) setRate(2 * sign)
+            delay(1000)
+            if (autoSeekRate == 2 * sign) setRate(4 * sign)
+            delay(1000)
+            if (autoSeekRate == 4 * sign) setRate(8 * sign)
+        }
+    }
+
+    fun bumpRate(delta: Int) {
+        val idx = rates.indexOf(autoSeekRate)
+        if (idx < 0) return
+        val next = (idx + delta).coerceIn(0, rates.size - 1)
+        // User-driven rate change cancels the time-based ramp so it doesn't
+        // overwrite the manual pick a beat later.
+        holdRampJob?.cancel()
+        holdRampJob = null
+        setRate(rates[next])
+    }
+
+    // Cancel any in-flight scrub on focus loss when the shell asks us to
+    // (HUD opens, screen exit). Otherwise treat blur as commit.
+    LaunchedEffect(isFocused) {
+        if (!isFocused && (isScrubbing || isTimelineScrubbing)) {
+            isTimelineScrubbing = false
+            stopAutoSeek()
+            if (cancelOnBlur) onCancelScrub() else onCommitScrub()
+        }
+    }
+
+    val totalProgress = if (durationSec > 0) {
+        ((if (isScrubbing) scrubPreviewSec else positionSec) / durationSec)
+            .toFloat().coerceIn(0f, 1f)
+    } else 0f
+    val bufferedFrac = if (durationSec > 0) {
+        ((positionSec + bufferedAheadSec) / durationSec).toFloat().coerceIn(0f, 1f)
+    } else 0f
+
+    val trackHeight by animateDpAsState(
+        targetValue = if (isTimelineScrubbing) 12.dp else 7.dp,
+        animationSpec = tween(120),
+        label = "scrubberTrackHeight",
+    )
+    val puckSize by animateDpAsState(
+        targetValue = when {
+            isTimelineScrubbing -> 42.dp
+            isFocused -> 42.dp
+            else -> 30.dp
+        },
+        animationSpec = tween(120),
+        label = "scrubberPuckSize",
+    )
+
+    Box(modifier = modifier.height(64.dp)) {
+        // Auto-seek visualization is owned by [TvHoldSeekIndicator] rendered
+        // by the parent overlay so it can float top-center above the
+        // transport instead of crowding the scrubber.
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.Center)
+                .height(56.dp)
+                .focusRequester(onRequestFocus)
+                .onFocusChanged { /* state collected via interactionSource */ }
+                .focusable(interactionSource = interactionSource)
+                .onPreviewKeyEvent { event ->
+                    val isDown = event.type == KeyEventType.KeyDown
+                    val isUp = event.type == KeyEventType.KeyUp
+                    val nativeRepeat = event.nativeKeyEvent.repeatCount
+                    when (event.key) {
+                        Key.DirectionLeft -> {
+                            // KeyUp cancels the time-based ramp coroutine —
+                            // user has released the D-pad, so further rate
+                            // climbs would be unsolicited. The auto-seek loop
+                            // itself stays alive until commit/cancel.
+                            if (isUp) {
+                                holdRampJob?.cancel()
+                                holdRampJob = null
+                                return@onPreviewKeyEvent false
+                            }
+                            if (!isDown) return@onPreviewKeyEvent false
+                            // First repeat (count==1) marks "long-press" —
+                            // engage timeline auto-seek mode. Standalone
+                            // taps (repeat==0 followed by KeyUp) fall back
+                            // to ±10s skip in idle, or chip rate-bump in
+                            // auto-seek.
+                            if (nativeRepeat == 1) {
+                                if (autoSeekRate == 0) beginAutoSeek(-1)
+                                return@onPreviewKeyEvent true
+                            }
+                            if (nativeRepeat > 1) return@onPreviewKeyEvent true
+                            if (autoSeekRate != 0) {
+                                bumpRate(-1)
+                            } else if (isTimelineScrubbing) {
+                                onUpdateScrub(scrubPreviewSec - 10.0)
+                            } else {
+                                onSkipBack()
+                            }
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            if (isUp) {
+                                holdRampJob?.cancel()
+                                holdRampJob = null
+                                return@onPreviewKeyEvent false
+                            }
+                            if (!isDown) return@onPreviewKeyEvent false
+                            if (nativeRepeat == 1) {
+                                if (autoSeekRate == 0) beginAutoSeek(1)
+                                return@onPreviewKeyEvent true
+                            }
+                            if (nativeRepeat > 1) return@onPreviewKeyEvent true
+                            if (autoSeekRate != 0) {
+                                bumpRate(1)
+                            } else if (isTimelineScrubbing) {
+                                onUpdateScrub(scrubPreviewSec + 10.0)
+                            } else {
+                                onSkipForward()
+                            }
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            if (isDown) {
+                                onMoveDownToTransport()
+                                true
+                            } else false
+                        }
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                            if (isUp) {
+                                stopAutoSeek()
+                                if (isTimelineScrubbing || isScrubbing) {
+                                    isTimelineScrubbing = false
+                                    onCommitScrub()
+                                } else {
+                                    onBeginScrub()
+                                    isTimelineScrubbing = true
+                                }
+                                true
+                            } else if (isDown) true else false
+                        }
+                        Key.Back, Key.Escape -> {
+                            if (isDown) {
+                                if (isTimelineScrubbing || isScrubbing) {
+                                    isTimelineScrubbing = false
+                                    stopAutoSeek()
+                                    onCancelScrub()
+                                    true
+                                } else {
+                                    onExitWhenIdle()
+                                    true
+                                }
+                            } else false
+                        }
+                        else -> false
+                    }
+                },
+        ) {
+            val barWidthDp = maxWidth
+            val density = LocalDensity.current
+            val barWidthPx = with(density) { barWidthDp.toPx() }
+
+            // Track (unfocused 0.24, focused 0.35, scrubbing 0.48 — spec).
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center)
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(
+                        Color.White.copy(
+                            alpha = when {
+                                isTimelineScrubbing -> 0.48f
+                                isFocused -> 0.35f
+                                else -> 0.24f
+                            },
+                        ),
+                    ),
+            )
+
+            // Played fill — pure white, follows the preview while scrubbing.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(totalProgress)
+                    .align(Alignment.CenterStart)
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(Color.White),
+            )
+
+            // Buffered-ahead sliver: only the region between playhead and
+            // end-of-buffer. Width can be 0 (live HLS, transcode start).
+            val bufferedAheadFrac = (bufferedFrac - totalProgress).coerceAtLeast(0f)
+            if (bufferedAheadFrac > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = barWidthDp * totalProgress)
+                        .fillMaxWidth(bufferedAheadFrac)
+                        .height(trackHeight)
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(Color.White.copy(alpha = 0.28f)),
+                )
+            }
+
+            // Chapter ticks — skip the chapter-0 tick at x≈0 so it doesn't
+            // sit under the capsule endcap. Iterate with `for` (rather than
+            // `forEach`) so the lambda body keeps composable scope.
+            if (durationSec > 0) {
+                for (ch in chapters) {
+                    val frac = (ch.timeSec / durationSec).toFloat().coerceIn(0f, 1f)
+                    if (frac > 0.001f) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(x = barWidthDp * frac - 1.5.dp)
+                                .width(if (isTimelineScrubbing) 4.dp else 3.dp)
+                                .height(trackHeight + 14.dp)
+                                .background(Color.White.copy(alpha = 0.85f)),
+                        )
+                    }
+                }
+            }
+
+            // Puck — only while focused so the bar stays passive when
+            // attention is elsewhere on the overlay.
+            if (isFocused || isTimelineScrubbing) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(
+                            x = with(density) {
+                                (barWidthPx * totalProgress - puckSize.toPx() / 2f).toDp()
+                            },
+                        )
+                        .size(puckSize)
+                        .shadow(8.dp, CircleShape, clip = false)
+                        .clip(CircleShape)
+                        .background(Color.White),
+                )
+            }
+        }
+    }
+}
+

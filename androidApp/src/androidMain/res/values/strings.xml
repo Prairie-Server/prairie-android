@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Silo</string>
+
+    <!-- Navigation tabs -->
+    <string name="tab_home">Home</string>
+    <string name="tab_search">Search</string>
+    <string name="tab_downloads">Downloads</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Common actions -->
+    <string name="action_retry">Retry</string>
+    <string name="action_back">Navigate back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_done">Done</string>
+    <string name="action_sign_in">Sign In</string>
+    <string name="action_sign_out">Sign Out</string>
+
+    <!-- Common states -->
+    <string name="loading">Loading&#8230;</string>
+    <string name="error_generic">Something went wrong</string>
+    <string name="empty_generic">Nothing here yet</string>
+
+    <!-- Placeholder -->
+    <string name="coming_soon">Coming soon</string>
+</resources>

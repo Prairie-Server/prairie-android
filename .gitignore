@@ -1,0 +1,53 @@
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+**/build/
+
+# Android
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Generated and binary outputs
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.war
+*.nar
+*.ear
+*.apk
+*.aab
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+
+# Local tooling state
+.claude/
+.codex/
+.cursor/
+.worktrees/
+.playwright-mcp/
+.playwright-cli/
+
+# Logs and OS files
+*.log
+logs/
+output/
+.DS_Store
+Thumbs.db
+
+# Local media pipeline fixtures
+media-fixtures/*
+!media-fixtures/README.md
+!media-fixtures/manifest.md

@@ -1,0 +1,131 @@
+package com.continuum.app.tv.ui.screens.recommendations
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.continuum.app.tv.ui.components.TvErrorScreen
+import com.continuum.app.tv.ui.components.TvLoadingScreen
+import com.continuum.app.tv.ui.components.TvMediaRow
+import com.continuum.app.tv.ui.components.TvRowStyle
+import com.continuum.app.tv.ui.theme.Spacing
+import com.continuum.app.viewmodel.RecommendationsViewModel
+import org.koin.compose.viewmodel.koinViewModel
+
+/**
+ * "For You" tab. Reuses the shared [RecommendationsViewModel] that drives
+ * the phone `/recommendations/discover` feed. Layout mirrors [TvHomeScreen]
+ * (rows down the page) minus the featured hero — the discover API returns
+ * section-style rows, not a hero card.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvRecommendationsScreen(
+    onItemClick: (contentId: String) -> Unit,
+    onInitialContentFocus: () -> Unit = {},
+    viewModel: RecommendationsViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectAsState()
+    val firstItemFocusRequester = remember { FocusRequester() }
+    val firstSectionId = state.sections.firstOrNull { it.items.isNotEmpty() }?.id
+
+    // Gate the initial focus jump so a silent ViewModel re-emission (refresh,
+    // background update) doesn't yank the user back to row 1, card 1 after
+    // they've scrolled. We only fire focus once per screen entry.
+    var initialFocusRequested by remember { mutableStateOf(false) }
+    LaunchedEffect(firstSectionId) {
+        if (initialFocusRequested || firstSectionId == null) return@LaunchedEffect
+        runCatching { firstItemFocusRequester.requestFocus() }
+        onInitialContentFocus()
+        initialFocusRequested = true
+    }
+
+    when {
+        state.isLoading && state.sections.isEmpty() -> TvLoadingScreen(
+            modifier = Modifier.background(MaterialTheme.colorScheme.background),
+        )
+        state.error != null && state.sections.isEmpty() -> TvErrorScreen(
+            message = state.error ?: "Failed to load recommendations",
+            onRetry = viewModel::loadRecommendations,
+            modifier = Modifier.background(MaterialTheme.colorScheme.background),
+        )
+        state.sections.isEmpty() -> Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = Spacing.safeArea),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.72f),
+                    modifier = Modifier.size(56.dp),
+                )
+                Text(
+                    text = "Not enough data yet",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                )
+                Text(
+                    text = "Watch and rate more content to unlock personalized recommendations.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.7f),
+                )
+            }
+        }
+        else -> {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+                verticalArrangement = Arrangement.spacedBy(36.dp),
+                contentPadding = PaddingValues(
+                    top = Spacing.heroTopSafe,
+                    bottom = 48.dp,
+                ),
+            ) {
+                items(state.sections, key = { it.id }) { section ->
+                    TvMediaRow(
+                        title = section.title,
+                        items = section.items,
+                        onItemClick = onItemClick,
+                        style = TvRowStyle.Poster,
+                        firstItemFocusRequester = firstItemFocusRequester.takeIf { section.id == firstSectionId },
+                    )
+                }
+                item { Spacer(modifier = Modifier.height(8.dp)) }
+            }
+        }
+    }
+}

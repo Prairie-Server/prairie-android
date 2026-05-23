@@ -1,0 +1,111 @@
+plugins {
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
+}
+
+kotlin {
+    androidTarget {
+        compilations.all {
+            kotlinOptions {
+                jvmTarget = "21"
+            }
+        }
+    }
+
+    sourceSets {
+        androidMain.dependencies {
+            implementation(project(":shared"))
+
+            // DataStore (per-profile player settings store)
+            implementation(libs.datastore.preferences)
+
+            // Compose (for ThumbhashImage)
+            implementation(compose.ui)
+            implementation(compose.foundation)
+            implementation(compose.runtime)
+
+            // Image loading
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor)
+
+            // Media3 player infrastructure
+            implementation(libs.media3.exoplayer)
+            implementation(libs.media3.exoplayer.hls)
+            implementation(libs.media3.datasource.okhttp)
+            implementation(libs.media3.common)
+            implementation(libs.media3.common.ktx)
+            implementation(libs.media3.extractor)
+            implementation(libs.media3.container)
+            implementation(libs.media3.session)
+            // SubtitleManager.applyAppearance reaches into PlayerView.subtitleView
+            // and CaptionStyleCompat — both live in media3-ui.
+            implementation(libs.media3.ui)
+
+            // Media3 FFmpeg audio decoder extension. Shipped as a private
+            // AAR built by scripts/build-ffmpeg-aar.sh — Google doesn't
+            // publish this one on Maven (LGPL distribution compliance).
+            // Classpath presence is the runtime signal used by
+            // FfmpegAudioSupport.isAvailable() and by DefaultRenderersFactory's
+            // internal extension-renderer reflection; the compile-time
+            // BuildConfig.FFMPEG_AUDIO_ENABLED flag gates whether we *prefer*
+            // it over platform decoders.
+            implementation(files("libs/media3-decoder-ffmpeg-1.10.0.aar"))
+
+            // Coroutines
+            implementation(libs.kotlinx.coroutines.android)
+
+            // DI
+            implementation(libs.koin.core)
+            implementation(libs.koin.android)
+
+            // Serialization (media auth refresh path encodes RefreshRequest / decodes RefreshResponse)
+            implementation(libs.kotlinx.serialization.json)
+        }
+
+        // First tests in this module — JUnit 4 via kotlin-test-junit, which
+        // is the KMP idiom for androidTarget unit tests. Covers the FFmpeg
+        // classpath guard and the TrackSelectionPresets MIME-union logic.
+        // PlaybackCapabilityDetector can't be tested at unit-test scope
+        // without Robolectric (MediaCodecList + DisplayHdrProbe hit Android
+        // APIs) — defer that until a Robolectric test harness is needed.
+        androidUnitTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(kotlin("test-junit"))
+            implementation(libs.kotlinx.coroutines.test)
+        }
+    }
+}
+
+android {
+    namespace = "com.continuum.app.common"
+    compileSdk = 36
+    defaultConfig {
+        minSdk = 26
+        // Gate for preferring FFmpeg audio decoders over platform decoders.
+        // The AAR is always on the classpath (see dependencies above); this
+        // flag only controls whether DefaultRenderersFactory is set to
+        // EXTENSION_RENDERER_MODE_PREFER (true) or _MODE_OFF (false).
+        // Flip to false at compile time to bisect regressions — with _MODE_OFF
+        // FFmpeg renderers are not even instantiated, so any FFmpeg-related
+        // bug can't manifest regardless of classpath presence.
+        buildConfigField("boolean", "FFMPEG_AUDIO_ENABLED", "true")
+    }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+    testOptions {
+        unitTests {
+            // Default to safe no-op stubs for android.* classes (e.g. android.util.Log.w)
+            // so tests can exercise code paths that touch them without requiring Robolectric.
+            isReturnDefaultValues = true
+        }
+    }
+}
