@@ -61,6 +61,11 @@ kotlin {
             implementation(libs.koin.core)
             implementation(libs.koin.android)
 
+            // Lifecycle ViewModel (KMP). The audiobook ViewModel lives here so
+            // both the phone and TV apps can consume it; `shared` pulls this in
+            // only as `implementation`, so it is not transitively visible.
+            implementation(libs.lifecycle.viewmodel.kmp)
+
             // Serialization (media auth refresh path encodes RefreshRequest / decodes RefreshResponse)
             implementation(libs.kotlinx.serialization.json)
 
