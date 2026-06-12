@@ -231,44 +231,13 @@ fun AudiobookPlayerScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Cover — fills width, square ratio.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            ThumbhashImage(
-                url = state.coverUrl,
-                thumbhash = state.coverThumbhash,
-                contentDescription = state.title,
-                modifier = Modifier
-                    .size(280.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = state.title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
+        AudiobookCoverHeader(
+            title = state.title,
+            author = state.author,
+            narrator = state.narrator,
+            coverUrl = state.coverUrl,
+            coverThumbhash = state.coverThumbhash,
         )
-        state.author?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
 
         Spacer(modifier = Modifier.height(20.dp))
 
