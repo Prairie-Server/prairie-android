@@ -25,17 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-
-/**
- * Sleep timer choices. [EndOfChapter] is a special value the VM
- * resolves to a duration based on the current chapter's remaining
- * time; [Off] cancels any active timer.
- */
-sealed class SleepTimerChoice {
-    data object Off : SleepTimerChoice()
-    data class Minutes(val minutes: Int) : SleepTimerChoice()
-    data object EndOfChapter : SleepTimerChoice()
-}
+import com.continuum.app.common.player.SleepTimerChoice
 
 /**
  * Sleep timer picker bottom sheet. Standard presets (5 / 10 / 15 / 30
