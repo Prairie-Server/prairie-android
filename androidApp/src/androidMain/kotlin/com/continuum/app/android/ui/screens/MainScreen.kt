@@ -201,14 +201,20 @@ fun MainScreen(
                     }
                     Tab.Downloads -> {
                         com.continuum.app.android.ui.screens.downloads.DownloadsScreen(
-                            // Tap on a downloaded row goes directly to the
-                            // Player so it works offline. ItemDetail requires
-                            // the server (getItemDetail / getWatchDetail) and
-                            // would block the user with "No internet" on
-                            // airplane mode. PlayerViewModel.tryLocalPlayback
-                            // (offline-first) handles the rest.
-                            onItemClick = { contentId ->
-                                navController.navigate(Route.Player(contentId).route)
+                            // Tap on a downloaded row goes directly to the right
+                            // player so it works offline (ItemDetail needs the
+                            // server and would block with "No internet"). Route
+                            // audiobooks to the audiobook player so they get the
+                            // audiobook UI + offline resume; everything else uses
+                            // the video player's offline-first tryLocalPlayback.
+                            onItemClick = { item ->
+                                if (item.mediaType == com.continuum.app.model.download.DownloadMediaType.Audiobook) {
+                                    navController.navigate(
+                                        Route.AudiobookPlayer(item.contentId, item.fileId).route,
+                                    )
+                                } else {
+                                    navController.navigate(Route.Player(item.contentId).route)
+                                }
                             },
                             onReadEbook = { contentId, fileId ->
                                 navController.navigate(Route.BookReader(contentId, fileId).route)

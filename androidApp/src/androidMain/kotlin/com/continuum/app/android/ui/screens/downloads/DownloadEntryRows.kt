@@ -61,9 +61,8 @@ import com.continuum.app.model.ebook.isInAppReadableEbookFormat
  */
 internal fun LazyListScope.renderSection(
     section: DownloadTypeSection,
-    onItemClick: (String) -> Unit,
+    onItemClick: (DownloadItem) -> Unit,
     onReadEbook: (DownloadItem) -> Unit,
-    onOpenExternal: (DownloadItem) -> Unit,
     onDeleteSingle: (DownloadItem) -> Unit,
     onDeleteEntry: (DownloadEntry) -> Unit,
     onDeleteSection: (DownloadTypeSection) -> Unit,
@@ -78,7 +77,6 @@ internal fun LazyListScope.renderSection(
                 depth = 0,
                 onItemClick = onItemClick,
                 onReadEbook = onReadEbook,
-                onOpenExternal = onOpenExternal,
                 onDeleteSingle = onDeleteSingle,
                 onDeleteEntry = onDeleteEntry,
             )
@@ -94,9 +92,8 @@ internal fun LazyListScope.renderSection(
 private fun renderEntry(
     entry: DownloadEntry,
     depth: Int,
-    onItemClick: (String) -> Unit,
+    onItemClick: (DownloadItem) -> Unit,
     onReadEbook: (DownloadItem) -> Unit,
-    onOpenExternal: (DownloadItem) -> Unit,
     onDeleteSingle: (DownloadItem) -> Unit,
     onDeleteEntry: (DownloadEntry) -> Unit,
 ) {
@@ -105,9 +102,8 @@ private fun renderEntry(
         is DownloadEntry.Single -> SingleRow(
             item = entry.item,
             modifier = Modifier.padding(start = leftInset),
-            onItemClick = { onItemClick(entry.item.contentId) },
+            onItemClick = { onItemClick(entry.item) },
             onReadEbook = { onReadEbook(entry.item) },
-            onOpenExternal = { onOpenExternal(entry.item) },
             onDeleteClick = { onDeleteSingle(entry.item) },
         )
 
@@ -120,7 +116,6 @@ private fun renderEntry(
             modifier = Modifier.padding(start = leftInset),
             onItemClick = onItemClick,
             onReadEbook = onReadEbook,
-            onOpenExternal = onOpenExternal,
             onDeleteSingle = onDeleteSingle,
             onDeleteEntry = onDeleteEntry,
             depth = depth,
@@ -132,7 +127,6 @@ private fun renderEntry(
             modifier = Modifier.padding(start = leftInset),
             onItemClick = onItemClick,
             onReadEbook = onReadEbook,
-            onOpenExternal = onOpenExternal,
             onDeleteSingle = onDeleteSingle,
             onDeleteEntry = onDeleteEntry,
             depth = depth,
@@ -181,7 +175,6 @@ private fun SingleRow(
     modifier: Modifier = Modifier,
     onItemClick: () -> Unit,
     onReadEbook: () -> Unit,
-    onOpenExternal: () -> Unit,
     onDeleteClick: () -> Unit,
 ) {
     val ebookDetail = if (item.mediaType == DownloadMediaType.Ebook) {
@@ -194,7 +187,6 @@ private fun SingleRow(
     val canReadEbook = item.mediaType == DownloadMediaType.Ebook &&
         item.isComplete &&
         ebookFormatKey.orEmpty().isInAppReadableEbookFormat()
-    val canOpenExternal = item.isComplete && !item.localUri.isNullOrBlank()
 
     Row(
         modifier = modifier
@@ -255,19 +247,10 @@ private fun SingleRow(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            if (canReadEbook || canOpenExternal) {
+            if (canReadEbook) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (canReadEbook) {
-                        TextButton(onClick = onReadEbook) {
-                            Text("Read")
-                        }
-                    }
-                    if (canOpenExternal) {
-                        TextButton(onClick = onOpenExternal) {
-                            Text("Open with")
-                        }
-                    }
+                TextButton(onClick = onReadEbook) {
+                    Text("Read")
                 }
             }
         }
@@ -292,9 +275,8 @@ private fun ExpandableAggregateRow(
     entry: DownloadEntry,
     children: List<DownloadEntry>,
     modifier: Modifier = Modifier,
-    onItemClick: (String) -> Unit,
+    onItemClick: (DownloadItem) -> Unit,
     onReadEbook: (DownloadItem) -> Unit,
-    onOpenExternal: (DownloadItem) -> Unit,
     onDeleteSingle: (DownloadItem) -> Unit,
     onDeleteEntry: (DownloadEntry) -> Unit,
     depth: Int,
@@ -321,7 +303,6 @@ private fun ExpandableAggregateRow(
                         depth = depth + 1,
                         onItemClick = onItemClick,
                         onReadEbook = onReadEbook,
-                        onOpenExternal = onOpenExternal,
                         onDeleteSingle = onDeleteSingle,
                         onDeleteEntry = onDeleteEntry,
                     )

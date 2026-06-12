@@ -2,13 +2,10 @@ package com.continuum.app.android.ui.screens.downloads
 
 import com.continuum.app.android.ui.util.formatBytes
 import android.content.Context
-import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,7 +52,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.components.LoadingIndicator
-import com.continuum.app.common.downloads.DownloadOpenTarget
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -72,7 +68,7 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun DownloadsScreen(
-    onItemClick: (String) -> Unit,
+    onItemClick: (DownloadItem) -> Unit,
     onReadEbook: (String, Int?) -> Unit = { _, _ -> },
     showTopBar: Boolean = false,
     onBackClick: (() -> Unit)? = null,
@@ -80,7 +76,6 @@ fun DownloadsScreen(
     viewModel: DownloadsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Surface delete/refresh failures — without this the error in uiState
@@ -142,7 +137,6 @@ fun DownloadsScreen(
                             section = section,
                             onItemClick = onItemClick,
                             onReadEbook = { item -> onReadEbook(item.contentId, item.fileId) },
-                            onOpenExternal = { item -> context.openDownloadExternally(item) },
                             onDeleteSingle = { item -> viewModel.removeDownload(item.id) },
                             onDeleteEntry = { entry -> viewModel.removeEntry(entry) },
                             onDeleteSection = { sec -> viewModel.removeSection(sec) },
@@ -151,33 +145,6 @@ fun DownloadsScreen(
                 }
             }
         }
-    }
-}
-
-private fun Context.openDownloadExternally(item: DownloadItem) {
-    val target = DownloadOpenTarget.from(
-        isComplete = item.isComplete,
-        localUri = item.localUri,
-        displayName = item.displayName,
-        container = item.container,
-    ) ?: return
-    runCatching {
-        val uri = if (target.uriString.startsWith("file://")) {
-            androidx.core.content.FileProvider.getUriForFile(
-                this,
-                "$packageName.fileprovider",
-                java.io.File(target.uriString.removePrefix("file://")),
-            )
-        } else {
-            Uri.parse(target.uriString)
-        }
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, target.mimeType)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        startActivity(Intent.createChooser(intent, "Open ${target.displayName} with"))
-    }.onFailure {
-        Toast.makeText(this, "Could not open ${target.displayName}", Toast.LENGTH_SHORT).show()
     }
 }
 
