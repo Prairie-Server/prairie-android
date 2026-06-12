@@ -2,6 +2,7 @@ package com.continuum.app.android.ui.screens.reader
 
 import android.webkit.WebView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -140,9 +141,12 @@ private fun EpubChapter(book: EpubBook, chapterIndex: Int, settings: ReaderDispl
     // Read + style the chapter off the main thread; re-runs only when
     // the chapter or display settings actually change, not on every
     // recomposition like the old AndroidView update lambda did.
-    val content by produceState<EpubChapterContent?>(initialValue = null, book, href, settings) {
+    // Resolve the "System" reader theme against the actual device dark mode so
+    // the page isn't a white slab inside a dark-first app.
+    val systemDark = isSystemInDarkTheme()
+    val content by produceState<EpubChapterContent?>(initialValue = null, book, href, settings, systemDark) {
         value = withContext(Dispatchers.IO) {
-            EpubChapterContent(href?.let { book.readChapterHtml(it)?.withReaderCss(settings) })
+            EpubChapterContent(href?.let { book.readChapterHtml(it)?.withReaderCss(settings, systemDark) })
         }
     }
     val loaded = content
@@ -163,6 +167,9 @@ private fun EpubChapter(book: EpubBook, chapterIndex: Int, settings: ReaderDispl
         modifier = Modifier.fillMaxSize().padding(8.dp),
         factory = { ctx ->
             WebView(ctx).apply {
+                // Transparent so the dark Pager surface shows through while a
+                // chapter loads, instead of a white WebView flash.
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 this.settings.javaScriptEnabled = false  // chapters are static HTML
                 this.settings.allowFileAccess = true
                 this.settings.allowContentAccess = true
@@ -186,14 +193,17 @@ private fun EpubChapter(book: EpubBook, chapterIndex: Int, settings: ReaderDispl
     )
 }
 
-private fun String.withReaderCss(settings: ReaderDisplaySettings): String {
+private fun String.withReaderCss(settings: ReaderDisplaySettings, systemDark: Boolean): String {
     val normalized = settings.normalized()
     val marginEm = normalized.marginScale * 1.2f
     val fontPercent = (normalized.textScale * 100).toInt()
+    val light = "color: #1c1b1f; background: #fffbfe;"
+    val dark = "color: #e6e1e5; background: #1c1b1f;"
     val colors = when (normalized.theme) {
-        ReaderTheme.System, ReaderTheme.Light -> "color: #1c1b1f; background: #fffbfe;"
+        ReaderTheme.System -> if (systemDark) dark else light
+        ReaderTheme.Light -> light
         ReaderTheme.Sepia -> "color: #2b2118; background: #f4ecd8;"
-        ReaderTheme.Dark -> "color: #e6e1e5; background: #1c1b1f;"
+        ReaderTheme.Dark -> dark
     }
     val style = """
         <style>

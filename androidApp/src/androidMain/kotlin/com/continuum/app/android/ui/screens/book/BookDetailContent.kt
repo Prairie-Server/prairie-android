@@ -87,7 +87,7 @@ fun BookDetailContent(
             start = 16.dp,
             end = 16.dp,
             bottom = 16.dp,
-            top = 16.dp + topInset,
+            top = 32.dp + topInset,
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -196,7 +196,10 @@ fun BookDetailContent(
             }
         }
 
-        if (detail.versions.isNotEmpty()) {
+        // Only surface the Versions picker when there's an actual choice to
+        // make; a single-format book already shows its format via the header
+        // badge, so listing "Versions: EPUB" again is redundant.
+        if (detail.versions.size > 1) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
