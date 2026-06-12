@@ -112,4 +112,18 @@ class AudiobookChaptersTest {
         assertEquals(0.0, AudiobookChapters.nextChapterTarget(emptyList(), 5.0))
         assertEquals(0.0, AudiobookChapters.previousChapterTarget(emptyList(), 5.0))
     }
+
+    @Test
+    fun `chapter label uses Chapter N for numeric or blank titles`() {
+        assertEquals("Chapter 1", audiobookChapterLabel(0, "1"))
+        assertEquals("Chapter 8", audiobookChapterLabel(7, "007"))
+        assertEquals("Chapter 3", audiobookChapterLabel(2, "   "))
+        assertEquals("Chapter 1", audiobookChapterLabel(0, ""))
+    }
+
+    @Test
+    fun `chapter label keeps meaningful titles trimmed`() {
+        assertEquals("The Body in the Library", audiobookChapterLabel(0, "  The Body in the Library  "))
+        assertEquals("Prologue", audiobookChapterLabel(0, "Prologue"))
+    }
 }

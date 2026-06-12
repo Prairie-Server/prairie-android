@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.continuum.app.android.ui.util.formatClockTime
+import com.continuum.app.audiobook.audiobookChapterLabel
 import com.continuum.app.model.catalog.VersionChapter
 
 /**
@@ -102,15 +103,10 @@ fun ChaptersSheet(
                                 modifier = Modifier.size(width = 28.dp, height = 18.dp).padding(end = 8.dp),
                             )
                         } else {
-                            Text(
-                                text = "${chapter.index + 1}.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(28.dp),
-                            )
+                            Spacer(modifier = Modifier.width(28.dp))
                         }
                         Text(
-                            text = chapter.title,
+                            text = audiobookChapterLabel(idx, chapter.title),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer

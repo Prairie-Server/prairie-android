@@ -2,7 +2,10 @@ package com.continuum.app.tv.ui.screens.audiobook
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import com.continuum.app.common.player.SleepTimerChoice
 
 private data class SleepOption(val label: String, val choice: SleepTimerChoice)
@@ -26,11 +29,16 @@ fun TvAudiobookSleepPanel(
     onSelectSleep: (SleepTimerChoice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val focusRequester = remember { FocusRequester() }
+    val focusIndex = SLEEP_OPTIONS.indexOfFirst { it.choice == currentChoice }.coerceAtLeast(0)
+    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+
     TvAudiobookOverlayScaffold(title = "Sleep timer", modifier = modifier) {
-        SLEEP_OPTIONS.forEach { option ->
+        SLEEP_OPTIONS.forEachIndexed { i, option ->
             TvAudiobookOverlayRow(
                 label = option.label,
                 isCurrent = option.choice == currentChoice,
+                focusRequester = if (i == focusIndex) focusRequester else null,
                 onSelect = { onSelectSleep(option.choice) },
                 modifier = Modifier.fillMaxWidth(),
             )

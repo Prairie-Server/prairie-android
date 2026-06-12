@@ -6,13 +6,18 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import com.continuum.app.audiobook.audiobookChapterLabel
 import com.continuum.app.model.catalog.VersionChapter
+import kotlinx.coroutines.delay
 
 /**
- * Full-screen, focusable chapters overlay. Auto-scrolls to + highlights
- * [currentChapterIndex]; Select jumps. Back is handled by the host screen
- * (closes the panel). Replaces the phone ChaptersSheet (spec §4.9).
+ * Full-screen, focusable chapters overlay. Auto-scrolls to + highlights the
+ * current chapter, and grabs focus on it so the D-pad can select immediately;
+ * Select jumps. Back is handled by the host screen. Replaces the phone
+ * ChaptersSheet (spec §4.9).
  */
 @Composable
 fun TvAudiobookChaptersPanel(
@@ -22,31 +27,29 @@ fun TvAudiobookChaptersPanel(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
-    LaunchedEffect(currentChapterIndex) {
-        if (currentChapterIndex in chapters.indices) {
-            runCatching { listState.scrollToItem(currentChapterIndex) }
+    val focusRequester = remember { FocusRequester() }
+    val focusIndex = currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+
+    LaunchedEffect(Unit) {
+        if (focusIndex in chapters.indices) {
+            runCatching { listState.scrollToItem(focusIndex) }
         }
+        // Let the scrolled row compose/lay out before grabbing focus.
+        delay(100)
+        runCatching { focusRequester.requestFocus() }
     }
+
     TvAudiobookOverlayScaffold(title = "Chapters", modifier = modifier) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth()) {
             itemsIndexed(chapters) { index, chapter ->
                 TvAudiobookOverlayRow(
-                    label = chapterDisplayLabel(index, chapter.title),
+                    label = audiobookChapterLabel(index, chapter.title),
                     trailing = formatAudiobookTime(chapter.startSeconds),
                     isCurrent = index == currentChapterIndex,
+                    focusRequester = if (index == focusIndex) focusRequester else null,
                     onSelect = { onSelectChapter(index) },
                 )
             }
         }
     }
-}
-
-/**
- * A usable chapter label. Many audiobooks ship useless chapter "titles" that are
- * just the track number ("1", "007") or blank; for those we show "Chapter N".
- * Genuine titles (e.g. "The Body in the Library") are kept as-is.
- */
-private fun chapterDisplayLabel(index: Int, title: String): String {
-    val trimmed = title.trim()
-    return if (trimmed.isEmpty() || trimmed.all { it.isDigit() }) "Chapter ${index + 1}" else trimmed
 }

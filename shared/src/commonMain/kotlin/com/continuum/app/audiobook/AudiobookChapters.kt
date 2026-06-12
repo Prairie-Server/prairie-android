@@ -103,3 +103,18 @@ object AudiobookChapters {
         }
     }
 }
+
+/**
+ * A human display label for a chapter. Many audiobooks ship useless chapter
+ * "titles" that are just the track number ("1", "007") or blank; for those we
+ * show "Chapter N" (1-based). Genuine titles are returned trimmed as-is. Shared
+ * by the phone and TV chapter lists so the behavior is identical and tested once.
+ */
+fun audiobookChapterLabel(index: Int, title: String): String {
+    val trimmed = title.trim()
+    return if (trimmed.isEmpty() || trimmed.all { it.isDigit() }) {
+        "Chapter ${index + 1}"
+    } else {
+        trimmed
+    }
+}

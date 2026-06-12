@@ -21,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -74,6 +76,7 @@ internal fun TvAudiobookOverlayRow(
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
     trailing: String? = null,
+    focusRequester: FocusRequester? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -89,6 +92,7 @@ internal fun TvAudiobookOverlayRow(
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
+            .let { mod -> if (focusRequester != null) mod.focusRequester(focusRequester) else mod }
             .focusable(interactionSource = interactionSource)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
