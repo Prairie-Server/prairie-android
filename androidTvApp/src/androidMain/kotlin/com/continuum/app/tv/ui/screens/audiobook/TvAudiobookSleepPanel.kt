@@ -19,6 +19,7 @@ private val SLEEP_OPTIONS = listOf(
     SleepOption("45 minutes", SleepTimerChoice.Minutes(45)),
     SleepOption("60 minutes", SleepTimerChoice.Minutes(60)),
     SleepOption("End of chapter", SleepTimerChoice.EndOfChapter),
+    SleepOption("End of book", SleepTimerChoice.EndOfBook),
 )
 
 /** Focusable sleep-timer overlay mapping rows to the shared VM's

@@ -59,7 +59,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 
-private enum class AudiobookPanel { None, Chapters, Speed, Sleep }
+private enum class AudiobookPanel { None, Chapters, Speed, Sleep, Skip }
 
 /**
  * 10-foot, D-pad audiobook player for Android TV. A thin focus/layout view over
@@ -234,10 +234,12 @@ fun TvAudiobookPlayerScreen(
                             modifier = Modifier.focusProperties { down = speedChipFocus },
                             isPlaying = state.isPlaying,
                             chaptersEnabled = hasChapters,
+                            skipBackSeconds = state.skipBackSeconds,
+                            skipForwardSeconds = state.skipForwardSeconds,
                             onPrevChapter = { viewModel.skipToPreviousChapter() },
-                            onSkipBack = { viewModel.seekBy(-30.0) },
+                            onSkipBack = { viewModel.skipBack() },
                             onPlayPause = { viewModel.togglePlay() },
-                            onSkipForward = { viewModel.seekBy(30.0) },
+                            onSkipForward = { viewModel.skipForward() },
                             onNextChapter = { viewModel.skipToNextChapter() },
                             playPauseFocus = playPauseFocus,
                         )
@@ -250,6 +252,10 @@ fun TvAudiobookPlayerScreen(
                                 label = "${state.playbackSpeed}×",
                                 focusRequester = speedChipFocus,
                                 onClick = { activePanel = AudiobookPanel.Speed },
+                            )
+                            TvAudiobookChip(
+                                label = "${state.skipBackSeconds}s",
+                                onClick = { activePanel = AudiobookPanel.Skip },
                             )
                             TvAudiobookChip(
                                 label = "Sleep",
@@ -278,7 +284,16 @@ fun TvAudiobookPlayerScreen(
             )
             AudiobookPanel.Speed -> TvAudiobookSpeedPanel(
                 currentSpeed = state.playbackSpeed,
-                onSelectSpeed = { viewModel.setSpeed(it); activePanel = AudiobookPanel.None },
+                // Fine-adjust / presets apply live and stay open so the user
+                // can keep tuning; "Set as default" persists and closes.
+                onSelectSpeed = { viewModel.setSpeed(it) },
+                onSetDefault = { viewModel.setDefaultSpeed(it); activePanel = AudiobookPanel.None },
+            )
+            AudiobookPanel.Skip -> TvAudiobookSkipIntervalPanel(
+                skipBackSeconds = state.skipBackSeconds,
+                skipForwardSeconds = state.skipForwardSeconds,
+                onSelectSkipBack = { viewModel.setSkipBackSeconds(it) },
+                onSelectSkipForward = { viewModel.setSkipForwardSeconds(it) },
             )
             AudiobookPanel.Sleep -> {
                 val sleepChoice by viewModel.sleepTimerChoice.collectAsState()

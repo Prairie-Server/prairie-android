@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -54,6 +58,8 @@ import androidx.tv.material3.Icon
 fun TvAudiobookTransportRow(
     isPlaying: Boolean,
     chaptersEnabled: Boolean,
+    skipBackSeconds: Int,
+    skipForwardSeconds: Int,
     onPrevChapter: () -> Unit,
     onSkipBack: () -> Unit,
     onPlayPause: () -> Unit,
@@ -74,8 +80,8 @@ fun TvAudiobookTransportRow(
             onClick = onPrevChapter,
         )
         TransportIconButton(
-            icon = Icons.Filled.Replay30,
-            description = "Skip back 30 seconds",
+            icon = skipBackIcon(skipBackSeconds),
+            description = "Skip back $skipBackSeconds seconds",
             onClick = onSkipBack,
         )
         TransportIconButton(
@@ -86,8 +92,8 @@ fun TvAudiobookTransportRow(
             onClick = onPlayPause,
         )
         TransportIconButton(
-            icon = Icons.Filled.Forward30,
-            description = "Skip forward 30 seconds",
+            icon = skipForwardIcon(skipForwardSeconds),
+            description = "Skip forward $skipForwardSeconds seconds",
             onClick = onSkipForward,
         )
         TransportIconButton(
@@ -161,4 +167,22 @@ private fun TransportIconButton(
             modifier = Modifier.size(symbolSize),
         )
     }
+}
+
+/**
+ * Best matching glyph for the configured skip interval. Material ships the
+ * numbered Replay10 / Replay30 (and Forward10 / Forward30) icons; other
+ * configured values (15 / 60s) fall back to the generic rewind / fast-forward
+ * glyph — the exact value is still in the button's content description.
+ */
+private fun skipBackIcon(seconds: Int): ImageVector = when (seconds) {
+    10 -> Icons.Filled.Replay10
+    30 -> Icons.Filled.Replay30
+    else -> Icons.Filled.FastRewind
+}
+
+private fun skipForwardIcon(seconds: Int): ImageVector = when (seconds) {
+    10 -> Icons.Filled.Forward10
+    30 -> Icons.Filled.Forward30
+    else -> Icons.Filled.FastForward
 }
