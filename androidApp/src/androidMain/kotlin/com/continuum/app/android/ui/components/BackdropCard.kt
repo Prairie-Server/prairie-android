@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +61,9 @@ fun BackdropCard(
     width: Dp = 280.dp,
     userState: MediaItemUserState? = null,
     actions: MediaCardActions = MediaCardActions(),
+    // Center overlay glyph — play for watch/listen, a book for reading.
+    overlayIcon: ImageVector = Icons.Default.PlayArrow,
+    overlayContentDescription: String = "Play",
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -112,8 +116,8 @@ fun BackdropCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
+                    imageVector = overlayIcon,
+                    contentDescription = overlayContentDescription,
                     tint = Color.White,
                     modifier = Modifier.size(24.dp),
                 )

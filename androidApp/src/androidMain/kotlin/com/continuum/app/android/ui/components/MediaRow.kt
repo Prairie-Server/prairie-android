@@ -11,6 +11,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.PlayArrow
+import com.continuum.app.model.catalog.isBookLikeItemType
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -108,6 +111,7 @@ fun MediaRow(
                         } else {
                             item.backdropThumbhash ?: item.posterThumbhash
                         }
+                        val isBook = isBookLikeItemType(item.type)
                         BackdropCard(
                             title = item.title,
                             backdropUrl = imageUrl,
@@ -120,6 +124,8 @@ fun MediaRow(
                             onClick = { onItemClick(item.contentId) },
                             userState = item.userState,
                             actions = cardActions(item),
+                            overlayIcon = if (isBook) Icons.AutoMirrored.Filled.MenuBook else Icons.Default.PlayArrow,
+                            overlayContentDescription = if (isBook) "Read" else "Play",
                         )
                     }
                     CardStyle.Poster -> {

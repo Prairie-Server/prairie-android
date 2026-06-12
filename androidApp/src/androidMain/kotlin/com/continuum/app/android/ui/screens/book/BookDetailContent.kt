@@ -4,13 +4,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -72,11 +76,19 @@ fun BookDetailContent(
         ?: BookFormat.Unknown
     val author = ebook?.authorNames ?: meta?.author
     val publisher = ebook?.publisher ?: meta?.publisher
+    // Clear the status bar / camera cutout so the cover + title aren't tucked
+    // under it (matches the audiobook detail).
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            bottom = 16.dp,
+            top = 16.dp + topInset,
+        ),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
