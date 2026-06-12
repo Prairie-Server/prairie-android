@@ -62,6 +62,10 @@ kotlin {
             // strings, which call android.net.Uri.encode — Robolectric supplies
             // the real Android impl under plain JVM unit tests.
             implementation(libs.robolectric)
+            // ReflowBridgeTest uses org.json directly in plain JVM unit tests.
+            // The Android-bundled org.json is mocked; this standalone jar provides
+            // the real implementation so tests don't need the Robolectric runner.
+            implementation("org.json:json:20240303")
         }
     }
 }
