@@ -228,7 +228,6 @@ fun AudiobookPlayerScreen(
 
         ChapterProgressBar(
             chapters = state.chapters,
-            currentChapterIndex = currentChapterIndex,
             chapterCountLabel = chapterCountLabel,
             positionSeconds = state.positionSeconds,
             durationSeconds = state.durationSeconds,
