@@ -1,5 +1,6 @@
 package com.continuum.app.common.di
 
+import com.continuum.app.common.player.AudiobookSettingsStore
 import com.continuum.app.common.player.PlaybackSessionLifecycle
 import com.continuum.app.common.player.SleepTimerController
 import com.continuum.app.common.settings.AndroidPlayerSettingsStore
@@ -77,6 +78,22 @@ val playerInfraModule = module {
     single<LibraryPlaybackPrefsStore> {
         DefaultLibraryPlaybackPrefsStore(
             repository = get<LibraryPlaybackPrefsRepository>(),
+        )
+    }
+
+    // Local, per-profile audiobook playback preferences (skip interval,
+    // default speed, audio-processing toggles). Device-local — no server
+    // flush — so it only needs the active profile and a profile-change signal.
+    single {
+        val registry = get<ServerRegistry>()
+        val profileChangeSignal = registry.activeEntry
+            .map { it?.profileId }
+            .distinctUntilChanged()
+            .map { Unit }
+        AudiobookSettingsStore(
+            context = androidContext(),
+            getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
+            profileChangeSignal = profileChangeSignal,
         )
     }
 

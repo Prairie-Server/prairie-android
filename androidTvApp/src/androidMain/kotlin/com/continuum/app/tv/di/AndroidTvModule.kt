@@ -119,6 +119,7 @@ val androidTvModule = module {
             serverRegistry = get(),
             profileRepository = get(),
             offlineMediaResolver = get(),
+            audiobookSettings = get(),
             savedStateHandle = get(),
         )
     }

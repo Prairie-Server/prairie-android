@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -53,6 +54,8 @@ data class AudiobookPlayerUiState(
     val isPlaying: Boolean = false,
     val isPaused: Boolean = true,
     val playbackSpeed: Float = 1.0f,
+    val skipBackSeconds: Int = 30,
+    val skipForwardSeconds: Int = 30,
     val sleepTimerMinutesLeft: Int? = null,
     val streamUrl: String? = null,
     val sessionId: String? = null,
@@ -74,6 +77,7 @@ class AudiobookPlayerViewModel(
     private val serverRegistry: ServerRegistry,
     private val profileRepository: ProfileRepository,
     private val offlineMediaResolver: OfflineMediaResolver,
+    private val audiobookSettings: AudiobookSettingsStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -119,11 +123,38 @@ class AudiobookPlayerViewModel(
     private val _resumePosition = MutableStateFlow<Double?>(null)
     val resumePositionSeconds: StateFlow<Double?> = _resumePosition.asStateFlow()
 
+    /** Guards the one-time seed of [AudiobookPlayerUiState.playbackSpeed] from
+     *  the persisted default; once seeded, in-session speed changes win. */
+    private var speedSeeded = false
+
     init {
+        observeAudiobookSettings()
         if (contentId.isNotBlank()) {
             loadDetail()
             loadBookmarks()
             startPeriodicPositionSave()
+        }
+    }
+
+    /** Mirror the persisted skip interval into ui-state, and seed playback
+     *  speed from the saved default exactly once. */
+    private fun observeAudiobookSettings() {
+        viewModelScope.launch {
+            audiobookSettings.skipBackSecondsFlow.collect { seconds ->
+                _uiState.update { it.copy(skipBackSeconds = seconds) }
+            }
+        }
+        viewModelScope.launch {
+            audiobookSettings.skipForwardSecondsFlow.collect { seconds ->
+                _uiState.update { it.copy(skipForwardSeconds = seconds) }
+            }
+        }
+        viewModelScope.launch {
+            val savedDefault = audiobookSettings.defaultSpeedFlow.first()
+            if (!speedSeeded) {
+                speedSeeded = true
+                _uiState.update { it.copy(playbackSpeed = savedDefault.coerceIn(0.5f, 3.0f)) }
+            }
         }
     }
 
@@ -342,7 +373,9 @@ class AudiobookPlayerViewModel(
     /** Update local position tracker. Driven by Media3 player callback in
      *  the Compose layer. */
     fun onPositionChanged(seconds: Double) {
+        val previous = _uiState.value.positionSeconds
         _uiState.update { it.copy(positionSeconds = seconds) }
+        maybeFireSleepBoundary(previous, seconds)
     }
 
     /** Reflect playWhenReady state from Media3. */
@@ -403,9 +436,39 @@ class AudiobookPlayerViewModel(
         _uiState.update { it.copy(playbackSpeed = speed.coerceIn(0.5f, 3.0f)) }
     }
 
+    /** Apply [speed] to the current session and persist it as the default
+     *  for future audiobooks. */
+    fun setDefaultSpeed(speed: Float) {
+        val clamped = speed.coerceIn(0.5f, 3.0f)
+        speedSeeded = true
+        _uiState.update { it.copy(playbackSpeed = clamped) }
+        viewModelScope.launch { audiobookSettings.setDefaultSpeed(clamped) }
+    }
+
+    // ── Configurable skip ─────────────────────────────────────────────────
+
+    /** Skip back by the user's configured interval (default 30s). */
+    fun skipBack() = seekBy(-_uiState.value.skipBackSeconds.toDouble())
+
+    /** Skip forward by the user's configured interval (default 30s). */
+    fun skipForward() = seekBy(_uiState.value.skipForwardSeconds.toDouble())
+
+    fun setSkipBackSeconds(seconds: Int) {
+        viewModelScope.launch { audiobookSettings.setSkipBackSeconds(seconds) }
+    }
+
+    fun setSkipForwardSeconds(seconds: Int) {
+        viewModelScope.launch { audiobookSettings.setSkipForwardSeconds(seconds) }
+    }
+
     // ── Sleep timer ──────────────────────────────────────────────────────
 
     private var sleepTimerJob: Job? = null
+
+    /** Fixed position (seconds) an end-of-chapter / end-of-book timer fires
+     *  on. Resolved once at apply time so it does not drift as the user
+     *  seeks; null when no boundary timer is armed. */
+    private var sleepBoundarySeconds: Double? = null
 
     /**
      * Sleep timer requests. Apply via [applySleepTimer]; the player
@@ -415,54 +478,72 @@ class AudiobookPlayerViewModel(
     private val _sleepTimerChoice = MutableStateFlow<SleepTimerChoice>(SleepTimerChoice.Off)
     val sleepTimerChoice: StateFlow<SleepTimerChoice> = _sleepTimerChoice.asStateFlow()
 
-    /** Apply a new timer choice. Cancels any active timer first. For
-     *  [SleepTimerChoice.EndOfChapter] we resolve the duration against
-     *  the current chapter when the screen knows position; for now we
-     *  approximate by computing chapter-end relative to current position. */
+    /**
+     * Apply a new timer choice, cancelling any active timer first.
+     * [SleepTimerChoice.Minutes] runs a wall-clock countdown; [EndOfChapter]
+     * and [EndOfBook] resolve a fixed position boundary now (via the pure
+     * [AudiobookChapters] math) and pause when playback crosses it.
+     */
     fun applySleepTimer(choice: SleepTimerChoice) {
         sleepTimerJob?.cancel()
         sleepTimerJob = null
+        sleepBoundarySeconds = null
         _sleepTimerChoice.value = choice
 
-        val seconds = when (choice) {
-            SleepTimerChoice.Off -> {
+        when (choice) {
+            SleepTimerChoice.Off ->
                 _uiState.update { it.copy(sleepTimerMinutesLeft = null) }
-                return
-            }
-            is SleepTimerChoice.Minutes -> choice.minutes * 60
-            SleepTimerChoice.EndOfChapter -> {
+            is SleepTimerChoice.Minutes ->
+                startCountdown(choice.minutes * 60)
+            SleepTimerChoice.EndOfChapter, SleepTimerChoice.EndOfBook -> {
                 val state = _uiState.value
-                val chapter = AudiobookChapters.currentChapter(
-                    state.chapters.toAudiobookChapters(),
-                    state.positionSeconds,
+                sleepBoundarySeconds = sleepBoundaryFor(
+                    choice = choice,
+                    chapters = state.chapters.toAudiobookChapters(),
+                    durationSeconds = state.durationSeconds,
+                    positionSeconds = state.positionSeconds,
                 )
-                val remaining = chapter?.let { it.endSeconds - state.positionSeconds }
-                    ?.toInt()?.coerceAtLeast(60) ?: (15 * 60)
-                remaining
-            }
-            SleepTimerChoice.EndOfBook -> {
-                val state = _uiState.value
-                val bookEnd = AudiobookChapters.bookEndSeconds(
-                    state.chapters.toAudiobookChapters(),
-                    state.durationSeconds,
-                )
-                (bookEnd - state.positionSeconds).toInt().coerceAtLeast(60)
+                // Boundary timers have no minute countdown; the selected
+                // choice is what the UI reflects.
+                _uiState.update { it.copy(sleepTimerMinutesLeft = null) }
             }
         }
+    }
 
-        _uiState.update { it.copy(sleepTimerMinutesLeft = ((seconds + 59) / 60).coerceAtLeast(1)) }
+    private fun startCountdown(totalSeconds: Int) {
+        _uiState.update { it.copy(sleepTimerMinutesLeft = ((totalSeconds + 59) / 60).coerceAtLeast(1)) }
         sleepTimerJob = viewModelScope.launch {
-            var remaining = seconds
+            var remaining = totalSeconds
             while (remaining > 0) {
                 delay(1000)
                 remaining -= 1
-                _uiState.update { it.copy(sleepTimerMinutesLeft = ((remaining + 59) / 60).coerceAtLeast(0).takeIf { v -> remaining > 0 }) }
+                _uiState.update {
+                    it.copy(
+                        sleepTimerMinutesLeft = ((remaining + 59) / 60)
+                            .coerceAtLeast(0)
+                            .takeIf { remaining > 0 },
+                    )
+                }
             }
-            // Fire: pause playback. The screen's LaunchedEffect on
-            // isPaused will mirror this into the controller.
-            _uiState.update { it.copy(isPaused = true, isPlaying = false, sleepTimerMinutesLeft = null) }
-            _sleepTimerChoice.value = SleepTimerChoice.Off
+            fireSleep()
         }
+    }
+
+    /** Position watcher for the boundary timers. Pauses exactly once, on the
+     *  tick that crosses the resolved boundary. Driven by [onPositionChanged]. */
+    private fun maybeFireSleepBoundary(previousSeconds: Double, currentSeconds: Double) {
+        val boundary = sleepBoundarySeconds ?: return
+        if (AudiobookChapters.hasCrossedBoundary(previousSeconds, currentSeconds, boundary)) {
+            sleepBoundarySeconds = null
+            fireSleep()
+        }
+    }
+
+    /** Pause playback and clear the timer. The screen's LaunchedEffect on
+     *  isPaused mirrors this into the controller. */
+    private fun fireSleep() {
+        _uiState.update { it.copy(isPaused = true, isPlaying = false, sleepTimerMinutesLeft = null) }
+        _sleepTimerChoice.value = SleepTimerChoice.Off
     }
 
     fun startSleepTimer(minutes: Int) = applySleepTimer(SleepTimerChoice.Minutes(minutes))
@@ -680,6 +761,46 @@ class AudiobookPlayerViewModel(
          *  items to DIRECT instead of transcoding the poster. */
         private val AUDIOBOOK_COVER_ART_CODECS =
             listOf("mjpeg", "png", "jpeg", "bmp", "gif")
+
+        /**
+         * Fixed position boundary (seconds) a boundary sleep timer should fire
+         * on for [choice], resolved against [positionSeconds] at apply time;
+         * null for [SleepTimerChoice.Off] / [SleepTimerChoice.Minutes]. An
+         * end-of-chapter timer with no chapters degrades to the book end.
+         * Pure → unit-tested.
+         */
+        internal fun sleepBoundaryFor(
+            choice: SleepTimerChoice,
+            chapters: List<AudiobookChapter>,
+            durationSeconds: Double,
+            positionSeconds: Double,
+        ): Double? = when (choice) {
+            SleepTimerChoice.EndOfChapter ->
+                AudiobookChapters.currentChapterEndSeconds(chapters, positionSeconds)
+                    ?: AudiobookChapters.bookEndSeconds(chapters, durationSeconds)
+            SleepTimerChoice.EndOfBook ->
+                AudiobookChapters.bookEndSeconds(chapters, durationSeconds)
+            SleepTimerChoice.Off, is SleepTimerChoice.Minutes -> null
+        }
+
+        /**
+         * Whether playback stepping from [previousSeconds] to [currentSeconds]
+         * should trip a sleep pause for [choice] — a pure composition of
+         * [sleepBoundaryFor] (resolved from the prior position) and
+         * [AudiobookChapters.hasCrossedBoundary]. Stands in for the
+         * Android-bound position watcher in unit tests.
+         */
+        internal fun shouldPauseForSleep(
+            choice: SleepTimerChoice,
+            chapters: List<AudiobookChapter>,
+            durationSeconds: Double,
+            previousSeconds: Double,
+            currentSeconds: Double,
+        ): Boolean {
+            val boundary = sleepBoundaryFor(choice, chapters, durationSeconds, previousSeconds)
+                ?: return false
+            return AudiobookChapters.hasCrossedBoundary(previousSeconds, currentSeconds, boundary)
+        }
     }
 }
 
