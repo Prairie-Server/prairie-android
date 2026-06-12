@@ -267,24 +267,18 @@ fun AudiobookPlayerScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Speed + Sleep chips — both open dedicated bottom sheets.
+        // Secondary controls: speed / sleep / chapters.
         var showSpeedSheet by remember { mutableStateOf(false) }
         var showSleepSheet by remember { mutableStateOf(false) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            ChipButton(
-                icon = Icons.Filled.Speed,
-                label = "${formatSpeed(state.playbackSpeed)}x",
-                onClick = { showSpeedSheet = true },
-            )
-            ChipButton(
-                icon = Icons.Filled.Bedtime,
-                label = state.sleepTimerMinutesLeft?.let { "${it} min" } ?: "Sleep",
-                onClick = { showSleepSheet = true },
-            )
-        }
+        var showChaptersSheet by remember { mutableStateOf(false) }
+        AudiobookSecondaryBar(
+            speedLabel = "${formatSpeed(state.playbackSpeed)}x",
+            sleepLabel = state.sleepTimerMinutesLeft?.let { "$it min" } ?: "Sleep",
+            onSpeedClick = { showSpeedSheet = true },
+            onSleepClick = { showSleepSheet = true },
+            onChaptersClick = { showChaptersSheet = true },
+            showChapters = state.chapters.isNotEmpty(),
+        )
 
         if (showSpeedSheet) {
             AudiobookSpeedSheet(
@@ -303,42 +297,13 @@ fun AudiobookPlayerScreen(
             )
         }
 
-        // Chapter list — scrolls below the transport.
-        if (state.chapters.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                text = "Chapters",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
+        if (showChaptersSheet) {
+            ChaptersSheet(
+                chapters = state.chapters,
+                currentChapterIndex = currentChapterIndex,
+                onJumpTo = { viewModel.jumpToChapter(it) },
+                onDismiss = { showChaptersSheet = false },
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            // Simple Column of chapters; for very long audiobooks the
-            // parent screen scroll handles overflow.
-            Column {
-                state.chapters.forEach { chapter ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { viewModel.jumpToChapter(chapter) }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "${chapter.index + 1}.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(width = 32.dp, height = 16.dp),
-                        )
-                        Text(
-                            text = chapter.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
         }
 
         // Loading / error states.
@@ -353,26 +318,3 @@ fun AudiobookPlayerScreen(
         }
     }
 }
-
-@Composable
-private fun ChipButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(modifier = Modifier.size(6.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-private fun formatSpeed(speed: Float): String =
-    if (speed % 1f == 0f) speed.toInt().toString() else "%.2f".format(speed).trimEnd('0').trimEnd('.')
