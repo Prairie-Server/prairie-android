@@ -89,7 +89,7 @@ import org.koin.core.parameter.parametersOf
 fun TvItemDetailScreen(
     contentId: String,
     seasonNumber: Int? = null,
-    onPlay: (contentId: String, fileId: Int?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, itemType: String?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
@@ -141,7 +141,7 @@ private fun TvDetailContent(
     detail: ItemDetail,
     state: TvItemDetailUiState,
     viewModel: TvItemDetailViewModel,
-    onPlay: (contentId: String, fileId: Int?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, itemType: String?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
@@ -298,7 +298,7 @@ private fun HeroActionRow(
     state: TvItemDetailUiState,
     viewModel: TvItemDetailViewModel,
     playFocus: FocusRequester,
-    onPlay: (contentId: String, fileId: Int?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, itemType: String?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchTogether: (RoomSnapshot) -> Unit,
@@ -331,7 +331,7 @@ private fun HeroActionRow(
                 },
                 icon = Icons.Filled.PlayArrow,
                 variant = TvPillVariant.Filled,
-                onClick = { onPlay(detail.contentId, selectedFileId) },
+                onClick = { onPlay(detail.contentId, selectedFileId, detail.type) },
                 focusRequester = playFocus,
                 modifier = Modifier.widthIn(min = 185.dp),
                 heightOverride = 52.dp,
@@ -343,7 +343,7 @@ private fun HeroActionRow(
                     label = "Start Over",
                     icon = Icons.Filled.Replay,
                     variant = TvPillVariant.Hollow,
-                    onClick = { onPlay(detail.contentId, selectedFileId) },
+                    onClick = { onPlay(detail.contentId, selectedFileId, detail.type) },
                 )
             }
 

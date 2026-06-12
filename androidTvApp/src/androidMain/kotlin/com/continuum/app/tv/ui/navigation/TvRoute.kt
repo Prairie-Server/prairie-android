@@ -70,6 +70,27 @@ sealed class TvRoute(val route: String) {
     }
 
     /**
+     * Audiobook playback route. Optional `fileId` query param pre-selects a
+     * specific version (mirrors [Player]); absent ⇒ the VM auto-selects the
+     * first version. No `roomId` — audiobooks have no synced playback.
+     */
+    data class AudiobookPlayer(
+        val contentId: String,
+        val fileId: Int? = null,
+    ) : TvRoute(
+        buildString {
+            append("audiobook/$contentId")
+            if (fileId != null) append("?fileId=$fileId")
+        },
+    ) {
+        companion object {
+            const val ROUTE = "audiobook/{contentId}?fileId={fileId}"
+            const val ARG_CONTENT_ID = "contentId"
+            const val ARG_FILE_ID = "fileId"
+        }
+    }
+
+    /**
      * Watch Together lobby — the waiting/vote/pick surface for a room that has
      * no selection yet. Reached from the entry dialog's Host/Join when the room
      * snapshot carries no `selectedContentId`.

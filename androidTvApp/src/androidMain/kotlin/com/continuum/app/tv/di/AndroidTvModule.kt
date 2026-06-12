@@ -94,6 +94,35 @@ val androidTvModule = module {
     }
     single { PlaybackSessionManager(get(), get()) }
 
+    // Audiobook player deps. TV reuses the shared android-shared VM. The TV
+    // graph has no downloads (streaming-only), so register the resolver inline:
+    // it just always finds no local media and the VM falls back to the server
+    // stream. The stores are local-only JSON under filesDir.
+    single {
+        com.continuum.app.common.downloads.OfflineMediaResolver(
+            com.continuum.app.common.downloads.DownloadStorage(androidContext()),
+        )
+    }
+    single { com.continuum.app.common.audiobook.AudiobookBookmarksStore(androidContext().filesDir) }
+    single { com.continuum.app.common.audiobook.AudiobookPositionStore(androidContext().filesDir) }
+
+    // Shared audiobook player VM (android-shared). SavedStateHandle is
+    // auto-injected by Koin's viewModel scope so the contentId/fileId nav args
+    // (TvRoute.AudiobookPlayer) flow through unchanged — same as the phone.
+    viewModel {
+        com.continuum.app.common.player.AudiobookPlayerViewModel(
+            catalogRepository = get(),
+            playbackSessionManager = get(),
+            capabilityDetector = get(),
+            bookmarksStore = get(),
+            positionStore = get(),
+            serverRegistry = get(),
+            profileRepository = get(),
+            offlineMediaResolver = get(),
+            savedStateHandle = get(),
+        )
+    }
+
     // Preferences (per-profile DataStore for the Libraries tab's selected library).
     single { TvLibrarySelectionStore(androidContext(), get()) }
 

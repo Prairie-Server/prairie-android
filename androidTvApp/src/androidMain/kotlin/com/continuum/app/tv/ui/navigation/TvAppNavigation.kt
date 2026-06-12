@@ -12,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.continuum.app.network.TokenManager
 import com.continuum.app.tv.ui.shell.TvMainShell
+import com.continuum.app.tv.ui.screens.audiobook.TvAudiobookPlayerScreen
 import com.continuum.app.tv.ui.screens.auth.TvLoginScreen
 import com.continuum.app.tv.ui.screens.auth.TvServerSetupScreen
 import com.continuum.app.tv.ui.screens.collections.TvCollectionDetailScreen
@@ -226,8 +227,10 @@ fun TvAppNavigation(
                 // actually binds to that version instead of always defaulting
                 // to the server's first listed file (which for multi-version
                 // titles is often the lower-resolution encode).
-                onPlay = { playContentId, fileId ->
-                    navController.navigate(TvRoute.Player(playContentId, fileId).route)
+                onPlay = { playContentId, fileId, itemType ->
+                    navController.navigate(
+                        tvPlayDestinationFor(itemType, playContentId, fileId),
+                    )
                 },
                 onItemDetail = { itemContentId ->
                     navController.navigate(TvRoute.ItemDetail(itemContentId).route)
@@ -290,6 +293,26 @@ fun TvAppNavigation(
                 contentId = contentId,
                 preferredFileId = preferredFileId,
                 roomId = roomId,
+                onExit = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = TvRoute.AudiobookPlayer.ROUTE,
+            arguments = listOf(
+                navArgument(TvRoute.AudiobookPlayer.ARG_CONTENT_ID) { type = NavType.StringType },
+                navArgument(TvRoute.AudiobookPlayer.ARG_FILE_ID) {
+                    // Query param serialized as a string and may be absent; the
+                    // shared VM parses it off SavedStateHandle ("fileId").
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            // contentId/fileId reach AudiobookPlayerViewModel via SavedStateHandle,
+            // so the screen needs no explicit args here.
+            TvAudiobookPlayerScreen(
                 onExit = { navController.popBackStack() },
             )
         }
