@@ -208,7 +208,7 @@ val androidModule = module {
     // Audiobook + book readers. SavedStateHandle is auto-injected via Koin's
     // viewModel scope wiring so the contentId nav arg flows through.
     viewModel {
-        com.continuum.app.android.ui.screens.audiobook.AudiobookPlayerViewModel(
+        com.continuum.app.common.player.AudiobookPlayerViewModel(
             catalogRepository = get(),
             playbackSessionManager = get(),
             capabilityDetector = get(),

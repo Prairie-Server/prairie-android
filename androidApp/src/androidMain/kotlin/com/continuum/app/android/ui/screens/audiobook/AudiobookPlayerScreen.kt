@@ -55,6 +55,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.continuum.app.android.ui.util.formatClockTime
+import com.continuum.app.common.player.AudiobookPlayerViewModel
 import com.continuum.app.common.player.ContinuumPlaybackService
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.google.common.util.concurrent.MoreExecutors
