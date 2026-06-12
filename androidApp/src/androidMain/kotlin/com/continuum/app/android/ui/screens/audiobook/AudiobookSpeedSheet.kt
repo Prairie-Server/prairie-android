@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ import kotlin.math.round
 fun AudiobookSpeedSheet(
     currentSpeed: Float,
     onSpeedChanged: (Float) -> Unit,
+    onSetDefault: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -121,7 +123,17 @@ fun AudiobookSpeedSheet(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Persist the current speed as the default applied to future
+            // audiobooks (live preview already applied it to this session).
+            TextButton(
+                onClick = { onSetDefault(pending) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Set ${formatSpeedLabel(pending)}x as default")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

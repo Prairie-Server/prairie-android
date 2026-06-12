@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,8 +33,10 @@ import androidx.compose.ui.unit.dp
 fun AudiobookSecondaryBar(
     speedLabel: String,
     sleepLabel: String,
+    skipLabel: String,
     onSpeedClick: () -> Unit,
     onSleepClick: () -> Unit,
+    onSkipClick: () -> Unit,
     onChaptersClick: () -> Unit,
     showChapters: Boolean,
     modifier: Modifier = Modifier,
@@ -43,6 +46,7 @@ fun AudiobookSecondaryBar(
         horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
         ChipButton(icon = Icons.Filled.Speed, label = speedLabel, onClick = onSpeedClick)
+        ChipButton(icon = Icons.Filled.Replay, label = skipLabel, onClick = onSkipClick)
         ChipButton(icon = Icons.Filled.Bedtime, label = sleepLabel, onClick = onSleepClick)
         if (showChapters) {
             ChipButton(icon = Icons.AutoMirrored.Filled.List, label = "Chapters", onClick = onChaptersClick)

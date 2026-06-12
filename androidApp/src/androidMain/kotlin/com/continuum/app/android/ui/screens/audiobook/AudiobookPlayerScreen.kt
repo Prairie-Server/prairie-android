@@ -240,24 +240,29 @@ fun AudiobookPlayerScreen(
             isPlaying = state.isPlaying,
             enabled = state.streamUrl != null,
             hasChapters = state.chapters.isNotEmpty(),
+            skipBackSeconds = state.skipBackSeconds,
+            skipForwardSeconds = state.skipForwardSeconds,
             onPrevChapter = { viewModel.skipToPreviousChapter() },
-            onSkipBack = { viewModel.seekBy(-30.0) },
+            onSkipBack = { viewModel.skipBack() },
             onTogglePlay = { viewModel.togglePlay() },
-            onSkipForward = { viewModel.seekBy(30.0) },
+            onSkipForward = { viewModel.skipForward() },
             onNextChapter = { viewModel.skipToNextChapter() },
         )
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Secondary controls: speed / sleep / chapters.
+        // Secondary controls: speed / skip / sleep / chapters.
         var showSpeedSheet by remember { mutableStateOf(false) }
         var showSleepSheet by remember { mutableStateOf(false) }
+        var showSkipSheet by remember { mutableStateOf(false) }
         var showChaptersSheet by remember { mutableStateOf(false) }
         AudiobookSecondaryBar(
             speedLabel = "${formatSpeed(state.playbackSpeed)}x",
             sleepLabel = state.sleepTimerMinutesLeft?.let { "$it min" } ?: "Sleep",
+            skipLabel = "${state.skipBackSeconds}s",
             onSpeedClick = { showSpeedSheet = true },
             onSleepClick = { showSleepSheet = true },
+            onSkipClick = { showSkipSheet = true },
             onChaptersClick = { showChaptersSheet = true },
             showChapters = state.chapters.isNotEmpty(),
         )
@@ -266,7 +271,17 @@ fun AudiobookPlayerScreen(
             AudiobookSpeedSheet(
                 currentSpeed = state.playbackSpeed,
                 onSpeedChanged = viewModel::setSpeed,
+                onSetDefault = viewModel::setDefaultSpeed,
                 onDismiss = { showSpeedSheet = false },
+            )
+        }
+        if (showSkipSheet) {
+            AudiobookSkipIntervalSheet(
+                skipBackSeconds = state.skipBackSeconds,
+                skipForwardSeconds = state.skipForwardSeconds,
+                onSkipBackSelected = viewModel::setSkipBackSeconds,
+                onSkipForwardSelected = viewModel::setSkipForwardSeconds,
+                onDismiss = { showSkipSheet = false },
             )
         }
         if (showSleepSheet) {

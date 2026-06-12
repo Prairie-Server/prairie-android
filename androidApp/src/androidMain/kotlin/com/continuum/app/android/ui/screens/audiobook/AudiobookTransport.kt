@@ -10,9 +10,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -23,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
 /**
@@ -36,6 +41,8 @@ fun AudiobookTransport(
     isPlaying: Boolean,
     enabled: Boolean,
     hasChapters: Boolean,
+    skipBackSeconds: Int,
+    skipForwardSeconds: Int,
     onPrevChapter: () -> Unit,
     onSkipBack: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -63,7 +70,11 @@ fun AudiobookTransport(
             enabled = enabled,
             modifier = Modifier.size(56.dp),
         ) {
-            Icon(Icons.Filled.Replay30, contentDescription = "Back 30 seconds", modifier = Modifier.size(36.dp))
+            Icon(
+                imageVector = skipBackIcon(skipBackSeconds),
+                contentDescription = "Back $skipBackSeconds seconds",
+                modifier = Modifier.size(36.dp),
+            )
         }
         Spacer(modifier = Modifier.size(16.dp))
         Box(
@@ -87,7 +98,11 @@ fun AudiobookTransport(
             enabled = enabled,
             modifier = Modifier.size(56.dp),
         ) {
-            Icon(Icons.Filled.Forward30, contentDescription = "Forward 30 seconds", modifier = Modifier.size(36.dp))
+            Icon(
+                imageVector = skipForwardIcon(skipForwardSeconds),
+                contentDescription = "Forward $skipForwardSeconds seconds",
+                modifier = Modifier.size(36.dp),
+            )
         }
         if (hasChapters) {
             Spacer(modifier = Modifier.size(8.dp))
@@ -100,4 +115,22 @@ fun AudiobookTransport(
             }
         }
     }
+}
+
+/**
+ * Best matching glyph for the configured skip-back interval. Material ships
+ * Replay10 / Replay30 numbered icons; other configured intervals (15 / 60s)
+ * fall back to the generic rewind glyph — the exact value is still conveyed by
+ * the button's content description and the secondary-bar skip chip.
+ */
+private fun skipBackIcon(seconds: Int): ImageVector = when (seconds) {
+    10 -> Icons.Filled.Replay10
+    30 -> Icons.Filled.Replay30
+    else -> Icons.Filled.FastRewind
+}
+
+private fun skipForwardIcon(seconds: Int): ImageVector = when (seconds) {
+    10 -> Icons.Filled.Forward10
+    30 -> Icons.Filled.Forward30
+    else -> Icons.Filled.FastForward
 }
