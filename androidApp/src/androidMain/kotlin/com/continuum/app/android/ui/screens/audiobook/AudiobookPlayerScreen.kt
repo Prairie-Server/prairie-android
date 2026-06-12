@@ -78,6 +78,8 @@ fun AudiobookPlayerScreen(
     viewModel: AudiobookPlayerViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val currentChapterIndex by viewModel.currentChapterIndex.collectAsState()
+    val chapterCountLabel by viewModel.chapterCountLabel.collectAsState()
     val context = LocalContext.current
 
     // MediaController binds asynchronously to the shared playback service;
@@ -241,21 +243,14 @@ fun AudiobookPlayerScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Position slider. Drag to seek.
-        val maxPos = state.durationSeconds.toFloat().coerceAtLeast(1f)
-        Slider(
-            value = state.positionSeconds.toFloat().coerceIn(0f, maxPos),
-            valueRange = 0f..maxPos,
-            onValueChange = { viewModel.seekTo(it.toDouble()) },
-            modifier = Modifier.fillMaxWidth(),
+        ChapterProgressBar(
+            chapters = state.chapters,
+            currentChapterIndex = currentChapterIndex,
+            chapterCountLabel = chapterCountLabel,
+            positionSeconds = state.positionSeconds,
+            durationSeconds = state.durationSeconds,
+            onSeek = { viewModel.seekTo(it) },
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(formatClockTime(state.positionSeconds), style = MaterialTheme.typography.labelSmall)
-            Text(formatClockTime(state.durationSeconds), style = MaterialTheme.typography.labelSmall)
-        }
 
         Spacer(modifier = Modifier.height(20.dp))
 
