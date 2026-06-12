@@ -293,6 +293,12 @@ class DownloadEnqueuer(
             fileName = version?.fileName,
             container = version?.container,
             mediaType = DownloadMediaType.fromCatalogType(detail?.type).wire,
+            overview = detail?.overview,
+            author = detail?.audiobook?.authorNames,
+            narrator = detail?.audiobook?.narratorNames,
+            durationSeconds = detail?.audiobook?.totalDurationSeconds?.toDouble()
+                ?: version?.duration,
+            chapters = version?.chapters,
             updatedAtMs = System.currentTimeMillis(),
         )
     }

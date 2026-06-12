@@ -313,6 +313,24 @@ fun AudiobookPlayerScreen(
             )
         }
 
+        // About / description — shown in the player itself so it's available
+        // offline too, where there's no detail screen to read it from.
+        state.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+            Spacer(modifier = Modifier.height(28.dp))
+            Text(
+                text = "About",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = overview,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         // Loading / error states.
         if (state.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

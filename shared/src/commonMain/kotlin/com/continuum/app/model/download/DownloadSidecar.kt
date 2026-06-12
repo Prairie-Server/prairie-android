@@ -1,5 +1,6 @@
 package com.continuum.app.model.download
 
+import com.continuum.app.model.catalog.VersionChapter
 import kotlinx.serialization.Serializable
 
 /**
@@ -46,6 +47,20 @@ data class DownloadSidecar(
      *  those decode as [DownloadMediaType.Unknown] but the viewmodel can
      *  reclassify via `seriesTitle != null` heuristic when re-rendering. */
     val mediaType: String = "",
+    /** Catalog overview/description, cached so the offline player can show an
+     *  "About" section without a server round-trip. */
+    val overview: String? = null,
+    /** Audiobook author display string, for the offline player header. */
+    val author: String? = null,
+    /** Audiobook narrator display string, for the offline player header. */
+    val narrator: String? = null,
+    /** Total media duration (seconds), so the offline progress bar + chapter
+     *  ticks render without the server detail. */
+    val durationSeconds: Double? = null,
+    /** Chapter spans, cached so the offline audiobook player can show the
+     *  chapter list + chapter-aware progress. Empty/absent for non-chaptered
+     *  media and for sidecars written before this field existed. */
+    val chapters: List<VersionChapter>? = null,
     /** Wall-clock millis when the sidecar was last written. Diagnostic only;
      *  helps debug stale-file scenarios via `ls -la`. */
     val updatedAtMs: Long,
