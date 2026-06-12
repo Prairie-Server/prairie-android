@@ -290,6 +290,40 @@ class ReaderViewModel(
                 progressPercent = progressPercent,
             )
         }
+        persistProgress(fileId = fileId, location = location, progressPercent = progressPercent)
+    }
+
+    fun onPageCountKnown(count: Int) {
+        if (count <= 0) return
+        _uiState.update { it.copy(pageCount = count) }
+    }
+
+    /**
+     * Persist a reflowable-reader locator. The reflowable engine reports an
+     * opaque [locationJson] string and a 0..1 book-level [progress]; we store
+     * both through the same local-then-server path as page-based progress so
+     * the shipped [EbookProgressSyncer] carries it offline->online.
+     */
+    fun onLocatorChanged(locationJson: String, progress: Double) {
+        val state = _uiState.value
+        val fileId = state.fileId ?: return
+        val clampedProgress = progress.coerceIn(0.0, 1.0)
+        shouldSuppressInitialPageChange = false
+        _uiState.update {
+            it.copy(
+                progressLocation = locationJson,
+                progressPercent = clampedProgress,
+            )
+        }
+        persistProgress(fileId = fileId, location = locationJson, progressPercent = clampedProgress)
+    }
+
+    /**
+     * Persist the given reading position locally and (lazily) to the server,
+     * cancelling any in-flight save. Shared by page-based ([onPageChanged]) and
+     * reflowable-locator ([onLocatorChanged]) progress reporting.
+     */
+    private fun persistProgress(fileId: Int, location: String, progressPercent: Double) {
         progressSaveJob?.cancel()
         _uiState.update { it.copy(isSyncing = true, syncError = null) }
         viewModelScope.launch {
@@ -333,9 +367,13 @@ class ReaderViewModel(
         saveJob.start()
     }
 
-    fun onPageCountKnown(count: Int) {
-        if (count <= 0) return
-        _uiState.update { it.copy(pageCount = count) }
+    /**
+     * Apply a pinch-zoom text-scale nudge from the reflowable reader, reusing
+     * the existing display-settings persistence path.
+     */
+    fun nudgeTextScale(zoom: Float) {
+        val cur = _uiState.value.displaySettings
+        setDisplaySettings(cur.copy(textScale = (cur.textScale * zoom).coerceIn(0.6f, 3.0f)))
     }
 
     fun jumpToPage(page: Int) {

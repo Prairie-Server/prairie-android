@@ -43,6 +43,7 @@ import com.continuum.app.common.ebook.ReaderCapabilities
 import com.continuum.app.common.ebook.ReaderDisplaySettings
 import com.continuum.app.common.ebook.ReaderSection
 import com.continuum.app.common.ebook.ReaderTheme
+import com.continuum.app.android.ui.screens.reader.reflow.ReflowableReader
 import com.continuum.app.model.book.BookFormat
 import com.continuum.app.model.ebook.EbookAnnotation
 import com.continuum.app.model.ebook.ebookPageNumberFromProgressLocation
@@ -104,9 +105,15 @@ fun ReaderScreen(
             }
         }
 
+        val progressLabel = when (state.format) {
+            BookFormat.Epub, BookFormat.Fb2, BookFormat.Fbz, BookFormat.Txt, BookFormat.Markdown ->
+                "${(state.progressPercent * 100).toInt()}%"
+            else ->
+                "${(state.progressPercent * 100).toInt()}% · Page ${state.currentPage + 1}" +
+                    state.pageCount?.let { " of $it" }.orEmpty()
+        }
         Text(
-            text = "${(state.progressPercent * 100).toInt()}% · Page ${state.currentPage + 1}" +
-                state.pageCount?.let { " of $it" }.orEmpty(),
+            text = progressLabel,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
@@ -131,15 +138,16 @@ fun ReaderScreen(
             state.error != null -> CenteredText(state.error ?: "Failed to load")
             state.fileUrl.isNullOrBlank() -> CenteredText("No file available for this book.")
             else -> when (state.format) {
-                BookFormat.Epub -> EpubReader(
-                    fileUrl = state.fileUrl!!,
-                    title = state.title,
-                    initialPage = state.currentPage,
-                    settings = state.displaySettings,
-                    onPageChanged = viewModel::onPageChanged,
-                    onPageCountKnown = viewModel::onPageCountKnown,
-                    onSectionsKnown = viewModel::setSections,
-                )
+                BookFormat.Epub, BookFormat.Fb2, BookFormat.Fbz, BookFormat.Txt, BookFormat.Markdown ->
+                    ReflowableReader(
+                        format = state.format,
+                        fileUrl = state.fileUrl!!,
+                        settings = state.displaySettings,
+                        initialLocator = state.progressLocation,
+                        onLocatorChanged = viewModel::onLocatorChanged,
+                        onSectionsKnown = viewModel::setSections,
+                        onTextScaleNudge = viewModel::nudgeTextScale,
+                    )
                 BookFormat.Pdf -> PdfReader(
                     fileUrl = state.fileUrl!!,
                     title = state.title,
@@ -151,20 +159,6 @@ fun ReaderScreen(
                     fileUrl = state.fileUrl!!,
                     title = state.title,
                     initialPage = state.currentPage,
-                    onPageChanged = viewModel::onPageChanged,
-                    onPageCountKnown = viewModel::onPageCountKnown,
-                )
-                BookFormat.Txt, BookFormat.Markdown -> TextReader(
-                    fileUrl = state.fileUrl!!,
-                    title = state.title,
-                    settings = state.displaySettings,
-                    onPageChanged = viewModel::onPageChanged,
-                    onPageCountKnown = viewModel::onPageCountKnown,
-                )
-                BookFormat.Fb2, BookFormat.Fbz -> FictionBookReader(
-                    fileUrl = state.fileUrl!!,
-                    title = state.title,
-                    settings = state.displaySettings,
                     onPageChanged = viewModel::onPageChanged,
                     onPageCountKnown = viewModel::onPageCountKnown,
                 )
