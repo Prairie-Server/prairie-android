@@ -1,16 +1,14 @@
-package com.continuum.app.android.ui.screens.audiobook
+package com.continuum.app.common.player
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.continuum.app.audiobook.AudiobookChapter
+import com.continuum.app.audiobook.AudiobookChapters
 import com.continuum.app.common.audiobook.AudiobookBookmarksStore
 import com.continuum.app.common.audiobook.AudiobookPositionStore
 import com.continuum.app.common.downloads.DownloadEnqueuer
 import com.continuum.app.common.downloads.OfflineMediaResolver
-import com.continuum.app.common.player.PlaybackCapabilityDetector
-import com.continuum.app.common.player.PlaybackSessionManager
-import com.continuum.app.common.player.SleepTimerChoice
-import com.continuum.app.common.player.resolvePlaybackStreamUrl
 import com.continuum.app.model.audiobook.AudiobookBookmark
 import com.continuum.app.model.catalog.VersionChapter
 import com.continuum.app.model.playback.PlayMethod
@@ -24,8 +22,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -83,6 +84,30 @@ class AudiobookPlayerViewModel(
 
     private val _uiState = MutableStateFlow(AudiobookPlayerUiState())
     val uiState: StateFlow<AudiobookPlayerUiState> = _uiState.asStateFlow()
+
+    // Chapter-derived views over ui-state, computed via the pure
+    // [AudiobookChapters] math so the phone and TV players share one source of
+    // truth. Eagerly started so the UI has a value the moment it subscribes.
+
+    /** Index of the chapter the current position falls in. */
+    val currentChapterIndex: StateFlow<Int> = uiState
+        .map { AudiobookChapters.currentIndex(it.chapters.toAudiobookChapters(), it.positionSeconds) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** Progress within the current chapter, 0..1. */
+    val chapterProgress: StateFlow<Float> = uiState
+        .map {
+            AudiobookChapters.chapterProgress(
+                it.chapters.toAudiobookChapters(),
+                it.positionSeconds,
+            ).toFloat()
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
+
+    /** "Chapter N of M" label, or empty when the book has 0/1 chapters. */
+    val chapterCountLabel: StateFlow<String> = uiState
+        .map { AudiobookChapters.countLabel(it.chapters.toAudiobookChapters(), it.positionSeconds).orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     private val _bookmarks = MutableStateFlow<List<AudiobookBookmark>>(emptyList())
     val bookmarks: StateFlow<List<AudiobookBookmark>> = _bookmarks.asStateFlow()
@@ -351,6 +376,29 @@ class AudiobookPlayerViewModel(
         seekTo(chapter.startSeconds)
     }
 
+    /** Seek to the previous chapter, restarting the current chapter when more
+     *  than [AudiobookChapters.PREV_RESTART_THRESHOLD_SECONDS] into it. */
+    fun skipToPreviousChapter() {
+        val state = _uiState.value
+        seekTo(
+            AudiobookChapters.previousChapterTarget(
+                state.chapters.toAudiobookChapters(),
+                state.positionSeconds,
+            ),
+        )
+    }
+
+    /** Seek to the start of the next chapter (clamps on the last chapter). */
+    fun skipToNextChapter() {
+        val state = _uiState.value
+        seekTo(
+            AudiobookChapters.nextChapterTarget(
+                state.chapters.toAudiobookChapters(),
+                state.positionSeconds,
+            ),
+        )
+    }
+
     fun setSpeed(speed: Float) {
         _uiState.update { it.copy(playbackSpeed = speed.coerceIn(0.5f, 3.0f)) }
     }
@@ -384,9 +432,10 @@ class AudiobookPlayerViewModel(
             is SleepTimerChoice.Minutes -> choice.minutes * 60
             SleepTimerChoice.EndOfChapter -> {
                 val state = _uiState.value
-                val chapter = state.chapters.firstOrNull {
-                    state.positionSeconds >= it.startSeconds && state.positionSeconds < it.endSeconds
-                } ?: state.chapters.lastOrNull()
+                val chapter = AudiobookChapters.currentChapter(
+                    state.chapters.toAudiobookChapters(),
+                    state.positionSeconds,
+                )
                 val remaining = chapter?.let { it.endSeconds - state.positionSeconds }
                     ?.toInt()?.coerceAtLeast(60) ?: (15 * 60)
                 remaining
@@ -433,9 +482,12 @@ class AudiobookPlayerViewModel(
      *  captured so the list can render it without re-resolving. */
     fun addBookmark(note: String? = null) {
         val state = _uiState.value
-        val chapter = state.chapters.firstOrNull {
-            state.positionSeconds >= it.startSeconds && state.positionSeconds < it.endSeconds
-        } ?: state.chapters.lastOrNull()?.takeIf { state.positionSeconds >= it.startSeconds }
+        val chapterIndex = AudiobookChapters.currentIndex(
+            state.chapters.toAudiobookChapters(),
+            state.positionSeconds,
+        )
+        val chapter = state.chapters.getOrNull(chapterIndex)
+            ?.takeIf { state.positionSeconds >= it.startSeconds }
 
         val bookmark = AudiobookBookmark(
             id = generateBookmarkId(),
@@ -622,3 +674,8 @@ class AudiobookPlayerViewModel(
             listOf("mjpeg", "png", "jpeg", "bmp", "gif")
     }
 }
+
+/** Project the server chapter list onto the pure [AudiobookChapter] span
+ *  model that [AudiobookChapters] math operates on. */
+private fun List<VersionChapter>.toAudiobookChapters(): List<AudiobookChapter> =
+    map { AudiobookChapter(startSeconds = it.startSeconds, endSeconds = it.endSeconds) }
