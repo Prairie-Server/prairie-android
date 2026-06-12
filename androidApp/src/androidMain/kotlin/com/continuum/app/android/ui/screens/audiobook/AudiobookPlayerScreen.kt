@@ -254,45 +254,16 @@ fun AudiobookPlayerScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Transport row.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = { viewModel.seekBy(-30.0) },
-                enabled = state.streamUrl != null,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Icon(Icons.Filled.Replay30, contentDescription = "Back 30 seconds", modifier = Modifier.size(36.dp))
-            }
-            Spacer(modifier = Modifier.size(16.dp))
-            // Big play/pause
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable(enabled = state.streamUrl != null) { viewModel.togglePlay() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (state.isPlaying) "Pause" else "Play",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(44.dp),
-                )
-            }
-            Spacer(modifier = Modifier.size(16.dp))
-            IconButton(
-                onClick = { viewModel.seekBy(30.0) },
-                enabled = state.streamUrl != null,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Icon(Icons.Filled.Forward30, contentDescription = "Forward 30 seconds", modifier = Modifier.size(36.dp))
-            }
-        }
+        AudiobookTransport(
+            isPlaying = state.isPlaying,
+            enabled = state.streamUrl != null,
+            hasChapters = state.chapters.isNotEmpty(),
+            onPrevChapter = { viewModel.skipToPreviousChapter() },
+            onSkipBack = { viewModel.seekBy(-30.0) },
+            onTogglePlay = { viewModel.togglePlay() },
+            onSkipForward = { viewModel.seekBy(30.0) },
+            onNextChapter = { viewModel.skipToNextChapter() },
+        )
 
         Spacer(modifier = Modifier.height(20.dp))
 
