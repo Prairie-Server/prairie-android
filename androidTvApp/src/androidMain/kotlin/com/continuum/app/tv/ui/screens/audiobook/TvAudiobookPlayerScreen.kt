@@ -123,13 +123,14 @@ fun TvAudiobookPlayerScreen(
                     .build(),
             )
             .build()
-        c.setMediaItem(mediaItem)
-        c.prepare()
+        // Resume position goes on the media item's start position, not a
+        // post-prepare seekTo (which is dropped before the timeline window is
+        // known, leaving the book at 0:00).
         val resume = viewModel.resumePositionSeconds.value
-        if (resume != null && resume > 0) {
-            c.seekTo((resume * 1000).toLong())
-            viewModel.consumeResumePosition()
-        }
+        val startMs = ((resume ?: 0.0).coerceAtLeast(0.0) * 1000).toLong()
+        c.setMediaItem(mediaItem, startMs)
+        c.prepare()
+        if (resume != null && resume > 0) viewModel.consumeResumePosition()
         c.playWhenReady = true
     }
 

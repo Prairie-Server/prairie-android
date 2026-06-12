@@ -198,7 +198,7 @@ class AudiobookPlayerViewModel(
                         return@launch
                     }
 
-                    val resumePosition = loadResumePositionSnapshot()
+                    val resumePosition = loadResumePositionSnapshot(d.userData?.positionSeconds)
                     val offlineMedia = offlineMediaResolver.findLocalMedia(
                         contentId = d.contentId,
                         requestedFileId = selectedVersion.fileId,
@@ -350,7 +350,7 @@ class AudiobookPlayerViewModel(
         }
     }
 
-    private fun loadOfflineOnly(error: String?) {
+    private suspend fun loadOfflineOnly(error: String?) {
         val media = offlineMediaResolver.findLocalMedia(
             contentId = contentId,
             requestedFileId = requestedFileId,
@@ -360,6 +360,8 @@ class AudiobookPlayerViewModel(
             _uiState.update { it.copy(isLoading = false, error = error) }
             return
         }
+        // No server detail when offline — resume from the local snapshot alone.
+        loadResumePositionSnapshot()
         _uiState.update {
             it.copy(
                 isLoading = false,
@@ -656,17 +658,21 @@ class AudiobookPlayerViewModel(
         }
     }
 
-    /** Resume-on-open. Reads the local snapshot synchronously (on IO)
-     *  and exposes it via [resumePositionSeconds] so the Compose host
-     *  can issue a seekTo once the controller is ready + the metadata
-     *  has resolved (or it may decide to ignore based on UX, e.g.
-     *  prompt "Resume from 3:42:18?"). */
-    private suspend fun loadResumePositionSnapshot(): Double? {
+    /** Resume-on-open. Returns the furthest of the on-device local snapshot
+     *  and the server's recorded position ([serverPositionSeconds], from the
+     *  item's `user_data`) so we never resume behind progress made on another
+     *  device — and so a device that has never played this book locally still
+     *  resumes from the server's Continue-Listening position instead of 0:00.
+     *  Exposed via [resumePositionSeconds] for the Compose host to seek to once
+     *  the controller + metadata are ready. */
+    private suspend fun loadResumePositionSnapshot(serverPositionSeconds: Double? = null): Double? {
         val (serverId, profileId) = resolveScope()
         val snapshot = withContext(Dispatchers.IO) {
             positionStore.read(serverId, profileId, contentId)
         }
-        val position = snapshot?.positionSeconds?.takeIf { it > 0 }
+        val local = snapshot?.positionSeconds?.takeIf { it > 0 }
+        val server = serverPositionSeconds?.takeIf { it > 0 }
+        val position = listOfNotNull(local, server).maxOrNull()
         _resumePosition.value = position
         return position
     }

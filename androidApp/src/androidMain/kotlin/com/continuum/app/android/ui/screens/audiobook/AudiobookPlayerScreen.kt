@@ -113,13 +113,15 @@ fun AudiobookPlayerScreen(
                     .build(),
             )
             .build()
-        c.setMediaItem(mediaItem)
-        c.prepare()
+        // Apply the resume position as the media item's start position rather
+        // than a post-prepare seekTo: a seek issued before the timeline window
+        // is known gets dropped, leaving the book at 0:00. setMediaItem with a
+        // start position is honored once the source prepares.
         val resume = viewModel.resumePositionSeconds.value
-        if (resume != null && resume > 0) {
-            c.seekTo((resume * 1000).toLong())
-            viewModel.consumeResumePosition()
-        }
+        val startMs = ((resume ?: 0.0).coerceAtLeast(0.0) * 1000).toLong()
+        c.setMediaItem(mediaItem, startMs)
+        c.prepare()
+        if (resume != null && resume > 0) viewModel.consumeResumePosition()
         c.playWhenReady = true
     }
 
