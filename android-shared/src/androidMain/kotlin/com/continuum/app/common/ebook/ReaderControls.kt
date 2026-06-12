@@ -13,7 +13,7 @@ data class ReaderDisplaySettings(
     val marginScale: Float = 1f,
 ) {
     fun normalized(): ReaderDisplaySettings = copy(
-        textScale = textScale.coerceIn(0.8f, 1.6f),
+        textScale = textScale.coerceIn(0.6f, 3.0f),
         marginScale = marginScale.coerceIn(0.75f, 1.5f),
     )
 }
