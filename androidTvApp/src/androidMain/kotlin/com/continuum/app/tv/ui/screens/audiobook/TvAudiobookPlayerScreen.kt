@@ -108,9 +108,13 @@ fun TvAudiobookPlayerScreen(
 
     // Wire the stream URL into Media3 once the controller + URL resolve; rebuild
     // on URL change. Resume-on-open seeks to the saved position before play.
+    var preparedUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(controller, state.streamUrl) {
         val c = controller ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
+        // Prepare each distinct stream once; a re-run with the same url (e.g.
+        // controller rebind) must not reset the resume position to 0:00.
+        if (url == preparedUrl) return@LaunchedEffect
         val mediaItem = MediaItem.Builder()
             .setUri(url)
             .setMediaMetadata(
@@ -132,6 +136,7 @@ fun TvAudiobookPlayerScreen(
         c.prepare()
         if (resume != null && resume > 0) viewModel.consumeResumePosition()
         c.playWhenReady = true
+        preparedUrl = url
     }
 
     LaunchedEffect(controller, state.isPaused) {

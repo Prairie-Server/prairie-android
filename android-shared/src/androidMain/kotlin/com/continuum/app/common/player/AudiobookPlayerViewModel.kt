@@ -684,7 +684,12 @@ class AudiobookPlayerViewModel(
     private suspend fun loadResumePositionSnapshot(serverPositionSeconds: Double? = null): Double? {
         val (serverId, profileId) = resolveScope()
         val snapshot = withContext(Dispatchers.IO) {
+            // Fall back to a scope-agnostic lookup when the active scope can't
+            // resolve the snapshot — e.g. offline cold start before the server
+            // registry restored the active server id, where a scoped read would
+            // miss the snapshot written under the real server id.
             positionStore.read(serverId, profileId, contentId)
+                ?: positionStore.findLatest(contentId)
         }
         val local = snapshot?.positionSeconds?.takeIf { it > 0 }
         val server = serverPositionSeconds?.takeIf { it > 0 }

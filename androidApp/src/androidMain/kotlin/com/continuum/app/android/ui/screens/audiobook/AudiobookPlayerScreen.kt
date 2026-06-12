@@ -97,9 +97,15 @@ fun AudiobookPlayerScreen(
     // doesn't leave the previous bytes playing. Resume-on-open is
     // applied here too: if the VM resolved a saved position, seek to
     // it before play.
+    var preparedUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(controller, state.streamUrl) {
         val c = controller ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
+        // Prepare each distinct stream exactly once. The effect can re-run with
+        // the same url (e.g. the controller rebinding); without this guard the
+        // second pass — after the resume position was already consumed — would
+        // setMediaItem with startMs=0 and reset the book back to 0:00.
+        if (url == preparedUrl) return@LaunchedEffect
         val mediaItem = MediaItem.Builder()
             .setUri(url)
             .setMediaMetadata(
@@ -123,6 +129,7 @@ fun AudiobookPlayerScreen(
         c.prepare()
         if (resume != null && resume > 0) viewModel.consumeResumePosition()
         c.playWhenReady = true
+        preparedUrl = url
     }
 
     // Flush position on every meaningful transition so a process kill

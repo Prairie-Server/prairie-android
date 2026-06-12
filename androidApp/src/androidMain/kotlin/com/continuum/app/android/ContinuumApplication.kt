@@ -41,6 +41,16 @@ class ContinuumApplication : Application(), Configuration.Provider {
         }.onFailure {
             android.util.Log.w("ContinuumApplication", "Notifications starter init failed", it)
         }
+        // Flush offline audiobook listening position back to the server on
+        // reconnect / foreground. Guarded — never load-bearing for cold start.
+        runCatching {
+            com.continuum.app.android.audiobook.AudiobookProgressSyncStarter(
+                context = this@ContinuumApplication,
+                syncer = koinApp.koin.get(),
+            ).register()
+        }.onFailure {
+            android.util.Log.w("ContinuumApplication", "Audiobook progress sync init failed", it)
+        }
         // Configuration.Provider wasn't reliably picked up by WM's androidx.startup
         // auto-init (the auto-init seemed to win the race, leaving WM with its
         // default reflection-based WorkerFactory). Force-initialise explicitly

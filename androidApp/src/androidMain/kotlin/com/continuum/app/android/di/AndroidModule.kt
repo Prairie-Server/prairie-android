@@ -201,6 +201,17 @@ val androidModule = module {
     single {
         com.continuum.app.common.audiobook.AudiobookPositionStore(androidContext().filesDir)
     }
+    // Flushes locally-saved (offline) audiobook positions back to the server
+    // on reconnect / app foreground. App-scoped IO coroutine scope.
+    single {
+        com.continuum.app.common.audiobook.AudiobookProgressSyncer(
+            positionStore = get(),
+            personalDataRepository = get(),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+            ),
+        )
+    }
     single {
         com.continuum.app.common.ebook.EbookLocalStateStore(androidContext().filesDir)
     }
