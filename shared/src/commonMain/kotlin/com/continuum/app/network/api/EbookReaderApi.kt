@@ -17,15 +17,15 @@ import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.encodeURLPathPart
 
-class EbookReaderApi(private val client: HttpClient) {
+open class EbookReaderApi(private val client: HttpClient) {
     fun readPath(contentId: String, fileId: Int): String =
         "/api/v1/ebooks/${contentId.encodeURLPathPart()}/files/$fileId/read"
 
-    suspend fun getProgress(contentId: String): ApiResult<EbookReaderProgress> = safeApiCall {
+    open suspend fun getProgress(contentId: String): ApiResult<EbookReaderProgress> = safeApiCall {
         client.get("/api/v1/ebooks/${contentId.encodeURLPathPart()}/progress")
     }
 
-    suspend fun saveProgress(
+    open suspend fun saveProgress(
         contentId: String,
         request: SaveEbookProgressRequest,
     ): ApiResult<EbookReaderProgress> = safeApiCall {

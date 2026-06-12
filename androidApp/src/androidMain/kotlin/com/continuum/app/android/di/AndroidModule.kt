@@ -215,6 +215,17 @@ val androidModule = module {
     single {
         com.continuum.app.common.ebook.EbookLocalStateStore(androidContext().filesDir)
     }
+    // Flushes locally-saved (offline) ebook reading position back to the server
+    // on reconnect / app foreground.
+    single {
+        com.continuum.app.common.ebook.EbookProgressSyncer(
+            localStateStore = get(),
+            ebookReaderRepository = get(),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+            ),
+        )
+    }
 
     // Audiobook + book readers. SavedStateHandle is auto-injected via Koin's
     // viewModel scope wiring so the contentId nav arg flows through.
