@@ -68,6 +68,13 @@ fun ReaderScreen(
     val supportsSettings = state.capabilities.supportsTextSize ||
         state.capabilities.supportsMargins ||
         state.capabilities.supportsTheme
+    // Reflowable formats carry opaque locator strings rather than page indices,
+    // so TOC / bookmark jumps route through the locator path; fixed-layout
+    // formats (PDF / CBZ) keep page-index jumps.
+    val isReflowable = when (state.format) {
+        BookFormat.Epub, BookFormat.Fb2, BookFormat.Fbz, BookFormat.Txt, BookFormat.Markdown -> true
+        else -> false
+    }
 
     Column(
         modifier = Modifier
@@ -147,6 +154,8 @@ fun ReaderScreen(
                         onLocatorChanged = viewModel::onLocatorChanged,
                         onSectionsKnown = viewModel::setSections,
                         onTextScaleNudge = viewModel::nudgeTextScale,
+                        jumpToLocation = state.pendingJumpLocation,
+                        onJumpConsumed = viewModel::consumeJump,
                     )
                 BookFormat.Pdf -> PdfReader(
                     fileUrl = state.fileUrl!!,
@@ -174,7 +183,11 @@ fun ReaderScreen(
         BookmarkSheet(
             bookmarks = state.bookmarks,
             onJumpTo = { bookmark ->
-                ebookPageNumberFromProgressLocation(bookmark.location)?.let(viewModel::jumpToPage)
+                if (isReflowable) {
+                    bookmark.location?.let(viewModel::jumpToLocation)
+                } else {
+                    ebookPageNumberFromProgressLocation(bookmark.location)?.let(viewModel::jumpToPage)
+                }
                 showBookmarks = false
             },
             onDelete = viewModel::deleteBookmark,
@@ -185,7 +198,11 @@ fun ReaderScreen(
         SectionsSheet(
             sections = state.sections,
             onJumpTo = { section ->
-                ebookPageNumberFromProgressLocation(section.location)?.let(viewModel::jumpToPage)
+                if (isReflowable) {
+                    viewModel.jumpToLocation(section.location)
+                } else {
+                    ebookPageNumberFromProgressLocation(section.location)?.let(viewModel::jumpToPage)
+                }
                 showSections = false
             },
             onDismiss = { showSections = false },

@@ -52,6 +52,8 @@ fun ReflowableReader(
     onLocatorChanged: (locationJson: String, progress: Double) -> Unit,
     onSectionsKnown: (List<ReaderSection>) -> Unit,
     onTextScaleNudge: (Float) -> Unit,
+    jumpToLocation: String?,
+    onJumpConsumed: () -> Unit,
 ) {
     val context = LocalContext.current
     val okHttp = koinInject<OkHttpClient>()
@@ -130,6 +132,19 @@ fun ReflowableReader(
     // Drives the initial load (once the WebView is ready) and every section change.
     LaunchedEffect(sectionIndex, controller, source) {
         if (controller != null) loadSection()
+    }
+
+    // Apply an external TOC / bookmark jump by seeking to the decoded locator.
+    // The effect on [sectionIndex] reloads the section; [pendingPageProgression]
+    // is applied on the next `paginated` event.
+    LaunchedEffect(jumpToLocation) {
+        if (jumpToLocation != null) {
+            ReflowLocatorCodec.decode(jumpToLocation)?.let {
+                sectionIndex = it.sectionIndex
+                pendingPageProgression = it.pageProgression
+            }
+            onJumpConsumed()
+        }
     }
 
     // Re-style live when display settings change.

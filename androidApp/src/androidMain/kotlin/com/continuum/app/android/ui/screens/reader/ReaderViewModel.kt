@@ -61,6 +61,9 @@ data class ReaderUiState(
     val capabilities: ReaderCapabilities = ReaderCapabilities.forFormat(BookFormat.Unknown),
     val displaySettings: ReaderDisplaySettings = ReaderDisplaySettings(),
     val sections: List<ReaderSection> = emptyList(),
+    /** Opaque reflow-locator string the reflowable reader should seek to, or
+     *  null when there is no pending jump. Consumed via [consumeJump]. */
+    val pendingJumpLocation: String? = null,
     val isSyncing: Boolean = false,
     val syncError: String? = null,
     val error: String? = null,
@@ -378,6 +381,20 @@ class ReaderViewModel(
 
     fun jumpToPage(page: Int) {
         onPageChanged(page.coerceAtLeast(0))
+    }
+
+    /**
+     * Route a TOC section / bookmark jump to the reflowable reader by handing it
+     * the target locator string; the reader decodes it and seeks. Used for
+     * reflowable formats whose locations are opaque locator JSON rather than
+     * page indices. Cleared once the reader reports [consumeJump].
+     */
+    fun jumpToLocation(location: String) {
+        _uiState.update { it.copy(pendingJumpLocation = location) }
+    }
+
+    fun consumeJump() {
+        _uiState.update { it.copy(pendingJumpLocation = null) }
     }
 
     fun setDisplaySettings(settings: ReaderDisplaySettings) {
