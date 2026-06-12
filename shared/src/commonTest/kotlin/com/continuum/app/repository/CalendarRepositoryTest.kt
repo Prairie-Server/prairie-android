@@ -1,0 +1,64 @@
+package com.continuum.app.repository
+
+import com.continuum.app.model.calendar.CalendarDay
+import com.continuum.app.model.calendar.CalendarFilter
+import com.continuum.app.model.calendar.CalendarResponse
+import com.continuum.app.network.ApiResult
+import com.continuum.app.network.api.CalendarApi
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class CalendarRepositoryTest {
+
+    @Test
+    fun `passes query arguments through to the api`() = runTest {
+        val response = CalendarResponse(events = listOf(CalendarDay(date = "2026-06-08")))
+        val api = RecordingCalendarApi(ApiResult.Success(response))
+        val repository = CalendarRepository(api)
+
+        val result = repository.getCalendar(
+            start = "2026-06-08",
+            end = "2026-06-14",
+            filter = CalendarFilter.Following,
+            libraryId = 3,
+            timezone = "Europe/Amsterdam",
+        )
+
+        assertEquals(ApiResult.Success(response), result)
+        assertEquals(
+            listOf("2026-06-08|2026-06-14|following|3|Europe/Amsterdam"),
+            api.calls,
+        )
+    }
+
+    @Test
+    fun `propagates api errors unchanged`() = runTest {
+        val error = ApiResult.Error(code = 400, error = "bad_request", message = "span too large")
+        val api = RecordingCalendarApi(error)
+        val repository = CalendarRepository(api)
+
+        val result = repository.getCalendar(start = "2026-06-08", end = "2026-06-14")
+
+        assertEquals(error, result)
+        assertEquals(listOf("2026-06-08|2026-06-14|all|null|null"), api.calls)
+    }
+}
+
+private class RecordingCalendarApi(
+    private val result: ApiResult<CalendarResponse>,
+) : CalendarApi {
+
+    val calls = mutableListOf<String>()
+
+    override suspend fun getCalendar(
+        start: String,
+        end: String,
+        filter: String,
+        libraryId: Int?,
+        timezone: String?,
+    ): ApiResult<CalendarResponse> {
+        calls += "$start|$end|$filter|$libraryId|$timezone"
+        return result
+    }
+}

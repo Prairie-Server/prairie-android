@@ -1,5 +1,6 @@
 package com.continuum.app.android.ui.screens.downloads
 
+import com.continuum.app.android.ui.util.formatBytes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,7 +79,7 @@ fun DownloadItemRow(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = formatFileSize(item.fileSizeBytes),
+                text = formatBytes(item.fileSizeBytes),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -102,11 +103,3 @@ fun DownloadItemRow(
     }
 }
 
-private fun formatFileSize(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
-    val index = digitGroups.coerceAtMost(units.size - 1)
-    val value = bytes / Math.pow(1024.0, index.toDouble())
-    return String.format("%.1f %s", value, units[index])
-}

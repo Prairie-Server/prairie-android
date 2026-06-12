@@ -3,6 +3,8 @@ package com.continuum.app.android.ui.screens.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.model.navigation.MediaMode
+import com.continuum.app.model.navigation.isReadingLibraryType
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
 import kotlinx.coroutines.FlowPreview
@@ -12,21 +14,75 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * Media type filter for mobile search. Video intentionally maps to null
+ * until the server supports a single movie-or-series query filter.
+ */
+enum class MobileSearchMediaType(val label: String, val wire: String?) {
+    All("All", null),
+    Video("Video", null),
+    Audio("Audio", "audio"),
+    Reading("Reading", null);
+
+    companion object {
+        fun fromRouteValue(value: String?): MobileSearchMediaType? =
+            when (value?.trim()?.lowercase()) {
+                "video" -> Video
+                "audio" -> Audio
+                "reading" -> Reading
+                "all" -> All
+                else -> null
+            }
+    }
+}
+
+internal fun MobileSearchMediaType.filterResults(items: List<BrowseItem>): List<BrowseItem> =
+    when (this) {
+        MobileSearchMediaType.Reading -> items.filter { isReadingLibraryType(it.type) }
+        else -> items
+    }
+
+private val MobileSearchMediaType.isClientFiltered: Boolean
+    get() = this == MobileSearchMediaType.Reading
+
+internal const val MAX_FILTERED_SEARCH_PAGES = 5
+
+/**
+ * Decides whether a client-filtered search should silently fetch the next
+ * page because no visible results have accumulated yet. Capped at
+ * [MAX_FILTERED_SEARCH_PAGES] pages per search so a query matching only
+ * non-literary items cannot serially crawl the entire catalog; `hasMore`
+ * stays true in the UI state, so [SearchViewModel.loadMore] continues from
+ * [SearchUiState.nextOffset] on the next scroll-to-end.
+ */
+internal fun shouldAutoAdvanceFilteredSearchPage(
+    isClientFiltered: Boolean,
+    visibleItemCount: Int,
+    hasMore: Boolean,
+    pagesFetched: Int,
+): Boolean =
+    isClientFiltered &&
+        visibleItemCount == 0 &&
+        hasMore &&
+        pagesFetched < MAX_FILTERED_SEARCH_PAGES
 
 /**
  * UI state for the search screen.
  */
 data class SearchUiState(
     val query: String = "",
+    val mediaType: MobileSearchMediaType = MobileSearchMediaType.All,
+    val availableMediaTypes: List<MobileSearchMediaType> = MobileSearchMediaType.entries.toList(),
     val isSearching: Boolean = false,
     val results: List<BrowseItem> = emptyList(),
     val hasMore: Boolean = false,
     val total: Int = 0,
     val error: String? = null,
     val hasSearched: Boolean = false,
+    val nextOffset: Int = 0,
 )
 
 /**
@@ -57,12 +113,14 @@ class SearchViewModel(
                     if (query.isBlank()) {
                         _uiState.update {
                             it.copy(
+                                query = query,
                                 results = emptyList(),
                                 hasMore = false,
                                 total = 0,
                                 isSearching = false,
                                 error = null,
                                 hasSearched = false,
+                                nextOffset = 0,
                             )
                         }
                     } else {
@@ -85,9 +143,55 @@ class SearchViewModel(
      */
     fun clearSearch() {
         _uiState.update {
-            SearchUiState()
+            it.copy(
+                query = "",
+                isSearching = false,
+                results = emptyList(),
+                hasMore = false,
+                total = 0,
+                error = null,
+                hasSearched = false,
+                nextOffset = 0,
+            )
         }
         _queryFlow.value = ""
+    }
+
+    fun setAvailableModes(modes: List<MediaMode>) {
+        val types = buildList {
+            add(MobileSearchMediaType.All)
+            if (MediaMode.Video in modes) add(MobileSearchMediaType.Video)
+            if (MediaMode.Audio in modes) add(MobileSearchMediaType.Audio)
+            if (MediaMode.Reading in modes) add(MobileSearchMediaType.Reading)
+        }
+        val current = _uiState.value
+        val nextMediaType = current.mediaType.takeIf { it in types } ?: MobileSearchMediaType.All
+        _uiState.update {
+            it.copy(
+                availableMediaTypes = types,
+                mediaType = nextMediaType,
+            )
+        }
+        if (nextMediaType != current.mediaType && current.query.isNotBlank()) {
+            viewModelScope.launch { performSearch(current.query, reset = true) }
+        }
+    }
+
+    fun onMediaTypeChanged(mediaType: MobileSearchMediaType) {
+        val current = _uiState.value
+        if (mediaType == current.mediaType || mediaType !in current.availableMediaTypes) return
+        _uiState.update { it.copy(mediaType = mediaType) }
+        if (current.query.isNotBlank()) {
+            viewModelScope.launch { performSearch(current.query, reset = true) }
+        }
+    }
+
+    fun selectInitialMediaType(mediaType: MobileSearchMediaType?) {
+        if (mediaType == null) return
+        val current = _uiState.value
+        if (current.query.isNotBlank()) return
+        if (mediaType !in current.availableMediaTypes) return
+        _uiState.update { it.copy(mediaType = mediaType) }
     }
 
     /**
@@ -103,45 +207,79 @@ class SearchViewModel(
 
     private suspend fun performSearch(query: String, reset: Boolean) {
         val currentState = _uiState.value
-        val offset = if (reset) 0 else currentState.results.size
+        val requestedMediaType = currentState.mediaType
+        var offset = if (reset) 0 else currentState.nextOffset
+        var pagesFetched = 0
+        val visibleItems = mutableListOf<BrowseItem>()
+        var hasMore = false
+        var total = 0
 
         _uiState.update { it.copy(isSearching = true, error = null) }
 
-        when (val result = catalogRepository.browse(
-            source = "query",
-            query = query,
-            offset = offset,
-            limit = pageSize,
-        )) {
-            is ApiResult.Success -> {
-                val response = result.data
-                _uiState.update {
-                    it.copy(
-                        isSearching = false,
-                        results = if (reset) response.items else it.results + response.items,
-                        hasMore = response.hasMore,
-                        total = response.total,
-                        error = null,
-                        hasSearched = true,
+        while (true) {
+            val result = catalogRepository.browse(
+                source = "query",
+                query = query,
+                mediaType = requestedMediaType.wire,
+                offset = offset,
+                limit = pageSize,
+            )
+            val latest = _uiState.value
+            if (latest.query != query || latest.mediaType != requestedMediaType) return
+
+            when (result) {
+                is ApiResult.Success -> {
+                    val response = result.data
+                    val rawCount = response.items.size
+                    val pageVisibleItems = requestedMediaType.filterResults(response.items)
+
+                    pagesFetched += 1
+                    visibleItems += pageVisibleItems
+                    offset += rawCount
+                    hasMore = response.hasMore && rawCount > 0
+                    total = response.total
+
+                    val shouldAdvanceFilteredPage = shouldAutoAdvanceFilteredSearchPage(
+                        isClientFiltered = requestedMediaType.isClientFiltered,
+                        visibleItemCount = visibleItems.size,
+                        hasMore = hasMore,
+                        pagesFetched = pagesFetched,
                     )
+                    if (shouldAdvanceFilteredPage) continue
+
+                    _uiState.update {
+                        val nextResults = if (reset) visibleItems else it.results + visibleItems
+                        it.copy(
+                            isSearching = false,
+                            results = nextResults,
+                            hasMore = hasMore,
+                            total = if (requestedMediaType.isClientFiltered) nextResults.size else total,
+                            error = null,
+                            hasSearched = true,
+                            nextOffset = offset,
+                        )
+                    }
+                    return
                 }
-            }
-            is ApiResult.Error -> {
-                _uiState.update {
-                    it.copy(
-                        isSearching = false,
-                        error = result.message.ifBlank { "Search failed" },
-                        hasSearched = true,
-                    )
+                is ApiResult.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isSearching = false,
+                            error = result.message.ifBlank { "Search failed" },
+                            hasSearched = true,
+                        )
+                    }
+                    return
                 }
-            }
-            is ApiResult.NetworkError -> {
-                _uiState.update {
-                    it.copy(
-                        isSearching = false,
-                        error = "Network error. Check your connection.",
-                        hasSearched = true,
-                    )
+                is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(
+                            isSearching = false,
+                            error = "Network error. Check your connection.",
+                            hasSearched = true,
+                        )
+                    }
+                    return
                 }
             }
         }

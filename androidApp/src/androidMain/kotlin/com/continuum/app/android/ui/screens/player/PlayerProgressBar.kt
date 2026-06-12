@@ -18,7 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
+import com.continuum.app.android.ui.util.formatClockTime
 
 /**
  * Seek bar with current and total time display.
@@ -32,6 +32,7 @@ fun PlayerProgressBar(
     duration: Double,
     onSeek: (Double) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableFloatStateOf(0f) }
@@ -42,6 +43,7 @@ fun PlayerProgressBar(
     Column(modifier = modifier.fillMaxWidth()) {
         Slider(
             value = displayPosition.coerceIn(0f, maxDuration),
+            enabled = enabled,
             onValueChange = { value ->
                 isSeeking = true
                 seekPosition = value
@@ -66,31 +68,15 @@ fun PlayerProgressBar(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = formatTime(displayPosition.toDouble()),
+                text = formatClockTime(displayPosition.toDouble()),
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White,
             )
             Text(
-                text = formatTime(duration),
+                text = formatClockTime(duration),
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White,
             )
         }
-    }
-}
-
-/**
- * Formats seconds into HH:MM:SS or MM:SS.
- */
-internal fun formatTime(seconds: Double): String {
-    val totalSeconds = seconds.roundToInt().coerceAtLeast(0)
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val secs = totalSeconds % 60
-
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, secs)
-    } else {
-        String.format("%d:%02d", minutes, secs)
     }
 }

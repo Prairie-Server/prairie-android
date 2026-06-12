@@ -28,11 +28,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +65,8 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.model.catalog.EpisodeListItem
 import com.continuum.app.model.catalog.ItemDetail
+import com.continuum.app.model.catalog.isAudiobookItemType
+import com.continuum.app.model.watchtogether.RoomSnapshot
 import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvHeroActionPill
@@ -70,6 +75,9 @@ import com.continuum.app.tv.ui.components.TvMediaRow
 import com.continuum.app.tv.ui.components.TvOptionDialog
 import com.continuum.app.tv.ui.components.TvPillVariant
 import com.continuum.app.tv.ui.components.TvRowStyle
+import com.continuum.app.tv.ui.screens.watchtogether.TvJoinCodeDialog
+import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherEntryDialog
+import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.theme.TvSmoothBringIntoViewSpec
 import kotlin.math.roundToInt
@@ -85,6 +93,7 @@ fun TvItemDetailScreen(
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
+    onWatchTogether: (RoomSnapshot) -> Unit,
     onBack: () -> Unit,
     viewModel: TvItemDetailViewModel = koinViewModel(
         key = "item-detail-$contentId-${seasonNumber ?: "default"}",
@@ -121,6 +130,7 @@ fun TvItemDetailScreen(
             onItemDetail = onItemDetail,
             onSeriesClick = onSeriesClick,
             onSeasonClick = onSeasonClick,
+            onWatchTogether = onWatchTogether,
         )
     }
 }
@@ -135,6 +145,7 @@ private fun TvDetailContent(
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
+    onWatchTogether: (RoomSnapshot) -> Unit,
 ) {
     val playFocus = remember { FocusRequester() }
     val firstEpisodeFocus = remember { FocusRequester() }
@@ -144,6 +155,7 @@ private fun TvDetailContent(
     val aboutFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val isAudiobook = isAudiobookItemType(detail.type)
 
     LaunchedEffect(detail.contentId) {
         runCatching { playFocus.requestFocus() }
@@ -190,6 +202,7 @@ private fun TvDetailContent(
                                 onPlay = onPlay,
                                 onSeriesClick = onSeriesClick,
                                 onSeasonClick = onSeasonClick,
+                                onWatchTogether = onWatchTogether,
                             )
                         },
                     )
@@ -221,7 +234,7 @@ private fun TvDetailContent(
                     }
                 }
 
-                if (detail.cast.isNotEmpty()) {
+                if (!isAudiobook && detail.cast.isNotEmpty()) {
                     item(key = "cast") {
                         TvCastCrewSection(
                             cast = detail.cast,
@@ -288,13 +301,22 @@ private fun HeroActionRow(
     onPlay: (contentId: String, fileId: Int?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
+    onWatchTogether: (RoomSnapshot) -> Unit,
 ) {
     var moreOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var ratingOpen by remember(detail.contentId) { mutableStateOf(false) }
+    // Watch Together is video-only (synced playback); hide it for series/audiobook.
+    val showsWatchTogether = detail.type in setOf("movie", "episode")
+    var wtEntryOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var wtJoinOpen by remember(detail.contentId) { mutableStateOf(false) }
+    val wtViewModel: TvWatchTogetherViewModel = koinViewModel()
+    val wtState by wtViewModel.uiState.collectAsState()
     val resumePosition = remember(detail.userData) { detail.resumePositionSeconds() }
     val hasResume = resumePosition != null
     val hasVersionPicker = remember(detail.versions) { detail.versions.hasTvVersionChoices() }
     val qualitySummary = remember(detail.versions) { detail.versionSummaryLabel() }
     val hasOverflowMenu = detail.type == "episode" && detail.seriesId != null
+    val selectedFileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
@@ -309,7 +331,7 @@ private fun HeroActionRow(
                 },
                 icon = Icons.Filled.PlayArrow,
                 variant = TvPillVariant.Filled,
-                onClick = { onPlay(detail.contentId, state.selectedFileId) },
+                onClick = { onPlay(detail.contentId, selectedFileId) },
                 focusRequester = playFocus,
                 modifier = Modifier.widthIn(min = 185.dp),
                 heightOverride = 52.dp,
@@ -321,7 +343,7 @@ private fun HeroActionRow(
                     label = "Start Over",
                     icon = Icons.Filled.Replay,
                     variant = TvPillVariant.Hollow,
-                    onClick = { onPlay(detail.contentId, state.selectedFileId) },
+                    onClick = { onPlay(detail.contentId, selectedFileId) },
                 )
             }
 
@@ -345,6 +367,25 @@ private fun HeroActionRow(
                 contentDescription = if (detail.userData?.played == true) "Watched" else "Mark as watched",
                 isActive = detail.userData?.played == true,
             )
+
+            CircleAction(
+                icon = if (state.userRating != null) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                onClick = { ratingOpen = true },
+                contentDescription = state.userRating?.let { "Rated $it of 5" } ?: "Rate",
+                isActive = state.userRating != null,
+            )
+
+            if (showsWatchTogether) {
+                CircleAction(
+                    icon = Icons.Filled.Groups,
+                    onClick = {
+                        wtViewModel.clearError()
+                        wtEntryOpen = true
+                    },
+                    contentDescription = "Watch Together",
+                    isActive = false,
+                )
+            }
 
             if (hasOverflowMenu) {
                 CircleAction(
@@ -404,6 +445,57 @@ private fun HeroActionRow(
                 onDismiss = { moreOpen = false },
             )
         }
+    }
+
+    if (ratingOpen) {
+        TvRatingDialog(
+            currentRating = state.userRating,
+            onSetRating = { stars ->
+                ratingOpen = false
+                viewModel.onSetRating(stars)
+            },
+            onClearRating = {
+                ratingOpen = false
+                viewModel.onClearRating()
+            },
+            onDismiss = { ratingOpen = false },
+        )
+    }
+
+    // A create/join resolved — close the dialogs and route on the snapshot.
+    LaunchedEffect(wtState.result) {
+        wtState.result?.let { snapshot ->
+            wtEntryOpen = false
+            wtJoinOpen = false
+            onWatchTogether(snapshot)
+            wtViewModel.consumeResult()
+        }
+    }
+
+    if (wtEntryOpen) {
+        TvWatchTogetherEntryDialog(
+            isBusy = wtState.isBusy,
+            error = wtState.error,
+            onHost = {
+                val fileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
+                wtViewModel.createRoom(detail.contentId, fileId)
+            },
+            onJoin = {
+                wtViewModel.clearError()
+                wtEntryOpen = false
+                wtJoinOpen = true
+            },
+            onDismiss = { wtEntryOpen = false },
+        )
+    }
+
+    if (wtJoinOpen) {
+        TvJoinCodeDialog(
+            isBusy = wtState.isBusy,
+            error = wtState.error,
+            onJoin = { code -> wtViewModel.joinRoom(code) },
+            onDismiss = { wtJoinOpen = false },
+        )
     }
 }
 

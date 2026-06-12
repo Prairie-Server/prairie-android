@@ -2,33 +2,55 @@ package com.continuum.app.android.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
 import com.continuum.app.android.ui.screens.MainScreen
+import com.continuum.app.android.ui.screens.admin.AdminHubScreen
+import com.continuum.app.android.ui.screens.admin.AdminLogsScreen
+import com.continuum.app.android.ui.screens.admin.AdminScansScreen
+import com.continuum.app.android.ui.screens.admin.AdminSessionsScreen
+import com.continuum.app.android.ui.screens.admin.AdminStatsScreen
+import com.continuum.app.android.ui.screens.admin.AdminUserEditScreen
+import com.continuum.app.android.ui.screens.admin.AdminUsersScreen
 import com.continuum.app.android.ui.screens.auth.LoginScreen
+import com.continuum.app.android.ui.screens.auth.DevicePairingScreen
 import com.continuum.app.android.ui.screens.auth.ServerSetupScreen
 import com.continuum.app.android.ui.screens.auth.SetupScreen
 import com.continuum.app.android.ui.screens.auth.SignupScreen
 import com.continuum.app.android.ui.screens.browse.BrowseScreen
 import com.continuum.app.android.ui.screens.browse.BrowseViewModel
+import com.continuum.app.android.ui.screens.calendar.CalendarScreen
 import com.continuum.app.android.ui.screens.collections.CollectionDetailScreen
 import com.continuum.app.android.ui.screens.collections.CollectionsScreen
 import com.continuum.app.android.ui.screens.collections.LibraryCollectionsScreen
 import com.continuum.app.android.ui.screens.detail.ItemDetailScreen
 import com.continuum.app.android.ui.screens.detail.ItemDetailViewModel
+import com.continuum.app.android.ui.screens.watchtogether.WatchTogetherEntrySheet
+import com.continuum.app.android.ui.screens.watchtogether.WatchTogetherLobbyScreen
+import com.continuum.app.android.ui.screens.notifications.InboxScreen
 import com.continuum.app.android.ui.screens.people.PersonDetailScreen
 import com.continuum.app.android.ui.screens.people.PersonDetailViewModel
 import com.continuum.app.android.ui.screens.personal.FavoritesScreen
 import com.continuum.app.android.ui.screens.personal.HistoryScreen
 import com.continuum.app.android.ui.screens.personal.PersonalListsScreen
 import com.continuum.app.android.ui.screens.personal.WatchlistScreen
-import com.continuum.app.android.ui.screens.admin.AdminScreen
 import com.continuum.app.android.ui.screens.player.PlayerScreen
+import com.continuum.app.android.ui.screens.profiles.CreateProfileScreen
+import com.continuum.app.android.ui.screens.profiles.EditProfileScreen
 import com.continuum.app.android.ui.screens.profiles.ProfileSelectionScreen
+import com.continuum.app.android.ui.screens.requests.MyRequestsScreen
+import com.continuum.app.android.ui.screens.requests.RequestDetailScreen
+import com.continuum.app.android.ui.screens.requests.RequestsScreen
+import com.continuum.app.android.ui.screens.search.MobileSearchMediaType
 import com.continuum.app.android.ui.screens.search.SearchScreen
 import com.continuum.app.android.ui.screens.search.SearchViewModel
 import com.continuum.app.android.ui.screens.servers.ServerListScreen
@@ -42,6 +64,8 @@ import org.koin.compose.viewmodel.koinViewModel
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
     startDestination: String = Route.Login.route,
+    pendingExternalRoute: String? = null,
+    onExternalRouteConsumed: () -> Unit = {},
 ) {
     val tokenManager: TokenManager = koinInject()
 
@@ -56,6 +80,14 @@ fun AppNavigation(
                 launchSingleTop = true
             }
         }
+    }
+
+    LaunchedEffect(pendingExternalRoute) {
+        val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        navController.navigate(route) {
+            launchSingleTop = true
+        }
+        onExternalRouteConsumed()
     }
 
     NavHost(
@@ -110,6 +142,44 @@ fun AppNavigation(
                 },
             )
         }
+        composable(
+            route = Route.PairDevice.ROUTE,
+            arguments = listOf(
+                navArgument("token") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("code") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "silo://device?token={token}" },
+                navDeepLink { uriPattern = "silo://device?code={code}" },
+                navDeepLink { uriPattern = "continuum://device?token={token}" },
+                navDeepLink { uriPattern = "continuum://device?code={code}" },
+            ),
+        ) { backStackEntry ->
+            val token = backStackEntry.arguments?.getString("token")
+            val code = backStackEntry.arguments?.getString("code")
+            DevicePairingScreen(
+                token = token,
+                code = code,
+                onDone = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Route.Video.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                },
+                onSignIn = {
+                    navController.navigate(Route.Login.route)
+                },
+            )
+        }
 
         // ---- Server list (multi-server management) ----
         composable(Route.ServerList.route) {
@@ -123,7 +193,7 @@ fun AppNavigation(
                     // already exist (so the user stays signed in), else
                     // ProfileSelection or Login as appropriate.
                     val target = when (destination) {
-                        ServerSwitchDestination.Home -> Route.Home.route
+                        ServerSwitchDestination.Home -> Route.Video.route
                         ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
                         ServerSwitchDestination.Login -> Route.Login.route
                     }
@@ -140,20 +210,52 @@ fun AppNavigation(
         composable(Route.ProfileSelection.route) {
             ProfileSelectionScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Home.route) {
+                    navController.navigate(Route.Video.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
                 onNavigateToCreateProfile = {
-                    // TODO: wire create profile screen
+                    navController.navigate(Route.CreateProfile.route)
                 },
-                onNavigateToEditProfile = { _ ->
-                    // TODO: wire edit profile screen
+                onNavigateToEditProfile = { profileId ->
+                    navController.navigate(Route.EditProfile(profileId).route)
                 },
+            )
+        }
+        composable(Route.CreateProfile.route) {
+            CreateProfileScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onProfileCreated = {
+                    navController.popBackStack(
+                        route = Route.ProfileSelection.route,
+                        inclusive = false,
+                    )
+                },
+            )
+        }
+        composable(
+            route = Route.EditProfile.ROUTE,
+            arguments = listOf(
+                navArgument("profileId") { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val profileId = backStackEntry.arguments?.getString("profileId").orEmpty()
+            EditProfileScreen(
+                profileId = profileId,
+                onNavigateBack = { navController.popBackStack() },
             )
         }
 
         // ---- Main tabs ----
+        composable(Route.Video.route) {
+            MainScreen(navController, Tab.Video)
+        }
+        composable(Route.Audio.route) {
+            MainScreen(navController, Tab.Audio)
+        }
+        composable(Route.Reading.route) {
+            MainScreen(navController, Tab.Reading)
+        }
         composable(Route.Home.route) {
             MainScreen(navController, Tab.Home)
         }
@@ -163,13 +265,22 @@ fun AppNavigation(
         composable(Route.Recommendations.route) {
             MainScreen(navController, Tab.Recommendations)
         }
+        composable(Route.Downloads.route) {
+            MainScreen(navController, Tab.Downloads)
+        }
         composable(Route.Settings.route) {
             SettingsScreen(
-                onNavigateToAdmin = {
-                    navController.navigate(Route.Admin.route)
-                },
                 onNavigateToServers = {
                     navController.navigate(Route.ServerList.route)
+                },
+                onPairDevice = {
+                    navController.navigate(Route.PairDevice().route)
+                },
+                onNavigateToRequests = {
+                    navController.navigate(Route.Requests.route)
+                },
+                onNavigateToAdmin = {
+                    navController.navigate(Route.Admin.route)
                 },
                 onLoggedOut = {
                     navController.navigate(Route.Login.route) {
@@ -180,7 +291,16 @@ fun AppNavigation(
                 onBackClick = { navController.popBackStack() },
             )
         }
-        composable(Route.Search.route) {
+        composable(
+            route = Route.Search.ROUTE,
+            arguments = listOf(
+                navArgument("mediaType") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { backStackEntry ->
             val searchViewModel = koinViewModel<SearchViewModel>()
             SearchScreen(
                 onItemClick = { contentId ->
@@ -188,6 +308,54 @@ fun AppNavigation(
                 },
                 onBackClick = { navController.popBackStack() },
                 viewModel = searchViewModel,
+                initialMediaType = MobileSearchMediaType.fromRouteValue(
+                    backStackEntry.arguments?.getString("mediaType"),
+                ),
+            )
+        }
+
+        // ---- Requests ----
+        composable(Route.Requests.route) {
+            RequestsScreen(
+                onBackClick = { navController.popBackStack() },
+                onMyRequestsClick = { navController.navigate(Route.MyRequests.route) },
+                onMediaClick = { item ->
+                    navController.navigate(Route.RequestDetail(item.mediaType, item.tmdbId).route)
+                },
+                onLibraryItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
+            )
+        }
+        composable(Route.MyRequests.route) {
+            MyRequestsScreen(
+                onBackClick = { navController.popBackStack() },
+                onRequestClick = { request ->
+                    request.libraryContentId?.takeIf { it.isNotBlank() }?.let { contentId ->
+                        navController.navigate(Route.ItemDetail(contentId).route)
+                    } ?: navController.navigate(Route.RequestDetail(request.mediaType, request.tmdbId).route)
+                },
+            )
+        }
+        composable(
+            route = Route.RequestDetail.ROUTE,
+            arguments = listOf(
+                navArgument("mediaType") { type = NavType.StringType },
+                navArgument("tmdbId") { type = NavType.IntType },
+            ),
+        ) { backStackEntry ->
+            val mediaType = backStackEntry.arguments?.getString("mediaType").orEmpty()
+            val tmdbId = backStackEntry.arguments?.getInt("tmdbId") ?: 0
+            RequestDetailScreen(
+                mediaType = mediaType,
+                tmdbId = tmdbId,
+                onBackClick = { navController.popBackStack() },
+                onMediaClick = { item ->
+                    navController.navigate(Route.RequestDetail(item.mediaType, item.tmdbId).route)
+                },
+                onLibraryItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
             )
         }
 
@@ -245,6 +413,7 @@ fun AppNavigation(
             ),
         ) {
             val detailViewModel = koinViewModel<ItemDetailViewModel>()
+            var wtTarget by remember { mutableStateOf<Pair<String, Int?>?>(null) }
             ItemDetailScreen(
                 onBackClick = { navController.popBackStack() },
                 onPlayClick = { contentId, fileId, audioTrackIndex, subtitleTrackIndex ->
@@ -271,7 +440,77 @@ fun AppNavigation(
                         navController.navigate(Route.PersonDetail(id).route)
                     }
                 },
+                onAudiobookPlayClick = { contentId, fileId ->
+                    navController.navigate(Route.AudiobookPlayer(contentId, fileId).route)
+                },
+                onBookReadClick = { contentId, fileId ->
+                    navController.navigate(Route.BookReader(contentId, fileId).route)
+                },
+                onWatchTogether = { contentId, fileId -> wtTarget = contentId to fileId },
                 viewModel = detailViewModel,
+            )
+            wtTarget?.let { (cid, fid) ->
+                WatchTogetherEntrySheet(
+                    contentId = cid,
+                    fileId = fid,
+                    onNavigate = { route -> navController.navigate(route) },
+                    onDismiss = { wtTarget = null },
+                )
+            }
+        }
+
+        // ---- Watch Together lobby ----
+        composable(
+            route = Route.WatchTogetherLobby.ROUTE,
+            arguments = listOf(
+                navArgument(Route.WatchTogetherLobby.ARG_ROOM_ID) { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val roomId = backStackEntry.arguments
+                ?.getString(Route.WatchTogetherLobby.ARG_ROOM_ID)
+                .orEmpty()
+            WatchTogetherLobbyScreen(
+                roomId = roomId,
+                onNavigateToPlayer = { route ->
+                    navController.navigate(route) {
+                        popUpTo(Route.WatchTogetherLobby.ROUTE) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        // ---- Audiobook player (audio-only UI) ----
+        composable(
+            route = Route.AudiobookPlayer.ROUTE,
+            arguments = listOf(
+                navArgument(Route.AudiobookPlayer.ARG_CONTENT_ID) { type = NavType.StringType },
+                navArgument(Route.AudiobookPlayer.ARG_FILE_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            com.continuum.app.android.ui.screens.audiobook.AudiobookPlayerScreen(
+                onBackClick = { navController.popBackStack() },
+            )
+        }
+
+        // ---- Book reader (dispatches on format) ----
+        composable(
+            route = Route.BookReader.ROUTE,
+            arguments = listOf(
+                navArgument(Route.BookReader.ARG_CONTENT_ID) { type = NavType.StringType },
+                navArgument(Route.BookReader.ARG_FILE_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            com.continuum.app.android.ui.screens.reader.ReaderScreen(
+                onBackClick = { navController.popBackStack() },
             )
         }
 
@@ -311,6 +550,11 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("roomId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStackEntry ->
             PlayerScreen(
@@ -318,6 +562,7 @@ fun AppNavigation(
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
                 initialAudioTrackIndex = backStackEntry.arguments?.getString("audioTrackIndex")?.toIntOrNull(),
                 initialSubtitleTrackIndex = backStackEntry.arguments?.getString("subtitleTrackIndex")?.toIntOrNull(),
+                roomId = backStackEntry.arguments?.getString("roomId"),
                 navController = navController,
             )
         }
@@ -346,6 +591,70 @@ fun AppNavigation(
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
             )
+        }
+        composable(Route.Calendar.route) {
+            CalendarScreen(
+                onBackClick = { navController.popBackStack() },
+                onItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
+            )
+        }
+        composable(Route.Inbox.route) {
+            InboxScreen(
+                onBackClick = { navController.popBackStack() },
+                onItemClick = { contentId -> navController.navigate(Route.ItemDetail(contentId).route) },
+            )
+        }
+
+        // ---- Admin (acting-admin gated) ----
+        composable(Route.Admin.route) {
+            AdminHubScreen(
+                onBackClick = { navController.popBackStack() },
+                onOpenDashboard = { navController.navigate(Route.AdminStats.route) },
+                onOpenUsers = { navController.navigate(Route.AdminUsers.route) },
+                onOpenSessions = { navController.navigate(Route.AdminSessions.route) },
+                onOpenLogs = { navController.navigate(Route.AdminLogs.route) },
+                onOpenScans = { navController.navigate(Route.AdminScans.route) },
+            )
+        }
+        composable(Route.AdminStats.route) {
+            AdminStatsScreen(onBackClick = { navController.popBackStack() })
+        }
+        composable(Route.AdminUsers.route) {
+            AdminUsersScreen(
+                onBackClick = { navController.popBackStack() },
+                onCreateUser = { navController.navigate(Route.AdminUserEdit().route) },
+                onEditUser = { id -> navController.navigate(Route.AdminUserEdit(id).route) },
+            )
+        }
+        composable(Route.AdminUserEdit.CREATE_ROUTE) {
+            AdminUserEditScreen(
+                userId = null,
+                onBackClick = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = Route.AdminUserEdit.ROUTE,
+            arguments = listOf(
+                navArgument(Route.AdminUserEdit.ARG_USER_ID) { type = NavType.IntType },
+            ),
+        ) { backStackEntry ->
+            AdminUserEditScreen(
+                userId = backStackEntry.arguments?.getInt(Route.AdminUserEdit.ARG_USER_ID),
+                onBackClick = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
+            )
+        }
+        composable(Route.AdminSessions.route) {
+            AdminSessionsScreen(onBackClick = { navController.popBackStack() })
+        }
+        composable(Route.AdminLogs.route) {
+            AdminLogsScreen(onBackClick = { navController.popBackStack() })
+        }
+        composable(Route.AdminScans.route) {
+            AdminScansScreen(onBackClick = { navController.popBackStack() })
         }
         composable(Route.History.route) {
             HistoryScreen(
@@ -383,12 +692,5 @@ fun AppNavigation(
             }
         }
 
-        // ---- Admin ----
-        composable(Route.Admin.route) {
-            AdminScreen(
-                onBackClick = { navController.popBackStack() },
-            )
-        }
     }
 }
-

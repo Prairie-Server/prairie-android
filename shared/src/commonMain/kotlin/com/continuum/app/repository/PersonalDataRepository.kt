@@ -87,8 +87,8 @@ open class PersonalDataRepository(
     suspend fun getRating(itemId: String): ApiResult<RatingEntry> =
         personalDataApi.getRating(itemId)
 
-    /** Sets or updates the user's rating for a specific item. */
-    suspend fun setRating(itemId: String, rating: Double): ApiResult<Unit> =
+    /** Sets or updates the user's star rating (integer 1-5) for a specific item. */
+    suspend fun setRating(itemId: String, rating: Int): ApiResult<Unit> =
         personalDataApi.setRating(itemId, rating)
 
     /** Removes the user's rating for a specific item. */

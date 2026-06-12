@@ -20,8 +20,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,7 +57,9 @@ import com.continuum.app.android.ui.screens.profiles.ProfileAvatar
 import com.continuum.app.android.ui.util.rememberDominantColor
 import com.continuum.app.model.profile.Profile
 import com.continuum.app.model.section.splitFeatured
+import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.viewmodel.HomeViewModel
+import org.koin.compose.koinInject
 
 private const val ChromeFadeDistanceDp = 72f
 
@@ -78,6 +84,8 @@ fun HomeScreen(
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
     onPersonalListsClick: () -> Unit,
+    onCalendarClick: () -> Unit,
+    onInboxClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -202,6 +210,8 @@ fun HomeScreen(
             activeProfile = activeProfile,
             onSearchClick = onSearchClick,
             onPersonalListsClick = onPersonalListsClick,
+            onCalendarClick = onCalendarClick,
+            onInboxClick = onInboxClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
@@ -215,6 +225,8 @@ private fun HomeFloatingChrome(
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
     onPersonalListsClick: () -> Unit,
+    onCalendarClick: () -> Unit,
+    onInboxClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -253,9 +265,27 @@ private fun HomeFloatingChrome(
                 )
             }
 
+            val notificationsRepository = koinInject<NotificationsRepository>()
+            val unreadCount by notificationsRepository.unreadCount.collectAsState()
+            HomeChromeButton(onClick = onInboxClick) {
+                BadgedBox(
+                    badge = {
+                        if (unreadCount > 0) {
+                            Badge { Text(if (unreadCount > 99) "99+" else unreadCount.toString()) }
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Notifications,
+                        contentDescription = "Notifications",
+                    )
+                }
+            }
+
             HomeProfileMenu(
                 activeProfile = activeProfile,
                 onPersonalListsClick = onPersonalListsClick,
+                onCalendarClick = onCalendarClick,
                 onSettingsClick = onSettingsClick,
                 onSwitchProfileClick = onSwitchProfileClick,
                 onSwitchServerClick = onSwitchServerClick,
@@ -295,6 +325,7 @@ private fun HomeChromeButton(
 private fun HomeProfileMenu(
     activeProfile: Profile?,
     onPersonalListsClick: () -> Unit,
+    onCalendarClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -333,6 +364,19 @@ private fun HomeProfileMenu(
                 onClick = {
                     menuExpanded = false
                     onPersonalListsClick()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Calendar") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.CalendarMonth,
+                        contentDescription = null,
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onCalendarClick()
                 },
             )
             DropdownMenuItem(

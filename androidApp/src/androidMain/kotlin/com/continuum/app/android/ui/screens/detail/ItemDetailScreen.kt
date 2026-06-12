@@ -1,5 +1,8 @@
 package com.continuum.app.android.ui.screens.detail
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,13 +18,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.continuum.app.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
+import com.continuum.app.android.downloads.hasLegacyPublicDownloadPermission
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
+import com.continuum.app.model.catalog.FileVersion
+import com.continuum.app.model.catalog.isAudiobookItemType
+import com.continuum.app.model.catalog.isBookLikeItemType
+import com.continuum.app.model.ebook.chooseEbookVersion
+import com.continuum.app.model.ebook.isInAppReadableEbookVersion
+import com.continuum.app.model.ebook.isSupportedEbookVersion
+import com.continuum.app.model.download.statusEnum
 
 /**
  * Item detail dispatcher. Routes to [MovieDetailContent] or
@@ -41,10 +57,39 @@ fun ItemDetailScreen(
     onPersonClick: (String) -> Unit,
     onSeriesClick: (String) -> Unit,
     onSeasonClick: (String, Int) -> Unit,
+    onAudiobookPlayClick: (String, Int?) -> Unit = { _, _ -> },
+    onBookReadClick: (String, Int?) -> Unit = { _, _ -> },
+    onWatchTogether: (String, Int?) -> Unit = { _, _ -> },
     viewModel: ItemDetailViewModel,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val action = pendingDownloadAction
+        pendingDownloadAction = null
+        if (granted) {
+            action?.invoke()
+        } else {
+            Toast.makeText(
+                context,
+                "Storage permission is required to save public downloads on this Android version.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    fun runDownloadAction(requirePermission: Boolean = true, action: () -> Unit) {
+        if (!requirePermission || hasLegacyPublicDownloadPermission(context)) {
+            action()
+            return
+        }
+        pendingDownloadAction = action
+        legacyStoragePermissionLauncher.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
+    }
 
     Box(
         modifier = modifier
@@ -83,9 +128,85 @@ fun ItemDetailScreen(
                     .takeIf { state.hasExplicitAudioSelection }
                 val explicitSubtitleIndex = state.selectedSubtitleIndex
                     .takeIf { state.hasExplicitSubtitleSelection }
+                val effectiveAudiobookFileId = detail.versions
+                    .getOrNull(effectiveSelectedVersionIndex)
+                    ?.fileId
 
-                when (detail.type) {
-                    "series" -> {
+                when {
+                    isAudiobookItemType(detail.type) -> {
+                        val downloadRecords by viewModel.downloads.collectAsState()
+                        val audiobookVersion = effectiveAudiobookFileId
+                            ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
+                            ?: detail.versions.firstOrNull()
+                        val downloadState = downloadStateFor(audiobookVersion, downloadRecords)
+
+                        com.continuum.app.android.ui.screens.audiobook.AudiobookDetailContent(
+                            detail = detail,
+                            isFavorite = state.isFavorite,
+                            isInWatchlist = state.isInWatchlist,
+                            selectedFileId = effectiveAudiobookFileId,
+                            isDownloaded = downloadState.isDownloaded,
+                            downloadProgress = downloadState.progress,
+                            onPlayClick = { fileId ->
+                                onAudiobookPlayClick(detail.contentId, fileId)
+                            },
+                            onChapterClick = { _ ->
+                                onAudiobookPlayClick(detail.contentId, effectiveAudiobookFileId)
+                            },
+                            onFavoriteClick = { viewModel.toggleFavorite() },
+                            onWatchlistClick = { viewModel.toggleWatchlist() },
+                            onDownloadClick = audiobookVersion?.let { version ->
+                                {
+                                    runDownloadAction(
+                                        requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
+                                    ) {
+                                        viewModel.onDownloadTapped(version, detail.title)
+                                    }
+                                }
+                            },
+                        )
+                    }
+
+                    isBookLikeItemType(detail.type) -> {
+                        val selectedBookVersion = if (state.hasExplicitVersionSelection) {
+                            detail.versions.getOrNull(state.selectedVersionIndex)
+                        } else {
+                            chooseEbookVersion(detail.versions, requestedFileId = detail.userData?.lastFileId)
+                                ?: detail.versions.firstOrNull { it.isSupportedEbookVersion() }
+                                ?: detail.versions.firstOrNull()
+                        }
+                        val selectedBookVersionIndex = selectedBookVersion
+                            ?.let { version -> detail.versions.indexOfFirst { it.fileId == version.fileId } }
+                            ?.takeIf { it >= 0 }
+                            ?: 0
+                        val downloadRecords by viewModel.downloads.collectAsState()
+                        val downloadState = downloadStateFor(selectedBookVersion, downloadRecords)
+
+                        com.continuum.app.android.ui.screens.book.BookDetailContent(
+                            detail = detail,
+                            isFavorite = state.isFavorite,
+                            isInWatchlist = state.isInWatchlist,
+                            selectedVersionIndex = selectedBookVersionIndex,
+                            onVersionSelected = { viewModel.selectVersion(it) },
+                            canReadSelectedVersion = selectedBookVersion?.isInAppReadableEbookVersion() == true,
+                            isDownloaded = downloadState.isDownloaded,
+                            downloadProgress = downloadState.progress,
+                            onReadClick = { fileId -> onBookReadClick(detail.contentId, fileId) },
+                            onFavoriteClick = { viewModel.toggleFavorite() },
+                            onWatchlistClick = { viewModel.toggleWatchlist() },
+                            onDownloadClick = selectedBookVersion?.takeIf { it.isSupportedEbookVersion() }?.let { version ->
+                                {
+                                    runDownloadAction(
+                                        requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
+                                    ) {
+                                        viewModel.onDownloadTapped(version, detail.title)
+                                    }
+                                }
+                            },
+                        )
+                    }
+
+                    detail.type == "series" -> {
                         val nextEpisode = state.episodes.firstOrNull { ep ->
                             ep.userData?.played != true
                         } ?: state.episodes.firstOrNull()
@@ -113,14 +234,35 @@ fun ItemDetailScreen(
                             onSeasonSelected = { viewModel.selectSeason(it) },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
+                            userRating = state.userRating,
+                            onSetRating = { viewModel.setRating(it) },
+                            onClearRating = { viewModel.clearRating() },
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
+                            onSeriesDownloadClick = { runDownloadAction { viewModel.onSeriesDownloadTapped() } },
+                            onSeasonDownloadClick = { season ->
+                                runDownloadAction { viewModel.onSeasonDownloadTapped(season) }
+                            },
+                            onEpisodeDownloadClick = { ep ->
+                                runDownloadAction { viewModel.onEpisodeDownloadTapped(ep) }
+                            },
+                            onWatchTogether = {
+                                onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null)
+                            },
                         )
                     }
 
                     else -> {
                         val seriesId = detail.seriesId
                         val seasonNumber = detail.seasonNumber
+                        // Derive download state for the currently-selected
+                        // version. Re-reads on every UI emission so the
+                        // worker's upsertLocal progress + status transitions
+                        // flow through to the DownloadButton.
+                        val downloadRecords by viewModel.downloads.collectAsState()
+                        val selectedVersion = detail.versions.getOrNull(effectiveSelectedVersionIndex)
+                        val downloadState = downloadStateFor(selectedVersion, downloadRecords)
+
                         MovieDetailContent(
                             detail = detail,
                             isFavorite = state.isFavorite,
@@ -138,6 +280,9 @@ fun ItemDetailScreen(
                             },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
+                            userRating = state.userRating,
+                            onSetRating = { viewModel.setRating(it) },
+                            onClearRating = { viewModel.clearRating() },
                             onVersionSelected = { viewModel.selectVersion(it) },
                             onAudioSelected = { viewModel.selectAudioTrack(it) },
                             onSubtitleSelected = { viewModel.selectSubtitle(it) },
@@ -151,6 +296,18 @@ fun ItemDetailScreen(
                             } else {
                                 null
                             },
+                            isDownloaded = downloadState.isDownloaded,
+                            downloadProgress = downloadState.progress,
+                            onDownloadTapped = selectedVersion?.let { v ->
+                                {
+                                    runDownloadAction(
+                                        requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
+                                    ) {
+                                        viewModel.onDownloadTapped(v, detail.title)
+                                    }
+                                }
+                            },
+                            onWatchTogether = { onWatchTogether(detail.contentId, explicitFileId) },
                         )
                     }
                 }
@@ -176,4 +333,33 @@ fun ItemDetailScreen(
             )
         }
     }
+}
+
+private data class DetailDownloadState(
+    val isDownloaded: Boolean = false,
+    val progress: Float? = null,
+)
+
+private fun downloadStateFor(
+    version: FileVersion?,
+    records: List<com.continuum.app.model.download.DownloadRecord>,
+): DetailDownloadState {
+    val record = version?.let { v -> records.firstOrNull { it.mediaFileId == v.fileId } }
+    val status = record?.statusEnum()
+    val progress = record
+        ?.takeIf {
+            status == com.continuum.app.model.download.DownloadStatus.Downloading ||
+                status == com.continuum.app.model.download.DownloadStatus.Queued
+        }
+        ?.let { rec ->
+            if (rec.fileSize > 0) {
+                (rec.bytesSent.toFloat() / rec.fileSize.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+        }
+    return DetailDownloadState(
+        isDownloaded = status == com.continuum.app.model.download.DownloadStatus.Completed,
+        progress = progress,
+    )
 }

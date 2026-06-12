@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -59,6 +61,14 @@ fun PlayerSettingsSheet(
     onSetHdrEnabled: (Boolean) -> Unit,
     onOpenSubtitleStyle: () -> Unit = {},
     onOpenSleepTimer: () -> Unit = {},
+    onOpenChapters: () -> Unit = {},
+    hasChapters: Boolean = false,
+    onOpenQuality: () -> Unit = {},
+    hasMultipleVersions: Boolean = false,
+    audioDelayMs: Int = 0,
+    onSetAudioDelay: (Int) -> Unit = {},
+    subtitleDelayMs: Int = 0,
+    onSetSubtitleDelay: (Int) -> Unit = {},
     sleepTimerState: SleepTimerState = SleepTimerState.Idle,
 ) {
     if (!isVisible) return
@@ -91,7 +101,15 @@ fun PlayerSettingsSheet(
                     ),
                 ),
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            // Vertically scroll the inner content. With Playback + Episodes +
+            // Sync + Subtitles + Navigation (when chapters) + Timers sections,
+            // the sheet overflows on smaller phones — scrolling lets every
+            // row stay reachable.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 Text(
                     text = "Playback Settings",
                     color = Color.White,
@@ -119,6 +137,18 @@ fun PlayerSettingsSheet(
                     onCheckedChange = onSetHdrEnabled,
                 )
 
+                if (hasMultipleVersions) {
+                    TapRow(
+                        label = "Quality",
+                        subtitle = "Choose a video version",
+                        onClick = {
+                            scope.launch { sheetState.hide() }
+                            onDismiss()
+                            onOpenQuality()
+                        },
+                    )
+                }
+
                 SectionHeader(text = "Episodes")
 
                 ToggleRow(
@@ -133,6 +163,39 @@ fun PlayerSettingsSheet(
                     subtitle = null,
                     checked = autoPlayNextEnabled,
                     onCheckedChange = onSetAutoPlayNext,
+                )
+
+                if (hasChapters) {
+                    SectionHeader(text = "Navigation")
+                    TapRow(
+                        label = "Chapters",
+                        subtitle = "Jump to a chapter",
+                        onClick = {
+                            scope.launch { sheetState.hide() }
+                            onDismiss()
+                            onOpenChapters()
+                        },
+                    )
+                }
+
+                SectionHeader(text = "Sync")
+
+                DelaySpinnerRow(
+                    label = "Audio delay",
+                    valueMs = audioDelayMs,
+                    stepMs = 50,
+                    minMs = -5000,
+                    maxMs = 5000,
+                    onChange = onSetAudioDelay,
+                )
+
+                DelaySpinnerRow(
+                    label = "Subtitle delay",
+                    valueMs = subtitleDelayMs,
+                    stepMs = 100,
+                    minMs = -10000,
+                    maxMs = 10000,
+                    onChange = onSetSubtitleDelay,
                 )
 
                 SectionHeader(text = "Subtitles")
@@ -405,3 +468,80 @@ private fun formatPlaybackSpeed(speed: Double): String {
  * across float-rounding hiccups.
  */
 private fun isSameSpeed(a: Double, b: Double): Boolean = kotlin.math.abs(a - b) < 0.001
+
+/**
+ * iOS-style range spinner row: label on the left, [− value +] on the right.
+ * Tap − / + to step by [stepMs]; value clamps to [[minMs], [maxMs]]. Mirrors
+ * iOS phone's `RangeSpinner` rendered in the Sync section of
+ * `PlayerSettingsSheet.swift:262-292` (audio: ±5000 / step 50; subtitle:
+ * ±10000 / step 100).
+ */
+@Composable
+private fun DelaySpinnerRow(
+    label: String,
+    valueMs: Int,
+    stepMs: Int,
+    minMs: Int,
+    maxMs: Int,
+    onChange: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 15.sp,
+            modifier = Modifier.weight(1f),
+        )
+        SpinnerButton(
+            label = "−",
+            onClick = { onChange((valueMs - stepMs).coerceIn(minMs, maxMs)) },
+        )
+        Text(
+            text = formatDelayMs(valueMs),
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .width(72.dp)
+                .padding(horizontal = 8.dp),
+        )
+        SpinnerButton(
+            label = "+",
+            onClick = { onChange((valueMs + stepMs).coerceIn(minMs, maxMs)) },
+        )
+    }
+}
+
+@Composable
+private fun SpinnerButton(label: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier = Modifier
+            .background(color = Color.White.copy(alpha = 0.10f), shape = shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/**
+ * Format a delay value as a signed millisecond string. Zero shows as "0 ms";
+ * positive values get a leading "+"; negative values get a leading "−"
+ * (true minus sign, not hyphen — matches iOS).
+ */
+private fun formatDelayMs(ms: Int): String = when {
+    ms == 0 -> "0 ms"
+    ms > 0 -> "+$ms ms"
+    else -> "−${-ms} ms"
+}

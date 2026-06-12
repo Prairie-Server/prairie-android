@@ -5,11 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.PersonalDataRepository
-import com.continuum.app.tv.data.preferences.TvPreferences
+import com.continuum.app.tv.data.preferences.LegacyTvPrefsMigration
+import com.continuum.app.tv.data.preferences.TvLibrarySelectionStore
+import com.continuum.app.tv.ui.util.visibleOnTv
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -20,7 +21,8 @@ import kotlinx.coroutines.launch
  */
 class TvLibrariesViewModel(
     private val personalDataRepository: PersonalDataRepository,
-    private val preferences: TvPreferences,
+    private val librarySelectionStore: TvLibrarySelectionStore,
+    private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
 ) : ViewModel() {
 
     data class UiState(
@@ -41,22 +43,29 @@ class TvLibrariesViewModel(
         if (_uiState.value.selectedLibraryId == libraryId) return
         _uiState.update { it.copy(selectedLibraryId = libraryId) }
         viewModelScope.launch {
-            preferences.setSelectedLibraryId(libraryId)
+            librarySelectionStore.setSelectedLibraryId(libraryId)
         }
     }
 
     fun load() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            val storedLibraryId = preferences.selectedLibraryId.first()
+            // Seed the per-profile selection from the legacy global
+            // `tv_prefs` key BEFORE the first read — the resolve below
+            // writes a value, which would make the seed unreachable.
+            // Sentinel-gated no-op after the first run.
+            legacyTvPrefsMigration.migrateIfNeeded()
+            val storedLibraryId = librarySelectionStore.getSelectedLibraryId()
             when (val result = personalDataRepository.listUserLibraries()) {
                 is ApiResult.Success -> {
-                    val libraries = result.data.sortedBy { lib -> lib.sortOrder }
+                    val libraries = result.data
+                        .visibleOnTv()
+                        .sortedBy { lib -> lib.sortOrder }
                     val resolvedLibraryId = libraries.firstOrNull { it.id == storedLibraryId }?.id
                         ?: libraries.firstOrNull()?.id
 
                     if (resolvedLibraryId != storedLibraryId) {
-                        preferences.setSelectedLibraryId(resolvedLibraryId)
+                        librarySelectionStore.setSelectedLibraryId(resolvedLibraryId)
                     }
 
                     _uiState.update {

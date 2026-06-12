@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -44,15 +47,20 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.continuum.app.model.catalog.VersionChapter
+import com.continuum.app.tv.ui.theme.Spacing
 
 /**
- * Floating top-center HUD that mirrors `TVPlayerInfoHUD` on tvOS. Hosts up to
- * six pill tabs along the top — Info, Stats, Video, Audio, Subtitles,
- * Chapters — and a `regularMaterial`-style glass panel below containing the
- * focused tab's content.
+ * Floating top-center HUD that mirrors `TVPlayerInfoHUD` on tvOS. Hosts
+ * capability-aware pill tabs along the top — Info, Video, Audio, Subtitles,
+ * plus Stats/Chapters when backing data exists — and a `regularMaterial`-style
+ * glass panel below containing the focused tab's content.
  *
- * Tabs only render if their backing data is non-empty, so a movie with no
- * chapters or no subtitle tracks won't show those tabs at all.
+ * Data-only tabs are hidden when empty so the HUD does not expose dead ends:
+ * Stats appears after analytics has renderable fields, and Chapters appears
+ * when the active file version includes server-extracted chapters. Video,
+ * Audio, and Subtitles stay visible because they expose playback controls
+ * even when there is only one selected track.
  *
  * Focus model:
  *  - The tab pill bar is a horizontal `focusGroup`. Moving focus L/R between
@@ -70,32 +78,40 @@ fun TvPlayerHud(
     audioTracks: List<PlayerTrackEntry>,
     subtitleTracks: List<PlayerTrackEntry>,
     videoTracks: List<PlayerTrackEntry>,
+    stats: PlayerStatsSnapshot,
+    videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
     onSelectVideo: (Int) -> Unit,
+    onVideoFillModeChanged: (VideoFillMode) -> Unit,
+    audioDelayMs: Int,
+    onAudioDelayChanged: (Int) -> Unit,
+    subtitleDelayMs: Int,
+    onSubtitleDelayChanged: (Int) -> Unit,
+    // Subtitle suite: fired the first time the Subtitles pane composes (lazy
+    // AI-status probe lives in the VM); Search row shown only when the player
+    // knows its media file id; Translate row hidden while null (AI gating).
+    onSubtitlesPaneShown: () -> Unit,
+    onSearchSubtitles: (() -> Unit)?,
+    onTranslateWithAi: (() -> Unit)? = null,
+    hdrEnabled: Boolean,
+    onHdrEnabledChanged: (Boolean) -> Unit,
+    chapters: List<VersionChapter>,
+    onSelectChapter: (Int) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Compute which tabs to render. tvOS hides tabs whose backing data is
-    // empty — we mirror that so the bar contracts gracefully on bare-bones
-    // titles (no audio choices, no subtitles, no chapters).
-    val tabs = remember(audioTracks, subtitleTracks, videoTracks) {
-        buildList {
-            add(HudTab.Info)
-            // Stats / Chapters: stubbed until MediaController exposes
-            // network/codec/chapter metadata; gated per the "only visible
-            // if content available" rule from spec §4.2.
-            if (videoTracks.size > 1) add(HudTab.Video)
-            if (audioTracks.size > 1) add(HudTab.Audio)
-            if (subtitleTracks.isNotEmpty()) add(HudTab.Subtitles)
-        }
-    }
-    var selectedTab by remember(tabs) { mutableStateOf(tabs.first()) }
+    val tabs = visibleHudTabs(stats = stats, chapters = chapters)
+    var selectedTab by remember { mutableStateOf(tabs.first()) }
 
-    val tabFocusRequesters = remember(tabs) { tabs.associateWith { FocusRequester() } }
+    val tabFocusRequesters = remember { tabs.associateWith { FocusRequester() } }
+
+    LaunchedEffect(tabs) {
+        if (selectedTab !in tabs) selectedTab = tabs.first()
+    }
 
     // Seed initial focus on the active tab pill.
-    LaunchedEffect(selectedTab) {
+    LaunchedEffect(selectedTab, tabs) {
         tabFocusRequesters[selectedTab]?.let { runCatching { it.requestFocus() } }
     }
 
@@ -155,35 +171,58 @@ fun TvPlayerHud(
                     positionSec = positionSec,
                     durationSec = durationSec,
                 )
-                HudTab.Video -> HudPickerPane(
-                    options = videoTracks.map { TrackOption(it.index, it.label, it.isSelected) },
-                    onSelect = onSelectVideo,
+                HudTab.Stats -> HudStatsPane(stats)
+                HudTab.Video -> HudVideoPane(
+                    hdrEnabled = hdrEnabled,
+                    onHdrEnabledChanged = onHdrEnabledChanged,
+                    fillMode = videoFillMode,
+                    onFillModeChanged = onVideoFillModeChanged,
+                    videoTracks = videoTracks,
+                    onSelectVideo = onSelectVideo,
                 )
-                HudTab.Audio -> HudPickerPane(
-                    options = audioTracks.map { TrackOption(it.index, it.label, it.isSelected) },
-                    onSelect = onSelectAudio,
+                HudTab.Audio -> HudAudioPane(
+                    audioTracks = audioTracks,
+                    onSelectAudio = onSelectAudio,
+                    audioDelayMs = audioDelayMs,
+                    onAudioDelayChanged = onAudioDelayChanged,
                 )
-                HudTab.Subtitles -> HudPickerPane(
-                    options = buildList {
-                        // "Off" is the canonical first entry per tvOS spec.
-                        add(TrackOption(-1, "Off", subtitleTracks.none { it.isSelected }))
-                        addAll(subtitleTracks.map { TrackOption(it.index, it.label, it.isSelected) })
-                    },
-                    onSelect = onSelectSubtitle,
+                HudTab.Subtitles -> HudSubtitlesPane(
+                    subtitleTracks = subtitleTracks,
+                    onSelectSubtitle = onSelectSubtitle,
+                    subtitleDelayMs = subtitleDelayMs,
+                    onSubtitleDelayChanged = onSubtitleDelayChanged,
+                    onPaneShown = onSubtitlesPaneShown,
+                    onSearchSubtitles = onSearchSubtitles,
+                    onTranslateWithAi = onTranslateWithAi,
                 )
-                else -> Box(modifier = Modifier.fillMaxWidth())
+                HudTab.Chapters -> HudChaptersPane(
+                    chapters = chapters,
+                    onSelectChapter = onSelectChapter,
+                )
             }
         }
     }
 }
 
-private enum class HudTab(val label: String) {
+internal enum class HudTab(val label: String) {
     Info("Info"),
     Stats("Stats"),
     Video("Video"),
     Audio("Audio"),
     Subtitles("Subtitles"),
     Chapters("Chapters"),
+}
+
+internal fun visibleHudTabs(
+    stats: PlayerStatsSnapshot,
+    chapters: List<VersionChapter>,
+): List<HudTab> = buildList {
+    add(HudTab.Info)
+    if (stats.hasHudRows()) add(HudTab.Stats)
+    add(HudTab.Video)
+    add(HudTab.Audio)
+    add(HudTab.Subtitles)
+    if (chapters.isNotEmpty()) add(HudTab.Chapters)
 }
 
 @Composable
@@ -252,6 +291,506 @@ private fun HudInfoPane(
             text = "${formatTime(positionSec)} / ${formatTime(durationSec)}",
             color = Color.White.copy(alpha = 0.72f),
             style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+/**
+ * Stats pane — renders the live [PlayerStatsSnapshot] populated by
+ * [PlaybackAnalyticsListener] events. Fields populate as events arrive
+ * (format change, decoder init, bandwidth estimate); the pane shows only
+ * non-null rows. Cumulative counters (dropped frames, audio underruns) are
+ * only surfaced when non-zero — they'd otherwise add noise to a healthy
+ * playback session.
+ *
+ * Falls back to the empty-state message when no fields have populated yet
+ * (e.g. before the first format event arrives after Play).
+ */
+@Composable
+private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifier) {
+    val rows = stats.hudRows()
+
+    if (rows.isEmpty()) {
+        HudEmptyStatePane("Stats unavailable", modifier)
+        return
+    }
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        rows.forEach { (label, value) ->
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = label,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Video pane — HDR toggle (A.3d-hdr) + Fill mode toggle (Letterbox vs Zoom,
+ * matching tvOS video-gravity). When a stream advertises multiple video tracks
+ * (rare; most adaptive streams expose a single logical video track), they're
+ * appended below as a secondary picker so the existing track-selection
+ * affordance isn't lost.
+ */
+@Composable
+private fun HudVideoPane(
+    hdrEnabled: Boolean,
+    onHdrEnabledChanged: (Boolean) -> Unit,
+    fillMode: VideoFillMode,
+    onFillModeChanged: (VideoFillMode) -> Unit,
+    videoTracks: List<PlayerTrackEntry>,
+    onSelectVideo: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        Text(
+            text = "HDR",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            HudOptionChip(
+                label = "On",
+                selected = hdrEnabled,
+                onClick = { onHdrEnabledChanged(true) },
+            )
+            HudOptionChip(
+                label = "Off",
+                selected = !hdrEnabled,
+                onClick = { onHdrEnabledChanged(false) },
+            )
+        }
+
+        Text(
+            text = "Fill mode",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = Spacing.md),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            VideoFillMode.entries.forEach { mode ->
+                HudOptionChip(
+                    label = when (mode) {
+                        VideoFillMode.Fit -> "Letterbox"
+                        VideoFillMode.Zoom -> "Zoom (crop)"
+                    },
+                    selected = fillMode == mode,
+                    onClick = { onFillModeChanged(mode) },
+                )
+            }
+        }
+        if (videoTracks.size > 1) {
+            Text(
+                text = "Video track",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = Spacing.md),
+            )
+            HudPickerPane(
+                options = videoTracks.map {
+                    TrackOption(it.index, it.label, it.isSelected)
+                },
+                onSelect = onSelectVideo,
+            )
+        }
+    }
+}
+
+/**
+ * Focus-driven option pill used by the HUD Video pane for both HDR and Fill
+ * mode rows. Mirrors `HudTabPill`'s color/scale idiom — focused = white fill
+ * on dark text, selected (but unfocused) = subtle highlight, idle = ghost.
+ * Moving focus to a chip commits its selection (no Select press needed).
+ */
+@Composable
+private fun HudOptionChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    LaunchedEffect(isFocused) {
+        if (isFocused) onClick()
+    }
+    val bg = when {
+        isFocused -> Color.White.copy(alpha = 0.94f)
+        selected -> Color.White.copy(alpha = 0.18f)
+        else -> Color.White.copy(alpha = 0.06f)
+    }
+    val fg = when {
+        isFocused -> Color.Black
+        selected -> Color.White
+        else -> Color.White.copy(alpha = 0.72f)
+    }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.0f else 0.96f,
+        animationSpec = tween(120),
+        label = "hudOptionChipScale",
+    )
+
+    Box(
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .focusable(interactionSource = interactionSource)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = fg,
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+            ),
+        )
+    }
+}
+
+/**
+ * Audio pane — combines the existing track picker (when >1 audio track) with
+ * an audio-delay stepper row. The stepper is always rendered: even single-
+ * track titles benefit from sync adjustment when the upstream has A/V drift.
+ *
+ * Values bind to per-profile [com.continuum.app.common.settings.PlayerSettingsStore.audioSyncMsFlow]
+ * via the ViewModel. Writes flow through [setAudioSyncMs] which is already
+ * ±500ms-coerced. The active [com.continuum.app.common.player.audio.DelayAudioProcessor]
+ * picks up the new value through the service binding (E T3).
+ */
+@Composable
+private fun HudAudioPane(
+    audioTracks: List<PlayerTrackEntry>,
+    onSelectAudio: (Int) -> Unit,
+    audioDelayMs: Int,
+    onAudioDelayChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        if (audioTracks.size > 1) {
+            Text(
+                text = "Audio track",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            HudPickerPane(
+                options = audioTracks.map {
+                    TrackOption(it.index, it.label, it.isSelected)
+                },
+                onSelect = onSelectAudio,
+            )
+        }
+
+        // Audio delay stepper — always shown; works regardless of track count.
+        Text(
+            text = "Audio delay: ${audioDelayMs} ms",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        DelayStepperRow(
+            valueMs = audioDelayMs,
+            onChange = onAudioDelayChanged,
+        )
+    }
+}
+
+/**
+ * Subtitles pane — mirrors [HudAudioPane]'s structure: the existing picker
+ * (with the canonical "Off" entry per tvOS) plus a delay stepper row. The
+ * stepper writes to per-profile
+ * [com.continuum.app.common.settings.PlayerSettingsStore.subtitleSyncMsFlow];
+ * the active [com.continuum.app.common.player.subtitle.SubtitleOffsetHolder]
+ * picks up the new value through the service binding (A.3f T2).
+ */
+@Composable
+private fun HudSubtitlesPane(
+    subtitleTracks: List<PlayerTrackEntry>,
+    onSelectSubtitle: (Int) -> Unit,
+    subtitleDelayMs: Int,
+    onSubtitleDelayChanged: (Int) -> Unit,
+    onPaneShown: () -> Unit,
+    onSearchSubtitles: (() -> Unit)?,
+    onTranslateWithAi: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    // Lazy AI-status probe — once per player session (VM guards re-entry).
+    LaunchedEffect(Unit) { onPaneShown() }
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Text(
+            text = "Subtitle track",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        HudPickerPane(
+            // "Off" is the canonical first entry per tvOS spec; the picker
+            // is therefore never empty even when no subtitle tracks are
+            // advertised.
+            options = buildList {
+                add(TrackOption(-1, "Off", subtitleTracks.none { it.isSelected }))
+                addAll(subtitleTracks.map { TrackOption(it.index, it.label, it.isSelected) })
+            },
+            onSelect = onSelectSubtitle,
+        )
+
+        // Subtitle suite action rows — explicit Select press (clickable, not
+        // focus-to-commit) so traversing past them never opens a dialog.
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (onSearchSubtitles != null) {
+                HudActionRow(label = "Search subtitles", onClick = onSearchSubtitles)
+            }
+            if (onTranslateWithAi != null) {
+                HudActionRow(label = "Translate with AI", onClick = onTranslateWithAi)
+            }
+        }
+
+        Text(
+            text = "Subtitle delay: ${subtitleDelayMs} ms",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        DelayStepperRow(
+            valueMs = subtitleDelayMs,
+            onChange = onSubtitleDelayChanged,
+        )
+    }
+}
+
+/**
+ * Full-width action row for HUD panes — [HudPickerRow]'s visual idiom but a
+ * true click target like [DelayStepperButton]: an explicit Select press is
+ * required (focus-driven commit would fire dialogs during plain traversal).
+ */
+@Composable
+private fun HudActionRow(
+    label: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val bg = if (isFocused) Color.White.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.06f)
+    val fg = if (isFocused) Color.Black else Color.White.copy(alpha = 0.86f)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = fg,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * D-pad-friendly stepper row: −50 / −10 / Reset / +10 / +50 ms. Each button
+ * clamps to ±500ms (matches the AudioSyncMs / SubtitleSyncMs coercion).
+ * Explicit steppers over a continuous slider per Infuse convention — remote
+ * control + fixed-granularity bumps is more usable than precise drag on a
+ * TV remote. Shared by audio + subtitles so both delays use the same row.
+ */
+@Composable
+private fun DelayStepperRow(
+    valueMs: Int,
+    onChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier,
+    ) {
+        // No local clamp — PlayerSettingsStore.setAudioSyncMs / setSubtitleSyncMs
+        // clamp to iOS-parity ranges (±5000 audio, ±10000 subtitle). The
+        // displayed value reflects the stored (clamped) value via the flow, so
+        // presses at the boundary become no-ops without per-row range plumbing.
+        DelayStepperButton(label = "−50", onClick = { onChange(valueMs - 50) })
+        DelayStepperButton(label = "−10", onClick = { onChange(valueMs - 10) })
+        DelayStepperButton(label = "Reset", onClick = { onChange(0) })
+        DelayStepperButton(label = "+10", onClick = { onChange(valueMs + 10) })
+        DelayStepperButton(label = "+50", onClick = { onChange(valueMs + 50) })
+    }
+}
+
+/**
+ * Pill button styled to match [VideoFillModeChip] / [HudTabPill] — white fill
+ * on focus, ghost when idle, animated scale. Unlike [VideoFillModeChip] this
+ * is a true click target (not focus-to-commit) — a stepper needs an explicit
+ * Select press per click so users can land on a button without changing state.
+ */
+@Composable
+private fun DelayStepperButton(
+    label: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val bg = if (isFocused) Color.White.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.06f)
+    val fg = if (isFocused) Color.Black else Color.White.copy(alpha = 0.72f)
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.0f else 0.96f,
+        animationSpec = tween(120),
+        label = "delayStepperScale",
+    )
+
+    Box(
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = fg,
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+            ),
+        )
+    }
+}
+
+private fun PlayerStatsSnapshot.hasHudRows(): Boolean = hudRows().isNotEmpty()
+
+private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildList {
+    videoCodec?.let { add("Video codec" to it) }
+    resolution?.let { add("Resolution" to it) }
+    frameRate?.let { add("Frame rate" to "%.3f fps".format(it)) }
+    hdrMode?.let { add("HDR mode" to it) }
+    videoDecoderName?.let { add("Video decoder" to it) }
+    audioCodec?.let { add("Audio codec" to it) }
+    audioDecoderName?.let { add("Audio decoder" to it) }
+    bitrateBps?.let { add("Bitrate" to formatBitrate(it)) }
+    if (droppedFrames > 0) add("Dropped frames" to droppedFrames.toString())
+    if (audioUnderruns > 0) add("Audio underruns" to audioUnderruns.toString())
+}
+
+private fun formatBitrate(bps: Long): String = when {
+    bps >= 1_000_000 -> "%.1f Mbps".format(bps / 1_000_000.0)
+    bps >= 1_000 -> "%.0f Kbps".format(bps / 1_000.0)
+    else -> "$bps bps"
+}
+
+/**
+ * Empty pane used only for tabs that remain useful when their optional picker
+ * data is empty, or for transient Stats rendering if analytics data disappears
+ * between tab selection and composition.
+ */
+@Composable
+private fun HudEmptyStatePane(message: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(Spacing.lg),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Chapters pane — renders [VersionChapter]s from the active FileVersion as a
+ * focus-driven picker. Selecting a chapter seeks the player to its start time
+ * (the screen owns the MediaController and performs the seek). The tab itself
+ * is hidden when the file has no chapters.
+ *
+ * Server-supplied via `FileVersion.chapters` (extracted from MP4/MKV at
+ * ingest by FFprobe) — mirrors Apple's HUD chapter list. Thumbnails
+ * (`thumbnailUrl` + `thumbnailThumbhash`) are intentionally not rendered in
+ * the first cut; text rows are a complete shipping pane.
+ */
+@Composable
+private fun HudChaptersPane(
+    chapters: List<VersionChapter>,
+    onSelectChapter: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (chapters.isEmpty()) {
+        HudEmptyStatePane("No chapters in this title", modifier)
+        return
+    }
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        itemsIndexed(chapters, key = { _, c -> c.index }) { idx, ch ->
+            HudChapterRow(
+                chapter = ch,
+                onFocused = { onSelectChapter(idx) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun HudChapterRow(
+    chapter: VersionChapter,
+    onFocused: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    LaunchedEffect(isFocused) { if (isFocused) onFocused() }
+
+    val bg = if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent
+    val fg = if (isFocused) Color.White else Color.White.copy(alpha = 0.86f)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .focusable(interactionSource = interactionSource)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = formatTime(chapter.startSeconds),
+            color = fg.copy(alpha = 0.72f),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            text = chapter.title.ifBlank { "Chapter ${chapter.index + 1}" },
+            color = fg,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
         )
     }
 }

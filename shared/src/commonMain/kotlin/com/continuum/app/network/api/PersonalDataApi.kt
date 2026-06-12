@@ -99,7 +99,7 @@ class PersonalDataApi(private val client: HttpClient) {
         client.get("/api/v1/ratings/$itemId")
     }
 
-    suspend fun setRating(itemId: String, rating: Double): ApiResult<Unit> = safeApiCall {
+    suspend fun setRating(itemId: String, rating: Int): ApiResult<Unit> = safeApiCall {
         client.put("/api/v1/ratings/$itemId") {
             contentType(ContentType.Application.Json)
             setBody(SetRatingRequest(rating))

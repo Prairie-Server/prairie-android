@@ -1,0 +1,107 @@
+package com.continuum.app.tv.ui.screens.watchtogether
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.continuum.app.tv.ui.screens.player.TvDialogActionRow
+import com.continuum.app.tv.ui.theme.DarkBackground
+
+/**
+ * D-pad Watch Together entry dialog. Panel + row idiom mirrors
+ * [com.continuum.app.tv.ui.screens.player.TvSubtitleSearchDialog] (Popup, dark
+ * panel, [TvDialogActionRow] rows). "Host a room" (auto-focused) creates a room
+ * with the current title pre-selected; "Join by code" opens the [TvJoinCodeDialog].
+ */
+@Composable
+fun TvWatchTogetherEntryDialog(
+    isBusy: Boolean,
+    error: String?,
+    onHost: () -> Unit,
+    onJoin: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val hostFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { hostFocus.requestFocus() } }
+
+    Popup(
+        alignment = Alignment.Center,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(
+            focusable = true,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            clippingEnabled = false,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 72.dp, top = 100.dp, end = 72.dp, bottom = 84.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val panelShape = RoundedCornerShape(28.dp)
+            Column(
+                modifier = Modifier
+                    .width(520.dp)
+                    .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
+                    .border(1.2.dp, Color.White.copy(alpha = 0.20f), panelShape)
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = "WATCH TOGETHER",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 12.sp,
+                        letterSpacing = 1.8.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = Color.White.copy(alpha = 0.58f),
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+
+                TvDialogActionRow(
+                    title = if (isBusy) "Working…" else "Host a room",
+                    enabled = !isBusy,
+                    onClick = onHost,
+                    modifier = Modifier.focusRequester(hostFocus),
+                )
+
+                TvDialogActionRow(
+                    title = "Join by code",
+                    enabled = !isBusy,
+                    onClick = onJoin,
+                )
+
+                error?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                        color = Color(0xFFEF4444),
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}

@@ -5,15 +5,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -79,76 +80,102 @@ fun ProfileSelectionScreen(
     }
 
     AuthStage {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+        // Vertical scroll on the whole page, mirroring iOS phone's
+        // `ScrollView { LazyVGrid(adaptive(min: 140, max: 180)) }` pattern at
+        // `ProfileSelectionView.swift:119`. The previous implementation
+        // capped the grid at a fixed 220.dp, which scrolled internally as
+        // soon as profiles spilled to a third row. Now the grid is a
+        // non-lazy FlowRow that grows naturally; only the page scrolls if
+        // content exceeds the viewport.
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = "Who's watching?",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = AuthColors.OnBackground,
+            Text(
+                text = "Who's watching?",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = AuthColors.OnBackground,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Choose a profile to continue.",
+                fontSize = 15.sp,
+                color = AuthColors.OnSurfaceVariant,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            state.error?.let { error ->
+                AuthErrorBanner(message = error)
+            }
+
+            if (state.isLoading) {
+                Spacer(modifier = Modifier.height(48.dp))
+                CircularProgressIndicator(color = AuthColors.Primary)
+            } else {
+                Spacer(modifier = Modifier.height(32.dp))
+
+                ProfileFlow(
+                    profiles = state.profiles,
+                    isManageMode = state.isManageMode,
+                    onProfileTap = { viewModel.onProfileTapped(it) },
+                    onProfileEdit = { onNavigateToEditProfile(it.id) },
+                    onProfileDelete = { viewModel.deleteProfile(it.id) },
+                    onAddProfile = onNavigateToCreateProfile,
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-                Text(
-                    text = "Choose a profile to continue.",
-                    fontSize = 15.sp,
-                    color = AuthColors.OnSurfaceVariant,
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                state.error?.let { error ->
-                    AuthErrorBanner(message = error)
-                }
-
-                if (state.isLoading) {
-                    Spacer(modifier = Modifier.height(48.dp))
-                    CircularProgressIndicator(color = AuthColors.Primary)
-                } else {
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 100.dp),
-                        modifier = Modifier.height(220.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally),
-                        verticalArrangement = Arrangement.spacedBy(26.dp),
-                    ) {
-                        items(state.profiles, key = { it.id }) { profile ->
-                            ProfileCard(
-                                profile = profile,
-                                isManageMode = state.isManageMode,
-                                onTap = { viewModel.onProfileTapped(profile) },
-                                onEdit = { onNavigateToEditProfile(profile.id) },
-                                onDelete = { viewModel.deleteProfile(profile.id) },
-                            )
-                        }
-
-                        item {
-                            AddProfileCard(onClick = onNavigateToCreateProfile)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    TextButton(onClick = viewModel::toggleManageMode) {
-                        Text(
-                            text = if (state.isManageMode) "Done" else "Manage Profiles",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = AuthColors.OnBackground,
-                        )
-                    }
+                TextButton(onClick = viewModel::toggleManageMode) {
+                    Text(
+                        text = if (state.isManageMode) "Done" else "Manage Profiles",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AuthColors.OnBackground,
+                    )
                 }
             }
         }
+    }
+}
+
+/**
+ * Non-lazy wrapping grid of profile tiles + the AddProfile tile. Uses
+ * [FlowRow] so the row count grows naturally with the profile count —
+ * the parent scroll handles overflow only when content exceeds the
+ * viewport, matching iOS phone's `ScrollView { LazyVGrid }` pattern.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ProfileFlow(
+    profiles: List<Profile>,
+    isManageMode: Boolean,
+    onProfileTap: (Profile) -> Unit,
+    onProfileEdit: (Profile) -> Unit,
+    onProfileDelete: (Profile) -> Unit,
+    onAddProfile: () -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(26.dp),
+    ) {
+        profiles.forEach { profile ->
+            ProfileCard(
+                profile = profile,
+                isManageMode = isManageMode,
+                onTap = { onProfileTap(profile) },
+                onEdit = { onProfileEdit(profile) },
+                onDelete = { onProfileDelete(profile) },
+            )
+        }
+        AddProfileCard(onClick = onAddProfile)
     }
 }
 

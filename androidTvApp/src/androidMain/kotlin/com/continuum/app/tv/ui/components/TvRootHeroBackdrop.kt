@@ -1,6 +1,8 @@
 package com.continuum.app.tv.ui.components
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
@@ -92,6 +95,20 @@ fun TvRootHeroBackdrop(
                                 1f to MaterialTheme.colorScheme.background,
                             ),
                         ),
+                )
+
+                val tintState = LocalAmbientBackdropTint.current
+                val targetAccent = tintState.accent ?: Color.Transparent
+                val animatedAccent by animateColorAsState(
+                    targetValue = targetAccent,
+                    animationSpec = tween(durationMillis = 600),
+                    label = "tvRootHeroBackdropAccent",
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(animatedAccent.copy(alpha = 0.18f)),
                 )
             }
         }

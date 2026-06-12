@@ -142,6 +142,9 @@ class AndroidPlayerSettingsStore(
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DvProfile7HDR10Fallback, true) }
 
+    override val downloadsWifiOnlyFlow: Flow<Boolean> =
+        profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DownloadsWifiOnly, true) }
+
     override val subtitleUsesDeviceOverrideFlow: Flow<Boolean> =
         profileScopedFlow(false) { p, s ->
             p.boolFor(s, PlaybackSettingsKeys.SubtitleUsesDeviceOverride, false)
@@ -200,6 +203,9 @@ class AndroidPlayerSettingsStore(
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) =
         writeBool(PlaybackSettingsKeys.DvProfile7HDR10Fallback, value)
 
+    override suspend fun setDownloadsWifiOnly(value: Boolean) =
+        writeBool(PlaybackSettingsKeys.DownloadsWifiOnly, value)
+
     override suspend fun setPlaybackSpeed(value: Double) {
         val clamped = value.coerceIn(0.25, 4.0)
         withScope { scope, store ->
@@ -209,10 +215,10 @@ class AndroidPlayerSettingsStore(
     }
 
     override suspend fun setAudioSyncMs(value: Int) =
-        writeInt(PlaybackSettingsKeys.AudioSyncMs, value.coerceIn(-500, 500))
+        writeInt(PlaybackSettingsKeys.AudioSyncMs, value.coerceIn(-5000, 5000))
 
     override suspend fun setSubtitleSyncMs(value: Int) =
-        writeInt(PlaybackSettingsKeys.SubtitleSyncMs, value.coerceIn(-500, 500))
+        writeInt(PlaybackSettingsKeys.SubtitleSyncMs, value.coerceIn(-10000, 10000))
 
     override suspend fun setNextUpPromptSeconds(value: Int) =
         writeInt(PlaybackSettingsKeys.NextUpPromptSeconds, value.coerceIn(0, 120))

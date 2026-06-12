@@ -23,7 +23,8 @@ import java.io.IOException
  * retry.
  *
  * Semantics:
- * 1. Inject `Authorization: Bearer <token>` from [TokenManager] on every request.
+ * 1. Inject `Authorization: Bearer <token>` plus active profile headers from
+ *    [TokenManager] on every request.
  * 2. On a 401, single-flight a refresh via [refreshMutex]; double-check inside
  *    the mutex so N parallel 401s collapse into ONE refresh.
  * 3. Retry the original request once with the refreshed token.
@@ -43,14 +44,11 @@ class MediaAuthInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         val tokenBeforeRequest = runBlocking { tokenManager.getAccessToken() }
+        val serverIdBeforeRequest = runBlocking { tokenManager.getCurrentServerId() }
 
-        val authed = if (tokenBeforeRequest.isNullOrBlank()) {
-            original
-        } else {
-            original.newBuilder()
-                .header("Authorization", "Bearer $tokenBeforeRequest")
-                .build()
-        }
+        val authed = original.newBuilder()
+            .applyAuthHeaders(tokenBeforeRequest)
+            .build()
 
         val response = chain.proceed(authed)
         if (response.code != 401) return response
@@ -65,7 +63,12 @@ class MediaAuthInterceptor(
                 if (tokenNow != null && tokenNow != tokenBeforeRequest) {
                     true
                 } else {
-                    attemptRefresh()
+                    val serverIdNow = tokenManager.getCurrentServerId()
+                    if (serverIdNow != serverIdBeforeRequest) {
+                        false
+                    } else {
+                        attemptRefresh(serverIdBeforeRequest)
+                    }
                 }
             }
         }
@@ -75,14 +78,26 @@ class MediaAuthInterceptor(
             return chain.proceed(authed)
         }
 
-        val newToken = runBlocking { tokenManager.getAccessToken() }.orEmpty()
         val retried = original.newBuilder()
-            .header("Authorization", "Bearer $newToken")
+            .applyAuthHeaders(runBlocking { tokenManager.getAccessToken() })
             .build()
         return chain.proceed(retried)
     }
 
-    private suspend fun attemptRefresh(): Boolean {
+    private fun Request.Builder.applyAuthHeaders(accessToken: String?): Request.Builder {
+        if (!accessToken.isNullOrBlank()) {
+            header("Authorization", "Bearer $accessToken")
+        }
+        runBlocking { tokenManager.getProfileId() }?.takeIf { it.isNotBlank() }?.let { profileId ->
+            header("X-Profile-Id", profileId)
+        }
+        runBlocking { tokenManager.getProfileToken() }?.takeIf { it.isNotBlank() }?.let { profileToken ->
+            header("X-Profile-Token", profileToken)
+        }
+        return this
+    }
+
+    private suspend fun attemptRefresh(serverIdBeforeRequest: String?): Boolean {
         val refreshToken = tokenManager.getRefreshToken() ?: return false
         val serverUrl = tokenManager.getServerUrl()
         if (refreshToken.isBlank() || serverUrl.isBlank()) return false
@@ -98,10 +113,14 @@ class MediaAuthInterceptor(
 
         return try {
             refreshClient.newCall(request).execute().use { resp ->
+                val serverIdAfterCall = tokenManager.getCurrentServerId()
+                if (serverIdAfterCall != serverIdBeforeRequest) {
+                    return@use false
+                }
                 if (!resp.isSuccessful) {
                     // Refresh itself 401ed or 5xx'd — clear tokens so the
                     // UI gets bounced to login on its next 401.
-                    tokenManager.clearTokens()
+                    tokenManager.invalidateSession()
                     return@use false
                 }
                 val payload = resp.body?.string().orEmpty()

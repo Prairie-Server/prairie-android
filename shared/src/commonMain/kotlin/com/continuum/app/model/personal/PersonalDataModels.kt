@@ -167,7 +167,7 @@ data class CollectionsResponse(
 
 @Serializable
 data class SetRatingRequest(
-    val rating: Double
+    val rating: Int
 )
 
 @Serializable

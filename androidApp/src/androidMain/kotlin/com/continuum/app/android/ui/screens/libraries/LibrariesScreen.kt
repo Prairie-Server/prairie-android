@@ -33,6 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalMovies
 import androidx.compose.material.icons.filled.Tv
@@ -84,6 +87,8 @@ import com.continuum.app.android.ui.screens.profiles.ProfileAvatar
 import com.continuum.app.android.ui.util.rememberDominantColor
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.model.navigation.MediaMode
+import com.continuum.app.model.navigation.mobileMediaModeForLibraryType
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.model.profile.Profile
 import com.continuum.app.model.section.LibraryCollection
@@ -165,7 +170,14 @@ class LibrariesViewModel(
 
             when (val result = personalDataRepository.listUserLibraries()) {
                 is ApiResult.Success -> {
-                    val libraries = result.data.sortedBy { library -> library.sortOrder }
+                    // The Audio tab is the sole owner of this VM (MainScreen
+                    // gates it on Tab.Audio), so restrict to audio-type
+                    // libraries — otherwise the hub defaults to the first
+                    // library overall (a video library by sort order) and its
+                    // selector lists movies/TV the audio tab can't browse.
+                    val libraries = result.data
+                        .filter { mobileMediaModeForLibraryType(it.type) == MediaMode.Audio }
+                        .sortedBy { library -> library.sortOrder }
                     val selectedLibraryId = _uiState.value.selectedLibraryId
                         ?.takeIf { currentId -> libraries.any { it.id == currentId } }
                         ?: libraries.firstOrNull()?.id
@@ -1193,11 +1205,11 @@ private fun LibrarySubtabRow(
             selected = selectedTab == LibrariesSubtab.Recommended,
             onClick = onRecommendedClick,
         )
-        LibrarySubtabChip(
-            label = "Browse",
-            selected = selectedTab == LibrariesSubtab.Browse,
-            onClick = onBrowseClick,
-        )
+        // Browse chip hidden per UX direction (2026-05-24). The Browse content
+        // is still reachable via the per-section "See all" button on the
+        // Recommended tab, and BrowseTabContent / loadCatalog stay in the
+        // tree so that path keeps working. Re-add the chip here to expose
+        // Browse as a top-level destination again.
         LibrarySubtabChip(
             label = "Collections",
             selected = selectedTab == LibrariesSubtab.Collections,
@@ -1308,11 +1320,17 @@ private fun libraryChipColors(selected: Boolean) = FilterChipDefaults.filterChip
 private fun libraryIcon(type: String): ImageVector = when (type.lowercase()) {
     "movies", "movie" -> Icons.Default.LocalMovies
     "series", "tv", "shows" -> Icons.Default.Tv
+    "audiobook", "audiobooks" -> Icons.Default.Headphones
+    "book", "books", "ebook", "ebooks" -> Icons.AutoMirrored.Filled.MenuBook
+    "comic", "comics", "manga" -> Icons.Default.AutoStories
     else -> Icons.Default.VideoLibrary
 }
 
 private fun UserLibrary.typeLabel(): String = when (type.lowercase()) {
     "movies", "movie" -> "Movies library"
     "series", "tv", "shows" -> "TV library"
+    "audiobook", "audiobooks" -> "Audiobooks library"
+    "book", "books", "ebook", "ebooks" -> "Books library"
+    "comic", "comics", "manga" -> "Comics / manga library"
     else -> "Library"
 }

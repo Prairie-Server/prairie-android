@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -514,7 +516,14 @@ fun VersionPillButton(
     }
 }
 
-/** Full action stack: Play pill on top, circle row below, optional version pill. */
+/**
+ * Full action stack: Play pill on top, circle row below, optional version pill.
+ *
+ * `downloadSlot` is rendered as a sibling of the favorite / watchlist /
+ * watched buttons when non-null. Pass-through slot rather than baked-in
+ * params keeps HeroActionStack agnostic of download concepts; the slot
+ * function decides icon, state, and click behavior.
+ */
 @Composable
 fun HeroActionStack(
     primaryLabel: String,
@@ -525,9 +534,12 @@ fun HeroActionStack(
     onToggleFavorite: () -> Unit,
     onToggleWatchlist: () -> Unit,
     onToggleWatched: () -> Unit,
+    userRating: Int? = null,
+    onRateClick: (() -> Unit)? = null,
     versionLabel: String? = null,
     onVersionClick: (() -> Unit)? = null,
     overflow: (@Composable (dismiss: () -> Unit) -> Unit)? = null,
+    downloadSlot: (@Composable () -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -565,6 +577,19 @@ fun HeroActionStack(
                 contentDescription = if (isWatched) "Mark as unwatched" else "Mark as watched",
                 onClick = onToggleWatched,
             )
+            if (onRateClick != null) {
+                CircleActionButton(
+                    icon = Icons.Filled.StarBorder,
+                    activeIcon = Icons.Filled.Star,
+                    isActive = userRating != null,
+                    contentDescription = userRating?.let { "Rated $it of 5" } ?: "Rate",
+                    onClick = onRateClick,
+                    activeTint = Color(0xFFFFC107),
+                )
+            }
+            if (downloadSlot != null) {
+                downloadSlot()
+            }
             if (overflow != null) {
                 CircleOverflowButton(menuContent = overflow)
             }

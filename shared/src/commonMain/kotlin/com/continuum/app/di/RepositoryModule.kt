@@ -5,15 +5,23 @@ import com.continuum.app.domain.ManagePlaybackUseCase
 import com.continuum.app.domain.MediaActionsCoordinator
 import com.continuum.app.repository.AdminRepository
 import com.continuum.app.repository.AuthRepository
+import com.continuum.app.repository.CalendarRepository
+import com.continuum.app.repository.DeviceLoginRepository
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.CollectionRepository
+import com.continuum.app.repository.DownloadsRepository
+import com.continuum.app.repository.EbookReaderRepository
+import com.continuum.app.repository.SubtitlesRepository
 import com.continuum.app.repository.LibraryPlaybackPrefsRepository
+import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.PlaybackRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.repository.RecommendationRepository
+import com.continuum.app.repository.RequestsRepository
 import com.continuum.app.repository.SectionRepository
 import com.continuum.app.repository.SettingsRepository
+import com.continuum.app.repository.WatchTogetherRepository
 import org.koin.dsl.module
 
 /**
@@ -32,16 +40,52 @@ val repositoryModule = module {
     // (commonMain tests, hypothetical iOS reuse). Both repos no-op the
     // multi-server side effects when the registry is null.
     single { AuthRepository(get(), get(), getOrNull(), getOrNull()) }
+    single { DeviceLoginRepository(get()) }
     single { CatalogRepository(get()) }
+    single { CalendarRepository(get()) }
     single { PlaybackRepository(get()) }
     single { PersonalDataRepository(get()) }
-    single { ProfileRepository(get(), get(), getOrNull()) }
+    single { ProfileRepository(get(), get(), getOrNull(), get()) }
     single { CollectionRepository(get()) }
     single { SectionRepository(get()) }
     single { RecommendationRepository(get()) }
-    single { AdminRepository(get()) }
+    single { RequestsRepository(get()) }
     single { SettingsRepository(get()) }
     single { LibraryPlaybackPrefsRepository(get()) }
+    single { DownloadsRepository(get()) }
+    single { EbookReaderRepository(get()) }
+    single { SubtitlesRepository(get()) }
+    single { AdminRepository(get()) }
+
+    // REST-backed inbox state plus a realtime factory that builds the default
+    // websocket client from the shared HttpClient + NotificationsApi. The
+    // factory is lazy so a connection is only minted when connectRealtime() runs.
+    single {
+        NotificationsRepository(
+            api = get(),
+            realtimeFactory = {
+                com.continuum.app.network.DefaultNotificationsRealtimeClient(
+                    client = get(),
+                    api = get(),
+                )
+            },
+        )
+    }
+
+    // One room's snapshot/suggestions state + WS lifecycle. The realtime factory
+    // builds the per-room socket client from the shared HttpClient + TokenManager
+    // (query-param auth). Lazy so a socket is only minted when connect() runs.
+    single {
+        WatchTogetherRepository(
+            api = get(),
+            realtimeFactory = {
+                com.continuum.app.network.DefaultWatchTogetherRealtimeClient(
+                    client = get(),
+                    tokenManager = get(),
+                )
+            },
+        )
+    }
 
     // Domain use cases
     single { GetHomeDataUseCase(get(), get()) }

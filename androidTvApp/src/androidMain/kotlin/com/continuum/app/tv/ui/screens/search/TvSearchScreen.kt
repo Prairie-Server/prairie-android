@@ -142,7 +142,7 @@ fun TvSearchScreen(
                     )
                     else -> SearchFeedbackCard(
                         title = "No matches for “${state.query}”",
-                        body = "Try a shorter title or switch between Movies and Series.",
+                        body = "Try a shorter title or switch media filters.",
                     )
                 }
             },
@@ -210,7 +210,7 @@ private fun SearchStage(
             },
             placeholder = {
                 androidx.compose.material3.Text(
-                    text = "Search titles, movies, and series",
+                    text = "Search titles, movies, series, and audiobooks",
                     color = Color.White.copy(alpha = 0.44f),
                 )
             },

@@ -1,12 +1,12 @@
 package com.continuum.app.android.ui.screens.player
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,10 +35,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.continuum.app.android.ui.util.LanguageNames
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SleepTimerState
+import com.continuum.app.model.watchtogether.MemberRole
+import com.continuum.app.model.watchtogether.RoomPlaybackState
+import com.continuum.app.model.watchtogether.RoomSnapshot
+import com.continuum.app.watchtogether.RoomTransportIntent
+import com.continuum.app.watchtogether.roomTransportAuthorized
 
 /**
  * Full-screen overlay composable that layers gesture handling, transport controls,
@@ -47,6 +57,7 @@ import com.continuum.app.common.player.SleepTimerState
 fun PlayerOverlay(
     state: PlayerViewModel.PlayerUiState,
     viewModel: PlayerViewModel,
+    roomSnapshot: RoomSnapshot? = null,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Double) -> Unit,
@@ -57,19 +68,62 @@ fun PlayerOverlay(
     onSelectVersion: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showSettings by remember { mutableStateOf(false) }
-    var showSubtitleSelector by remember { mutableStateOf(false) }
-    var showAudioSelector by remember { mutableStateOf(false) }
+    // Sheet visibility — one bool per sheet. iOS uses a sealed `activeSheet`
+    // enum, but Compose Material 3 needs each ModalBottomSheet to own its
+    // `rememberModalBottomSheetState`, so per-sheet bools are the natural
+    // fit (and the sheets can't be nested anyway).
+    var tracksSheetVisible by remember { mutableStateOf(false) }
     var showQualitySelector by remember { mutableStateOf(false) }
     var settingsSheetVisible by remember { mutableStateOf(false) }
     var subtitleStyleVisible by remember { mutableStateOf(false) }
     var sleepTimerVisible by remember { mutableStateOf(false) }
+    var chaptersSheetVisible by remember { mutableStateOf(false) }
+    var subtitleSearchVisible by remember { mutableStateOf(false) }
+    var aiTranslateVisible by remember { mutableStateOf(false) }
+    // Host close-room confirm dialog (Watch Together): the host backing out of
+    // the player tears the room down for everyone, so confirm first.
+    var showCloseConfirm by remember { mutableStateOf(false) }
+
+    // Watch Together transport gating. Seek is host-only (the server rejects
+    // guest seeks regardless of policy), so the scrubber / skip affordance is
+    // disabled for ALL guests — even one under guest_play_pause, who keeps the
+    // play/pause affordance. Solo playback (no room) enables both.
+    val inRoom = roomSnapshot != null
+    val seekEnabled = !inRoom || roomTransportAuthorized(roomSnapshot, RoomTransportIntent.Seek)
+    val playPauseEnabled = !inRoom || roomTransportAuthorized(roomSnapshot, RoomTransportIntent.PlayPause)
+    val isRoomHost = roomSnapshot?.selfRole == MemberRole.Host
+
+    // Back intercept: a host in a room confirms the room close; everyone else
+    // (guest, or solo playback) backs out immediately.
+    val handleBack: () -> Unit = {
+        if (inRoom && isRoomHost) showCloseConfirm = true else onBack()
+    }
+    val gatedSeek: (Double) -> Unit = { pos -> if (seekEnabled) onSeek(pos) }
+    val gatedPlayPause: () -> Unit = { if (playPauseEnabled) onPlayPause() }
+
+    // Orientation lock — toggled from the top-bar lock icon (iOS parity).
+    // Default false: respect system rotation lock (PlayerScreen sets the
+    // initial requestedOrientation to USER). When the user taps the lock,
+    // we override to LANDSCAPE; tapping again returns control to USER.
+    var isOrientationLocked by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val activity = context as? Activity
 
     val introSkipState by viewModel.introSkipState.collectAsState()
     val sleepTimerState by viewModel.sleepTimerState.collectAsState()
     val sleepTimerDefault by viewModel.sleepTimerDefaultMinutes.collectAsState()
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
+    val subtitleTools by viewModel.subtitleTools.collectAsState()
+
+    // Lazy one-shot AI status probe on first TracksSheet open (web parity).
+    LaunchedEffect(tracksSheetVisible) {
+        if (tracksSheetVisible) viewModel.onTracksSheetOpened()
+    }
+
+    // Subtitle tooling needs a live server session (media_file_id + session
+    // stream URLs); hidden for offline/local playback.
+    val subtitleToolsAvailable = state.sessionId != null && state.mediaFileId != null
 
     Box(modifier = modifier.fillMaxSize()) {
         // Gesture layer (always active, underneath controls)
@@ -77,9 +131,9 @@ fun PlayerOverlay(
             position = state.position,
             duration = state.duration,
             onToggleControls = onToggleControls,
-            onSeek = onSeek,
-            onSkipForward = { onSeek((state.position + 10.0).coerceAtMost(state.duration)) },
-            onSkipBackward = { onSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+            onSeek = gatedSeek,
+            onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
+            onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
         )
 
         // Buffering indicator. Shown during ExoPlayer buffering AND during outage
@@ -108,6 +162,48 @@ fun PlayerOverlay(
             PlayerNoticeOverlay(notice = notice)
         }
 
+        // Watch Together room indicator (top-center). Member count + host-offline
+        // / waiting-barrier state, and the invite code for the host. Stays
+        // visible regardless of controls visibility so members always know the
+        // room status.
+        if (roomSnapshot != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 16.dp),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Group,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val label = when {
+                        roomSnapshot.playbackState == RoomPlaybackState.Waiting -> "Waiting for members…"
+                        !roomSnapshot.hostConnected -> "${roomSnapshot.memberCount} · host offline"
+                        else -> "${roomSnapshot.memberCount} watching"
+                    }
+                    Text(text = label, color = Color.White, fontSize = 13.sp)
+                    if (isRoomHost && roomSnapshot.code.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Code ${roomSnapshot.code}",
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+        }
+
         // Transport controls (shown/hidden with animation)
         AnimatedVisibility(
             visible = state.showControls,
@@ -122,41 +218,28 @@ fun PlayerOverlay(
                 isPaused = state.isPaused,
                 position = state.position,
                 duration = state.duration,
-                onBack = onBack,
-                onPlayPause = onPlayPause,
-                onSeek = onSeek,
-                onSkipForward = { onSeek((state.position + 10.0).coerceAtMost(state.duration)) },
-                onSkipBackward = { onSeek((state.position - 10.0).coerceAtLeast(0.0)) },
-                onSettingsClick = { showSettings = !showSettings },
-                onOpenSettingsSheet = { settingsSheetVisible = true },
-            )
-        }
-
-        // Settings panel (subtitle, audio, quality buttons)
-        AnimatedVisibility(
-            visible = showSettings && state.showControls,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 100.dp, end = 16.dp),
-        ) {
-            SettingsPanel(
-                hasSubtitles = state.subtitleTracks.isNotEmpty(),
-                hasMultipleAudio = state.audioTracks.size > 1,
-                hasMultipleVersions = state.versions.size > 1,
-                onSubtitleClick = {
-                    showSettings = false
-                    showSubtitleSelector = true
+                hasChapters = state.chapters.isNotEmpty(),
+                hasTracks = state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty(),
+                isOrientationLocked = isOrientationLocked,
+                seekEnabled = seekEnabled,
+                playPauseEnabled = playPauseEnabled,
+                onBack = handleBack,
+                onPlayPause = gatedPlayPause,
+                onSeek = gatedSeek,
+                onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
+                onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+                onToggleOrientationLock = {
+                    val nextLocked = !isOrientationLocked
+                    isOrientationLocked = nextLocked
+                    activity?.requestedOrientation = if (nextLocked) {
+                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    } else {
+                        ActivityInfo.SCREEN_ORIENTATION_USER
+                    }
                 },
-                onAudioClick = {
-                    showSettings = false
-                    showAudioSelector = true
-                },
-                onQualityClick = {
-                    showSettings = false
-                    showQualitySelector = true
-                },
+                onOpenChapters = { chaptersSheetVisible = true },
+                onOpenTracks = { tracksSheetVisible = true },
+                onOpenSettings = { settingsSheetVisible = true },
             )
         }
 
@@ -213,22 +296,78 @@ fun PlayerOverlay(
         }
     }
 
-    // Bottom sheet selectors (rendered outside the overlay Box so they layer correctly)
-    if (showSubtitleSelector) {
-        SubtitleSelector(
-            subtitles = state.subtitleTracks,
-            selectedIndex = state.selectedSubtitleIndex,
-            onSelect = onSelectSubtitle,
-            onDismiss = { showSubtitleSelector = false },
+    // Host close-room confirmation (Watch Together). Closing tears the room
+    // down for everyone; the actual close + teardown happens in onBack (the
+    // RoomSyncController.leave(closeRoom = true) path in PlayerScreen).
+    if (showCloseConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCloseConfirm = false },
+            title = { Text("Close room for everyone?") },
+            text = { Text("Leaving as host ends the Watch Together room for all members.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCloseConfirm = false
+                    onBack()
+                }) { Text("Close room") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloseConfirm = false }) { Text("Cancel") }
+            },
         )
     }
 
-    if (showAudioSelector) {
-        AudioTrackSelector(
+    // Combined audio + subtitle picker — opened from the top-bar
+    // captions.bubble icon (iOS parity). Replaces the previous side-popup
+    // "SettingsPanel" + individual SubtitleSelector / AudioTrackSelector
+    // sheets with a single sectioned ModalBottomSheet.
+    TracksSheet(
+        isVisible = tracksSheetVisible,
+        audioTracks = state.audioTracks,
+        selectedAudioIndex = state.selectedAudioIndex,
+        subtitles = state.subtitleTracks,
+        selectedSubtitleIndex = state.selectedSubtitleIndex,
+        onSelectAudio = onSelectAudio,
+        onSelectSubtitle = onSelectSubtitle,
+        onDismiss = { tracksSheetVisible = false },
+        showSearchAction = subtitleToolsAvailable,
+        showTranslateAction = subtitleToolsAvailable &&
+            subtitleTools.aiStatus?.let { it.enabled || it.transcribeEnabled } == true,
+        onSearchSubtitles = {
+            tracksSheetVisible = false
+            subtitleSearchVisible = true
+        },
+        onTranslateWithAi = {
+            tracksSheetVisible = false
+            aiTranslateVisible = true
+        },
+    )
+
+    if (subtitleSearchVisible) {
+        SubtitleSearchSheet(
+            tools = subtitleTools,
+            defaultLanguage = LanguageNames.searchCode(state.preferredTextLanguage),
+            onSearch = viewModel::searchSubtitles,
+            onDownload = viewModel::downloadSubtitle,
+            onDismiss = {
+                subtitleSearchVisible = false
+                viewModel.onSearchSheetClosed()
+            },
+        )
+    }
+
+    if (aiTranslateVisible) {
+        AiTranslateSheet(
+            tools = subtitleTools,
+            subtitleTracks = state.subtitleTracks,
             audioTracks = state.audioTracks,
-            selectedIndex = state.selectedAudioIndex,
-            onSelect = onSelectAudio,
-            onDismiss = { showAudioSelector = false },
+            defaultTargetLanguage = LanguageNames.searchCode(state.preferredTextLanguage),
+            onRefreshQuota = viewModel::refreshAiQuota,
+            onSubmit = viewModel::startAiJob,
+            onCancelJob = viewModel::cancelAiJob,
+            onDismiss = {
+                aiTranslateVisible = false
+                viewModel.onTranslateSheetClosed()
+            },
         )
     }
 
@@ -263,7 +402,34 @@ fun PlayerOverlay(
             settingsSheetVisible = false
             sleepTimerVisible = true
         },
+        onOpenChapters = {
+            settingsSheetVisible = false
+            chaptersSheetVisible = true
+        },
+        hasChapters = state.chapters.isNotEmpty(),
+        onOpenQuality = {
+            settingsSheetVisible = false
+            showQualitySelector = true
+        },
+        hasMultipleVersions = state.versions.size > 1,
+        audioDelayMs = viewModel.audioDelayMs.collectAsState().value,
+        onSetAudioDelay = viewModel::onSetAudioDelay,
+        subtitleDelayMs = viewModel.subtitleDelayMs.collectAsState().value,
+        onSetSubtitleDelay = viewModel::onSetSubtitleDelay,
         sleepTimerState = sleepTimerState,
+    )
+
+    // Chapters picker — opened from the "Chapters" row in PlayerSettingsSheet.
+    // Selecting a row seeks the player to the chapter's startSeconds. Hidden
+    // entirely (and the parent row hidden) when the active version has no
+    // embedded chapters.
+    ChaptersSheet(
+        isVisible = chaptersSheetVisible,
+        chapters = state.chapters,
+        onSelect = { idx ->
+            viewModel.onSeekToChapter(idx)?.let { sec -> viewModel.onSeek(sec) }
+        },
+        onDismiss = { chaptersSheetVisible = false },
     )
 
     // Subtitle styling sheet — opened from the "Subtitle Style" row in
@@ -318,41 +484,3 @@ private fun SleepTimerChip(remainingSeconds: Int) {
     }
 }
 
-/**
- * Small floating panel with buttons for subtitle, audio, and quality settings.
- */
-@Composable
-private fun SettingsPanel(
-    hasSubtitles: Boolean,
-    hasMultipleAudio: Boolean,
-    hasMultipleVersions: Boolean,
-    onSubtitleClick: () -> Unit,
-    onAudioClick: () -> Unit,
-    onQualityClick: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .background(
-                color = Color.Black.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(12.dp),
-            )
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (hasSubtitles) {
-            TextButton(onClick = onSubtitleClick) {
-                Text("Subtitles", color = Color.White)
-            }
-        }
-        if (hasMultipleAudio) {
-            TextButton(onClick = onAudioClick) {
-                Text("Audio", color = Color.White)
-            }
-        }
-        if (hasMultipleVersions) {
-            TextButton(onClick = onQualityClick) {
-                Text("Quality", color = Color.White)
-            }
-        }
-    }
-}

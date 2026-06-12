@@ -1,19 +1,62 @@
 package com.continuum.app.tv
 
 import android.app.Application
+import androidx.work.Configuration
+import androidx.work.WorkManager
 import com.continuum.app.common.di.playerInfraModule
 import com.continuum.app.common.di.playerModule
 import com.continuum.app.di.sharedModules
 import com.continuum.app.tv.di.androidTvModule
+import com.continuum.app.tv.notifications.NotificationsForegroundStarter
+import com.continuum.app.tv.watchnext.TvWorkerFactory
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 
-class ContinuumTvApplication : Application() {
+/**
+ * Implements `Configuration.Provider` rather than installing Koin's
+ * `workManagerFactory()` inside `startKoin { … }`. The Koin path loses the
+ * race against WorkManager's androidx.startup auto-init (which runs before
+ * `Application.onCreate` on many devices), silently leaving WorkManager on
+ * its reflection-based factory — which cannot construct
+ * [com.continuum.app.tv.watchnext.WatchNextSyncWorker]'s injected
+ * constructor. Mirrors the phone app's ContinuumApplication +
+ * AppWorkerFactory recipe (see that file for the full history).
+ */
+class ContinuumTvApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
-        startKoin {
+        val koinApp = startKoin {
             androidContext(this@ContinuumTvApplication)
             modules(sharedModules() + playerModule + playerInfraModule + androidTvModule)
         }
+        // Notifications realtime: connect while foregrounded. Separate app
+        // module → own Koin start, so TV invokes the starter here (the phone app
+        // does the equivalent in ContinuumApplication). Guarded: it's a
+        // foreground accelerator, never load-bearing for cold start.
+        runCatching {
+            NotificationsForegroundStarter(
+                repository = koinApp.koin.get(),
+            ).register()
+        }.onFailure {
+            android.util.Log.w("ContinuumTvApplication", "Notifications realtime starter failed", it)
+        }
+        // The androidx.startup WorkManagerInitializer is opted out in the
+        // manifest; force-initialise explicitly with TvWorkerFactory now
+        // that Koin is up. runCatching guards the "already initialised"
+        // IllegalStateException in case anything else got there first.
+        runCatching {
+            WorkManager.initialize(this, workManagerConfiguration)
+            android.util.Log.i("ContinuumTvApplication", "WorkManager.initialize called with TvWorkerFactory")
+        }.onFailure {
+            android.util.Log.w("ContinuumTvApplication", "WorkManager.initialize failed (already initialised?)", it)
+        }
     }
+
+    override val workManagerConfiguration: Configuration
+        get() {
+            android.util.Log.i("ContinuumTvApplication", "workManagerConfiguration accessed; installing TvWorkerFactory")
+            return Configuration.Builder()
+                .setWorkerFactory(TvWorkerFactory())
+                .build()
+        }
 }

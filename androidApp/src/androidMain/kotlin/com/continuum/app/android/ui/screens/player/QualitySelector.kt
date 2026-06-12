@@ -1,5 +1,6 @@
 package com.continuum.app.android.ui.screens.player
 
+import com.continuum.app.android.ui.util.formatBytes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -72,7 +73,7 @@ fun QualitySelector(
                         }
                         if (version.fileSize > 0) {
                             if (isNotEmpty()) append(" - ")
-                            append(formatFileSize(version.fileSize))
+                            append(formatBytes(version.fileSize))
                         }
                     }.ifEmpty { null }
 
@@ -138,11 +139,3 @@ private fun QualityOptionRow(
     }
 }
 
-private fun formatFileSize(bytes: Long): String {
-    return when {
-        bytes >= 1_073_741_824 -> String.format("%.1f GB", bytes / 1_073_741_824.0)
-        bytes >= 1_048_576 -> String.format("%.0f MB", bytes / 1_048_576.0)
-        bytes >= 1024 -> String.format("%.0f KB", bytes / 1024.0)
-        else -> "$bytes B"
-    }
-}

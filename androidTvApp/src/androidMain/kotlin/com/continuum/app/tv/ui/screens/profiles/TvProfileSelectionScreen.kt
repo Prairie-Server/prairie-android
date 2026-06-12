@@ -171,7 +171,7 @@ private fun TvProfileCard(
     }
 
     val shape = RoundedCornerShape(24.dp)
-    val cardFocus = continuumCardDefaults(shape = shape, focusedScale = 1.08f)
+    val cardFocus = continuumCardDefaults(shape = shape)
     val tileTint = profile.tintColor()
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Card(

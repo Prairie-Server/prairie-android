@@ -2,6 +2,7 @@ package com.continuum.app.tv.ui.screens.libraries
 
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LocalMovies
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -96,11 +97,13 @@ fun TvLibrariesScreen(
 private fun UserLibrary.iconVector(): ImageVector = when (type.lowercase()) {
     "movies", "movie" -> Icons.Filled.LocalMovies
     "series", "tv", "shows" -> Icons.Filled.Tv
+    "audiobook", "audiobooks" -> Icons.Filled.Headphones
     else -> Icons.Filled.VideoLibrary
 }
 
 private fun UserLibrary.pickerSubtitle(): String = when (type.lowercase()) {
     "movies", "movie" -> "Movies library"
     "series", "tv", "shows" -> "TV library"
+    "audiobook", "audiobooks" -> "Audiobooks"
     else -> "Library"
 }

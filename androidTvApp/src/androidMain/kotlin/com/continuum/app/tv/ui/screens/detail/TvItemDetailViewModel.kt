@@ -6,11 +6,14 @@ import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.model.catalog.EpisodeListItem
 import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.catalog.Season
+import com.continuum.app.model.catalog.isAudiobookItemType
 import com.continuum.app.model.catalog.sortedForDisplay
 import com.continuum.app.model.section.SectionItem
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.PersonalDataRepository
+import com.continuum.app.tv.ui.util.isTvHiddenMediaType
+import com.continuum.app.tv.ui.util.visibleOnTv
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +29,8 @@ data class TvItemDetailUiState(
     val inWatchlist: Boolean = false,
     val isTogglingFavorite: Boolean = false,
     val isTogglingWatchlist: Boolean = false,
+    val userRating: Int? = null,
+    val isTogglingRating: Boolean = false,
     // Series navigation (only relevant when detail.type == "series").
     val seasons: List<Season> = emptyList(),
     val selectedSeason: Int? = null,
@@ -78,10 +83,21 @@ class TvItemDetailViewModel(
             when (val result = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
                     val detail = result.data
+                    if (isTvHiddenMediaType(detail.type)) {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                detail = null,
+                                error = "This title is not available on Android TV.",
+                            )
+                        }
+                        return@launch
+                    }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             detail = detail,
+                            userRating = detail.userRating,
                             error = null,
                         )
                     }
@@ -161,6 +177,43 @@ class TvItemDetailViewModel(
         }
     }
 
+    fun onSetRating(stars: Int) {
+        val current = _uiState.value
+        if (current.isTogglingRating) return
+        val target = stars.coerceIn(1, 5)
+        val previous = current.userRating
+        _uiState.update { it.copy(isTogglingRating = true, userRating = target) }
+        viewModelScope.launch {
+            val result = personalDataRepository.setRating(contentId, target)
+            if (result !is ApiResult.Success) {
+                // Roll back on error.
+                _uiState.update {
+                    it.copy(isTogglingRating = false, userRating = previous)
+                }
+            } else {
+                _uiState.update { it.copy(isTogglingRating = false) }
+            }
+        }
+    }
+
+    fun onClearRating() {
+        val current = _uiState.value
+        if (current.isTogglingRating) return
+        val previous = current.userRating ?: return
+        _uiState.update { it.copy(isTogglingRating = true, userRating = null) }
+        viewModelScope.launch {
+            val result = personalDataRepository.deleteRating(contentId)
+            if (result !is ApiResult.Success) {
+                // Roll back on error.
+                _uiState.update {
+                    it.copy(isTogglingRating = false, userRating = previous)
+                }
+            } else {
+                _uiState.update { it.copy(isTogglingRating = false) }
+            }
+        }
+    }
+
     fun onVersionSelected(fileId: Int?) {
         _uiState.update { it.copy(selectedFileId = fileId) }
     }
@@ -225,7 +278,7 @@ class TvItemDetailViewModel(
 
     private fun loadMoreLikeThis(detail: ItemDetail) {
         val primaryGenre = detail.genres.firstOrNull { it.isNotBlank() }
-        val mediaType = detail.type.takeIf { it in setOf("movie", "series", "episode") }
+        val mediaType = detail.type.takeIf { it in setOf("movie", "series", "episode") || isAudiobookItemType(it) }
         if (primaryGenre == null && mediaType == null) return
 
         viewModelScope.launch {
@@ -239,6 +292,7 @@ class TvItemDetailViewModel(
             )) {
                 is ApiResult.Success -> {
                     val items = result.data.items
+                        .visibleOnTv()
                         .filterNot { it.contentId == detail.contentId }
                         .take(16)
                         .map { it.toSectionItem() }

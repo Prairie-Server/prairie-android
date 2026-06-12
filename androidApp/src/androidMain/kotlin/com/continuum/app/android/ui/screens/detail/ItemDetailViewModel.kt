@@ -3,16 +3,25 @@ package com.continuum.app.android.ui.screens.detail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.continuum.app.common.downloads.DownloadEnqueuer
 import com.continuum.app.model.catalog.EpisodeListItem
+import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.catalog.Season
 import com.continuum.app.model.catalog.sortedForDisplay
+import com.continuum.app.model.download.DownloadRecord
+import com.continuum.app.model.download.DownloadStatus
+import com.continuum.app.model.download.statusEnum
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
+import com.continuum.app.repository.DownloadsRepository
 import com.continuum.app.repository.PersonalDataRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -28,6 +37,7 @@ data class ItemDetailUiState(
     val isLoadingEpisodes: Boolean = false,
     val isFavorite: Boolean = false,
     val isInWatchlist: Boolean = false,
+    val userRating: Int? = null,
     val error: String? = null,
     val selectedVersionIndex: Int = 0,
     val selectedAudioIndex: Int = 0,
@@ -46,6 +56,8 @@ data class ItemDetailUiState(
 class ItemDetailViewModel(
     private val catalogRepository: CatalogRepository,
     private val personalDataRepository: PersonalDataRepository,
+    private val downloadsRepository: DownloadsRepository,
+    private val downloadEnqueuer: DownloadEnqueuer,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -55,6 +67,87 @@ class ItemDetailViewModel(
 
     private val _uiState = MutableStateFlow(ItemDetailUiState())
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
+
+    /** Live mirror of the shared records flow; the screen reads this to
+     *  derive per-version download state (isDownloaded / progress). */
+    val downloads: StateFlow<List<DownloadRecord>> = downloadsRepository.records
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    init {
+        // Refresh once so server-side records are visible when the user
+        // lands on the detail screen (e.g., to show 'Downloaded' on a file
+        // that was downloaded in a previous app session).
+        viewModelScope.launch { downloadsRepository.refresh() }
+    }
+
+    /**
+     * Returns the download record for the given [version]'s fileId, or
+     * null when nothing has been requested for that version yet.
+     */
+    fun downloadRecordFor(version: FileVersion): DownloadRecord? =
+        downloads.value.firstOrNull { it.mediaFileId == version.fileId }
+
+    /**
+     * Tap action for the download button. Branches on current record state:
+     *  - None / failed / cancelled → start a new download
+     *  - Queued / downloading → cancel via WorkManager + delete the record
+     *  - Completed → no-op (user deletes from the Downloads tab)
+     */
+    fun onDownloadTapped(version: FileVersion, displayTitle: String) {
+        val existing = downloadRecordFor(version)
+        when (existing?.statusEnum()) {
+            DownloadStatus.Queued, DownloadStatus.Downloading -> {
+                downloadEnqueuer.cancel(existing.id)
+                viewModelScope.launch { downloadsRepository.delete(existing.id) }
+            }
+            DownloadStatus.Completed -> Unit  // Manage via Downloads tab.
+            else -> viewModelScope.launch {
+                // wifiOnly read from per-profile PlayerSettingsStore inside
+                // DownloadEnqueuer.start; default true.
+                downloadEnqueuer.start(
+                    contentId = contentId,
+                    fileId = version.fileId,
+                    displayTitle = displayTitle,
+                )
+            }
+        }
+    }
+
+    /**
+     * Per-episode download tap. Picks the best file for the episode (first
+     * entry in the server-sorted files list) and queues it. If the episode
+     * has no files (rare — orphaned record), no-ops.
+     */
+    fun onEpisodeDownloadTapped(episode: EpisodeListItem) {
+        val fileId = episode.files.firstOrNull()?.fileId ?: return
+        val detail = _uiState.value.detail ?: return
+        viewModelScope.launch {
+            downloadEnqueuer.startEpisode(
+                seriesContentId = detail.contentId,
+                episodeContentId = episode.contentId,
+                fileId = fileId,
+                seriesTitle = detail.title,
+                seasonNumber = episode.seasonNumber,
+                episodeNumber = episode.episodeNumber,
+                episodeTitle = episode.title,
+                posterUrl = detail.posterUrl,
+            )
+        }
+    }
+
+    /** Series-level "Download series" — uses the server's batch endpoint
+     *  (one POST → N records sharing a batchId). */
+    fun onSeriesDownloadTapped() {
+        val detail = _uiState.value.detail ?: return
+        viewModelScope.launch { downloadEnqueuer.startSeries(detail.contentId) }
+    }
+
+    /** Per-season "Download season" — server has no season-batch endpoint
+     *  so this loops POST-per-episode locally inside the enqueuer. */
+    fun onSeasonDownloadTapped(seasonNumber: Int) {
+        val detail = _uiState.value.detail ?: return
+        viewModelScope.launch { downloadEnqueuer.startSeason(detail.contentId, seasonNumber) }
+    }
 
     init {
         if (contentId.isNotBlank()) {
@@ -74,6 +167,7 @@ class ItemDetailViewModel(
                         it.copy(
                             isLoading = false,
                             detail = detail,
+                            userRating = detail.userRating,
                             error = null,
                         )
                     }
@@ -184,6 +278,43 @@ class ItemDetailViewModel(
                 else -> {
                     // Revert on failure
                     _uiState.update { it.copy(isFavorite = current) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Sets the user's star rating, clamped to 1..5. Mirrors the
+     * [toggleFavorite] optimistic-update pattern: update state, call the
+     * repository, revert on any non-Success result.
+     */
+    fun setRating(stars: Int) {
+        val target = stars.coerceIn(1, 5)
+        viewModelScope.launch {
+            val previous = _uiState.value.userRating
+            // Optimistic update
+            _uiState.update { it.copy(userRating = target) }
+            when (personalDataRepository.setRating(contentId, target)) {
+                is ApiResult.Success -> { /* already updated */ }
+                else -> {
+                    // Revert on failure
+                    _uiState.update { it.copy(userRating = previous) }
+                }
+            }
+        }
+    }
+
+    /** Removes the user's rating with optimistic update + revert on failure. */
+    fun clearRating() {
+        viewModelScope.launch {
+            val previous = _uiState.value.userRating ?: return@launch
+            // Optimistic update
+            _uiState.update { it.copy(userRating = null) }
+            when (personalDataRepository.deleteRating(contentId)) {
+                is ApiResult.Success -> { /* already updated */ }
+                else -> {
+                    // Revert on failure
+                    _uiState.update { it.copy(userRating = previous) }
                 }
             }
         }

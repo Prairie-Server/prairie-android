@@ -6,10 +6,13 @@ import com.continuum.app.common.settings.LibraryPlaybackPrefsStore
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.model.auth.AuthSession
 import com.continuum.app.model.auth.User
+import com.continuum.app.model.auth.isActingAdmin
+import com.continuum.app.model.notifications.NotificationPreferencesUpdate
 import com.continuum.app.model.profile.UpdateProfileRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.android.ui.theme.ThemeManager
 import com.continuum.app.repository.AuthRepository
+import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +50,9 @@ data class SettingsUiState(
     val isLoadingSessions: Boolean = false,
     val showSessions: Boolean = false,
     val loggedOut: Boolean = false,
+    // Whether the acting user (admin role + primary active profile) may see the
+    // Admin entry. Mirrors the server's RequireActingAdmin gate.
+    val isAdminVisible: Boolean = false,
 
     // Appearance
     val theme: ThemePreference = ThemePreference.SYSTEM,
@@ -57,10 +63,22 @@ data class SettingsUiState(
     val autoSkipIntro: Boolean = false,
     val autoSkipCredits: Boolean = false,
 
+    // Downloads
+    val downloadsWifiOnly: Boolean = true,
+
     // Subtitles
     val subtitleLanguage: String = "Off",
     val subtitleMode: SubtitleMode = SubtitleMode.AUTO,
     val showForcedSubtitles: Boolean = true,
+
+    // Notifications (in-app). Section is hidden entirely unless the server
+    // reports in-app notifications are enabled AND preferences load.
+    val notificationsAvailable: Boolean = false,
+    val notificationsEnabled: Boolean = true,
+    val notifyFavorites: Boolean = true,
+    val notifyWatchlist: Boolean = true,
+    val notifyContinueWatching: Boolean = true,
+    val notifyNextUp: Boolean = true,
 )
 
 class SettingsViewModel(
@@ -69,6 +87,7 @@ class SettingsViewModel(
     private val playerSettingsStore: PlayerSettingsStore,
     private val profileRepository: ProfileRepository,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
+    private val notificationsRepository: NotificationsRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -77,6 +96,7 @@ class SettingsViewModel(
     init {
         loadUserInfo()
         observePlayerSettings()
+        observeNotifications()
         _uiState.update { it.copy(theme = themeManager.themePreference.value) }
     }
 
@@ -105,10 +125,15 @@ class SettingsViewModel(
                             subtitleLanguage = profile.subtitleLanguage?.ifBlank { "Off" } ?: "Off",
                             subtitleMode = subtitleModeFromServer(profile.subtitleMode),
                             showForcedSubtitles = profile.showForcedSubtitles ?: true,
+                            isAdminVisible = isActingAdmin(it.user, profile),
                         )
                     }
                 }
-                is ApiResult.Error, is ApiResult.NetworkError -> Unit
+                is ApiResult.Error, is ApiResult.NetworkError -> {
+                    // Active profile unresolved — fall back to the user role
+                    // only (a null profile does not block an admin per the gate).
+                    _uiState.update { it.copy(isAdminVisible = isActingAdmin(it.user, null)) }
+                }
             }
         }
     }
@@ -118,6 +143,7 @@ class SettingsViewModel(
         val audioLanguage: String,
         val autoSkipIntro: Boolean,
         val autoSkipCredits: Boolean,
+        val downloadsWifiOnly: Boolean,
     )
 
     private fun observePlayerSettings() {
@@ -126,6 +152,7 @@ class SettingsViewModel(
             playerSettingsStore.audioLanguageFlow,
             playerSettingsStore.autoSkipIntroFlow,
             playerSettingsStore.autoSkipCreditsFlow,
+            playerSettingsStore.downloadsWifiOnlyFlow,
             ::PlayerSettingsSnapshot,
         ).onEach { snap ->
             _uiState.update {
@@ -134,9 +161,76 @@ class SettingsViewModel(
                     audioLanguage = audioLanguageLabel(snap.audioLanguage),
                     autoSkipIntro = snap.autoSkipIntro,
                     autoSkipCredits = snap.autoSkipCredits,
+                    downloadsWifiOnly = snap.downloadsWifiOnly,
                 )
             }
         }.launchIn(viewModelScope)
+    }
+
+    fun setDownloadsWifiOnly(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDownloadsWifiOnly(value) }
+    }
+
+    // -- Notifications (in-app) --
+
+    /**
+     * Folds capability + preferences into UI state. The section is gated on the
+     * server reporting in-app notifications enabled AND preferences having
+     * loaded — a failed fetch leaves both null, so the section stays hidden and
+     * no toggles (least of all push) ever render. Refresh runs on init.
+     */
+    private fun observeNotifications() {
+        combine(
+            notificationsRepository.capability,
+            notificationsRepository.preferences,
+        ) { capability, preferences ->
+            val available = capability?.inApp?.enabled == true
+            _uiState.update { state ->
+                if (!available || preferences == null) {
+                    state.copy(notificationsAvailable = false)
+                } else {
+                    state.copy(
+                        notificationsAvailable = true,
+                        notificationsEnabled = preferences.enabled,
+                        notifyFavorites = preferences.notifyFavorites,
+                        notifyWatchlist = preferences.notifyWatchlist,
+                        notifyContinueWatching = preferences.notifyContinueWatching,
+                        notifyNextUp = preferences.notifyNextUp,
+                    )
+                }
+            }
+        }.launchIn(viewModelScope)
+
+        viewModelScope.launch { notificationsRepository.loadCapability() }
+        viewModelScope.launch { notificationsRepository.loadPreferences() }
+    }
+
+    fun setNotificationsEnabled(value: Boolean) {
+        updateNotificationPreferences(NotificationPreferencesUpdate(enabled = value))
+    }
+
+    fun setNotifyFavorites(value: Boolean) {
+        updateNotificationPreferences(NotificationPreferencesUpdate(notifyFavorites = value))
+    }
+
+    fun setNotifyWatchlist(value: Boolean) {
+        updateNotificationPreferences(NotificationPreferencesUpdate(notifyWatchlist = value))
+    }
+
+    fun setNotifyContinueWatching(value: Boolean) {
+        updateNotificationPreferences(NotificationPreferencesUpdate(notifyContinueWatching = value))
+    }
+
+    fun setNotifyNextUp(value: Boolean) {
+        updateNotificationPreferences(NotificationPreferencesUpdate(notifyNextUp = value))
+    }
+
+    /**
+     * Sends a partial PUT (one named field) and lets the repository's
+     * preferences flow drive the UI back to the server's truth.
+     */
+    private fun updateNotificationPreferences(update: NotificationPreferencesUpdate) {
+        viewModelScope.launch { notificationsRepository.updatePreferences(update) }
     }
 
     fun loadSessions() {

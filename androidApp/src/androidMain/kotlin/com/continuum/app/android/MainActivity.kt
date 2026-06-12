@@ -1,9 +1,15 @@
 package com.continuum.app.android
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
@@ -17,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.continuum.app.android.ui.navigation.AppNavigation
 import com.continuum.app.android.ui.navigation.Route
+import com.continuum.app.android.ui.navigation.deviceLoginPairRouteOrNull
 import com.continuum.app.android.ui.screens.settings.ThemePreference
 import com.continuum.app.android.ui.theme.ContinuumTheme
 import com.continuum.app.android.ui.theme.ThemeManager
@@ -25,21 +32,33 @@ import com.continuum.app.common.ui.components.StartupSplashVideo
 import com.continuum.app.network.ServerRegistry
 import com.continuum.app.network.TokenManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import org.koin.java.KoinJavaComponent.get
 
 private const val STARTUP_SPLASH_MINIMUM_MILLIS = 1_000L
 
 class MainActivity : ComponentActivity() {
+
+    private val incomingDeviceLoginRoutes = MutableSharedFlow<String>(extraBufferCapacity = 1)
+
+    // POST_NOTIFICATIONS is required on Android 13+ for any notification —
+    // download progress / completion notifications silently never appear
+    // without it.
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* fire-and-forget */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        maybeRequestNotificationPermission()
 
         val themeManager = get<ThemeManager>(ThemeManager::class.java)
 
         setContent {
             val themePref by themeManager.themePreference.collectAsState()
             var startRoute by remember { mutableStateOf<String?>(null) }
+            var pendingExternalRoute by remember { mutableStateOf<String?>(null) }
             var minimumSplashElapsed by remember { mutableStateOf(false) }
             val darkTheme = when (themePref) {
                 ThemePreference.DARK -> true
@@ -49,6 +68,11 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(Unit) {
                 startRoute = resolveStartDestination()
+            }
+            LaunchedEffect(Unit) {
+                incomingDeviceLoginRoutes.collect { route ->
+                    pendingExternalRoute = route
+                }
             }
             LaunchedEffect(Unit) {
                 delay(STARTUP_SPLASH_MINIMUM_MILLIS)
@@ -61,10 +85,22 @@ class MainActivity : ComponentActivity() {
                     if (resolvedRoute == null || !minimumSplashElapsed) {
                         StartupSplashVideo()
                     } else {
-                        AppNavigation(startDestination = resolvedRoute)
+                        AppNavigation(
+                            startDestination = resolvedRoute,
+                            pendingExternalRoute = pendingExternalRoute,
+                            onExternalRouteConsumed = { pendingExternalRoute = null },
+                        )
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        deviceLoginPairRouteOrNull(intent.dataString)?.let { route ->
+            incomingDeviceLoginRoutes.tryEmit(route)
         }
     }
 
@@ -81,6 +117,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
     }
 
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val perm = Manifest.permission.POST_NOTIFICATIONS
+        if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) return
+        requestNotificationPermission.launch(perm)
+    }
+
     /**
      * Decides which auth-flow screen to land on.
      *
@@ -95,6 +138,8 @@ class MainActivity : ComponentActivity() {
      *  - All set → `Home`
      */
     private suspend fun resolveStartDestination(): String {
+        deviceLoginPairRouteOrNull(intent?.dataString)?.let { return it }
+
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
 
@@ -109,6 +154,30 @@ class MainActivity : ComponentActivity() {
         val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
         if (profileId.isNullOrBlank()) return Route.ProfileSelection.route
 
+        // Offline-with-downloads fast path: if the device has no network AND
+        // we have downloaded media on disk, land directly on the Downloads
+        // tab so the user isn't greeted with HomeScreen's "Something went
+        // wrong / Check your connection" error. Online flows are unchanged.
+        if (!isOnline() && hasLocalDownloads()) {
+            return Route.Downloads.route
+        }
+
         return Route.Home.route
+    }
+
+    private fun isOnline(): Boolean {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            ?: return true   // unknown — assume online so we don't surprise online users
+        val net = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(net) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun hasLocalDownloads(): Boolean {
+        val storage = get<com.continuum.app.common.downloads.DownloadStorage>(
+            com.continuum.app.common.downloads.DownloadStorage::class.java
+        )
+        return storage.totalBytesUsed() > 0L
     }
 }

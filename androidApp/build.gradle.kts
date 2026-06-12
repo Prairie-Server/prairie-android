@@ -26,6 +26,7 @@ kotlin {
             implementation(libs.activity.compose)
             implementation(libs.lifecycle.runtime.compose)
             implementation(libs.lifecycle.viewmodel.compose)
+            implementation(libs.lifecycle.process)
             implementation(libs.navigation.compose)
             implementation(libs.koin.android)
             implementation(libs.koin.compose)
@@ -40,7 +41,25 @@ kotlin {
             implementation(libs.media3.common.ktx)
             implementation(libs.media3.ui.compose)
             implementation(libs.kotlinx.coroutines.android)
+            implementation(libs.androidx.work.runtime.ktx)
+            implementation(libs.koin.androidx.workmanager)
             implementation("androidx.palette:palette-ktx:1.0.0")
+        }
+
+        androidUnitTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(kotlin("test-junit"))
+            // NotificationRow's `reason_flags` default arg is a kotlinx JsonObject;
+            // constructing it in unit tests needs the json artifact on the test
+            // classpath (the :shared dep is `implementation`, so it isn't transitive).
+            implementation(libs.kotlinx.serialization.json)
+            // AdminEntryViewModelTest drives a viewModelScope coroutine, so it
+            // needs the test dispatcher / runTest helpers on the test classpath.
+            implementation(libs.kotlinx.coroutines.test)
+            // WatchTogetherEntryDestinationTest asserts on real Route.route
+            // strings, which call android.net.Uri.encode — Robolectric supplies
+            // the real Android impl under plain JVM unit tests.
+            implementation(libs.robolectric)
         }
     }
 }
@@ -50,7 +69,7 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "com.continuum.app"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -89,5 +108,15 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        isCoreLibraryDesugaringEnabled = true
     }
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 }

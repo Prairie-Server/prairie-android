@@ -1,5 +1,6 @@
 package com.continuum.app.android.ui.screens.detail
 
+import com.continuum.app.android.ui.util.formatBytes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -85,7 +86,7 @@ fun MediaInfoSheet(
                     InfoRow("Bitrate", formatBitrate(version.bitrate))
                 }
                 if (version.fileSize > 0) {
-                    InfoRow("File Size", formatFileSize(version.fileSize))
+                    InfoRow("File Size", formatBytes(version.fileSize))
                 }
                 if (version.duration > 0) {
                     InfoRow("Duration", formatDuration(version.duration))
@@ -176,15 +177,6 @@ private fun formatBitrate(bitrate: Int): String {
         bitrate >= 1_000_000 -> "%.1f Mbps".format(bitrate / 1_000_000.0)
         bitrate >= 1_000 -> "%.0f kbps".format(bitrate / 1_000.0)
         else -> "$bitrate bps"
-    }
-}
-
-private fun formatFileSize(bytes: Long): String {
-    return when {
-        bytes >= 1_073_741_824 -> "%.2f GB".format(bytes / 1_073_741_824.0)
-        bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
-        bytes >= 1_024 -> "%.0f KB".format(bytes / 1_024.0)
-        else -> "$bytes B"
     }
 }
 

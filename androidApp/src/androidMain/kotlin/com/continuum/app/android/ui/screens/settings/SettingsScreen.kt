@@ -44,7 +44,6 @@ import org.koin.compose.viewmodel.koinViewModel
  * This screen is used as tab content within MainScreen (Settings tab)
  * and does NOT have its own top bar back button since it's a tab root.
  *
- * @param onNavigateToAdmin Called when user taps "Admin Panel".
  * @param onLoggedOut Called after the user signs out.
  * @param showTopBar Whether to show the top bar (false when inside MainScreen tab).
  * @param onBackClick Back navigation handler for standalone mode.
@@ -52,9 +51,11 @@ import org.koin.compose.viewmodel.koinViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onNavigateToAdmin: () -> Unit,
     onLoggedOut: () -> Unit,
     onNavigateToServers: () -> Unit = {},
+    onPairDevice: () -> Unit = {},
+    onNavigateToRequests: () -> Unit = {},
+    onNavigateToAdmin: () -> Unit = {},
     showTopBar: Boolean = false,
     onBackClick: (() -> Unit)? = null,
     viewModel: SettingsViewModel = koinViewModel(),
@@ -103,7 +104,11 @@ fun SettingsScreen(
                 AccountSection(
                     user = state.user,
                     isLoadingUser = state.isLoadingUser,
+                    isAdminVisible = state.isAdminVisible,
                     onManageSessions = viewModel::loadSessions,
+                    onPairDevice = onPairDevice,
+                    onRequests = onNavigateToRequests,
+                    onAdmin = onNavigateToAdmin,
                     onSignOut = viewModel::logout,
                 )
             }
@@ -140,11 +145,55 @@ fun SettingsScreen(
                 )
             }
 
+            if (state.notificationsAvailable) {
+                item {
+                    SettingsSectionCard {
+                        SettingsSectionHeader(title = "Notifications")
+                        SettingsSwitchRow(
+                            label = "In-app notifications",
+                            checked = state.notificationsEnabled,
+                            onCheckedChange = viewModel::setNotificationsEnabled,
+                        )
+                        if (state.notificationsEnabled) {
+                            SettingsSwitchRow(
+                                label = "Favorites",
+                                checked = state.notifyFavorites,
+                                onCheckedChange = viewModel::setNotifyFavorites,
+                            )
+                            SettingsSwitchRow(
+                                label = "Watchlist",
+                                checked = state.notifyWatchlist,
+                                onCheckedChange = viewModel::setNotifyWatchlist,
+                            )
+                            SettingsSwitchRow(
+                                label = "Continue watching",
+                                checked = state.notifyContinueWatching,
+                                onCheckedChange = viewModel::setNotifyContinueWatching,
+                            )
+                            SettingsSwitchRow(
+                                label = "Next up",
+                                checked = state.notifyNextUp,
+                                onCheckedChange = viewModel::setNotifyNextUp,
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                SettingsSectionCard {
+                    SettingsSectionHeader(title = "Downloads")
+                    SettingsSwitchRow(
+                        label = "Wi-Fi only",
+                        checked = state.downloadsWifiOnly,
+                        onCheckedChange = viewModel::setDownloadsWifiOnly,
+                    )
+                }
+            }
+
             item {
                 ServerInfoSection(
                     serverUrl = state.serverUrl,
-                    isAdmin = state.user?.role == "admin",
-                    onAdminClick = onNavigateToAdmin,
                     onManageServersClick = onNavigateToServers,
                 )
             }

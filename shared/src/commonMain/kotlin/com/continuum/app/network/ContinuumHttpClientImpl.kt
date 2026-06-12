@@ -4,6 +4,7 @@ import io.ktor.client.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -43,6 +44,10 @@ fun createContinuumClient(
         install(ContentNegotiation) {
             json(ContinuumJson)
         }
+
+        // Foreground notifications accelerator (events websocket). REST stays
+        // the source of truth; the socket only makes the unread badge instant.
+        install(WebSockets)
 
         install(Logging) {
             logger = Logger.DEFAULT

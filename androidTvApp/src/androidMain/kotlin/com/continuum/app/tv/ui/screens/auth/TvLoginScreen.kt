@@ -27,6 +27,7 @@ import androidx.compose.ui.focus.onFocusEvent
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.continuum.app.repository.DeviceLoginRepository
 import com.continuum.app.tv.R
 import com.continuum.app.tv.ui.components.TvAnimatedMeshBackground
 import com.continuum.app.tv.ui.components.TvHeroActionPill
@@ -70,6 +72,7 @@ fun TvLoginScreen(
     viewModel: TvLoginViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val deviceState by viewModel.deviceLoginState.collectAsState()
     val context = LocalContext.current
     val usernameFocus = remember { FocusRequester() }
     val usernameBringIntoView = remember { BringIntoViewRequester() }
@@ -79,7 +82,7 @@ fun TvLoginScreen(
 
     LaunchedEffect(state.loginSuccess) {
         if (state.loginSuccess) {
-            viewModel.onLoginSuccessConsumed()
+            viewModel.onLoginSuccessConsumed(context)
             onLoginSuccess()
         }
     }
@@ -96,7 +99,6 @@ fun TvLoginScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .width(620.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(top = 64.dp, bottom = Spacing.lg, start = Spacing.lg, end = Spacing.lg),
@@ -105,121 +107,29 @@ fun TvLoginScreen(
 
             Spacer(modifier = Modifier.height(Spacing.sm))
 
-            Column(
-                verticalArrangement = Arrangement.spacedBy(Spacing.md),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(ElevatedSurface, RoundedCornerShape(24.dp))
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = 0.08f),
-                        shape = RoundedCornerShape(24.dp),
-                    )
-                    .padding(horizontal = 32.dp, vertical = 28.dp),
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    text = "Sign in",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    text = "Use the account from your Silo server.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                OutlinedTextField(
-                    value = state.username,
-                    onValueChange = viewModel::onUsernameChanged,
-                    label = { Text("Username") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
-                        imeAction = ImeAction.Next,
-                    ),
-                    enabled = !state.isLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bringIntoViewRequester(usernameBringIntoView)
-                        .onFocusEvent { fs ->
-                            if (fs.isFocused) scope.launch { usernameBringIntoView.bringIntoView() }
-                        }
-                        .focusRequester(usernameFocus),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        focusedLabelColor = MaterialTheme.colorScheme.onBackground,
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.14f),
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedContainerColor = Color.White.copy(alpha = 0.04f),
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.03f),
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                    ),
+                CredentialFormCard(
+                    state = state,
+                    usernameFocus = usernameFocus,
+                    usernameBringIntoView = usernameBringIntoView,
+                    passwordBringIntoView = passwordBringIntoView,
+                    signInBringIntoView = signInBringIntoView,
+                    onUsernameChanged = viewModel::onUsernameChanged,
+                    onPasswordChanged = viewModel::onPasswordChanged,
+                    onLoginClick = { viewModel.onLoginClick(context) },
+                    scope = scope,
+                    modifier = Modifier.width(620.dp),
                 )
 
-                OutlinedTextField(
-                    value = state.password,
-                    onValueChange = viewModel::onPasswordChanged,
-                    label = { Text("Password") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            if (!state.isLoading &&
-                                state.username.isNotBlank() &&
-                                state.password.isNotBlank()
-                            ) {
-                                viewModel.onLoginClick(context)
-                            }
-                        },
-                    ),
-                    enabled = !state.isLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bringIntoViewRequester(passwordBringIntoView)
-                        .onFocusEvent { fs ->
-                            if (fs.isFocused) scope.launch { passwordBringIntoView.bringIntoView() }
-                        },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        focusedLabelColor = MaterialTheme.colorScheme.onBackground,
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.14f),
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedContainerColor = Color.White.copy(alpha = 0.04f),
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.03f),
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                    ),
+                QrLoginCard(
+                    state = deviceState,
+                    onRetry = viewModel::restartDeviceLogin,
+                    modifier = Modifier.width(480.dp),
                 )
-
-                if (state.error != null) {
-                    Text(
-                        text = state.error!!,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .bringIntoViewRequester(signInBringIntoView)
-                        .onFocusEvent { fs ->
-                            if (fs.hasFocus) scope.launch { signInBringIntoView.bringIntoView() }
-                        },
-                ) {
-                    TvHeroActionPill(
-                        label = if (state.isLoading) "Signing in…" else "Sign In",
-                        icon = Icons.AutoMirrored.Filled.Login,
-                        variant = TvPillVariant.Filled,
-                        onClick = { viewModel.onLoginClick(context) },
-                    )
-                }
             }
         }
     }
@@ -240,5 +150,235 @@ private fun BrandHeader() {
                 .height(69.dp),
             contentScale = ContentScale.Fit,
         )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CredentialFormCard(
+    state: TvLoginUiState,
+    usernameFocus: FocusRequester,
+    usernameBringIntoView: BringIntoViewRequester,
+    passwordBringIntoView: BringIntoViewRequester,
+    signInBringIntoView: BringIntoViewRequester,
+    onUsernameChanged: (String) -> Unit,
+    onPasswordChanged: (String) -> Unit,
+    onLoginClick: () -> Unit,
+    scope: kotlinx.coroutines.CoroutineScope,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        modifier = modifier
+            .background(ElevatedSurface, RoundedCornerShape(24.dp))
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(24.dp),
+            )
+            .padding(horizontal = 32.dp, vertical = 28.dp),
+    ) {
+        Text(
+            text = "Sign in",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+            text = "Use the account from your Silo server.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        OutlinedTextField(
+            value = state.username,
+            onValueChange = onUsernameChanged,
+            label = { Text("Username") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.Next,
+            ),
+            enabled = !state.isLoading,
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewRequester(usernameBringIntoView)
+                .onFocusEvent { fs ->
+                    if (fs.isFocused) scope.launch { usernameBringIntoView.bringIntoView() }
+                }
+                .focusRequester(usernameFocus),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                focusedLabelColor = MaterialTheme.colorScheme.onBackground,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.14f),
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedContainerColor = Color.White.copy(alpha = 0.04f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.03f),
+                cursorColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
+
+        OutlinedTextField(
+            value = state.password,
+            onValueChange = onPasswordChanged,
+            label = { Text("Password") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    if (!state.isLoading &&
+                        state.username.isNotBlank() &&
+                        state.password.isNotBlank()
+                    ) {
+                        onLoginClick()
+                    }
+                },
+            ),
+            enabled = !state.isLoading,
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewRequester(passwordBringIntoView)
+                .onFocusEvent { fs ->
+                    if (fs.isFocused) scope.launch { passwordBringIntoView.bringIntoView() }
+                },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                focusedLabelColor = MaterialTheme.colorScheme.onBackground,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.14f),
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedContainerColor = Color.White.copy(alpha = 0.04f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.03f),
+                cursorColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
+
+        if (state.error != null) {
+            Text(
+                text = state.error!!,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .bringIntoViewRequester(signInBringIntoView)
+                .onFocusEvent { fs ->
+                    if (fs.hasFocus) scope.launch { signInBringIntoView.bringIntoView() }
+                },
+        ) {
+            TvHeroActionPill(
+                label = if (state.isLoading) "Signing in…" else "Sign In",
+                icon = Icons.AutoMirrored.Filled.Login,
+                variant = TvPillVariant.Filled,
+                onClick = onLoginClick,
+            )
+        }
+    }
+}
+
+/**
+ * Live QR pane bound to the device-login state machine. Renders one of five
+ * branches based on [state]:
+ *
+ *  - Idle / Initiating → spinner copy + empty 320dp box (matches the QR's
+ *    final footprint so the layout doesn't reflow when the matrix lands).
+ *  - Awaiting → the actual QR (encoded `verification_uri_complete`) plus
+ *    the short `user_code` underneath as a typing fallback.
+ *  - Approved → "Signed in!" — short-lived, the screen-level
+ *    `LaunchedEffect(loginSuccess)` navigates away.
+ *  - Failed → message + "Try again" pill that fires [onRetry].
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun QrLoginCard(
+    state: DeviceLoginRepository.DeviceLoginState,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        modifier = modifier
+            .background(ElevatedSurface, RoundedCornerShape(24.dp))
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(24.dp),
+            )
+            .padding(horizontal = 32.dp, vertical = 28.dp),
+    ) {
+        Text(
+            text = "Sign in with your phone",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+
+        when (state) {
+            DeviceLoginRepository.DeviceLoginState.Idle,
+            DeviceLoginRepository.DeviceLoginState.Initiating -> {
+                Text(
+                    text = "Loading device-login code…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(320.dp)
+                        .background(
+                            Color.White.copy(alpha = 0.06f),
+                            RoundedCornerShape(16.dp),
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(16.dp),
+                        ),
+                )
+            }
+            is DeviceLoginRepository.DeviceLoginState.Awaiting -> {
+                Text(
+                    text = "Scan the code with your phone's camera",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                QrCodePanel(
+                    content = state.session.verificationUriComplete,
+                    size = 320.dp,
+                )
+                Text(
+                    text = "Code: ${state.session.userCode}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            is DeviceLoginRepository.DeviceLoginState.Approved -> {
+                Text(
+                    text = "Signed in!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            is DeviceLoginRepository.DeviceLoginState.Failed -> {
+                Text(
+                    text = state.message ?: "Sign-in failed",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TvHeroActionPill(
+                    label = "Try again",
+                    icon = Icons.Default.Refresh,
+                    variant = TvPillVariant.Hollow,
+                    onClick = onRetry,
+                )
+            }
+        }
     }
 }

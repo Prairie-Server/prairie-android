@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
+import com.continuum.app.tv.ui.util.visibleOnTv
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,6 +20,7 @@ enum class TvSearchMediaType(val label: String, val wire: String?) {
     All("All", null),
     Movies("Movies", "movie"),
     Series("Series", "series"),
+    Audiobooks("Audiobooks", "audiobook"),
 }
 
 @OptIn(FlowPreview::class)
@@ -35,6 +37,7 @@ class TvSearchViewModel(
         val isLoading: Boolean = false,
         val isLoadingMore: Boolean = false,
         val error: String? = null,
+        val rawResultCount: Int = 0,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -58,6 +61,7 @@ class TvSearchViewModel(
                     isLoading = false,
                     isLoadingMore = false,
                     error = null,
+                    rawResultCount = 0,
                 )
             }
             return
@@ -90,6 +94,7 @@ class TvSearchViewModel(
                     isLoading = false,
                     isLoadingMore = false,
                     error = null,
+                    rawResultCount = 0,
                 )
             }
             return
@@ -108,7 +113,7 @@ class TvSearchViewModel(
         val state = _uiState.value
         val requestedQuery = state.query
         val requestedMediaType = state.mediaType
-        val offset = if (reset) 0 else state.items.size
+        val offset = if (reset) 0 else state.rawResultCount
         _uiState.update {
             if (reset) it.copy(isLoading = true, error = null)
             else it.copy(isLoadingMore = true)
@@ -130,14 +135,25 @@ class TvSearchViewModel(
         when (result) {
             is ApiResult.Success -> {
                 val response = result.data
+                val visibleItems = response.items.visibleOnTv()
                 _uiState.update {
+                    val accumulatedItems = if (reset) visibleItems else it.items + visibleItems
                     it.copy(
                         isLoading = false,
                         isLoadingMore = false,
-                        items = if (reset) response.items else it.items + response.items,
-                        total = response.total,
+                        items = accumulatedItems,
+                        total = if (requestedMediaType == TvSearchMediaType.All) {
+                            accumulatedItems.size
+                        } else {
+                            response.total
+                        },
                         hasMore = response.hasMore,
                         error = null,
+                        rawResultCount = if (reset) {
+                            response.items.size
+                        } else {
+                            it.rawResultCount + response.items.size
+                        },
                     )
                 }
             }

@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -32,11 +35,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Transport controls overlay for the video player.
+ * Transport controls overlay for the video player. Top-bar icon layout
+ * mirrors iOS phone's `MobilePlayerControls` (lock | chapters | tracks |
+ * settings) — see `iosApp/Screens/Player/iOS/MobilePlayerControls.swift:73`.
  *
  * Three-row layout:
- * - Top: Back button, title/subtitle, settings gear
- * - Center: Skip back, play/pause, skip forward
+ * - Top: Back (chevron) · title · orientation lock toggle · chapters (when
+ *   present) · tracks (audio + subs) · settings (gear)
+ * - Center: Skip back · play/pause · skip forward
  * - Bottom: Seek bar with timestamps
  */
 @Composable
@@ -47,13 +53,25 @@ fun PlayerControls(
     isPaused: Boolean,
     position: Double,
     duration: Double,
+    hasChapters: Boolean,
+    hasTracks: Boolean,
+    isOrientationLocked: Boolean,
+    // Watch Together guest gate: when false the scrubber + skip buttons are
+    // inert and dimmed (seek is host-only, so disabled for all guests).
+    // Defaults true for solo playback.
+    seekEnabled: Boolean = true,
+    // Separate from [seekEnabled]: a guest under guest_play_pause keeps the
+    // play/pause affordance but loses seek. Defaults true for solo playback.
+    playPauseEnabled: Boolean = true,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Double) -> Unit,
     onSkipForward: () -> Unit,
     onSkipBackward: () -> Unit,
-    onSettingsClick: () -> Unit,
-    onOpenSettingsSheet: () -> Unit = {},
+    onToggleOrientationLock: () -> Unit,
+    onOpenChapters: () -> Unit,
+    onOpenTracks: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -76,7 +94,7 @@ fun PlayerControls(
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
                         contentDescription = "Back",
                         tint = Color.White,
                     )
@@ -105,17 +123,43 @@ fun PlayerControls(
                     }
                 }
 
-                IconButton(onClick = onSettingsClick) {
+                // Orientation lock toggle — mirrors iOS `lock.fill` / `lock.open`.
+                IconButton(onClick = onToggleOrientationLock) {
                     Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
+                        imageVector = if (isOrientationLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (isOrientationLocked) "Landscape Locked" else "Rotate Freely",
                         tint = Color.White,
                     )
                 }
 
-                IconButton(onClick = onOpenSettingsSheet) {
+                // Chapters — only shown when the file has chapters (iOS parity).
+                if (hasChapters) {
+                    IconButton(onClick = onOpenChapters) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.List,
+                            contentDescription = "Chapters",
+                            tint = Color.White,
+                        )
+                    }
+                }
+
+                // Tracks (audio + subtitles) — iOS uses `captions.bubble`. Dimmed
+                // when there's nothing to pick.
+                IconButton(
+                    onClick = onOpenTracks,
+                    enabled = hasTracks,
+                ) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
+                        imageVector = Icons.Default.ClosedCaption,
+                        contentDescription = "Audio and subtitles",
+                        tint = if (hasTracks) Color.White else Color.White.copy(alpha = 0.3f),
+                    )
+                }
+
+                // Settings — iOS `gearshape`, opens the playback settings sheet.
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
                         contentDescription = "Playback settings",
                         tint = Color.White,
                     )
@@ -133,12 +177,13 @@ fun PlayerControls(
         ) {
             IconButton(
                 onClick = onSkipBackward,
+                enabled = seekEnabled,
                 modifier = Modifier.size(56.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Replay10,
                     contentDescription = "Skip back 10 seconds",
-                    tint = Color.White,
+                    tint = if (seekEnabled) Color.White else Color.White.copy(alpha = 0.3f),
                     modifier = Modifier.size(36.dp),
                 )
             }
@@ -147,6 +192,7 @@ fun PlayerControls(
 
             IconButton(
                 onClick = onPlayPause,
+                enabled = playPauseEnabled,
                 modifier = Modifier
                     .size(72.dp)
                     .background(Color.White.copy(alpha = 0.15f), CircleShape),
@@ -158,7 +204,7 @@ fun PlayerControls(
                         Icons.Default.Pause
                     },
                     contentDescription = if (isPaused || !isPlaying) "Play" else "Pause",
-                    tint = Color.White,
+                    tint = if (playPauseEnabled) Color.White else Color.White.copy(alpha = 0.3f),
                     modifier = Modifier.size(48.dp),
                 )
             }
@@ -167,12 +213,13 @@ fun PlayerControls(
 
             IconButton(
                 onClick = onSkipForward,
+                enabled = seekEnabled,
                 modifier = Modifier.size(56.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Forward10,
                     contentDescription = "Skip forward 10 seconds",
-                    tint = Color.White,
+                    tint = if (seekEnabled) Color.White else Color.White.copy(alpha = 0.3f),
                     modifier = Modifier.size(36.dp),
                 )
             }
@@ -195,6 +242,7 @@ fun PlayerControls(
                 position = position,
                 duration = duration,
                 onSeek = onSeek,
+                enabled = seekEnabled,
             )
         }
     }

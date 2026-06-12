@@ -15,7 +15,7 @@ verified facts from docs 01–07 into change-order form. When a fact is marked
 
 - **Media3 pin:** `1.10.0`, set once at `gradle/libs.versions.toml:10` and used from every
   module. Never mix versions. (doc 01 §2 and §8.)
-- **Language / toolchain:** Kotlin 2.1.20, JVM 21, compileSdk 36, minSdk 26, targetSdk 35
+- **Language / toolchain:** Kotlin 2.1.20, JVM 21, compileSdk 36, minSdk 24, targetSdk 35
   (matches the current state in `androidApp/build.gradle.kts`, `androidTvApp/build.gradle.kts`,
   `android-shared/build.gradle.kts`).
 - **UI:** Jetpack Compose on phone (`androidApp`), Compose for TV (`androidx.tv:tv-material`)
@@ -1282,7 +1282,7 @@ covered"; 9–10 are polish.
 - **PGS subtitle aspect-ratio bug (issue #2849).** Doc 02 §6.1 notes the fix has not
   shipped as of 1.10.0. Evaluate writing a custom `SubtitleView`-style renderer if
   user reports start coming in.
-- **Android TV minimum API.** Current `minSdk = 26` excludes some early Mi Box units.
+- **Android TV minimum API.** Current `minSdk = 24` covers Android 7.0+ devices, including older TV boxes in the supported range.
   Confirm the business requirement before relying on APIs ≥ 29 for offload / passthrough
   probing.
 - **DRM.** Out of scope today; the `MediaItem` builder above intentionally has no

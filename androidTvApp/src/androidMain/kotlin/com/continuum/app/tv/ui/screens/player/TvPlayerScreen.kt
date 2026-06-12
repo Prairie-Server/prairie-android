@@ -3,6 +3,7 @@ package com.continuum.app.tv.ui.screens.player
 import android.app.Activity
 import android.content.ComponentName
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -52,6 +54,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.continuum.app.common.player.AudioCapabilityManager
 import com.continuum.app.common.player.AudioTrackManager
@@ -63,6 +66,7 @@ import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SubtitleManager
+import com.continuum.app.model.watchtogether.RoomPlaybackState
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
 import com.google.common.util.concurrent.MoreExecutors
@@ -88,6 +92,9 @@ fun TvPlayerScreen(
     contentId: String,
     onExit: () -> Unit,
     preferredFileId: Int? = null,
+    // Watch Together room binding. When non-null, a [TvRoomSyncController]
+    // binds this player to the synced room for the lifetime of the screen.
+    roomId: String? = null,
     // Scope the ViewModel key by fileId too so switching 4K <-> 1080p on
     // the detail screen and replaying actually spins up a fresh player
     // session instead of reusing the cached one bound to the first fileId.
@@ -110,6 +117,11 @@ fun TvPlayerScreen(
     val introSkipState by viewModel.introSkipState.collectAsState()
     val subtitleAppearance by viewModel.subtitleAppearance.collectAsState()
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
+    val audioDelayMs by viewModel.audioDelayMs.collectAsState()
+    val subtitleDelayMs by viewModel.subtitleDelayMs.collectAsState()
+    val hdrEnabled by viewModel.hdrEnabled.collectAsState()
+    val subtitleSearch by viewModel.subtitleSearch.collectAsState()
+    val aiTranslate by viewModel.aiTranslate.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestOnExit by rememberUpdatedState(onExit)
     val context = LocalContext.current
@@ -123,6 +135,33 @@ fun TvPlayerScreen(
     // the inflated subtitleView after the AndroidView factory runs. Mirrors
     // the phone PlayerScreen's `playerViewRef` pattern.
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+
+    // Watch Together binding. Built once per roomId; null for solo playback.
+    // The controller owns the room WS connection + RoomSyncEngine for the
+    // lifetime of this screen and tears them down on explicit leave.
+    val watchTogetherRepository: com.continuum.app.repository.WatchTogetherRepository = koinInject()
+    val roomScope = rememberCoroutineScope()
+    val roomController = remember(roomId) {
+        roomId?.takeIf { it.isNotBlank() }?.let { id ->
+            TvRoomSyncController(
+                roomId = id,
+                repository = watchTogetherRepository,
+                viewModel = viewModel,
+                scope = roomScope,
+            )
+        }
+    }
+    DisposableEffect(roomController) {
+        roomController?.start()
+        // Repo teardown happens on explicit leave (Leave affordance) or
+        // room_closed; the connect scope dies with roomScope on dispose.
+        onDispose { }
+    }
+    val roomSnapshot by (roomController?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null))
+        .collectAsState()
+    val roomClosedReason by (roomController?.closedReason ?: kotlinx.coroutines.flow.MutableStateFlow(null))
+        .collectAsState()
+    var showLeaveDialog by remember { mutableStateOf(false) }
 
     // Connect a MediaController to the ContinuumPlaybackService. Async —
     // downstream effects gate on a non-null controller.
@@ -170,19 +209,56 @@ fun TvPlayerScreen(
     BackHandler(enabled = true) {
         when {
             state.hudOpen -> viewModel.closeHUD()
-            state.subtitleMenuOpen -> viewModel.closeSubtitleMenu()
-            state.audioMenuOpen -> viewModel.closeAudioMenu()
+            showLeaveDialog -> showLeaveDialog = false
             state.showControls -> viewModel.setControlsVisible(false)
+            // In a room: Back surfaces the Leave affordance. Host gets a
+            // close-confirm dialog (closing tears down the room for everyone);
+            // a guest leaves immediately.
+            roomController != null && roomSnapshot?.isHost == true -> showLeaveDialog = true
+            roomController != null -> {
+                roomController.leave(closeRoom = false)
+                stopPlaybackAndExit()
+            }
             else -> {
                 stopPlaybackAndExit()
             }
         }
     }
 
+    // room_closed (TERMINAL only — host left / explicit close) → stop + exit
+    // back to detail. Transient server `error` frames never reach here (they
+    // flow on the repo's errors stream and do NOT eject the user).
+    LaunchedEffect(roomClosedReason) {
+        if (roomClosedReason != null && roomController != null) {
+            stopPlaybackAndExit()
+        }
+    }
+
+    // Surface transient Watch Together server rejections (e.g. a guest seek the
+    // server refuses) as a brief Toast. These flow on the repo errors stream and
+    // do NOT eject the user. Only collected while bound to a room.
+    LaunchedEffect(roomController) {
+        if (roomController != null) {
+            watchTogetherRepository.errors.collect { message ->
+                if (message.isNotBlank()) {
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     // Apply capability-aware track selection presets. Re-runs on HDMI
     // hot-plug / AVR power cycle so Atmos and DV stay preferred as the sink
-    // reports them.
-    LaunchedEffect(mediaController, audioCaps, state.preferredAudioLanguage, state.preferredTextLanguage) {
+    // reports them. Also re-runs when the user flips the HDR toggle in the
+    // HUD so the new preference takes effect on the already-mounted player
+    // (A.3d-hdr).
+    LaunchedEffect(
+        mediaController,
+        audioCaps,
+        state.preferredAudioLanguage,
+        state.preferredTextLanguage,
+        hdrEnabled,
+    ) {
         val controller = mediaController ?: return@LaunchedEffect
         playerFactory.applyTrackSelectionPresets(
             player = controller,
@@ -190,6 +266,7 @@ fun TvPlayerScreen(
             displayHdr = displayHdr,
             preferredAudioLanguage = state.preferredAudioLanguage,
             preferredTextLanguage = state.preferredTextLanguage,
+            hdrEnabled = hdrEnabled,
         )
     }
 
@@ -306,12 +383,49 @@ fun TvPlayerScreen(
             playMethod = method,
             serverUrl = state.serverUrl,
             subtitles = state.subtitleUrls,
+            title = state.title.ifBlank { null },
+            artworkUrl = state.artworkUrl,
         )
         controller.setMediaItem(mediaItem)
         val startMs = (state.startPosition * 1000).toLong()
         if (startMs > 0) controller.seekTo(startMs)
         controller.prepare()
         controller.playWhenReady = true
+    }
+
+    // Subtitle refresh (search download / AI completion): Media3 cannot add
+    // SubtitleConfigurations to a live item, so rebuild the SAME MediaItem —
+    // identical stream URL + playback session — with the merged sidecar list
+    // and resume at the captured position. Keyed on the refresh nonce so the
+    // initial prepare effect above remains the only session-start path.
+    LaunchedEffect(mediaController, state.subtitleRefreshNonce) {
+        if (state.subtitleRefreshNonce == 0) return@LaunchedEffect
+        val controller = mediaController ?: return@LaunchedEffect
+        val url = state.streamUrl ?: return@LaunchedEffect
+        val method = state.playMethod ?: return@LaunchedEffect
+        val resumeMs = controller.currentPosition.coerceAtLeast(0L)
+        val wasPlaying = controller.playWhenReady
+        val mediaItem = playerFactory.buildMediaItem(
+            streamUrl = url,
+            playMethod = method,
+            serverUrl = state.serverUrl,
+            subtitles = state.subtitleUrls,
+            title = state.title.ifBlank { null },
+            artworkUrl = state.artworkUrl,
+        )
+        controller.setMediaItem(mediaItem, resumeMs)
+        controller.prepare()
+        controller.playWhenReady = wasPlaying
+    }
+
+    // Auto-select a freshly downloaded/translated subtitle track once the
+    // rebuilt item's tracks land (the VM matches by label in onTracksChanged
+    // and emits the ordinal text-group index). Mirrors the seekRequests idiom.
+    LaunchedEffect(mediaController) {
+        val controller = mediaController ?: return@LaunchedEffect
+        viewModel.subtitleSelectRequests.collect { idx ->
+            subtitleManager.selectSubtitle(controller, idx)
+        }
     }
 
     // Mirror user-intent pause state into the player. Kept separate from the
@@ -352,8 +466,8 @@ fun TvPlayerScreen(
     }
 
     // Auto-hide the Compose overlay after CONTROLS_AUTO_HIDE_MS.
-    LaunchedEffect(state.showControls, state.isPaused) {
-        if (state.showControls && !state.isPaused) {
+    LaunchedEffect(state.showControls, state.isPaused, state.hudOpen) {
+        if (state.showControls && !state.isPaused && !state.hudOpen) {
             delay(CONTROLS_AUTO_HIDE_MS)
             viewModel.setControlsVisible(false)
         }
@@ -368,9 +482,7 @@ fun TvPlayerScreen(
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
                     event.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_BACK &&
-                    !state.showControls &&
-                    !state.subtitleMenuOpen &&
-                    !state.audioMenuOpen
+                    !state.showControls
                 ) {
                     viewModel.setControlsVisible(true)
                 }
@@ -397,11 +509,24 @@ fun TvPlayerScreen(
                                 playerViewRef = this
                             }
                         },
-                        update = { view -> view.player = controller },
+                        update = { view ->
+                            view.player = controller
+                            view.resizeMode = when (state.videoFillMode) {
+                                VideoFillMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                VideoFillMode.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            }
+                        },
                     )
                 }
 
                 if (state.showControls && !state.hudOpen) {
+                    // In a room, transport authority gates what the local
+                    // member may drive: a guest who can't seek gets a disabled
+                    // scrubber + skip; play/pause only under guest_play_pause.
+                    val canSeekInRoom = roomController == null ||
+                        tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek) == TransportGate.Send
+                    val canPlayPauseInRoom = roomController == null ||
+                        tvRoomTransportGate(roomSnapshot, TvTransportIntent.PlayPause) == TransportGate.Send
                     TvPlayerIdleOverlay(
                         title = state.title,
                         positionSec = state.position,
@@ -409,35 +534,72 @@ fun TvPlayerScreen(
                         isPaused = state.isPaused,
                         isScrubbing = state.isScrubbing,
                         scrubPreviewSec = state.scrubPreviewSec,
+                        chapters = state.chapters,
+                        // In a room, skip/scrub/seek are routed through the
+                        // controller (transport_request → server → broadcast
+                        // command → engine applies the seek locally). Solo
+                        // playback seeks the MediaController directly.
+                        transportEnabled = canSeekInRoom,
+                        playPauseEnabled = canPlayPauseInRoom,
                         onSkipBack = {
                             val c = mediaController ?: return@TvPlayerIdleOverlay
+                            if (!canSeekInRoom) return@TvPlayerIdleOverlay
                             val target = (c.currentPosition - SKIP_SECONDS_MS)
                                 .coerceAtLeast(0L)
-                            c.seekTo(target)
+                            if (roomController != null) {
+                                roomController.onUserSeek(target / 1000.0)
+                            } else {
+                                c.seekTo(target)
+                            }
                             viewModel.setControlsVisible(true)
                         },
                         onSkipForward = {
                             val c = mediaController ?: return@TvPlayerIdleOverlay
+                            if (!canSeekInRoom) return@TvPlayerIdleOverlay
                             val dur = c.duration.coerceAtLeast(0L)
                             val target = (c.currentPosition + SKIP_SECONDS_MS)
                                 .coerceAtMost(dur)
-                            c.seekTo(target)
+                            if (roomController != null) {
+                                roomController.onUserSeek(target / 1000.0)
+                            } else {
+                                c.seekTo(target)
+                            }
                             viewModel.setControlsVisible(true)
                         },
                         onBeginScrub = { viewModel.beginScrub() },
                         onUpdateScrub = { sec -> viewModel.updateScrubPreview(sec) },
                         onCommitScrub = {
                             val targetSec = viewModel.commitScrub()
-                            mediaController?.seekTo((targetSec * 1000).toLong())
+                            if (!canSeekInRoom) return@TvPlayerIdleOverlay
+                            if (roomController != null) {
+                                roomController.onUserSeek(targetSec)
+                            } else {
+                                mediaController?.seekTo((targetSec * 1000).toLong())
+                            }
                             viewModel.setControlsVisible(true)
                         },
                         onCancelScrub = { viewModel.cancelScrub() },
                         onPlayPause = {
-                            viewModel.onPlayPause()
+                            if (!canPlayPauseInRoom) return@TvPlayerIdleOverlay
+                            if (roomController != null) {
+                                roomController.onUserPlayPause()
+                            } else {
+                                viewModel.onPlayPause()
+                            }
                             viewModel.setControlsVisible(true)
                         },
                         onOpenHUD = { viewModel.openHUD() },
-                        onClose = { stopPlaybackAndExit() },
+                        onClose = {
+                            when {
+                                roomController != null && roomSnapshot?.isHost == true ->
+                                    showLeaveDialog = true
+                                roomController != null -> {
+                                    roomController.leave(closeRoom = false)
+                                    stopPlaybackAndExit()
+                                }
+                                else -> stopPlaybackAndExit()
+                            }
+                        },
                     )
                 }
 
@@ -450,6 +612,8 @@ fun TvPlayerScreen(
                             audioTracks = state.audioTracks,
                             subtitleTracks = state.subtitleTracks,
                             videoTracks = state.videoTracks,
+                            stats = state.stats,
+                            videoFillMode = state.videoFillMode,
                             onSelectAudio = { idx ->
                                 mediaController?.let { audioTrackManager.selectAudioTrack(it, idx) }
                             },
@@ -463,33 +627,73 @@ fun TvPlayerScreen(
                                 // doesn't expose a direct setter the way audio/subtitle do,
                                 // so we surface the picker for visibility but no-op on tap.
                             },
+                            onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
+                            audioDelayMs = audioDelayMs,
+                            onAudioDelayChanged = viewModel::onAudioDelayChanged,
+                            subtitleDelayMs = subtitleDelayMs,
+                            onSubtitleDelayChanged = viewModel::onSubtitleDelayChanged,
+                            onSubtitlesPaneShown = viewModel::onSubtitlesPaneShown,
+                            onSearchSubtitles = if (state.mediaFileId != null) {
+                                { viewModel.openSubtitleSearchDialog() }
+                            } else {
+                                null
+                            },
+                            onTranslateWithAi = if (
+                                state.mediaFileId != null &&
+                                (aiTranslate.status.enabled || aiTranslate.status.transcribeEnabled)
+                            ) {
+                                { viewModel.openAiTranslateDialog() }
+                            } else {
+                                null
+                            },
+                            hdrEnabled = hdrEnabled,
+                            onHdrEnabledChanged = viewModel::onSetHdrEnabled,
+                            chapters = state.chapters,
+                            onSelectChapter = { idx ->
+                                viewModel.onSeekToChapter(idx)?.let { sec ->
+                                    mediaController?.seekTo((sec * 1000).toLong())
+                                }
+                            },
                             onDismiss = { viewModel.closeHUD() },
                             modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
                         )
                     }
                 }
-            }
-        }
 
-        if (state.subtitleMenuOpen) {
-            TvSubtitleMenu(
-                tracks = state.subtitleTracks,
-                onSelect = { index ->
-                    mediaController?.let { subtitleManager.selectSubtitle(it, index) }
-                    viewModel.closeSubtitleMenu()
-                },
-                onDismiss = { viewModel.closeSubtitleMenu() },
-            )
-        }
-        if (state.audioMenuOpen) {
-            TvAudioTrackMenu(
-                tracks = state.audioTracks,
-                onSelect = { index ->
-                    mediaController?.let { audioTrackManager.selectAudioTrack(it, index) }
-                    viewModel.closeAudioMenu()
-                },
-                onDismiss = { viewModel.closeAudioMenu() },
-            )
+                if (state.showSubtitleSearchDialog) {
+                    TvSubtitleSearchDialog(
+                        state = subtitleSearch,
+                        onLanguageChanged = viewModel::setSubtitleSearchLanguage,
+                        onSearch = viewModel::searchSubtitles,
+                        onDownload = viewModel::downloadSubtitle,
+                        onDismiss = viewModel::closeSubtitleSearchDialog,
+                    )
+                }
+
+                if (state.showAiTranslateDialog) {
+                    // Translate sources = the session's sidecar subtitle list,
+                    // filtered with mobile/web parity (isTranslatableSource):
+                    // embedded → any non-bitmap codec (ffmpeg-extractable);
+                    // external/downloaded → only server-parseable text formats
+                    // (external ASS is rejected by the server). source_index for
+                    // the server is PlayerSubtitleInfo.index (the session's
+                    // combined subtitle index).
+                    val translatableSubtitleSources = remember(state.subtitleUrls) {
+                        state.subtitleUrls.filter { isTranslatableSource(it) }
+                    }
+                    TvAiTranslateDialog(
+                        aiState = aiTranslate,
+                        subtitleSources = translatableSubtitleSources,
+                        audioSources = state.audioTracks,
+                        defaultTargetLanguage = state.preferredTextLanguage
+                            ?.takeIf { it.isNotBlank() } ?: "en",
+                        onSubmit = viewModel::submitAiTranslate,
+                        onCancelJob = viewModel::cancelAiTranslateJob,
+                        onClearError = viewModel::clearAiTranslateError,
+                        onDismiss = viewModel::closeAiTranslateDialog,
+                    )
+                }
+            }
         }
 
         // Lifecycle-driven notice toast (top-start). Slides in for outage
@@ -501,6 +705,39 @@ fun TvPlayerScreen(
             contentAlignment = Alignment.TopStart,
         ) {
             TvPlayerNoticeOverlay(notice = notice)
+        }
+
+        // Watch Together room indicator (top-end so it doesn't collide with
+        // the top-start lifecycle notice). Member count, a "Waiting for
+        // members…" pill while the room is on the wait barrier, and the join
+        // code for the host. Only shown while the idle overlay is up.
+        val snapshot = roomSnapshot
+        if (roomController != null && snapshot != null && state.showControls && !state.hudOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 32.dp, end = 32.dp),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                TvRoomIndicator(
+                    memberCount = snapshot.memberCount,
+                    waiting = snapshot.playbackState == RoomPlaybackState.Waiting,
+                    joinCode = snapshot.code.takeIf { snapshot.selfCanManageRoom && it.isNotBlank() },
+                )
+            }
+        }
+
+        // Host close-confirm dialog. Closing tears the room down for everyone
+        // (server emits room_closed → every member exits). Cancel resumes.
+        if (showLeaveDialog && roomController != null) {
+            TvRoomCloseConfirmDialog(
+                onClose = {
+                    showLeaveDialog = false
+                    roomController.leave(closeRoom = true)
+                    stopPlaybackAndExit()
+                },
+                onCancel = { showLeaveDialog = false },
+            )
         }
 
         // Intro auto-skip banner (bottom-end, above the transport cluster).
@@ -563,6 +800,7 @@ private fun TvPlayerIdleOverlay(
     isPaused: Boolean,
     isScrubbing: Boolean,
     scrubPreviewSec: Double,
+    chapters: List<com.continuum.app.model.catalog.VersionChapter>,
     onPlayPause: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
@@ -572,13 +810,45 @@ private fun TvPlayerIdleOverlay(
     onCancelScrub: () -> Unit,
     onOpenHUD: () -> Unit,
     onClose: () -> Unit,
+    // Watch Together transport authority. Solo playback leaves both true.
+    // A guest who can't seek gets a no-op scrubber/skip; a guest who can't
+    // play/pause (host_only policy) gets a no-op play/pause.
+    transportEnabled: Boolean = true,
+    playPauseEnabled: Boolean = true,
 ) {
     val scrubberFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
     var currentRate by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { runCatching { scrubberFocus.requestFocus() } }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                when (
+                    tvPlayerRemoteKeyAction(
+                        keyCode = event.nativeKeyEvent.keyCode,
+                        action = event.nativeKeyEvent.action,
+                        repeatCount = event.nativeKeyEvent.repeatCount,
+                    )
+                ) {
+                    TvPlayerRemoteKeyAction.PlayPause -> {
+                        onPlayPause()
+                        true
+                    }
+                    TvPlayerRemoteKeyAction.FocusTransport -> {
+                        runCatching { playPauseFocus.requestFocus() }
+                        true
+                    }
+                    TvPlayerRemoteKeyAction.OpenHud -> {
+                        onOpenHUD()
+                        true
+                    }
+                    TvPlayerRemoteKeyAction.ConsumeOnly -> true
+                    null -> false
+                }
+            },
+    ) {
         // Bottom gradient scrim — 240dp tall, ~0.55 black at the bottom edge,
         // fading to transparent so video content above stays visible.
         Box(
@@ -619,7 +889,12 @@ private fun TvPlayerIdleOverlay(
                 bufferedAheadSec = 0.0,
                 isScrubbing = isScrubbing,
                 scrubPreviewSec = scrubPreviewSec,
-                chapters = emptyList(),
+                chapters = chapters.map {
+                    ChapterInfo(
+                        timeSec = it.startSeconds,
+                        title = it.title.ifBlank { null },
+                    )
+                },
                 cancelOnBlur = false,
                 onSkipBack = onSkipBack,
                 onSkipForward = onSkipForward,
@@ -662,6 +937,95 @@ private fun TvPlayerIdleOverlay(
                 rate = currentRate,
                 previewTimeSec = scrubPreviewSec,
                 durationSec = durationSec,
+            )
+        }
+    }
+}
+
+/**
+ * Top-end Watch Together status pill. Shows the live member count, a "Waiting
+ * for members…" line while the room sits on the wait barrier, and the join
+ * code for a member who can manage the room (host).
+ */
+@Composable
+private fun TvRoomIndicator(
+    memberCount: Int,
+    waiting: Boolean,
+    joinCode: String?,
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        androidx.tv.material3.Text(
+            text = "Watch Together · $memberCount in room",
+            color = Color.White,
+            style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
+        )
+        if (joinCode != null) {
+            androidx.tv.material3.Text(
+                text = "Code $joinCode",
+                color = Color.White.copy(alpha = 0.80f),
+                style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+            )
+        }
+        if (waiting) {
+            androidx.tv.material3.Text(
+                text = "Waiting for members…",
+                color = Color.White.copy(alpha = 0.80f),
+                style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+            )
+        }
+    }
+}
+
+/**
+ * Host close-confirm dialog. Uses the [TvDialogActionRow] idiom (shared with
+ * the subtitle search dialog). "Close room for everyone" tears the room down
+ * for all members (server broadcasts room_closed); "Keep watching" resumes.
+ */
+@Composable
+private fun TvRoomCloseConfirmDialog(
+    onClose: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.Black.copy(alpha = 0.92f))
+                .padding(40.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            androidx.tv.material3.Text(
+                text = "Close this room?",
+                color = Color.White,
+                style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
+            )
+            androidx.tv.material3.Text(
+                text = "Closing ends Watch Together for everyone in the room.",
+                color = Color.White.copy(alpha = 0.80f),
+                style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+            )
+            TvDialogActionRow(
+                title = "Close room for everyone",
+                onClick = onClose,
+                modifier = Modifier.width(360.dp),
+            )
+            TvDialogActionRow(
+                title = "Keep watching",
+                onClick = onCancel,
+                modifier = Modifier.width(360.dp),
             )
         }
     }

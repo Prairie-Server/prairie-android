@@ -4,17 +4,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -44,11 +55,19 @@ fun SeriesDetailContent(
     onSeasonSelected: (Int) -> Unit,
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
+    userRating: Int? = null,
+    onSetRating: (Int) -> Unit = {},
+    onClearRating: () -> Unit = {},
     onPersonClick: (String) -> Unit,
     onItemDetailClick: (String) -> Unit,
+    onSeriesDownloadClick: (() -> Unit)? = null,
+    onSeasonDownloadClick: ((Int) -> Unit)? = null,
+    onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
+    onWatchTogether: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val dominantColor by rememberDominantColor(detail.backdropUrl, fallback = ContinuumBackground)
+    var showRatingSheet by remember { mutableStateOf(false) }
 
     val eyebrow = HeroMetadata.seriesEyebrow(detail)
     val sourceTokens = HeroMetadata.seriesSourceTokens(detail)
@@ -83,17 +102,68 @@ fun SeriesDetailContent(
                     onToggleFavorite = onFavoriteClick,
                     onToggleWatchlist = onWatchlistClick,
                     onToggleWatched = { /* no-op until shared API exposes it */ },
+                    userRating = userRating,
+                    onRateClick = { showRatingSheet = true },
+                    overflow = if (onWatchTogether != null) {
+                        { dismiss ->
+                            DropdownMenuItem(
+                                text = { Text("Watch Together") },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.Groups, contentDescription = null)
+                                },
+                                onClick = {
+                                    dismiss()
+                                    onWatchTogether()
+                                },
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    downloadSlot = onSeriesDownloadClick?.let { click ->
+                        {
+                            DownloadCircleButton(
+                                isDownloaded = false,
+                                progress = null,
+                                onClick = click,
+                            )
+                        }
+                    },
                 )
             }
         }
 
         item {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SectionHeader(
-                    label = selectedSeason?.let { "Season ${it.seasonNumber}" } ?: "Episodes",
-                    title = "Episodes",
-                    trailingText = episodeCountSubtitle,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    SectionHeader(
+                        label = selectedSeason?.let { "Season ${it.seasonNumber}" } ?: "Episodes",
+                        title = "Episodes",
+                        trailingText = episodeCountSubtitle,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // "Download season N" — only when a season is selected
+                    // AND the parent screen wired the callback.
+                    val seasonNumberForDownload = selectedSeason?.seasonNumber
+                    if (seasonNumberForDownload != null && onSeasonDownloadClick != null && episodes.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onSeasonDownloadClick(seasonNumberForDownload) },
+                            modifier = Modifier
+                                .padding(end = SafePadding)
+                                .size(40.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.FileDownload,
+                                contentDescription = "Download season $seasonNumberForDownload",
+                                tint = DetailPrimaryText,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                }
                 if (seasons.size > 1) {
                     SeasonChips(
                         seasons = seasons,
@@ -125,6 +195,7 @@ fun SeriesDetailContent(
                             episodes = episodes,
                             onEpisodePlayClick = onEpisodePlayClick,
                             onEpisodeDetailClick = onEpisodeDetailClick,
+                            onEpisodeDownloadClick = onEpisodeDownloadClick,
                         )
                     }
                 }
@@ -173,5 +244,20 @@ fun SeriesDetailContent(
         item {
             Spacer(modifier = Modifier.height(40.dp))
         }
+    }
+
+    if (showRatingSheet) {
+        RatingSheet(
+            currentRating = userRating,
+            onSetRating = { stars ->
+                onSetRating(stars)
+                showRatingSheet = false
+            },
+            onClearRating = {
+                onClearRating()
+                showRatingSheet = false
+            },
+            onDismiss = { showRatingSheet = false },
+        )
     }
 }

@@ -8,6 +8,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,8 +19,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -29,6 +31,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalMovies
 import androidx.compose.material.icons.filled.Tv
@@ -70,8 +73,7 @@ import com.continuum.app.model.section.splitFeatured
 import com.continuum.app.tv.ui.components.TvCardWidth
 import com.continuum.app.tv.ui.components.TvCatalogEmptyState
 import com.continuum.app.tv.ui.components.TvErrorScreen
-import com.continuum.app.tv.ui.components.TvFullScreenPicker
-import com.continuum.app.tv.ui.components.TvFullScreenPickerOption
+import com.continuum.app.tv.ui.components.TvFilterSheet
 import com.continuum.app.tv.ui.components.TvHomeHeroCarousel
 import com.continuum.app.tv.ui.components.TvMediaCard
 import com.continuum.app.tv.ui.components.TvMediaRow
@@ -81,6 +83,7 @@ import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.HeroDimens
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.theme.SubtleSurface
+import java.time.Year
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -142,6 +145,7 @@ fun TvLibraryDetailScreen(
                 onGenreChanged = viewModel::onGenreChanged,
                 onSortChanged = viewModel::onSortChanged,
                 onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onYearRangeChanged = viewModel::onYearRangeChanged,
                 onLoadMore = viewModel::loadMoreBrowse,
                 onRetry = viewModel::retryBrowse,
                 onInitialContentFocus = onInitialContentFocus,
@@ -296,6 +300,7 @@ private fun RecommendedTab(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LibraryTab(
     state: TvLibraryDetailViewModel.UiState,
@@ -306,12 +311,12 @@ private fun LibraryTab(
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (TvLibrarySortOption) -> Unit,
     onNamePrefixChanged: (String?) -> Unit,
+    onYearRangeChanged: (Int?, Int?) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onInitialContentFocus: () -> Unit,
 ) {
-    var showGenrePicker by remember { mutableStateOf(false) }
-    var showSortPicker by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
 
     val tabSliderFocusRequester = remember { FocusRequester() }
     val firstGridItemFocusRequester = remember { FocusRequester() }
@@ -330,20 +335,10 @@ private fun LibraryTab(
         initialFocusRequested = true
     }
 
-    val genreOptions = buildList {
-        add(TvFullScreenPickerOption(id = "__all", title = "All"))
-        addAll(
-            state.genres.map { genre ->
-                TvFullScreenPickerOption(id = genre, title = genre)
-            },
-        )
-    }
-    val sortOptions = TvLibrarySortOption.entries.map { sort ->
-        TvFullScreenPickerOption(id = sort.wireValue, title = sort.label)
-    }
+    val sortLabel = TvLibrarySortOption.fromWire(state.browseFilter.sort).label
 
-    Row(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.weight(1f)) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
             if (state.browseError != null && state.browseItems.isEmpty()) {
                 LibraryHeader(
                     title = state.title,
@@ -356,9 +351,9 @@ private fun LibraryTab(
                     tabSliderFocusRequester = tabSliderFocusRequester,
                     extra = {
                         FilterRow(
-                            state = state,
-                            onGenreClick = { showGenrePicker = true },
-                            onSortClick = { showSortPicker = true },
+                            filter = state.browseFilter,
+                            sortLabel = sortLabel,
+                            onOpenFilters = { showFilterSheet = true },
                         )
                     },
                     modifier = Modifier.padding(top = TvTopMenuLayout.contentTopInset),
@@ -379,51 +374,126 @@ private fun LibraryTab(
                     onTabSelected = onTabSelected,
                     onItemClick = onItemClick,
                     onLoadMore = onLoadMore,
-                    onGenreClick = { showGenrePicker = true },
-                    onSortClick = { showSortPicker = true },
+                    sortLabel = sortLabel,
+                    onOpenFilters = { showFilterSheet = true },
                     tabSliderFocusRequester = tabSliderFocusRequester,
                     firstItemFocusRequester = firstGridItemFocusRequester,
                 )
             }
         }
 
-        TvAlphabetRail(
-            selected = state.browseFilter.namePrefix,
-            onSelect = onNamePrefixChanged,
-            modifier = Modifier
-                .padding(
-                    top = TvTopMenuLayout.contentTopInset + 24.dp,
-                    end = Spacing.md,
-                    bottom = Spacing.xxl,
-                )
-                .width(44.dp),
-        )
-    }
+        TvFilterSheet(
+            visible = showFilterSheet,
+            onDismiss = { showFilterSheet = false },
+        ) {
+            val currentYear = remember { Year.now().value }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                // --- Genre section ---
+                FilterSectionHeader("Genre")
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    FilterChoiceChip(
+                        label = "All",
+                        selected = state.browseFilter.genre == null,
+                        onClick = { onGenreChanged(null) },
+                    )
+                    state.genres.forEach { genre ->
+                        FilterChoiceChip(
+                            label = genre,
+                            selected = state.browseFilter.genre == genre,
+                            onClick = { onGenreChanged(genre) },
+                        )
+                    }
+                }
 
-    if (showGenrePicker) {
-        TvFullScreenPicker(
-            title = if (state.filtersLoading) "Genres" else "Genre",
-            options = genreOptions,
-            selectedId = state.browseFilter.genre ?: "__all",
-            onSelect = { id ->
-                showGenrePicker = false
-                onGenreChanged(id.takeUnless { it == "__all" })
-            },
-            onDismiss = { showGenrePicker = false },
-        )
-    }
+                // --- Year section ---
+                FilterSectionHeader("Year")
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    val noYearSelected = state.browseFilter.yearMin == null &&
+                        state.browseFilter.yearMax == null
+                    FilterChoiceChip(
+                        label = "Any",
+                        selected = noYearSelected,
+                        onClick = { onYearRangeChanged(null, null) },
+                    )
+                    TvLibraryYearOptions.forCurrentYear(currentYear).forEach { option ->
+                        FilterChoiceChip(
+                            label = option.label,
+                            selected = state.browseFilter.yearMin == option.yearMin &&
+                                state.browseFilter.yearMax == option.yearMax,
+                            onClick = { onYearRangeChanged(option.yearMin, option.yearMax) },
+                        )
+                    }
+                }
 
-    if (showSortPicker) {
-        TvFullScreenPicker(
-            title = "Sort By",
-            options = sortOptions,
-            selectedId = state.browseFilter.sort,
-            onSelect = { id ->
-                showSortPicker = false
-                onSortChanged(TvLibrarySortOption.fromWire(id))
-            },
-            onDismiss = { showSortPicker = false },
-        )
+                // --- Sort section ---
+                FilterSectionHeader("Sort")
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    TvLibrarySortOption.entries.forEach { option ->
+                        FilterChoiceChip(
+                            label = option.label,
+                            selected = state.browseFilter.sort == option.wireValue,
+                            onClick = { onSortChanged(option) },
+                        )
+                    }
+                }
+
+                // --- Alphabet section ---
+                FilterSectionHeader("Jump to")
+                // Render alphabet letters as horizontal chips inline (the existing
+                // TvAlphabetRail renders vertically). Keep this inline for layout
+                // simplicity inside the sheet.
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    val letters = remember {
+                        buildList {
+                            add("All")
+                            add("#")
+                            ('A'..'Z').forEach { add(it.toString()) }
+                        }
+                    }
+                    letters.forEach { letter ->
+                        val selected = when (letter) {
+                            "All" -> state.browseFilter.namePrefix == null
+                            "#" -> state.browseFilter.namePrefix == "#"
+                            else -> state.browseFilter.namePrefix == letter
+                        }
+                        FilterChoiceChip(
+                            label = letter,
+                            selected = selected,
+                            onClick = {
+                                onNamePrefixChanged(
+                                    when (letter) {
+                                        "All" -> null
+                                        "#" -> "#"
+                                        else -> letter
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -435,8 +505,8 @@ private fun LibraryGrid(
     onTabSelected: (TvLibraryTab) -> Unit,
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
-    onGenreClick: () -> Unit,
-    onSortClick: () -> Unit,
+    sortLabel: String,
+    onOpenFilters: () -> Unit,
     tabSliderFocusRequester: FocusRequester,
     firstItemFocusRequester: FocusRequester,
 ) {
@@ -492,9 +562,9 @@ private fun LibraryGrid(
                 tabSliderFocusRequester = tabSliderFocusRequester,
                 extra = {
                     FilterRow(
-                        state = state,
-                        onGenreClick = onGenreClick,
-                        onSortClick = onSortClick,
+                        filter = state.browseFilter,
+                        sortLabel = sortLabel,
+                        onOpenFilters = onOpenFilters,
                     )
                 },
                 horizontalPadding = 0.dp,
@@ -887,37 +957,49 @@ private fun LibrarySwitcherPill(
 // Library tab filter row
 // ============================================================================
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FilterRow(
-    state: TvLibraryDetailViewModel.UiState,
-    onGenreClick: () -> Unit,
-    onSortClick: () -> Unit,
+    filter: TvLibraryBrowseFilter,
+    sortLabel: String,
+    onOpenFilters: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val currentYear = remember { Year.now().value }
+    FlowRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = Spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        FilterDropdownButton(
-            label = "Genre",
-            value = state.browseFilter.genre ?: "All",
-            onClick = onGenreClick,
-            modifier = Modifier.widthIn(min = 200.dp, max = 280.dp),
+        FilterEntryButton(
+            label = "Filter",
+            onClick = onOpenFilters,
         )
-        FilterDropdownButton(
-            label = "Sort",
-            value = TvLibrarySortOption.fromWire(state.browseFilter.sort).label,
-            onClick = onSortClick,
-            modifier = Modifier.widthIn(min = 200.dp, max = 280.dp),
-        )
+
+        if (filter.genre != null) {
+            ActiveFilterPill(label = "Genre: ${filter.genre}")
+        }
+        if (filter.yearMin != null || filter.yearMax != null) {
+            val label = TvLibraryYearOptions.match(
+                currentYear = currentYear,
+                yearMin = filter.yearMin,
+                yearMax = filter.yearMax,
+            )?.label ?: "${filter.yearMin ?: "?"}-${filter.yearMax ?: "?"}"
+            ActiveFilterPill(label = "Year: $label")
+        }
+        ActiveFilterPill(label = "Sort: $sortLabel")
+        if (filter.namePrefix != null) {
+            ActiveFilterPill(label = "# ${filter.namePrefix}")
+        }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun FilterDropdownButton(
+private fun FilterEntryButton(
     label: String,
-    value: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -952,33 +1034,115 @@ private fun FilterDropdownButton(
         ),
         modifier = modifier,
     ) {
-        Row(
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = foreground,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = foreground.copy(alpha = 0.55f),
-                fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun ActiveFilterPill(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .background(
+                color = Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(999.dp),
             )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleSmall,
-                color = foreground,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.06f),
+                shape = RoundedCornerShape(999.dp),
             )
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = null,
-                tint = foreground.copy(alpha = 0.7f),
-                modifier = Modifier.size(18.dp),
-            )
-        }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White.copy(alpha = 0.85f),
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun FilterSectionHeader(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.titleMedium,
+        color = Color.White.copy(alpha = 0.7f),
+        fontWeight = FontWeight.SemiBold,
+    )
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun FilterChoiceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val container = when {
+        isFocused -> Color.White.copy(alpha = 0.94f)
+        selected -> Color.White.copy(alpha = 0.22f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    val foreground = when {
+        isFocused -> Color.Black
+        selected -> Color.White
+        else -> Color.White.copy(alpha = 0.85f)
+    }
+
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = container,
+            contentColor = foreground,
+            focusedContainerColor = Color.White.copy(alpha = 0.94f),
+            focusedContentColor = Color.Black,
+            pressedContainerColor = Color.White.copy(alpha = 0.94f),
+            pressedContentColor = Color.Black,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(
+                    width = if (selected) 1.dp else 1.dp,
+                    color = if (selected) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.06f),
+                ),
+                shape = RoundedCornerShape(12.dp),
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(0.dp, Color.Transparent),
+                shape = RoundedCornerShape(12.dp),
+            ),
+        ),
+        modifier = modifier,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = foreground,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
     }
 }
 
@@ -1072,12 +1236,14 @@ private fun ResolvedSection.isProgressRow(): Boolean {
 private fun libraryTypeIcon(type: String): ImageVector = when (type.lowercase()) {
     "movies", "movie" -> Icons.Filled.LocalMovies
     "series", "shows", "tv" -> Icons.Filled.Tv
+    "audiobook", "audiobooks" -> Icons.Filled.Headphones
     else -> Icons.Filled.VideoLibrary
 }
 
 private fun libraryTypeLabel(type: String): String = when (type.lowercase()) {
     "movies", "movie" -> "Movies"
     "series", "shows", "tv" -> "TV Shows"
+    "audiobook", "audiobooks" -> "Audiobooks"
     else -> "Library"
 }
 

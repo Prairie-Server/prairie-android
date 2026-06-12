@@ -158,12 +158,21 @@ class AndroidPlayerSettingsStoreTest {
     }
 
     @Test
-    fun `audioSyncMs clamps to plus minus 500`() = runTest {
+    fun `audioSyncMs clamps to plus minus 5000 (iOS-parity range)`() = runTest {
         val store = newStore()
-        store.setAudioSyncMs(9999)
-        assertEquals(500, store.audioSyncMsFlow.first())
-        store.setAudioSyncMs(-9999)
-        assertEquals(-500, store.audioSyncMsFlow.first())
+        store.setAudioSyncMs(99999)
+        assertEquals(5000, store.audioSyncMsFlow.first())
+        store.setAudioSyncMs(-99999)
+        assertEquals(-5000, store.audioSyncMsFlow.first())
+    }
+
+    @Test
+    fun `subtitleSyncMs clamps to plus minus 10000 (iOS-parity range)`() = runTest {
+        val store = newStore()
+        store.setSubtitleSyncMs(99999)
+        assertEquals(10000, store.subtitleSyncMsFlow.first())
+        store.setSubtitleSyncMs(-99999)
+        assertEquals(-10000, store.subtitleSyncMsFlow.first())
     }
 
     // ---- Server-sync surface ------------------------------------------

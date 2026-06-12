@@ -3,23 +3,23 @@ package com.continuum.app.tv.ui.screens.settings
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.continuum.app.common.settings.AndroidServerSettingsCache
 import com.continuum.app.common.settings.LibraryPlaybackPrefsStore
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.model.auth.User
+import com.continuum.app.model.auth.isActingAdmin
+import com.continuum.app.model.notifications.NotificationPreferencesUpdate
 import com.continuum.app.model.profile.UpdateProfileRequest
-import com.continuum.app.model.settings.PlaybackSettingsKeys
 import com.continuum.app.model.settings.SubtitleAppearance
 import com.continuum.app.model.settings.SubtitleFontSizePreset
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.TokenManager
 import com.continuum.app.repository.AuthRepository
+import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.repository.ProfileRepository
-import com.continuum.app.repository.SettingsRepository
+import com.continuum.app.tv.data.preferences.LegacyTvPrefsMigration
 import com.continuum.app.tv.data.preferences.PlaybackQuality
 import com.continuum.app.tv.data.preferences.SubtitleMode
 import com.continuum.app.tv.data.preferences.SubtitleSize
-import com.continuum.app.tv.data.preferences.TvPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,8 +32,8 @@ import kotlinx.coroutines.launch
  * ViewModel for the TV settings screen. Server-managed device settings
  * flow exclusively through [PlayerSettingsStore] (mirror of iOS
  * `PlayerSettings.shared`); profile-level subtitle prefs still go via
- * [profileRepository]. [TvPreferences] is retained only as the source of
- * the one-time legacy → server migration that runs on first boot.
+ * [profileRepository]. [LegacyTvPrefsMigration] runs the one-time legacy
+ * `tv_prefs` → server import on first boot (sentinel-gated no-op after).
  *
  * Sign-out and switch-profile operations emit a one-shot [NavAction]
  * signal that the screen collects and forwards to the top-level NavHost.
@@ -42,11 +42,10 @@ class TvSettingsViewModel(
     private val authRepository: AuthRepository,
     private val profileRepository: ProfileRepository,
     private val tokenManager: TokenManager,
-    private val preferences: TvPreferences,
-    private val settingsRepository: SettingsRepository,
-    private val settingsCache: AndroidServerSettingsCache,
     private val playerSettingsStore: PlayerSettingsStore,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
+    private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
+    private val notificationsRepository: NotificationsRepository,
 ) : ViewModel() {
 
     enum class NavAction { SIGNED_OUT, SWITCH_PROFILE }
@@ -63,6 +62,18 @@ class TvSettingsViewModel(
         val autoPlayNext: Boolean = true,
         val autoSkipIntro: Boolean = false,
         val autoSkipCredits: Boolean = false,
+        // Notifications (in-app). The section is hidden entirely unless the
+        // server reports in-app notifications are enabled AND preferences
+        // load — so no toggles (least of all push) ever render otherwise.
+        // Admin dashboard row in Settings — true only for acting-admin
+        // (role == "admin" AND active profile is primary, or no profile resolved yet).
+        val adminVisible: Boolean = false,
+        val notificationsVisible: Boolean = false,
+        val notificationsEnabled: Boolean = true,
+        val notifyFavorites: Boolean = true,
+        val notifyWatchlist: Boolean = true,
+        val notifyContinueWatching: Boolean = true,
+        val notifyNextUp: Boolean = true,
         val navAction: NavAction? = null,
     )
 
@@ -73,14 +84,23 @@ class TvSettingsViewModel(
         loadUser()
         loadSettings()
         observePlayerSettings()
+        loadNotificationPreferences()
     }
 
     fun loadUser() {
         viewModelScope.launch {
             _uiState.update { it.copy(userLoading = true, userError = null) }
             when (val r = authRepository.getCurrentUser()) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(user = r.data, userLoading = false, userError = null)
+                is ApiResult.Success -> {
+                    val profile = profileRepository.getActiveProfile()
+                    _uiState.update {
+                        it.copy(
+                            user = r.data,
+                            userLoading = false,
+                            userError = null,
+                            adminVisible = isActingAdmin(r.data, profile),
+                        )
+                    }
                 }
                 is ApiResult.Error -> _uiState.update {
                     it.copy(
@@ -104,8 +124,8 @@ class TvSettingsViewModel(
             _uiState.update { it.copy(serverUrl = serverUrl) }
 
             // One-shot import of pre-server-sync TvPreferences values.
-            // Idempotent — gated by the legacy cache's migration sentinel.
-            migrateLegacyTvPreferencesIfNeeded(serverUrl)
+            // Idempotent — sentinel-gated inside the migration.
+            legacyTvPrefsMigration.migrateIfNeeded()
 
             // Pull effective device settings (cascade user → device → default).
             // The store writes them to its DataStore; observePlayerSettings()
@@ -161,6 +181,109 @@ class TvSettingsViewModel(
                         autoSkipCredits = snap.skipCredits,
                         subtitleSize = snap.appearance.fontSize.toTvSubtitleSize(),
                     )
+                }
+            }
+        }
+    }
+
+    /**
+     * Folds capability + preferences into UI state. The section is gated on
+     * the server reporting in-app notifications enabled (`in_app.enabled`, the
+     * server feature flag / "available" semantic — there is NO separate
+     * `available` field) AND preferences having loaded. A failed capability or
+     * preferences fetch leaves them null, so the section stays hidden and no
+     * push toggles are ever rendered. The user's on/off is the separate
+     * [NotificationPreferences.enabled] master toggle.
+     */
+    private fun loadNotificationPreferences() {
+        viewModelScope.launch {
+            combine(
+                notificationsRepository.capability,
+                notificationsRepository.preferences,
+            ) { capability, preferences ->
+                capability to preferences
+            }.collect { (capability, preferences) ->
+                val available = capability?.inApp?.enabled == true
+                _uiState.update { state ->
+                    if (!available || preferences == null) {
+                        state.copy(notificationsVisible = false)
+                    } else {
+                        state.copy(
+                            notificationsVisible = true,
+                            notificationsEnabled = preferences.enabled,
+                            notifyFavorites = preferences.notifyFavorites,
+                            notifyWatchlist = preferences.notifyWatchlist,
+                            notifyContinueWatching = preferences.notifyContinueWatching,
+                            notifyNextUp = preferences.notifyNextUp,
+                        )
+                    }
+                }
+            }
+        }
+
+        viewModelScope.launch { notificationsRepository.loadCapability() }
+        viewModelScope.launch { notificationsRepository.loadPreferences() }
+    }
+
+    fun onNotificationsEnabledChanged(value: Boolean) {
+        val previousValue = _uiState.value.notificationsEnabled
+        _uiState.update { it.copy(notificationsEnabled = value) }
+        updateNotificationPreferences(
+            NotificationPreferencesUpdate(enabled = value),
+        ) { it.copy(notificationsEnabled = previousValue) }
+    }
+
+    fun onNotifyFavoritesChanged(value: Boolean) {
+        val previousValue = _uiState.value.notifyFavorites
+        _uiState.update { it.copy(notifyFavorites = value) }
+        updateNotificationPreferences(
+            NotificationPreferencesUpdate(notifyFavorites = value),
+        ) { it.copy(notifyFavorites = previousValue) }
+    }
+
+    fun onNotifyWatchlistChanged(value: Boolean) {
+        val previousValue = _uiState.value.notifyWatchlist
+        _uiState.update { it.copy(notifyWatchlist = value) }
+        updateNotificationPreferences(
+            NotificationPreferencesUpdate(notifyWatchlist = value),
+        ) { it.copy(notifyWatchlist = previousValue) }
+    }
+
+    fun onNotifyContinueWatchingChanged(value: Boolean) {
+        val previousValue = _uiState.value.notifyContinueWatching
+        _uiState.update { it.copy(notifyContinueWatching = value) }
+        updateNotificationPreferences(
+            NotificationPreferencesUpdate(notifyContinueWatching = value),
+        ) { it.copy(notifyContinueWatching = previousValue) }
+    }
+
+    fun onNotifyNextUpChanged(value: Boolean) {
+        val previousValue = _uiState.value.notifyNextUp
+        _uiState.update { it.copy(notifyNextUp = value) }
+        updateNotificationPreferences(
+            NotificationPreferencesUpdate(notifyNextUp = value),
+        ) { it.copy(notifyNextUp = previousValue) }
+    }
+
+    /**
+     * Sends a partial PUT (one named field) for the optimistically-applied
+     * toggle. On failure, [revertField] restores ONLY the single field this
+     * call changed to its prior value — never a wholesale snapshot. Reverting
+     * just the changed field is race-free across distinct fields: two quick
+     * successive toggles of different fields no longer clobber each other (the
+     * first call's failure can't roll back the field the second call set). On
+     * success the repository's preferences flow re-folds the server truth back
+     * into state via [loadNotificationPreferences].
+     */
+    private fun updateNotificationPreferences(
+        update: NotificationPreferencesUpdate,
+        revertField: (UiState) -> UiState,
+    ) {
+        viewModelScope.launch {
+            when (notificationsRepository.updatePreferences(update)) {
+                is ApiResult.Success -> Unit
+                is ApiResult.Error, is ApiResult.NetworkError -> {
+                    _uiState.update(revertField)
                 }
             }
         }
@@ -283,63 +406,6 @@ class TvSettingsViewModel(
         }
     }
 
-    /**
-     * One-shot import of legacy [TvPreferences] values. Pushes each
-     * value as a device-scoped override only when the server reports no
-     * existing override for the same key. Gated by the legacy cache's
-     * migration sentinel so it runs at most once per (server, profile,
-     * device) combination.
-     */
-    private suspend fun migrateLegacyTvPreferencesIfNeeded(serverUrl: String) {
-        if (serverUrl.isBlank() || settingsCache.isMigrationComplete(serverUrl, MIGRATION_SCOPE)) {
-            return
-        }
-
-        val legacyQuality = preferences.playbackQuality.first().wireValue
-        val legacySubtitleSize = preferences.subtitleSize.first()
-        val legacyAutoPlayNext = preferences.autoPlayNextEpisode.first()
-        val legacyAutoSkipIntro = preferences.autoSkipIntro.first()
-        val legacyAutoSkipCredits = preferences.autoSkipCredits.first()
-
-        val effective = when (
-            val result = settingsRepository.getEffectiveSettings(
-                listOf(
-                    PlaybackSettingsKeys.PreferredQuality,
-                    PlaybackSettingsKeys.AutoPlayNext,
-                    PlaybackSettingsKeys.AutoSkipIntro,
-                    PlaybackSettingsKeys.AutoSkipCredits,
-                    PlaybackSettingsKeys.SubtitleAppearance,
-                )
-            )
-        ) {
-            is ApiResult.Success -> result.data
-            is ApiResult.Error, is ApiResult.NetworkError -> emptyMap()
-        }
-
-        if (effective[PlaybackSettingsKeys.PreferredQuality]?.hasDeviceOverride != true) {
-            playerSettingsStore.setPreferredQuality(legacyQuality)
-        }
-        if (effective[PlaybackSettingsKeys.AutoPlayNext]?.hasDeviceOverride != true) {
-            playerSettingsStore.setAutoPlayNext(legacyAutoPlayNext)
-        }
-        if (effective[PlaybackSettingsKeys.AutoSkipIntro]?.hasDeviceOverride != true) {
-            playerSettingsStore.setAutoSkipIntro(legacyAutoSkipIntro)
-        }
-        if (effective[PlaybackSettingsKeys.AutoSkipCredits]?.hasDeviceOverride != true) {
-            playerSettingsStore.setAutoSkipCredits(legacyAutoSkipCredits)
-        }
-        if (effective[PlaybackSettingsKeys.SubtitleAppearance]?.hasDeviceOverride != true) {
-            playerSettingsStore.setSubtitleAppearance(
-                SubtitleAppearance.DEFAULT.copy(fontSize = legacySubtitleSize.toFontSizePreset())
-            )
-        }
-
-        // Make sure the writes hit the server even if the user backs out
-        // before the debounce fires.
-        playerSettingsStore.flushPendingDeviceSettings()
-        settingsCache.markMigrationComplete(serverUrl, MIGRATION_SCOPE)
-    }
-
     private fun SubtitleSize.toFontSizePreset(): SubtitleFontSizePreset = when (this) {
         SubtitleSize.Small -> SubtitleFontSizePreset.Small
         SubtitleSize.Medium -> SubtitleFontSizePreset.Medium
@@ -363,8 +429,4 @@ class TvSettingsViewModel(
         val skipCredits: Boolean,
         val appearance: SubtitleAppearance,
     )
-
-    private companion object {
-        const val MIGRATION_SCOPE = "android-tv-settings"
-    }
 }

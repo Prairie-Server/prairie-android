@@ -1,0 +1,93 @@
+package com.continuum.app.android.ui.screens.reader
+
+import android.content.Context
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
+import java.security.MessageDigest
+
+/** SHA-1 cache key for a reader URL — the one shared copy of the helper
+ *  the readers previously duplicated five times. */
+internal fun readerCacheKey(url: String): String {
+    val md = MessageDigest.getInstance("SHA-1")
+    return md.digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
+}
+
+/**
+ * Fill `<cacheDir>/<fileName>` atomically. [fetch] writes into a `.tmp`
+ * sibling which is renamed to the final name only when it completes
+ * without throwing, so a truncated transfer can never satisfy the
+ * `exists() && length() > 0` cache-hit check and get served forever.
+ * The tmp file is deleted on any failure. An existing non-empty target
+ * short-circuits without invoking [fetch].
+ */
+internal fun cacheReaderFile(
+    cacheDir: File,
+    fileName: String,
+    fetch: (OutputStream) -> Unit,
+): File {
+    cacheDir.mkdirs()
+    val target = File(cacheDir, fileName)
+    if (target.exists() && target.length() > 0) return target
+    val tmp = File.createTempFile("$fileName.", ".tmp", cacheDir)
+    try {
+        FileOutputStream(tmp).use(fetch)
+    } catch (throwable: Throwable) {
+        tmp.delete()
+        throw throwable
+    }
+    if (!tmp.renameTo(target)) {
+        try {
+            tmp.copyTo(target, overwrite = true)
+        } catch (throwable: Throwable) {
+            target.delete()
+            throw throwable
+        } finally {
+            tmp.delete()
+        }
+    }
+    return target
+}
+
+/**
+ * Resolve a reader URL to a local [File]:
+ *   - `file://`    → used as-is (no copy).
+ *   - `content://` → copied once into `<cacheDir>/readers/`.
+ *   - http(s) or server-relative → fetched via [okHttp] (auth comes
+ *     from the injected client's interceptors, same as before) into
+ *     `<cacheDir>/readers/<sha1(url)>.<extension>`.
+ * Downloads go through [cacheReaderFile], so failures never poison the
+ * cache.
+ */
+internal suspend fun resolveReaderFile(
+    context: Context,
+    okHttp: OkHttpClient,
+    url: String,
+    serverUrl: String,
+    extension: String,
+): File = withContext(Dispatchers.IO) {
+    if (url.startsWith("file://")) return@withContext File(url.removePrefix("file://"))
+    val cacheDir = File(context.cacheDir, "readers")
+    val fileName = "${readerCacheKey(url)}.$extension"
+    if (url.startsWith("content://")) {
+        return@withContext cacheReaderFile(cacheDir, fileName) { out ->
+            context.contentResolver.openInputStream(Uri.parse(url))?.use { input ->
+                input.copyTo(out)
+            } ?: error("Could not open $url")
+        }
+    }
+    val requestUrl = resolveReaderRequestUrl(url, serverUrl)
+    cacheReaderFile(cacheDir, fileName) { out ->
+        val req = Request.Builder().url(requestUrl).build()
+        okHttp.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) error("HTTP ${resp.code} fetching $requestUrl")
+            val body = resp.body ?: error("Empty body for $requestUrl")
+            body.byteStream().copyTo(out)
+        }
+    }
+}

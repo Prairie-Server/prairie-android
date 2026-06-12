@@ -24,7 +24,7 @@ Repo snapshot date: 2026-04-17
   - `androidx.media3:media3-decoder-ffmpeg` (no FFmpeg audio decoder extension; TrueHD/DTS/DTS-HD software decoding is therefore unavailable — device decoders are the only path)
   - `androidx.media3:media3-exoplayer-leanback` deprecated/rolled in; no TV-specific Media3 module in use
   - `androidx.media3:media3-exoplayer-workmanager` — none
-- **Kotlin target:** 2.1.20, JVM 21, compileSdk 36, minSdk 26, targetSdk 35.
+- **Kotlin target:** 2.1.20, JVM 21, compileSdk 36, minSdk 24, targetSdk 35.
 
 ## 2. Player construction
 

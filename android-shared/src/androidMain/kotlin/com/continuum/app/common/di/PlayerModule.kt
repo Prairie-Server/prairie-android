@@ -3,7 +3,9 @@ package com.continuum.app.common.di
 import androidx.media3.common.util.UnstableApi
 import com.continuum.app.common.player.MediaAuthInterceptor
 import com.continuum.app.common.player.PlaybackAnalyticsListener
+import com.continuum.app.common.player.audio.DelayAudioProcessor
 import com.continuum.app.common.player.buildPlayerOkHttpClient
+import com.continuum.app.common.player.subtitle.SubtitleOffsetHolder
 import okhttp3.OkHttpClient
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
@@ -28,7 +30,13 @@ val playerModule = module {
             .addInterceptor(get<MediaAuthInterceptor>())
             .build()
     }
+    single<OkHttpClient> { get(PLAYER_OKHTTP_QUALIFIER) }
 
     @OptIn(UnstableApi::class)
     single { PlaybackAnalyticsListener() }
+
+    @OptIn(UnstableApi::class)
+    single { DelayAudioProcessor() }
+
+    single { SubtitleOffsetHolder() }
 }

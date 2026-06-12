@@ -3,8 +3,10 @@ package com.continuum.app.android.ui.screens.player
 import android.app.Activity
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
+import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,10 +16,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +78,10 @@ fun PlayerScreen(
     initialFileId: Int? = null,
     initialAudioTrackIndex: Int? = null,
     initialSubtitleTrackIndex: Int? = null,
+    // Watch Together room id, present when this player was launched into a
+    // synchronized room. When set, a RoomSyncController binds this player to the
+    // room (clock sync, transport mirroring, gating, room_closed exit).
+    roomId: String? = null,
     navController: NavHostController,
     viewModel: PlayerViewModel = koinInject(),
 ) {
@@ -83,10 +92,57 @@ fun PlayerScreen(
     val playerFactory: ContinuumPlayerFactory = koinInject()
     val audioCapabilityManager: AudioCapabilityManager = koinInject()
     val capabilityDetector: PlaybackCapabilityDetector = koinInject()
+    val downloadStorage: com.continuum.app.common.downloads.DownloadStorage = koinInject()
+    val serverRegistry: com.continuum.app.network.ServerRegistry = koinInject()
+    val profileRepository: com.continuum.app.repository.ProfileRepository = koinInject()
     val subtitleManager = remember { SubtitleManager() }
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
+
+    // Watch Together binding. Built once per roomId; null for solo playback.
+    // The controller owns the room WS connection + RoomSyncEngine for the
+    // lifetime of this screen and tears them down on explicit leave.
+    val watchTogetherRepository: com.continuum.app.repository.WatchTogetherRepository = koinInject()
+    val roomScope = rememberCoroutineScope()
+    val roomController = remember(roomId) {
+        roomId?.takeIf { it.isNotBlank() }?.let { id ->
+            RoomSyncController(
+                roomId = id,
+                repository = watchTogetherRepository,
+                viewModel = viewModel,
+                scope = roomScope,
+            )
+        }
+    }
+    DisposableEffect(roomController) {
+        roomController?.start()
+        onDispose { /* repo teardown happens on explicit leave (onBack) */ }
+    }
+    val roomSnapshot by produceRoomSnapshotState(roomController)
+    val roomClosedReason by produceRoomClosedState(roomController)
+
+    // room_closed (or server error) → leave the player back to detail.
+    LaunchedEffect(roomClosedReason) {
+        if (roomClosedReason != null && roomController != null) {
+            viewModel.onExit()
+            navController.popBackStack()
+        }
+    }
+
+    // Surface transient Watch Together server rejections (e.g. a guest seek the
+    // server refuses) as a brief Toast. These flow on the repo errors stream and
+    // do NOT eject the user (room_closed is the only terminal signal). Only
+    // collected while bound to a room.
+    LaunchedEffect(roomController) {
+        if (roomController != null) {
+            watchTogetherRepository.errors.collect { message ->
+                if (message.isNotBlank()) {
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     // MediaController connection is async — it returns a ListenableFuture that
     // resolves when the service binds. We hold the controller in a compose
@@ -179,8 +235,26 @@ fun PlayerScreen(
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
+            // Orientation policy keys off the system rotation lock so we never
+            // jump the phone sideways against the user's preference:
+            //   - Auto-rotate ON  -> SENSOR_LANDSCAPE: Play goes straight to
+            //     fullscreen landscape (the natural video orientation) instead
+            //     of letterboxing a centered band in portrait.
+            //   - Auto-rotate OFF -> USER: a locked phone keeps its current
+            //     orientation and the video letterboxes inside it, exactly as
+            //     before. (The earlier unconditional SENSOR_LANDSCAPE force-
+            //     rotated even locked phones, which is the behavior we avoid.)
+            val autoRotateEnabled = Settings.System.getInt(
+                activity.contentResolver,
+                Settings.System.ACCELEROMETER_ROTATION,
+                0,
+            ) == 1
             val originalOrientation = activity.requestedOrientation
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            activity.requestedOrientation = if (autoRotateEnabled) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_USER
+            }
             refreshRateMatcher.attach(activity)
 
             onDispose {
@@ -199,13 +273,39 @@ fun PlayerScreen(
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
         val serverUrl = uiState.serverUrl
-        if (serverUrl.isEmpty()) return@LaunchedEffect
+        // serverUrl is intentionally empty for local-file playback (offline
+        // path sets streamUrl to a local file/content URI and serverUrl=""). For remote playback
+        // we still need to wait for the server session to resolve.
+        val isLocalMedia = streamUrl.startsWith("file://") || streamUrl.startsWith("content://")
+        if (!isLocalMedia && serverUrl.isEmpty()) return@LaunchedEffect
+
+        // Prefer the locally-downloaded file when one exists for the active
+        // version (T9). Falls back to the streamed URL when not downloaded
+        // or when the local file disappeared between detail-screen check
+        // and Play. Media3 handles file:// URIs natively, so no factory
+        // change is needed.
+        val activeFileId = uiState.versions
+            .getOrNull(uiState.selectedVersionIndex)
+            ?.fileId
+        val localUri: String? = activeFileId?.let { fileId ->
+            val serverId = serverRegistry.activeServerId.value
+                ?: com.continuum.app.common.downloads.DownloadEnqueuer.DEFAULT_SERVER_ID
+            val profileId = profileRepository.getActiveProfileId()
+                ?: com.continuum.app.common.downloads.DownloadEnqueuer.DEFAULT_PROFILE_ID
+            downloadStorage.locateLocalMedia(serverId, profileId, fileId)?.uriString
+        }
+        val effectiveStreamUrl = localUri ?: streamUrl
 
         val mediaItem = playerFactory.buildMediaItem(
-            streamUrl = streamUrl,
-            playMethod = playMethod,
+            streamUrl = effectiveStreamUrl,
+            // Local files play as progressive (DIRECT), regardless of how
+            // the server originally provisioned the session.
+            playMethod = if (localUri != null) com.continuum.app.model.playback.PlayMethod.DIRECT else playMethod,
             serverUrl = serverUrl,
             subtitles = uiState.subtitleTracks,
+            title = uiState.title.ifBlank { null },
+            subtitle = uiState.subtitle.ifBlank { null },
+            artworkUrl = uiState.artworkUrl,
         )
 
         controller.setMediaItem(mediaItem)
@@ -215,6 +315,51 @@ fun PlayerScreen(
         if (startMs > 0) controller.seekTo(startMs)
 
         controller.playWhenReady = true
+    }
+
+    // Mid-playback subtitle refresh (downloaded / AI-generated tracks).
+    // Subtitle configs are baked into the MediaItem at build time, so when
+    // refreshSubtitles merges new tracks it bumps subtitleRefreshNonce and we
+    // rebuild the SAME stream's MediaItem with the enlarged subtitle list,
+    // then re-prepare at the captured live position. setMediaItem(item, posMs)
+    // preserves the playhead; playWhenReady is restored so a paused player
+    // stays paused. The session is NOT restarted (web parity).
+    LaunchedEffect(mediaController, uiState.subtitleRefreshNonce) {
+        if (uiState.subtitleRefreshNonce == 0) return@LaunchedEffect
+        val controller = mediaController ?: return@LaunchedEffect
+        val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
+        val playMethod = uiState.playMethod ?: return@LaunchedEffect
+
+        val resumePositionMs = controller.currentPosition
+        val wasPlaying = controller.playWhenReady
+
+        // Mirror the start effect's local-file preference so a rebuild never
+        // silently switches a local-file playback back to the remote stream.
+        val activeFileId = uiState.versions
+            .getOrNull(uiState.selectedVersionIndex)
+            ?.fileId
+        val localUri: String? = activeFileId?.let { fileId ->
+            val serverId = serverRegistry.activeServerId.value
+                ?: com.continuum.app.common.downloads.DownloadEnqueuer.DEFAULT_SERVER_ID
+            val profileId = profileRepository.getActiveProfileId()
+                ?: com.continuum.app.common.downloads.DownloadEnqueuer.DEFAULT_PROFILE_ID
+            downloadStorage.locateLocalMedia(serverId, profileId, fileId)?.uriString
+        }
+        val effectiveStreamUrl = localUri ?: streamUrl
+
+        val mediaItem = playerFactory.buildMediaItem(
+            streamUrl = effectiveStreamUrl,
+            playMethod = if (localUri != null) com.continuum.app.model.playback.PlayMethod.DIRECT else playMethod,
+            serverUrl = uiState.serverUrl,
+            subtitles = uiState.subtitleTracks,
+            title = uiState.title.ifBlank { null },
+            subtitle = uiState.subtitle.ifBlank { null },
+            artworkUrl = uiState.artworkUrl,
+        )
+
+        controller.setMediaItem(mediaItem, resumePositionMs)
+        controller.prepare()
+        controller.playWhenReady = wasPlaying
     }
 
     // Sync play/pause from ViewModel to player
@@ -276,6 +421,18 @@ fun PlayerScreen(
                         }
                     }
                 }
+
+                override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                    // Re-apply the subtitle selection once track groups resolve:
+                    // after the subtitle-refresh rebuild the selection effect has
+                    // already fired (against the OLD tracks), so without this the
+                    // auto-selected downloaded/AI track never engages. Reads the
+                    // live VM state — `uiState` here can be a stale closure capture.
+                    subtitleManager.selectSubtitle(
+                        controller,
+                        viewModel.uiState.value.selectedSubtitleIndex,
+                    )
+                }
             }
             controller.addListener(listener)
             onDispose { controller.removeListener(listener) }
@@ -303,6 +460,16 @@ fun PlayerScreen(
         val requestedPos = uiState.position
         if (kotlin.math.abs(playerPosSec - requestedPos) > 2.0) {
             controller.seekTo((requestedPos * 1000).toLong())
+        }
+    }
+
+    // Room-driven corrective seeks bypass the 2.0s deadband above: a Watch
+    // Together sync correction can be as small as 0.35s and must always reach
+    // the player, otherwise sync never tightens.
+    LaunchedEffect(mediaController) {
+        val controller = mediaController ?: return@LaunchedEffect
+        viewModel.immediateSeeks.collect { posSec ->
+            controller.seekTo((posSec * 1000).toLong())
         }
     }
 
@@ -388,14 +555,30 @@ fun PlayerScreen(
             PlayerOverlay(
                 state = uiState,
                 viewModel = viewModel,
+                roomSnapshot = roomSnapshot,
                 onBack = {
+                    // In-room exit: leave the room (host close confirm is handled
+                    // by the overlay before this fires). The controller resets the
+                    // repo + engine; solo playback just pops.
+                    roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
                     viewModel.onExit()
                     navController.popBackStack()
                 },
-                onPlayPause = { viewModel.onPlayPause() },
+                onPlayPause = {
+                    // In a room, route through transport_request (gated to
+                    // controllers); solo playback toggles locally.
+                    if (roomController != null) roomController.onUserPlayPause()
+                    else viewModel.onPlayPause()
+                },
                 onSeek = { position ->
-                    viewModel.onSeek(position)
-                    mediaController?.seekTo((position * 1000).toLong())
+                    if (roomController != null) {
+                        // Guest seeks are no-ops in the controller; host seeks
+                        // round-trip through the room and re-apply via a command.
+                        roomController.onUserSeek(position)
+                    } else {
+                        viewModel.onSeek(position)
+                        mediaController?.seekTo((position * 1000).toLong())
+                    }
                 },
                 onToggleControls = { viewModel.onToggleControls() },
                 onNextEpisode = { viewModel.onNextEpisode() },
@@ -406,3 +589,27 @@ fun PlayerScreen(
         }
     }
 }
+
+/**
+ * Collects the room snapshot from [controller] when present, else holds null.
+ * A nullable StateFlow can't be `collectAsState`d directly, so this bridges to
+ * a stable [State] for both the in-room and solo cases.
+ */
+@Composable
+private fun produceRoomSnapshotState(
+    controller: RoomSyncController?,
+): State<com.continuum.app.model.watchtogether.RoomSnapshot?> =
+    produceState<com.continuum.app.model.watchtogether.RoomSnapshot?>(
+        initialValue = controller?.room?.value,
+        key1 = controller,
+    ) {
+        controller?.room?.collect { value = it }
+    }
+
+@Composable
+private fun produceRoomClosedState(
+    controller: RoomSyncController?,
+): State<String?> =
+    produceState<String?>(initialValue = controller?.closedReason?.value, key1 = controller) {
+        controller?.closedReason?.collect { value = it }
+    }

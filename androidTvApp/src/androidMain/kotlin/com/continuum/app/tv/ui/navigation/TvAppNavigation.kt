@@ -1,5 +1,6 @@
 package com.continuum.app.tv.ui.navigation
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -11,7 +12,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.continuum.app.network.TokenManager
 import com.continuum.app.tv.ui.shell.TvMainShell
-import com.continuum.app.tv.ui.screens.admin.TvAdminScreen
 import com.continuum.app.tv.ui.screens.auth.TvLoginScreen
 import com.continuum.app.tv.ui.screens.auth.TvServerSetupScreen
 import com.continuum.app.tv.ui.screens.collections.TvCollectionDetailScreen
@@ -21,16 +21,20 @@ import com.continuum.app.tv.ui.screens.player.TvPlayerScreen
 import com.continuum.app.tv.ui.screens.profiles.TvProfileSelectionScreen
 import com.continuum.app.tv.ui.screens.servers.TvServerListScreen
 import com.continuum.app.tv.ui.screens.servers.TvServerSwitchDestination
+import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherLobbyScreen
+import com.continuum.app.tv.watchnext.WatchNextSeeder
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.koin.core.qualifier.named
 
 /**
  * Top-level TV navigation graph.
  *
  * ServerSetup → Login → ProfileSelection → Main (drawer). Item detail, player,
  * and collection detail are pushed on top of Main when the user drills down.
- * Settings-reachable grids (favorites, watchlist, history, collections,
- * admin) are also top-level routes so they can cover the full screen.
+ * Settings-reachable grids (favorites, watchlist, history, collections) are
+ * also top-level routes so they can cover the full screen.
  */
 @Composable
 fun TvAppNavigation(
@@ -40,6 +44,32 @@ fun TvAppNavigation(
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val tokenManager: TokenManager = koinInject()
+    val watchNextSeeder: WatchNextSeeder = koinInject()
+    val pendingDeepLink: MutableStateFlow<Uri?> =
+        koinInject(qualifier = named("pendingDeepLink"))
+
+    // Watch Next launcher deep links. [MainTvActivity] publishes the launching
+    // (or warm-launch) URI into the shared flow; we consume it here once and
+    // route to ItemDetail / Player. For unauthenticated launches the URI just
+    // sits in the flow until the auth chain lands the user on Main, at which
+    // point the existing destination is rendered and this collector fires.
+    // No special queueing path — the flow IS the queue.
+    LaunchedEffect(Unit) {
+        pendingDeepLink.collect { uri ->
+            if (uri == null) return@collect
+            val contentId = uri.pathSegments.lastOrNull() ?: run {
+                pendingDeepLink.value = null
+                return@collect
+            }
+            when (uri.host) {
+                "item" -> navController.navigate(TvRoute.ItemDetail(contentId).route)
+                "play" -> navController.navigate(
+                    TvRoute.Player(contentId, fileId = null).route,
+                )
+            }
+            pendingDeepLink.value = null
+        }
+    }
 
     // Graceful handling of server-side session invalidation (refresh 401'd).
     // The TokenManager has already cleared the active server's tokens by the
@@ -102,6 +132,11 @@ fun TvAppNavigation(
                     navController.navigate(TvRoute.ProfileSelection.route) {
                         popUpTo(TvRoute.Login.route) { inclusive = true }
                     }
+                    // Seed Watch Next now and schedule periodic refresh; the user has
+                    // just authenticated so /api/v1/home/sections will return their
+                    // actual continue-watching / next-up.
+                    watchNextSeeder.seedNow()
+                    watchNextSeeder.enqueuePeriodic()
                 },
             )
         }
@@ -112,6 +147,11 @@ fun TvAppNavigation(
                     navController.navigate(TvRoute.Main.route) {
                         popUpTo(TvRoute.ProfileSelection.route) { inclusive = true }
                     }
+                    // Re-seed for the newly selected profile so the launcher row
+                    // reflects this profile's continue-watching / next-up rather
+                    // than whatever was last synced.
+                    watchNextSeeder.seedNow()
+                    watchNextSeeder.enqueuePeriodic()
                 },
             )
         }
@@ -129,10 +169,11 @@ fun TvAppNavigation(
                 onOpenCollectionDetail = { collectionId, title ->
                     navController.navigate(TvRoute.CollectionDetail(collectionId, title).route)
                 },
-                onNavigateToAdmin = {
-                    navController.navigate(TvRoute.Admin.route)
-                },
                 onSignedOut = {
+                    // Drop our Watch Next rows + cancel the periodic refresh so
+                    // the launcher doesn't keep showing the signed-out user's
+                    // progress.
+                    watchNextSeeder.clear()
                     navController.navigate(TvRoute.ServerSetup.route) {
                         popUpTo(TvRoute.Main.route) { inclusive = true }
                     }
@@ -141,6 +182,10 @@ fun TvAppNavigation(
                     scope.launch {
                         tokenManager.setProfileId(null)
                         tokenManager.setProfileToken(null)
+                        // Clear the previous profile's Watch Next rows before
+                        // landing on the picker; the new profile will re-seed
+                        // via [onProfileSelected].
+                        watchNextSeeder.clear()
                         navController.navigate(TvRoute.ProfileSelection.route) {
                             popUpTo(TvRoute.Main.route) { inclusive = true }
                         }
@@ -193,6 +238,21 @@ fun TvAppNavigation(
                 onSeasonClick = { seriesId, selectedSeason ->
                     navController.navigate(TvRoute.ItemDetail(seriesId, selectedSeason).route)
                 },
+                // Watch Together: the entry dialog resolves a room snapshot; route
+                // host-with-selection straight to the synced player (carrying
+                // roomId), otherwise into the lobby to wait/vote/pick.
+                onWatchTogether = { snapshot ->
+                    val target = if (!snapshot.selectedContentId.isNullOrBlank()) {
+                        TvRoute.Player(
+                            contentId = snapshot.selectedContentId!!,
+                            fileId = snapshot.selectedFileId,
+                            roomId = snapshot.roomId,
+                        ).route
+                    } else {
+                        TvRoute.WatchTogetherLobby(roomId = snapshot.roomId).route
+                    }
+                    navController.navigate(target)
+                },
                 onBack = { navController.popBackStack() },
             )
         }
@@ -209,6 +269,13 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(TvRoute.Player.ARG_ROOM_ID) {
+                    // Watch Together room binding; null for solo play. Consumed
+                    // by TvPlayerScreen in T3.
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStack ->
             val contentId = backStack.arguments
@@ -217,10 +284,36 @@ fun TvAppNavigation(
             val preferredFileId = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_FILE_ID)
                 ?.toIntOrNull()
+            val roomId = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_ROOM_ID)
             TvPlayerScreen(
                 contentId = contentId,
                 preferredFileId = preferredFileId,
+                roomId = roomId,
                 onExit = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = TvRoute.WatchTogetherLobby.ROUTE,
+            arguments = listOf(
+                navArgument(TvRoute.WatchTogetherLobby.ARG_ROOM_ID) { type = NavType.StringType },
+            ),
+        ) { backStack ->
+            val roomId = backStack.arguments
+                ?.getString(TvRoute.WatchTogetherLobby.ARG_ROOM_ID)
+                ?: return@composable
+            TvWatchTogetherLobbyScreen(
+                roomId = roomId,
+                // The lobby computes the synced-player route from its snapshot
+                // (T2). We pop the lobby so Back from the player exits the room
+                // rather than returning to a stale lobby.
+                onNavigateToPlayer = { route ->
+                    navController.navigate(route) {
+                        popUpTo(TvRoute.WatchTogetherLobby.ROUTE) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -285,12 +378,6 @@ fun TvAppNavigation(
                 },
                 onBack = { navController.popBackStack() },
             )
-        }
-
-        // --- Admin dashboard ---
-
-        composable(TvRoute.Admin.route) {
-            TvAdminScreen(onBack = { navController.popBackStack() })
         }
     }
 }

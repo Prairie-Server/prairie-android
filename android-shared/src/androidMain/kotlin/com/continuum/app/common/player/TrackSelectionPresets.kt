@@ -47,10 +47,11 @@ object TrackSelectionPresets {
         displayHdr: HdrCapabilities,
         preferredAudioLanguage: String?,
         preferredTextLanguage: String?,
+        allowHdr: Boolean = true,
         ffmpegAvailable: Boolean = FfmpegAudioSupport.isAvailable(),
     ): DefaultTrackSelector.Parameters {
         val audioMimes = buildTvAudioMimePreferences(audioCaps, ffmpegAvailable)
-        val videoMimes = buildTvVideoMimePreferences(displayHdr)
+        val videoMimes = buildTvVideoMimePreferences(displayHdr, allowHdr)
 
         val builder = base.toDefaultBuilder(context)
             .setTunnelingEnabled(true)
@@ -113,9 +114,26 @@ object TrackSelectionPresets {
         return builder.build()
     }
 
-    private fun buildTvVideoMimePreferences(displayHdr: HdrCapabilities): List<String> {
+    /**
+     * Preferred video-MIME list for TV. DV is added only when the display
+     * advertises DV profiles AND the user's [allowHdr] preference is on. When
+     * [allowHdr] is false the DV MIME is dropped so the selector picks
+     * H.265/H.264 over a DV variant on multi-track content (A.3d-hdr).
+     *
+     * Honest constraint: this is preference-driven track selection only —
+     * Media3 has no surface-level SDR forcing equivalent to AVPlayer's
+     * `setHDREnabled`. For single-track HDR-only files there is no SDR
+     * alternative and the toggle becomes a per-file no-op.
+     *
+     * `internal` so [TrackSelectionPresetsFfmpegTest] can exercise the
+     * helper directly without Robolectric.
+     */
+    internal fun buildTvVideoMimePreferences(
+        displayHdr: HdrCapabilities,
+        allowHdr: Boolean = true,
+    ): List<String> {
         val mimes = mutableListOf<String>()
-        if (displayHdr.dolbyVisionProfiles.isNotEmpty()) {
+        if (allowHdr && displayHdr.dolbyVisionProfiles.isNotEmpty()) {
             mimes += MimeTypes.VIDEO_DOLBY_VISION
         }
         mimes += MimeTypes.VIDEO_H265

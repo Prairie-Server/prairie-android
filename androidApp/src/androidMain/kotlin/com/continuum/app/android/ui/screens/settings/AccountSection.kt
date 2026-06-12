@@ -17,7 +17,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
@@ -50,8 +53,12 @@ fun AccountSection(
     user: User?,
     isLoadingUser: Boolean,
     onManageSessions: () -> Unit,
+    onPairDevice: () -> Unit,
+    onRequests: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
+    isAdminVisible: Boolean = false,
+    onAdmin: () -> Unit = {},
 ) {
     SettingsSectionCard(modifier = modifier) {
         if (isLoadingUser) {
@@ -132,6 +139,26 @@ fun AccountSection(
                 label = "Manage Sessions",
                 onClick = onManageSessions,
             )
+
+            SettingsClickableRow(
+                icon = Icons.Default.Devices,
+                label = "Pair Device",
+                onClick = onPairDevice,
+            )
+
+            SettingsClickableRow(
+                icon = Icons.Default.Movie,
+                label = "Requests",
+                onClick = onRequests,
+            )
+
+            if (isAdminVisible) {
+                SettingsClickableRow(
+                    icon = Icons.Default.AdminPanelSettings,
+                    label = "Admin",
+                    onClick = onAdmin,
+                )
+            }
 
             SettingsClickableRow(
                 icon = Icons.AutoMirrored.Filled.Logout,

@@ -59,7 +59,7 @@ fun SearchBar(
             .focusRequester(focusRequester),
         placeholder = {
             Text(
-                text = "Search for movies and shows",
+                text = "Search your library",
                 style = MaterialTheme.typography.bodyLarge,
             )
         },

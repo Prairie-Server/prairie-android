@@ -104,7 +104,7 @@ data class ContinuumCardFocus(
 @Composable
 fun continuumCardDefaults(
     shape: Shape,
-    focusedScale: Float = 1f,
+    focusedScale: Float = 1.08f,
 ): ContinuumCardFocus = ContinuumCardFocus(
     scale = CardDefaults.scale(focusedScale = focusedScale),
     border = CardDefaults.border(

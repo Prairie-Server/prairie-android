@@ -2,6 +2,7 @@ package com.continuum.app.common.player
 
 import androidx.media3.common.MimeTypes
 import com.continuum.app.model.playback.AudioPassthroughCapabilities
+import com.continuum.app.model.playback.HdrCapabilities
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -167,5 +168,45 @@ class TrackSelectionPresetsFfmpegTest {
             ffmpegAvailable = true,
         )
         assertEquals(mimes.size, mimes.toSet().size, "MIME list must be duplicate-free")
+    }
+
+    // -----------------------------------------------------------------------
+    // TV video MIME — HDR toggle (A.3d-hdr)
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `TV video MIMEs include DV when display supports DV and HDR allowed`() {
+        val mimes = TrackSelectionPresets.buildTvVideoMimePreferences(
+            displayHdr = HdrCapabilities(dolbyVisionProfiles = listOf(5)),
+            allowHdr = true,
+        )
+        assertEquals(
+            listOf(MimeTypes.VIDEO_DOLBY_VISION, MimeTypes.VIDEO_H265, MimeTypes.VIDEO_H264),
+            mimes,
+        )
+    }
+
+    @Test
+    fun `TV video MIMEs drop DV when HDR disabled even if display supports DV`() {
+        val mimes = TrackSelectionPresets.buildTvVideoMimePreferences(
+            displayHdr = HdrCapabilities(dolbyVisionProfiles = listOf(5, 8)),
+            allowHdr = false,
+        )
+        assertEquals(
+            listOf(MimeTypes.VIDEO_H265, MimeTypes.VIDEO_H264),
+            mimes,
+        )
+    }
+
+    @Test
+    fun `TV video MIMEs omit DV on non-DV displays regardless of HDR toggle`() {
+        val mimes = TrackSelectionPresets.buildTvVideoMimePreferences(
+            displayHdr = HdrCapabilities(hdr10 = true, dolbyVisionProfiles = emptyList()),
+            allowHdr = true,
+        )
+        assertEquals(
+            listOf(MimeTypes.VIDEO_H265, MimeTypes.VIDEO_H264),
+            mimes,
+        )
     }
 }

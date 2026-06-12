@@ -8,6 +8,7 @@ data class Profile(
     val id: String,
     val name: String,
     val avatar: String? = null,
+    @SerialName("is_primary") val isPrimary: Boolean = false,
     @SerialName("has_pin") val hasPin: Boolean = false,
     @SerialName("is_child") val isChild: Boolean = false,
     @SerialName("max_content_rating") val maxContentRating: String? = null,

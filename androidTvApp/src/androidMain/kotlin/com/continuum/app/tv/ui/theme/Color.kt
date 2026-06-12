@@ -54,19 +54,6 @@ val HeroScrimBottom = Color.Black.copy(alpha = 0.95f)
 val RailGradientStart = Color.Black.copy(alpha = 0.90f)
 val RailGradientEnd = Color(0x00000000)
 
-// Drawer surfaces are temporarily preserved so the legacy left rail still
-// compiles; Phase 2 replaces the drawer with a top menu bar and these become
-// dead code that gets pruned along with TvNavigationDrawer.
-val DrawerSurface = Color(0xF60A0D13)
-val DrawerMenuSurface = Color(0xF015171C)
-val DrawerOutline = Color.White.copy(alpha = 0.08f)
-val DrawerScrimStart = Color.Black.copy(alpha = 0.75f)
-val DrawerScrimMid = Color.Black.copy(alpha = 0.32f)
-val DrawerScrimEnd = Color(0x00000000)
-val DrawerSelectedSurface = Color.White.copy(alpha = 0.10f)
-val DrawerSelectedBorder = ContinuumOnSurface
-val DrawerIconSurface = Color.White.copy(alpha = 0.06f)
-
 val CardShadowColor = Color.Black.copy(alpha = 0.55f)
 
 // Resume bar uses pure white over a dim track on tvOS — no chroma.

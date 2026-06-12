@@ -59,7 +59,7 @@ set -euo pipefail
 
 MEDIA3_TAG=${MEDIA3_TAG:-1.10.0}
 FFMPEG_TAG=${FFMPEG_TAG:-n6.0}
-ANDROID_API_LEVEL=21            # min NDK API level, matches Silo's minSdk=26 floor
+ANDROID_API_LEVEL=21            # FFmpeg NDK floor; Silo's app minSdk is 24
 ENABLED_DECODERS=(ac3 eac3 mlp truehd dca)
 
 # If you change this list, also audit:

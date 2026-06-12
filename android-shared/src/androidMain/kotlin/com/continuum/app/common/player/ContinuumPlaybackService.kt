@@ -14,9 +14,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import com.continuum.app.common.BuildConfig
+import com.continuum.app.common.player.audio.DelayAudioProcessor
+import com.continuum.app.common.player.subtitle.SubtitleOffsetHolder
+import com.continuum.app.common.settings.PlayerSettingsStore
 import org.koin.android.ext.android.inject
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -45,10 +49,15 @@ class ContinuumPlaybackService : MediaSessionService() {
 
     private val playerFactory: ContinuumPlayerFactory by inject()
     private val analyticsListener: PlaybackAnalyticsListener by inject()
+    private val playerSettingsStore: PlayerSettingsStore by inject()
+    private val delayProcessor: DelayAudioProcessor by inject()
+    private val subtitleOffsetHolder: SubtitleOffsetHolder by inject()
 
     private var mediaSession: MediaSession? = null
     private lateinit var scope: CoroutineScope
     private var positionJob: Job? = null
+    private var audioSyncJob: Job? = null
+    private var subtitleSyncJob: Job? = null
 
     private val _positionMs = MutableStateFlow(0L)
 
@@ -87,6 +96,40 @@ class ContinuumPlaybackService : MediaSessionService() {
                 delay(POSITION_TICK_MS)
             }
         }
+
+        // Mirror the per-profile AudioSyncMs preference into the active
+        // DelayAudioProcessor. The processor only acts on its pending
+        // value at the next flush, so when playback is active we force one
+        // via a no-op seekTo(currentPosition) — that's the cheapest way to
+        // re-engage the audio pipeline without resetting the renderer.
+        audioSyncJob = scope.launch {
+            playerSettingsStore.audioSyncMsFlow
+                .distinctUntilChanged()
+                .collect { delayMs ->
+                    val previous = delayProcessor.getActiveDelayMs()
+                    delayProcessor.setDelayMs(delayMs)
+                    if (previous != delayMs && player.isPlaying) {
+                        player.seekTo(player.currentPosition)
+                    }
+                }
+        }
+
+        // Mirror the per-profile SubtitleSyncMs preference into the active
+        // SubtitleOffsetHolder. OffsetSubtitleParserFactory reads the holder
+        // on every parse, but already-emitted cues stay in the text-renderer
+        // buffer — a seekTo(currentPosition) drops them so the new offset
+        // applies to the next batch.
+        subtitleSyncJob = scope.launch {
+            playerSettingsStore.subtitleSyncMsFlow
+                .distinctUntilChanged()
+                .collect { offsetMs ->
+                    val previous = subtitleOffsetHolder.getOffsetMs()
+                    subtitleOffsetHolder.setOffsetMs(offsetMs)
+                    if (previous != offsetMs && player.isPlaying) {
+                        player.seekTo(player.currentPosition)
+                    }
+                }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -108,6 +151,8 @@ class ContinuumPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         positionJob?.cancel()
+        audioSyncJob?.cancel()
+        subtitleSyncJob?.cancel()
         scope.cancel()
         mediaSession?.run {
             player.release()

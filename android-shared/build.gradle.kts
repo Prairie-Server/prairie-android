@@ -63,6 +63,10 @@ kotlin {
 
             // Serialization (media auth refresh path encodes RefreshRequest / decodes RefreshResponse)
             implementation(libs.kotlinx.serialization.json)
+
+            // WorkManager — used by DownloadWorker. Phone app installs the
+            // KoinWorkerFactory; TV app does the same for its own workers.
+            implementation(libs.androidx.work.runtime.ktx)
         }
 
         // First tests in this module — JUnit 4 via kotlin-test-junit, which
@@ -83,7 +87,7 @@ android {
     namespace = "com.continuum.app.common"
     compileSdk = 36
     defaultConfig {
-        minSdk = 26
+        minSdk = 24
         // Gate for preferring FFmpeg audio decoders over platform decoders.
         // The AAR is always on the classpath (see dependencies above); this
         // flag only controls whether DefaultRenderersFactory is set to
@@ -100,6 +104,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        isCoreLibraryDesugaringEnabled = true
     }
     testOptions {
         unitTests {
@@ -108,4 +113,8 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
+
+dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 }

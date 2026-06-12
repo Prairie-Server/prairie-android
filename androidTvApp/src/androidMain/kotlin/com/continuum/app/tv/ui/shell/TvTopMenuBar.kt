@@ -73,6 +73,7 @@ object TvTopMenuLayout {
     val homeButtonWidth: Dp = 68.dp
     val librariesButtonWidth: Dp = 98.dp
     val forYouButtonWidth: Dp = 82.dp
+    val requestsButtonWidth: Dp = 92.dp
     val rootTextSize = 12
     val itemSpacing: Dp = 17.dp
     val leadingInset: Dp = 22.dp
@@ -84,7 +85,7 @@ object TvTopMenuLayout {
 }
 
 /** Identifies which top-level destination the menu bar selects/highlights. */
-enum class TvRootDestination { Home, Search, Libraries, ForYou }
+enum class TvRootDestination { Search, Video, Audio, Requests }
 
 /**
  * The custom top menu bar that replaces the legacy left-side rail.
@@ -108,8 +109,10 @@ enum class TvRootDestination { Home, Search, Libraries, ForYou }
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvTopMenuBar(
-    selectedRoot: TvRootDestination,
+    selectedRoot: TvRootDestination?,
+    destinations: List<TvRootDestination> = TvRootDestination.entries,
     accountState: TvAccountState,
+    unreadCount: Int = 0,
     onSelectRoot: (TvRootDestination) -> Unit,
     onProfileClick: () -> Unit,
     onMoveDown: () -> Unit,
@@ -117,12 +120,13 @@ fun TvTopMenuBar(
     onMenuFocusChange: (Boolean) -> Unit,
     isFocusSuppressed: Boolean,
     focusRequest: Int,
+    visibility: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     val searchFocusRequester = remember { FocusRequester() }
     val homeFocusRequester = remember { FocusRequester() }
     val librariesFocusRequester = remember { FocusRequester() }
-    val forYouFocusRequester = remember { FocusRequester() }
+    val requestsFocusRequester = remember { FocusRequester() }
     val profileFocusRequester = remember { FocusRequester() }
 
     // Track which button currently holds focus so we can shape colors/scale
@@ -135,11 +139,15 @@ fun TvTopMenuBar(
     // when suppression lifts, we re-evaluate and request focus.
     LaunchedEffect(focusRequest, isFocusSuppressed) {
         if (isFocusSuppressed) return@LaunchedEffect
+        // Non-tab routes (selectedRoot == null) have no menu button to focus —
+        // fall back to the search button so an explicit focus request still
+        // lands on the bar rather than being dropped.
         val target = when (selectedRoot) {
             TvRootDestination.Search -> searchFocusRequester
-            TvRootDestination.Home -> homeFocusRequester
-            TvRootDestination.Libraries -> librariesFocusRequester
-            TvRootDestination.ForYou -> forYouFocusRequester
+            TvRootDestination.Video -> homeFocusRequester
+            TvRootDestination.Audio -> librariesFocusRequester
+            TvRootDestination.Requests -> requestsFocusRequester
+            null -> searchFocusRequester
         }
         runCatching { target.requestFocus() }
     }
@@ -152,6 +160,14 @@ fun TvTopMenuBar(
         modifier = modifier
             .fillMaxWidth()
             .height(TvTopMenuLayout.headerBandHeight)
+            .graphicsLayer {
+                // Slide the menu up by its own height as visibility drops to 0
+                // and fade alpha in lockstep. Mirrors Apple's TVTopMenuBar
+                // hide-on-scroll transition. Driven by the parent shell's
+                // nestedScroll-driven `menuVisibility` Animatable.
+                translationY = -size.height * (1f - visibility)
+                alpha = visibility
+            }
             .background(
                 Brush.verticalGradient(
                     0.00f to Color.Black.copy(alpha = 0.84f),
@@ -178,61 +194,81 @@ fun TvTopMenuBar(
             horizontalArrangement = Arrangement.spacedBy(TvTopMenuLayout.itemSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TvTopMenuIconButton(
-                icon = Icons.Outlined.Search,
-                contentDescription = "Search",
-                width = TvTopMenuLayout.searchButtonWidth,
-                isSelected = selectedRoot == TvRootDestination.Search,
-                isFocused = focusedButton == TvTopMenuFocus.Search,
-                focusRequester = searchFocusRequester,
-                onFocusChanged = { hasFocus ->
-                    focusedButton = if (hasFocus) TvTopMenuFocus.Search else focusedButton.takeUnless { it == TvTopMenuFocus.Search }
-                },
-                onClick = {
-                    onSelectRoot(TvRootDestination.Search)
-                },
-                // Search is the leftmost item in the center cluster. Spatial
-                // focus search wouldn't reliably reach the profile button
-                // because they're in separate Rows aligned to different
-                // anchors (TopCenter vs TopStart). Pin LEFT explicitly.
-                extraModifier = Modifier.focusProperties { left = profileFocusRequester },
-            )
+            destinations.forEach { destination ->
+                when (destination) {
+                    TvRootDestination.Search -> TvTopMenuIconButton(
+                        icon = Icons.Outlined.Search,
+                        contentDescription = "Search",
+                        width = TvTopMenuLayout.searchButtonWidth,
+                        isSelected = selectedRoot == TvRootDestination.Search,
+                        isFocused = focusedButton == TvTopMenuFocus.Search,
+                        focusRequester = searchFocusRequester,
+                        onFocusChanged = { hasFocus ->
+                            focusedButton = if (hasFocus) {
+                                TvTopMenuFocus.Search
+                            } else {
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Search }
+                            }
+                        },
+                        onClick = {
+                            onSelectRoot(TvRootDestination.Search)
+                        },
+                        // Search is the leftmost item in the center cluster. Spatial
+                        // focus search wouldn't reliably reach the profile button
+                        // because they're in separate Rows aligned to different
+                        // anchors (TopCenter vs TopStart). Pin LEFT explicitly.
+                        extraModifier = Modifier.focusProperties { left = profileFocusRequester },
+                    )
 
-            TvTopMenuTextButton(
-                label = "Home",
-                width = TvTopMenuLayout.homeButtonWidth,
-                isSelected = selectedRoot == TvRootDestination.Home,
-                isFocused = focusedButton == TvTopMenuFocus.Home,
-                focusRequester = homeFocusRequester,
-                onFocusChanged = { hasFocus ->
-                    focusedButton = if (hasFocus) TvTopMenuFocus.Home else focusedButton.takeUnless { it == TvTopMenuFocus.Home }
-                },
-                onClick = { onSelectRoot(TvRootDestination.Home) },
-            )
+                    TvRootDestination.Video -> TvTopMenuTextButton(
+                        label = "Video",
+                        width = TvTopMenuLayout.homeButtonWidth,
+                        isSelected = selectedRoot == TvRootDestination.Video,
+                        isFocused = focusedButton == TvTopMenuFocus.Video,
+                        focusRequester = homeFocusRequester,
+                        onFocusChanged = { hasFocus ->
+                            focusedButton = if (hasFocus) {
+                                TvTopMenuFocus.Video
+                            } else {
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Video }
+                            }
+                        },
+                        onClick = { onSelectRoot(TvRootDestination.Video) },
+                    )
 
-            TvTopMenuTextButton(
-                label = "Libraries",
-                width = TvTopMenuLayout.librariesButtonWidth,
-                isSelected = selectedRoot == TvRootDestination.Libraries,
-                isFocused = focusedButton == TvTopMenuFocus.Libraries,
-                focusRequester = librariesFocusRequester,
-                onFocusChanged = { hasFocus ->
-                    focusedButton = if (hasFocus) TvTopMenuFocus.Libraries else focusedButton.takeUnless { it == TvTopMenuFocus.Libraries }
-                },
-                onClick = { onSelectRoot(TvRootDestination.Libraries) },
-            )
+                    TvRootDestination.Audio -> TvTopMenuTextButton(
+                        label = "Audio",
+                        width = TvTopMenuLayout.librariesButtonWidth,
+                        isSelected = selectedRoot == TvRootDestination.Audio,
+                        isFocused = focusedButton == TvTopMenuFocus.Audio,
+                        focusRequester = librariesFocusRequester,
+                        onFocusChanged = { hasFocus ->
+                            focusedButton = if (hasFocus) {
+                                TvTopMenuFocus.Audio
+                            } else {
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Audio }
+                            }
+                        },
+                        onClick = { onSelectRoot(TvRootDestination.Audio) },
+                    )
 
-            TvTopMenuTextButton(
-                label = "For You",
-                width = TvTopMenuLayout.forYouButtonWidth,
-                isSelected = selectedRoot == TvRootDestination.ForYou,
-                isFocused = focusedButton == TvTopMenuFocus.ForYou,
-                focusRequester = forYouFocusRequester,
-                onFocusChanged = { hasFocus ->
-                    focusedButton = if (hasFocus) TvTopMenuFocus.ForYou else focusedButton.takeUnless { it == TvTopMenuFocus.ForYou }
-                },
-                onClick = { onSelectRoot(TvRootDestination.ForYou) },
-            )
+                    TvRootDestination.Requests -> TvTopMenuTextButton(
+                        label = "Requests",
+                        width = TvTopMenuLayout.requestsButtonWidth,
+                        isSelected = selectedRoot == TvRootDestination.Requests,
+                        isFocused = focusedButton == TvTopMenuFocus.Requests,
+                        focusRequester = requestsFocusRequester,
+                        onFocusChanged = { hasFocus ->
+                            focusedButton = if (hasFocus) {
+                                TvTopMenuFocus.Requests
+                            } else {
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Requests }
+                            }
+                        },
+                        onClick = { onSelectRoot(TvRootDestination.Requests) },
+                    )
+                }
+            }
         }
 
         // Leading cluster (profile avatar + chevron)
@@ -244,6 +280,7 @@ fun TvTopMenuBar(
         ) {
             TvTopMenuProfileButton(
                 accountState = accountState,
+                unreadCount = unreadCount,
                 isFocused = focusedButton == TvTopMenuFocus.Profile,
                 focusRequester = profileFocusRequester,
                 onFocusChanged = { hasFocus ->
@@ -258,14 +295,13 @@ fun TvTopMenuBar(
     }
 }
 
-private enum class TvTopMenuFocus { Search, Home, Libraries, ForYou, Profile }
+private enum class TvTopMenuFocus { Search, Video, Audio, Requests, Profile }
 
 /** Minimal account view-data the menu bar renders. */
 data class TvAccountState(
     val displayName: String = "Profile",
     val avatar: String? = null,
     val avatarUrl: String? = null,
-    val isAdmin: Boolean = false,
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -425,6 +461,7 @@ private fun TvTopMenuIconButton(
 @Composable
 private fun TvTopMenuProfileButton(
     accountState: TvAccountState,
+    unreadCount: Int,
     isFocused: Boolean,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
@@ -481,7 +518,7 @@ private fun TvTopMenuProfileButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            TvTopMenuAvatar(accountState = accountState)
+            TvTopMenuAvatar(accountState = accountState, unreadCount = unreadCount)
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,
                 contentDescription = null,
@@ -493,35 +530,69 @@ private fun TvTopMenuProfileButton(
 }
 
 @Composable
-private fun TvTopMenuAvatar(accountState: TvAccountState) {
+private fun TvTopMenuAvatar(accountState: TvAccountState, unreadCount: Int) {
     val avatarText = remember(accountState.avatar, accountState.displayName) {
         profileAvatarDisplayText(accountState.avatar, accountState.displayName)
     }
-    Box(
-        modifier = Modifier
-            .size(22.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.18f))
-            .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (accountState.avatarUrl != null) {
-            ThumbhashImage(
-                url = accountState.avatarUrl,
-                thumbhash = null,
-                contentDescription = accountState.displayName,
-                modifier = Modifier.fillMaxHeight(),
-                contentScale = ContentScale.Crop,
-                transparent = true,
-            )
-        } else {
-            Text(
-                text = avatarText,
-                color = ContinuumOnSurface,
-                fontWeight = FontWeight.Bold,
-                style = navRailLabel,
+    // The avatar circle plus a decorative unread badge anchored to its top-end
+    // corner. The badge is purely informational — the profile Surface stays the
+    // sole focus target, so the focus model is unchanged. Open the menu and pick
+    // "Notifications" to reach the inbox.
+    Box(contentAlignment = Alignment.TopEnd) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.18f))
+                .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (accountState.avatarUrl != null) {
+                ThumbhashImage(
+                    url = accountState.avatarUrl,
+                    thumbhash = null,
+                    contentDescription = accountState.displayName,
+                    modifier = Modifier.fillMaxHeight(),
+                    contentScale = ContentScale.Crop,
+                    transparent = true,
+                )
+            } else {
+                Text(
+                    text = avatarText,
+                    color = ContinuumOnSurface,
+                    fontWeight = FontWeight.Bold,
+                    style = navRailLabel,
+                )
+            }
+        }
+        if (unreadCount > 0) {
+            TvUnreadBadge(
+                unreadCount = unreadCount,
+                modifier = Modifier.align(Alignment.TopEnd),
             )
         }
+    }
+}
+
+/** Decorative unread-count pill overlaid on the profile avatar; caps at "9+". */
+@Composable
+private fun TvUnreadBadge(unreadCount: Int, modifier: Modifier = Modifier) {
+    val label = if (unreadCount > 9) "9+" else unreadCount.toString()
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = 13.dp, minHeight = 13.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE53935))
+            .border(1.dp, Color.Black.copy(alpha = 0.55f), CircleShape)
+            .padding(horizontal = 3.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            style = navRailLabel,
+        )
     }
 }
 

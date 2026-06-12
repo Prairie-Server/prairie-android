@@ -35,6 +35,7 @@ import com.continuum.app.tv.ui.components.TvLoadingScreen
 import com.continuum.app.tv.ui.components.TvMediaRow
 import com.continuum.app.tv.ui.components.TvRowStyle
 import com.continuum.app.tv.ui.theme.Spacing
+import com.continuum.app.tv.ui.util.visibleOnTv
 import com.continuum.app.viewmodel.RecommendationsViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -52,8 +53,9 @@ fun TvRecommendationsScreen(
     viewModel: RecommendationsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val visibleSections = remember(state.sections) { state.sections.visibleOnTv() }
     val firstItemFocusRequester = remember { FocusRequester() }
-    val firstSectionId = state.sections.firstOrNull { it.items.isNotEmpty() }?.id
+    val firstSectionId = visibleSections.firstOrNull { it.items.isNotEmpty() }?.id
 
     // Gate the initial focus jump so a silent ViewModel re-emission (refresh,
     // background update) doesn't yank the user back to row 1, card 1 after
@@ -75,7 +77,7 @@ fun TvRecommendationsScreen(
             onRetry = viewModel::loadRecommendations,
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
         )
-        state.sections.isEmpty() -> Box(
+        visibleSections.isEmpty() -> Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
@@ -115,7 +117,7 @@ fun TvRecommendationsScreen(
                     bottom = 48.dp,
                 ),
             ) {
-                items(state.sections, key = { it.id }) { section ->
+                items(visibleSections, key = { it.id }) { section ->
                     TvMediaRow(
                         title = section.title,
                         items = section.items,

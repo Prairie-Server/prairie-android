@@ -35,6 +35,12 @@ object PlaybackSettingsKeys {
      */
     const val SubtitleUsesDeviceOverride = "subtitle.uses_device_override"
 
+    /**
+     * Local-only per-profile flag — when true (default), DownloadWorker is
+     * constrained to NetworkType.UNMETERED. Never synced to the server.
+     */
+    const val DownloadsWifiOnly = "downloads.wifi_only"
+
     val DeviceSettings = listOf(
         PreferredQuality,
         AudioLanguage,

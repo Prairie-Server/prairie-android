@@ -8,6 +8,8 @@ import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.SectionRepository
+import com.continuum.app.tv.ui.util.tvCatalogMediaTypeFor
+import com.continuum.app.tv.ui.util.visibleOnTv
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +40,8 @@ data class TvLibraryBrowseFilter(
     val genre: String? = null,
     val namePrefix: String? = null,
     val sort: String = TvLibrarySortOption.Title.wireValue,
+    val yearMin: Int? = null,
+    val yearMax: Int? = null,
 )
 
 class TvLibraryDetailViewModel(
@@ -122,6 +126,18 @@ class TvLibraryDetailViewModel(
         )
     }
 
+    fun onYearRangeChanged(yearMin: Int?, yearMax: Int?) {
+        updateBrowseFilter(
+            _uiState.value.browseFilter.copy(
+                yearMin = yearMin,
+                yearMax = yearMax,
+                // Match the existing pattern in onGenreChanged/onSortChanged:
+                // changing a high-level filter dimension resets the alphabet jump.
+                namePrefix = null,
+            ),
+        )
+    }
+
     fun loadMoreBrowse() {
         val state = _uiState.value
         if (state.browseLoading || state.browseLoadingMore || !state.browseHasMore) return
@@ -188,7 +204,7 @@ class TvLibraryDetailViewModel(
 
             _uiState.update {
                 it.copy(
-                    sections = resolved.filter { section -> section.items.isNotEmpty() },
+                    sections = resolved.visibleOnTv(),
                     recommendedLoading = false,
                     recommendedError = null,
                 )
@@ -253,6 +269,8 @@ class TvLibraryDetailViewModel(
                 offset = offset,
                 limit = pageSize,
                 namePrefix = filter.namePrefix,
+                yearMin = filter.yearMin,
+                yearMax = filter.yearMax,
                 snapshotAt = browseSnapshot,
             )
 
@@ -265,8 +283,9 @@ class TvLibraryDetailViewModel(
                         browseSnapshot = response.snapshot
                     }
                     _uiState.update {
+                        val visibleItems = response.items.visibleOnTv()
                         it.copy(
-                            browseItems = if (reset) response.items else it.browseItems + response.items,
+                            browseItems = if (reset) visibleItems else it.browseItems + visibleItems,
                             browseHasMore = response.hasMore,
                             browseLoading = false,
                             browseLoadingMore = false,
@@ -332,8 +351,5 @@ class TvLibraryDetailViewModel(
         }
     }
 
-    private fun mediaTypeFor(type: String): String = when (type.lowercase()) {
-        "series", "shows", "tv" -> "series"
-        else -> "movie"
-    }
+    private fun mediaTypeFor(type: String): String = tvCatalogMediaTypeFor(type)
 }

@@ -26,6 +26,8 @@ kotlin {
             implementation(libs.activity.compose)
             implementation(libs.lifecycle.runtime.compose)
             implementation(libs.lifecycle.viewmodel.compose)
+            // ProcessLifecycleOwner for the notifications foreground starter.
+            implementation(libs.lifecycle.process)
             implementation(libs.navigation.compose)
             implementation(libs.koin.android)
             implementation(libs.koin.compose)
@@ -46,6 +48,31 @@ kotlin {
 
             // Compose for TV — focus-aware TV-optimized components.
             implementation(libs.tv.material)
+
+            // Palette — bitmap accent-color extraction for the ambient hero backdrop (A.2).
+            implementation(libs.androidx.palette)
+
+            // Watch Next launcher tiles (sub-project B).
+            implementation(libs.androidx.tvprovider)
+            implementation(libs.androidx.work.runtime.ktx)
+            implementation(libs.koin.androidx.workmanager)
+
+            // QR-code rendering for device-login (sub-project C).
+            implementation(libs.zxing.core)
+        }
+
+        // First tests in this module — JUnit 4 via kotlin-test-junit, mirroring
+        // the android-shared setup. Covers the AmbientBackdropTintState stale-
+        // result guard (A.2). Tests that need android.* APIs would require
+        // Robolectric; the current suite is pure JVM.
+        androidUnitTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(kotlin("test-junit"))
+            implementation(libs.kotlinx.coroutines.test)
+            // NotificationRow's constructor default uses JsonObject; the inbox
+            // formatter test constructs rows directly, so json must be on the
+            // test classpath.
+            implementation(libs.kotlinx.serialization.json)
         }
     }
 }
@@ -55,7 +82,7 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "com.continuum.app.tv"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -85,5 +112,17 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        isCoreLibraryDesugaringEnabled = true
     }
+    testOptions {
+        unitTests {
+            // Default to safe no-op stubs for android.* classes (e.g. android.util.Log.w)
+            // so tests can exercise code paths that touch them without requiring Robolectric.
+            isReturnDefaultValues = true
+        }
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 }

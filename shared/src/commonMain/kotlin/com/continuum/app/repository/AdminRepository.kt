@@ -1,48 +1,103 @@
+// shared/src/commonMain/kotlin/com/continuum/app/repository/AdminRepository.kt
 package com.continuum.app.repository
 
+import com.continuum.app.model.admin.AdminAuditPage
+import com.continuum.app.model.admin.AdminLogPage
 import com.continuum.app.model.admin.AdminSession
-import com.continuum.app.model.admin.AdminSettingValue
 import com.continuum.app.model.admin.AdminStats
 import com.continuum.app.model.admin.AdminUser
 import com.continuum.app.model.admin.CreateUserRequest
-import com.continuum.app.model.admin.Library
+import com.continuum.app.model.admin.ScanCancelRequest
+import com.continuum.app.model.admin.ScanCancelResponse
 import com.continuum.app.model.admin.ScanRequest
+import com.continuum.app.model.admin.ScanResponse
+import com.continuum.app.model.admin.SessionControlAction
+import com.continuum.app.model.admin.SessionControlRequest
+import com.continuum.app.model.admin.SessionControlResponse
 import com.continuum.app.model.admin.UpdateUserRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.api.AdminApi
-import com.continuum.app.network.map
 
-class AdminRepository(
-    private val adminApi: AdminApi,
-) {
-    /** Fetches server-wide statistics (for the admin dashboard). */
-    suspend fun getStats(): ApiResult<AdminStats> =
-        adminApi.getStats()
+/**
+ * Thin pass-through over [AdminApi] for the mobile admin sub-screens and the
+ * TV stats dashboard. Stateless (no cached flows): each admin screen owns its
+ * ViewModel state and refreshes via pull-to-refresh, so the repository just
+ * surfaces the typed [ApiResult] from the transport.
+ *
+ * Every admin route is gated server-side on acting-admin; the UI gates entry
+ * with [com.continuum.app.model.auth.isActingAdmin].
+ *
+ * NOTE: [triggerScan]/[cancelScan] hit `/api/v1/libraries/scan[/cancel]`, NOT
+ * `/admin/` routes (the scan endpoints live on the libraries handler server-side).
+ * They are exposed here so the admin "Scans" sub-screen has a single
+ * repository dependency.
+ */
+class AdminRepository(private val api: AdminApi) {
 
-    /** Lists all users on the server. */
-    suspend fun getUsers(): ApiResult<List<AdminUser>> =
-        adminApi.getUsers().map { it.users }
+    suspend fun getStats(refresh: Boolean = false): ApiResult<AdminStats> =
+        api.getStats(refresh)
 
-    /** Creates a new user account. */
+    suspend fun getUsers(): ApiResult<List<AdminUser>> = api.getUsers()
+
+    suspend fun getUser(id: Int): ApiResult<AdminUser> = api.getUser(id)
+
     suspend fun createUser(request: CreateUserRequest): ApiResult<AdminUser> =
-        adminApi.createUser(request)
+        api.createUser(request)
 
-    /** Updates an existing user account. */
     suspend fun updateUser(id: Int, request: UpdateUserRequest): ApiResult<AdminUser> =
-        adminApi.updateUser(id, request)
+        api.updateUser(id, request)
 
-    /** Deletes a user account. */
-    suspend fun deleteUser(id: Int): ApiResult<Unit> =
-        adminApi.deleteUser(id)
+    suspend fun deleteUser(id: Int): ApiResult<Unit> = api.deleteUser(id)
 
-    /** Lists all media libraries configured on the server. */
-    suspend fun getLibraries(): ApiResult<List<Library>> =
-        adminApi.getLibraries().map { it.libraries }
+    suspend fun getSessions(): ApiResult<List<AdminSession>> = api.getSessions()
 
-    /**
-     * Triggers a library scan.
-     * @param libraryId optional library ID; if null, scans all libraries.
-     */
-    suspend fun triggerScan(libraryId: Int? = null): ApiResult<Unit> =
-        adminApi.triggerScan(ScanRequest(libraryId = libraryId))
+    suspend fun sessionControl(
+        sessionId: String,
+        action: SessionControlAction,
+        request: SessionControlRequest = SessionControlRequest(),
+    ): ApiResult<SessionControlResponse> = api.sessionControl(sessionId, action, request)
+
+    suspend fun getAppLogs(
+        level: String? = null,
+        component: String? = null,
+        nodeId: String? = null,
+        requestId: String? = null,
+        sessionId: String? = null,
+        playbackSessionId: String? = null,
+        userId: Int? = null,
+        from: String? = null,
+        to: String? = null,
+        query: String? = null,
+        cursor: String? = null,
+        limit: Int = 100,
+    ): ApiResult<AdminLogPage> = api.getAppLogs(
+        level, component, nodeId, requestId, sessionId, playbackSessionId,
+        userId, from, to, query, cursor, limit,
+    )
+
+    suspend fun getAuditLogs(
+        method: String? = null,
+        pathPrefix: String? = null,
+        statusCode: Int? = null,
+        clientIp: String? = null,
+        requestId: String? = null,
+        sessionId: String? = null,
+        playbackSessionId: String? = null,
+        userId: Int? = null,
+        from: String? = null,
+        to: String? = null,
+        cursor: String? = null,
+        limit: Int = 100,
+    ): ApiResult<AdminAuditPage> = api.getAuditLogs(
+        method, pathPrefix, statusCode, clientIp, requestId, sessionId,
+        playbackSessionId, userId, from, to, cursor, limit,
+    )
+
+    /** POST /api/v1/libraries/scan (not /admin) — see class KDoc. */
+    suspend fun triggerScan(request: ScanRequest): ApiResult<ScanResponse> =
+        api.triggerScan(request)
+
+    /** POST /api/v1/libraries/scan/cancel (not /admin) — see class KDoc. */
+    suspend fun cancelScan(request: ScanCancelRequest): ApiResult<ScanCancelResponse> =
+        api.cancelScan(request)
 }

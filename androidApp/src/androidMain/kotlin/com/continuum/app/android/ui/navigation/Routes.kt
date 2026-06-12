@@ -1,5 +1,7 @@
 package com.continuum.app.android.ui.navigation
 
+import android.net.Uri
+
 /**
  * All navigation routes for the Continuum app.
  *
@@ -16,15 +18,71 @@ sealed class Route(val route: String) {
     data object Setup : Route("setup")
     data object Signup : Route("signup")
 
+    data class PairDevice(
+        val token: String? = null,
+        val code: String? = null,
+    ) : Route(
+        buildString {
+            append("pair_device")
+            val params = listOfNotNull(
+                token?.takeIf { it.isNotBlank() }?.let { "token=${Uri.encode(it)}" },
+                code?.takeIf { it.isNotBlank() }?.let { "code=${Uri.encode(it)}" },
+            )
+            if (params.isNotEmpty()) {
+                append("?")
+                append(params.joinToString("&"))
+            }
+        },
+    ) {
+        companion object {
+            const val ROUTE = "pair_device?token={token}&code={code}"
+        }
+    }
+
     // --- Profile selection (no bottom nav) ---
     data object ProfileSelection : Route("profiles")
+    data object CreateProfile : Route("profiles/create")
+    data class EditProfile(val profileId: String) : Route("profiles/${Uri.encode(profileId)}/edit") {
+        companion object {
+            const val ROUTE = "profiles/{profileId}/edit"
+        }
+    }
 
     // --- Main tabs (inside bottom nav scaffold) ---
+    data object Video : Route("video")
+    data object Audio : Route("audio")
+    data object Reading : Route("reading")
+    data object Downloads : Route("downloads")
+    data class Search(
+        val mediaType: String? = null,
+    ) : Route(
+        mediaType
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "search?mediaType=${Uri.encode(it)}" }
+            ?: "search",
+    ) {
+        companion object {
+            const val ROUTE = "search?mediaType={mediaType}"
+        }
+    }
+    data object Settings : Route("settings")
+
+    // Legacy tab routes retained so old saved back stacks do not crash.
     data object Home : Route("home")
     data object Libraries : Route("libraries")
     data object Recommendations : Route("recommendations")
-    data object Search : Route("search")
-    data object Settings : Route("settings")
+
+    // --- Requests ---
+    data object Requests : Route("requests")
+    data object MyRequests : Route("requests/mine")
+    data class RequestDetail(
+        val mediaType: String,
+        val tmdbId: Int,
+    ) : Route("requests/detail/${Uri.encode(mediaType)}/$tmdbId") {
+        companion object {
+            const val ROUTE = "requests/detail/{mediaType}/{tmdbId}"
+        }
+    }
 
     // --- Detail screens (back navigation, no bottom nav) ---
     data class ItemDetail(
@@ -70,6 +128,7 @@ sealed class Route(val route: String) {
         val fileId: Int? = null,
         val audioTrackIndex: Int? = null,
         val subtitleTrackIndex: Int? = null,
+        val roomId: String? = null,
     ) : Route(
         buildString {
             append("player/$contentId")
@@ -77,6 +136,7 @@ sealed class Route(val route: String) {
                 fileId?.let { "fileId=$it" },
                 audioTrackIndex?.let { "audioTrackIndex=$it" },
                 subtitleTrackIndex?.let { "subtitleTrackIndex=$it" },
+                roomId?.takeIf { it.isNotBlank() }?.let { "roomId=${Uri.encode(it)}" },
             )
             if (queryParams.isNotEmpty()) {
                 append("?")
@@ -86,9 +146,69 @@ sealed class Route(val route: String) {
     ) {
         companion object {
             const val ROUTE =
-                "player/{contentId}?fileId={fileId}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}"
+                "player/{contentId}?fileId={fileId}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}&roomId={roomId}"
         }
     }
+
+    // --- Watch Together (synchronized playback rooms) ---
+    data class WatchTogetherLobby(val roomId: String) : Route("watch_together/${Uri.encode(roomId)}") {
+        companion object {
+            const val ROUTE = "watch_together/{roomId}"
+            const val ARG_ROOM_ID = "roomId"
+        }
+    }
+
+    // --- Audiobook player (fullscreen, audio-only UI) ---
+    data class AudiobookPlayer(val contentId: String, val fileId: Int? = null) : Route(
+        "audiobook/$contentId" + fileId?.let { "?fileId=$it" }.orEmpty(),
+    ) {
+        companion object {
+            const val ROUTE = "audiobook/{contentId}?fileId={fileId}"
+            const val ARG_CONTENT_ID = "contentId"
+            const val ARG_FILE_ID = "fileId"
+        }
+    }
+
+    // --- Book reader (fullscreen, dispatches by BookFormat) ---
+    data class BookReader(val contentId: String, val fileId: Int? = null) : Route(
+        "reader/$contentId" + fileId?.let { "?fileId=$it" }.orEmpty(),
+    ) {
+        companion object {
+            const val ROUTE = "reader/{contentId}?fileId={fileId}"
+            const val ARG_CONTENT_ID = "contentId"
+            const val ARG_FILE_ID = "fileId"
+        }
+    }
+
+    // --- Calendar / upcoming ---
+    data object Calendar : Route("calendar")
+
+    // --- Notifications ---
+    data object Inbox : Route("inbox")
+
+    // --- Admin (acting-admin gated) ---
+    data object Admin : Route("admin")
+    data object AdminStats : Route("admin/stats")
+    data object AdminUsers : Route("admin/users")
+
+    /**
+     * Create (userId == null) and edit (userId set) form for an admin user.
+     * Mirrors [EditProfile]: data-class constructor builds the resolved route,
+     * the companion holds the placeholder pattern for NavHost.
+     */
+    data class AdminUserEdit(val userId: Int? = null) : Route(
+        if (userId != null) "admin/users/$userId/edit" else "admin/users/create",
+    ) {
+        companion object {
+            const val ROUTE = "admin/users/{userId}/edit"
+            const val CREATE_ROUTE = "admin/users/create"
+            const val ARG_USER_ID = "userId"
+        }
+    }
+
+    data object AdminSessions : Route("admin/sessions")
+    data object AdminLogs : Route("admin/logs")
+    data object AdminScans : Route("admin/scans")
 
     // --- Personal data ---
     data object Favorites : Route("favorites")
@@ -103,6 +223,4 @@ sealed class Route(val route: String) {
         }
     }
 
-    // --- Admin ---
-    data object Admin : Route("admin")
 }

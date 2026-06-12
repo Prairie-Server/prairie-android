@@ -18,7 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +49,7 @@ fun EpisodeList(
     episodes: List<EpisodeListItem>,
     onEpisodePlayClick: (String) -> Unit,
     onEpisodeDetailClick: (String) -> Unit,
+    onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -58,6 +61,7 @@ fun EpisodeList(
                 episode = episode,
                 onPlayClick = { onEpisodePlayClick(episode.contentId) },
                 onDetailClick = { onEpisodeDetailClick(episode.contentId) },
+                onDownloadClick = onEpisodeDownloadClick?.let { cb -> { cb(episode) } },
             )
         }
     }
@@ -68,6 +72,7 @@ private fun EpisodeRow(
     episode: EpisodeListItem,
     onPlayClick: () -> Unit,
     onDetailClick: () -> Unit,
+    onDownloadClick: (() -> Unit)? = null,
 ) {
     val userData = episode.userData
     val isPlayed = userData?.played == true
@@ -181,6 +186,25 @@ private fun EpisodeRow(
                     color = DetailSecondaryText,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        // Trailing download icon — disabled state if the episode has no
+        // files (rare, just a defensive guard) but layout-stable so the
+        // column doesn't reflow.
+        if (onDownloadClick != null) {
+            val hasFiles = episode.files.isNotEmpty()
+            IconButton(
+                onClick = onDownloadClick,
+                enabled = hasFiles,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FileDownload,
+                    contentDescription = "Download episode",
+                    tint = if (hasFiles) DetailSecondaryText else DetailTertiaryText,
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }

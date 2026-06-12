@@ -1,14 +1,11 @@
 package com.continuum.app.tv.ui.screens.admin
 
-import com.continuum.app.viewmodel.AdminViewModel
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,7 +22,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
@@ -37,17 +33,22 @@ import androidx.tv.material3.Text
 import com.continuum.app.model.admin.AdminStats
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
+import com.continuum.app.viewmodel.AdminStatsViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Admin dashboard — just shows a 2-column grid of stats. Admin user
- * management and library management are deferred to a follow-up phase.
+ * TV admin stats dashboard — 2-column grid of live server stats.
+ * Admin user/library management is deferred to a follow-up phase.
+ * Reuses the shared [AdminStatsViewModel]; no TV-specific copy needed.
+ *
+ * Reachable from Settings when [TvSettingsViewModel.UiState.adminVisible] is true
+ * (acting-admin gate: admin role + primary profile).
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvAdminScreen(
     onBack: () -> Unit,
-    viewModel: AdminViewModel = koinViewModel(),
+    viewModel: AdminStatsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -58,22 +59,22 @@ fun TvAdminScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Header()
+        AdminHeader()
 
         when {
             state.isLoading && state.stats == null -> TvLoadingScreen()
             state.error != null && state.stats == null -> TvErrorScreen(
                 message = state.error!!,
-                onRetry = viewModel::loadAdminData,
+                onRetry = viewModel::load,
             )
-            state.stats != null -> StatsGrid(stats = state.stats!!)
+            state.stats != null -> AdminStatsGrid(stats = state.stats!!)
         }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun Header() {
+private fun AdminHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -97,11 +98,11 @@ private fun Header() {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun StatsGrid(stats: AdminStats) {
+private fun AdminStatsGrid(stats: AdminStats) {
     val tiles = listOf(
         StatTile("Total Items", stats.totalItems.toString()),
-        StatTile("Movies", stats.totalMovies.toString()),
-        StatTile("TV Shows", stats.totalShows.toString()),
+        StatTile("Movies", "${stats.totalMovies} / ${stats.totalMovieFiles} files"),
+        StatTile("TV Shows", "${stats.totalShows} / ${stats.totalShowFiles} files"),
         StatTile("Users", stats.totalUsers.toString()),
         StatTile("Active Streams", stats.activeStreams.toString()),
         StatTile("Storage", formatBytes(stats.totalStorageBytes)),
@@ -114,7 +115,7 @@ private fun StatsGrid(stats: AdminStats) {
         verticalArrangement = Arrangement.spacedBy(32.dp),
     ) {
         items(tiles, key = { it.label }) { tile ->
-            StatCard(tile)
+            AdminStatCard(tile)
         }
     }
 }
@@ -123,7 +124,7 @@ private data class StatTile(val label: String, val value: String)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun StatCard(tile: StatTile) {
+private fun AdminStatCard(tile: StatTile) {
     Card(
         onClick = {},
         shape = CardDefaults.shape(shape = RoundedCornerShape(20.dp)),
@@ -163,7 +164,3 @@ private fun formatBytes(bytes: Long): String {
     val tb = gb / 1024.0
     return "%.2f TB".format(tb)
 }
-
-// Hint to the compiler that the tile icon helper is exported for future use.
-@Suppress("unused")
-private fun iconForTile(label: String): ImageVector = Icons.Filled.AdminPanelSettings

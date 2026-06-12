@@ -23,12 +23,15 @@ object Spacing {
 
     /** Vertical gap between rows on Home and detail screens (tvOS rowSpacing = 60pt). */
     val sectionSpacing = 30.dp
-}
 
-/** Drawer rail dimensions — preserved for legacy shell compatibility (Phase 2 removes them). */
-object RailDimens {
-    val CollapsedWidth = 0.dp
-    val ExpandedWidth = 0.dp
+    /** Inset applied around the Infuse-style player HUD panel (A.3). */
+    val hudPanelInset = 24.dp
+
+    /** Nominal height reserved for the floating top menu bar (A.1). */
+    val topMenuBarHeight = 64.dp
+
+    /** Vertical distance over which the home-hero backdrop fades into the rows (A.2). */
+    val heroBackdropFade = 120.dp
 }
 
 object HeroDimens {

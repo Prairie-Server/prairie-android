@@ -42,14 +42,14 @@ import org.koin.compose.viewmodel.koinViewModel
 /**
  * TV Settings screen. Sectioned list of settings groups:
  *
- * - Account: username, admin badge, admin-dashboard link, switch profile, sign out
+ * - Account: username, switch profile, sign out
  * - Playback: quality picker, auto-play next, auto-skip intro/credits
  * - Subtitles: default language + size
  * - Library shortcuts: Favorites, Watchlist, History, Collections
  * - Server: current URL (read-only)
  * - About: version
  *
- * Navigation actions (sign out, switch profile, library shortcuts, admin)
+ * Navigation actions (sign out, switch profile, library shortcuts)
  * are forwarded via callbacks so the Settings screen doesn't need direct
  * access to the top-level NavController.
  */
@@ -116,7 +116,6 @@ fun TvSettingsScreen(
         item {
             AccountSection(
                 state = state,
-                onAdminClick = onNavigateToAdmin,
                 onSwitchProfile = { viewModel.onSwitchProfile(context) },
                 onSignOut = { viewModel.onSignOut(context) },
                 firstActionFocusRequester = firstActionFocusRequester,
@@ -141,6 +140,28 @@ fun TvSettingsScreen(
                 onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
                 onSubtitleSizeChanged = viewModel::onSubtitleSizeChanged,
             )
+        }
+
+        if (state.notificationsVisible) {
+            item {
+                NotificationsSection(
+                    state = state,
+                    onNotificationsEnabledChanged = viewModel::onNotificationsEnabledChanged,
+                    onNotifyFavoritesChanged = viewModel::onNotifyFavoritesChanged,
+                    onNotifyWatchlistChanged = viewModel::onNotifyWatchlistChanged,
+                    onNotifyContinueWatchingChanged = viewModel::onNotifyContinueWatchingChanged,
+                    onNotifyNextUpChanged = viewModel::onNotifyNextUpChanged,
+                )
+            }
+        }
+
+        if (state.adminVisible) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader(title = "Admin")
+                    SettingsRowAction(label = "Admin Dashboard", onClick = onNavigateToAdmin)
+                }
+            }
         }
 
         item {
@@ -177,7 +198,6 @@ private fun SectionHeader(title: String) {
 @Composable
 private fun AccountSection(
     state: TvSettingsViewModel.UiState,
-    onAdminClick: () -> Unit,
     onSwitchProfile: () -> Unit,
     onSignOut: () -> Unit,
     firstActionFocusRequester: FocusRequester? = null,
@@ -186,22 +206,11 @@ private fun AccountSection(
         SectionHeader(title = "Account")
         val username = state.user?.username ?: "—"
         SettingsRowInfo(label = "Signed in as", value = username)
-        if (state.user?.role?.equals("admin", ignoreCase = true) == true) {
-            SettingsRowAction(
-                label = "Admin dashboard",
-                onClick = onAdminClick,
-                focusRequester = firstActionFocusRequester,
-            )
-        } else {
-            SettingsRowAction(
-                label = "Switch profile",
-                onClick = onSwitchProfile,
-                focusRequester = firstActionFocusRequester,
-            )
-        }
-        if (state.user?.role?.equals("admin", ignoreCase = true) == true) {
-            SettingsRowAction(label = "Switch profile", onClick = onSwitchProfile)
-        }
+        SettingsRowAction(
+            label = "Switch profile",
+            onClick = onSwitchProfile,
+            focusRequester = firstActionFocusRequester,
+        )
         SettingsRowAction(label = "Sign out", onClick = onSignOut)
     }
 }
@@ -320,6 +329,48 @@ private fun SubtitleSection(
                     onClick = { onSubtitleSizeChanged(s) },
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun NotificationsSection(
+    state: TvSettingsViewModel.UiState,
+    onNotificationsEnabledChanged: (Boolean) -> Unit,
+    onNotifyFavoritesChanged: (Boolean) -> Unit,
+    onNotifyWatchlistChanged: (Boolean) -> Unit,
+    onNotifyContinueWatchingChanged: (Boolean) -> Unit,
+    onNotifyNextUpChanged: (Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SectionHeader(title = "Notifications")
+        SettingsRowToggle(
+            label = "In-app notifications",
+            checked = state.notificationsEnabled,
+            onCheckedChange = onNotificationsEnabledChanged,
+        )
+        if (state.notificationsEnabled) {
+            SettingsRowToggle(
+                label = "Favorites",
+                checked = state.notifyFavorites,
+                onCheckedChange = onNotifyFavoritesChanged,
+            )
+            SettingsRowToggle(
+                label = "Watchlist",
+                checked = state.notifyWatchlist,
+                onCheckedChange = onNotifyWatchlistChanged,
+            )
+            SettingsRowToggle(
+                label = "Continue watching",
+                checked = state.notifyContinueWatching,
+                onCheckedChange = onNotifyContinueWatchingChanged,
+            )
+            SettingsRowToggle(
+                label = "Next up",
+                checked = state.notifyNextUp,
+                onCheckedChange = onNotifyNextUpChanged,
+            )
         }
     }
 }

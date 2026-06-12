@@ -1,6 +1,9 @@
 package com.continuum.app.tv.di
 
-import com.continuum.app.tv.data.preferences.TvPreferences
+import com.continuum.app.network.ApiResult
+import com.continuum.app.repository.SettingsRepository
+import com.continuum.app.tv.data.preferences.LegacyTvPrefsMigration
+import com.continuum.app.tv.data.preferences.TvLibrarySelectionStore
 import com.continuum.app.common.network.AndroidDeviceMetadataProvider
 import com.continuum.app.common.settings.AndroidServerSettingsCache
 import android.content.SharedPreferences
@@ -13,7 +16,6 @@ import com.continuum.app.tv.ui.screens.servers.TvServerListViewModel
 import com.continuum.app.common.player.AudioCapabilityManager
 import com.continuum.app.common.player.AudioTrackManager
 import com.continuum.app.common.player.PlaybackCapabilityDetector
-import com.continuum.app.viewmodel.AdminViewModel
 import com.continuum.app.tv.ui.screens.settings.TvSettingsViewModel
 import com.continuum.app.common.player.ContinuumPlayerFactory
 import com.continuum.app.common.player.PlaybackSessionManager
@@ -21,10 +23,15 @@ import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.tv.ui.screens.auth.TvLoginViewModel
 import com.continuum.app.tv.ui.screens.auth.TvServerSetupViewModel
 import com.continuum.app.tv.ui.screens.collections.TvCollectionDetailViewModel
+import com.continuum.app.viewmodel.AdminStatsViewModel
+import com.continuum.app.viewmodel.CalendarViewModel
 import com.continuum.app.viewmodel.CollectionsViewModel
 import com.continuum.app.tv.ui.screens.detail.TvItemDetailViewModel
 import com.continuum.app.viewmodel.HomeViewModel
 import com.continuum.app.viewmodel.RecommendationsViewModel
+import com.continuum.app.viewmodel.MyRequestsViewModel
+import com.continuum.app.viewmodel.RequestSearchViewModel
+import com.continuum.app.viewmodel.RequestsViewModel
 import com.continuum.app.tv.ui.screens.libraries.TvLibrariesViewModel
 import com.continuum.app.tv.ui.screens.library.TvLibraryCollectionDetailViewModel
 import com.continuum.app.tv.ui.screens.library.TvLibraryDetailViewModel
@@ -34,8 +41,13 @@ import com.continuum.app.viewmodel.WatchlistViewModel
 import com.continuum.app.tv.ui.screens.player.TvPlayerViewModel
 import com.continuum.app.tv.ui.screens.profiles.TvProfileSelectionViewModel
 import com.continuum.app.tv.ui.screens.search.TvSearchViewModel
+import com.continuum.app.tv.watchnext.WatchNextRepository
+import com.continuum.app.tv.watchnext.WatchNextSeeder
+import android.net.Uri
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 /**
@@ -76,23 +88,80 @@ val androidTvModule = module {
             tokenManager = get(),
             subtitleManager = get(),
             okHttpClient = get(com.continuum.app.common.di.PLAYER_OKHTTP_QUALIFIER),
+            delayProcessor = get(),
+            subtitleOffsetHolder = get(),
         )
     }
     single { PlaybackSessionManager(get(), get()) }
 
-    // Preferences (DataStore-backed playback quality, subtitle defaults, etc.).
-    single { TvPreferences(androidContext()) }
+    // Preferences (per-profile DataStore for the Libraries tab's selected library).
+    single { TvLibrarySelectionStore(androidContext(), get()) }
+
+    // One-shot legacy `tv_prefs` import (playback settings → server device
+    // overrides; selected-library id → active profile's selection store).
+    // Sentinel-gated; invoked from TvSettingsViewModel.loadSettings and
+    // TvLibrariesViewModel.load. Lambda-injected lookups follow the
+    // AndroidPlayerSettingsStore wiring pattern in PlayerInfraModule.
+    single {
+        LegacyTvPrefsMigration(
+            context = androidContext(),
+            settingsCache = get(),
+            playerSettingsStore = get(),
+            librarySelectionStore = get(),
+            getServerUrl = { get<TokenManager>().getServerUrl() },
+            getProfileId = { get<TokenManager>().getProfileId() },
+            getEffectiveSettings = { keys ->
+                when (val result = get<SettingsRepository>().getEffectiveSettings(keys)) {
+                    is ApiResult.Success -> result.data
+                    is ApiResult.Error, is ApiResult.NetworkError -> emptyMap()
+                }
+            },
+        )
+    }
+
+    // Watch Next launcher integration (TV-only). Repository wraps the
+    // TvProvider ContentResolver; the worker is constructed by
+    // TvWorkerFactory, installed via WorkManager.initialize in
+    // ContinuumTvApplication (Koin's worker DSL is not used — see
+    // TvWorkerFactory for why).
+    single { WatchNextRepository(androidContext()) }
+    single { WatchNextSeeder(androidContext(), get()) }
+
+    // Deep-link bridge between MainTvActivity (producer) and TvAppNavigation
+    // (consumer). The Activity writes the incoming continuum:// Uri here on
+    // cold-launch (read from launching intent in onCreate) and warm-launch
+    // (onNewIntent); the navigation Composable observes the flow and routes
+    // to ItemDetail / Player once the user is past the auth chain. Using a
+    // shared singleton avoids prop-drilling the URI through every screen
+    // that might be the active destination at the moment the link arrives.
+    single<MutableStateFlow<Uri?>>(named("pendingDeepLink")) { MutableStateFlow(null) }
 
     // Auth ViewModels
     viewModel { TvServerSetupViewModel(get()) }
-    viewModel { TvLoginViewModel(get(), get()) }
+    viewModel { TvLoginViewModel(get(), get(), get()) }
     viewModel { TvProfileSelectionViewModel(get(), get()) }
     viewModel { TvServerListViewModel(get(), get()) }
 
+    // Admin ViewModels
+    viewModel { AdminStatsViewModel(get()) }
+
     // Content ViewModels
     viewModel { HomeViewModel(get(), get()) }
+    viewModel { com.continuum.app.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get()) }
-    viewModel { TvLibrariesViewModel(get(), get()) }
+    viewModel { RequestsViewModel(get()) }
+    viewModel { RequestSearchViewModel(get()) }
+    viewModel { MyRequestsViewModel(get()) }
+    // Platform supplies "today" and the IANA timezone; the shared ViewModel's
+    // week math stays deterministic in commonTest (no Clock.System default).
+    viewModel {
+        CalendarViewModel(
+            repository = get(),
+            timezoneId = java.util.TimeZone.getDefault().id,
+            todayProvider = { java.time.LocalDate.now().toString() },
+        )
+    }
+    viewModel { TvLibrariesViewModel(get(), get(), get()) }
     viewModel { params ->
         TvLibraryDetailViewModel(
             sectionRepository = get(),
@@ -118,6 +187,19 @@ val androidTvModule = module {
             contentId = params.get(),
         )
     }
+    // Watch Together entry (create/join orchestration) — backs the entry +
+    // join-code dialogs on the detail screen.
+    viewModel {
+        com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherViewModel(get())
+    }
+    // Watch Together lobby — keyed per roomId (koinViewModel key="wt-lobby-$roomId");
+    // roomId is read from the positional parameter.
+    viewModel { params ->
+        com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherLobbyViewModel(
+            roomId = params.get(),
+            repository = get(),
+        )
+    }
     viewModel { params ->
         TvPlayerViewModel(
             catalogRepository = get(),
@@ -125,12 +207,14 @@ val androidTvModule = module {
             profileRepository = get(),
             personalDataRepository = get(),
             capabilityDetector = get(),
+            playbackAnalytics = get(),
             // Phase 3 TV uplift dependencies (per-profile settings, intro
             // auto-skip controller, lifecycle, sleep timer).
             playerSettingsStore = get(),
             introAutoSkipController = get(),
             sessionLifecycle = get(),
             sleepTimer = get(),
+            subtitlesRepository = get(),
             contentId = params.get(),
             // Positional `getOrNull<Int>()` reads the 2nd parametersOf slot —
             // absent when callers opt for the "auto" version (episodes, rows).
@@ -159,14 +243,10 @@ val androidTvModule = module {
             authRepository = get(),
             profileRepository = get(),
             tokenManager = get(),
-            preferences = get(),
-            settingsRepository = get(),
-            settingsCache = get(),
             playerSettingsStore = get(),
             libraryPlaybackPrefsStore = get(),
+            legacyTvPrefsMigration = get(),
+            notificationsRepository = get(),
         )
     }
-
-    // Admin dashboard.
-    viewModel { AdminViewModel(get()) }
 }
