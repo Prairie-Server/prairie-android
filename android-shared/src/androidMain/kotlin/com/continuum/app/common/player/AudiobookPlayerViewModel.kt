@@ -440,6 +440,14 @@ class AudiobookPlayerViewModel(
                     ?.toInt()?.coerceAtLeast(60) ?: (15 * 60)
                 remaining
             }
+            SleepTimerChoice.EndOfBook -> {
+                val state = _uiState.value
+                val bookEnd = AudiobookChapters.bookEndSeconds(
+                    state.chapters.toAudiobookChapters(),
+                    state.durationSeconds,
+                )
+                (bookEnd - state.positionSeconds).toInt().coerceAtLeast(60)
+            }
         }
 
         _uiState.update { it.copy(sleepTimerMinutesLeft = ((seconds + 59) / 60).coerceAtLeast(1)) }

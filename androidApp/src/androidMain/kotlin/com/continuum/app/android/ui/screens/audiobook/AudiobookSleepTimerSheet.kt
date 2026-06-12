@@ -71,6 +71,7 @@ fun AudiobookSleepTimerSheet(
                 "45 minutes" to SleepTimerChoice.Minutes(45),
                 "60 minutes" to SleepTimerChoice.Minutes(60),
                 "End of chapter" to SleepTimerChoice.EndOfChapter,
+                "End of book" to SleepTimerChoice.EndOfBook,
                 "Off" to SleepTimerChoice.Off,
             )
 
@@ -92,6 +93,7 @@ fun AudiobookSleepTimerSheet(
 private fun choiceEquals(a: SleepTimerChoice, b: SleepTimerChoice): Boolean = when {
     a is SleepTimerChoice.Off && b is SleepTimerChoice.Off -> true
     a is SleepTimerChoice.EndOfChapter && b is SleepTimerChoice.EndOfChapter -> true
+    a is SleepTimerChoice.EndOfBook && b is SleepTimerChoice.EndOfBook -> true
     a is SleepTimerChoice.Minutes && b is SleepTimerChoice.Minutes -> a.minutes == b.minutes
     else -> false
 }
