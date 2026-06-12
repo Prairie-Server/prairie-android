@@ -87,8 +87,6 @@ import com.continuum.app.android.ui.screens.profiles.ProfileAvatar
 import com.continuum.app.android.ui.util.rememberDominantColor
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.BrowseItem
-import com.continuum.app.model.navigation.MediaMode
-import com.continuum.app.model.navigation.mobileMediaModeForLibraryType
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.model.profile.Profile
 import com.continuum.app.model.section.LibraryCollection
@@ -170,13 +168,11 @@ class LibrariesViewModel(
 
             when (val result = personalDataRepository.listUserLibraries()) {
                 is ApiResult.Success -> {
-                    // The Audio tab is the sole owner of this VM (MainScreen
-                    // gates it on Tab.Audio), so restrict to audio-type
-                    // libraries — otherwise the hub defaults to the first
-                    // library overall (a video library by sort order) and its
-                    // selector lists movies/TV the audio tab can't browse.
+                    // Libraries is the unified hub for every library type
+                    // (video / audio / reading). The selector lists them all
+                    // and ItemDetail routes each item to the right player or
+                    // reader by its type.
                     val libraries = result.data
-                        .filter { mobileMediaModeForLibraryType(it.type) == MediaMode.Audio }
                         .sortedBy { library -> library.sortOrder }
                     val selectedLibraryId = _uiState.value.selectedLibraryId
                         ?.takeIf { currentId -> libraries.any { it.id == currentId } }

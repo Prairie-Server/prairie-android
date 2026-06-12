@@ -247,14 +247,16 @@ fun AppNavigation(
         }
 
         // ---- Main tabs ----
+        // Legacy media-mode routes kept as aliases so existing navigations
+        // (login/start, server switch) still resolve into the new shell.
         composable(Route.Video.route) {
-            MainScreen(navController, Tab.Video)
+            MainScreen(navController, Tab.Home)
         }
         composable(Route.Audio.route) {
-            MainScreen(navController, Tab.Audio)
+            MainScreen(navController, Tab.Libraries)
         }
         composable(Route.Reading.route) {
-            MainScreen(navController, Tab.Reading)
+            MainScreen(navController, Tab.Libraries)
         }
         composable(Route.Home.route) {
             MainScreen(navController, Tab.Home)
@@ -263,7 +265,7 @@ fun AppNavigation(
             MainScreen(navController, Tab.Libraries)
         }
         composable(Route.Recommendations.route) {
-            MainScreen(navController, Tab.Recommendations)
+            MainScreen(navController, Tab.ForYou)
         }
         composable(Route.Downloads.route) {
             MainScreen(navController, Tab.Downloads)

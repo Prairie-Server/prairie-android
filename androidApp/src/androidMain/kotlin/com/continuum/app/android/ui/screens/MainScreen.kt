@@ -30,7 +30,7 @@ import com.continuum.app.android.ui.screens.libraries.LibrariesScreen
 import com.continuum.app.android.ui.screens.libraries.LibrariesSelectorSheet
 import com.continuum.app.android.ui.screens.libraries.LibrariesViewModel
 import com.continuum.app.android.ui.screens.home.HomeScreen
-import com.continuum.app.android.ui.screens.reading.ReadingHubScreen
+import com.continuum.app.android.ui.screens.recommendations.RecommendationsScreen
 import com.continuum.app.viewmodel.HomeViewModel
 import com.continuum.app.model.navigation.MediaMode
 import com.continuum.app.model.navigation.MediaModeCapabilities
@@ -52,7 +52,7 @@ fun MainScreen(
 ) {
     val headerViewModel = koinViewModel<MainHeaderViewModel>()
     val headerState by headerViewModel.uiState.collectAsState()
-    val librariesViewModel = if (currentTab == Tab.Audio) {
+    val librariesViewModel = if (currentTab == Tab.Libraries) {
         koinViewModel<LibrariesViewModel>()
     } else {
         null
@@ -102,7 +102,7 @@ fun MainScreen(
     // Downloads disappears), move them to the nearest visible media tab.
     LaunchedEffect(currentTab, visibleTabs) {
         if (currentTab !in visibleTabs) {
-            val fallback = fallbackMobileTab(visibleTabs, currentTab) ?: Tab.Video
+            val fallback = fallbackMobileTab(visibleTabs, currentTab) ?: Tab.Home
             navController.navigate(fallback.route) {
                 popUpTo(Route.Video.route) { saveState = true }
                 launchSingleTop = true
@@ -139,7 +139,7 @@ fun MainScreen(
                     .padding(bottom = padding.calculateBottomPadding()),
             ) {
                 when (currentTab) {
-                    Tab.Video -> {
+                    Tab.Home -> {
                         val homeViewModel = koinViewModel<HomeViewModel>()
                         HomeScreen(
                             onItemClick = { contentId ->
@@ -166,7 +166,7 @@ fun MainScreen(
                             },
                         )
                     }
-                    Tab.Audio -> {
+                    Tab.Libraries -> {
                         LibrariesScreen(
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
@@ -191,23 +191,12 @@ fun MainScreen(
                             },
                         )
                     }
-                    Tab.Reading -> {
-                        ReadingHubScreen(
+                    Tab.ForYou -> {
+                        RecommendationsScreen(
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
-                            onCollectionClick = { collectionId, libraryId ->
-                                navController.navigate(Route.CollectionDetail(collectionId, libraryId).route)
-                            },
-                            activeProfile = headerState.activeProfile,
-                            onSearchClick = { navController.navigate(Route.Search("reading").route) },
-                            onSettingsClick = { navController.navigate(Route.Settings.route) },
-                            onSwitchProfileClick = {
-                                navController.navigate(Route.ProfileSelection.route)
-                            },
-                            onSwitchServerClick = {
-                                navController.navigate(Route.ServerList.route)
-                            },
+                            contentTopPadding = MainAppHeaderContentPadding,
                         )
                     }
                     Tab.Downloads -> {
@@ -230,9 +219,10 @@ fun MainScreen(
                 }
             }
 
-            // Video, Audio, and Reading paint their own floating chrome.
-            // Downloads still uses the global top bar.
-            if (currentTab == Tab.Downloads) {
+            // Home and Libraries paint their own floating chrome. Downloads
+            // and For You have no header of their own, so they use the global
+            // top bar.
+            if (currentTab == Tab.Downloads || currentTab == Tab.ForYou) {
                 MainAppTopBar(
                     activeProfile = headerState.activeProfile,
                     isProfileLoading = headerState.isLoading,
@@ -251,7 +241,7 @@ fun MainScreen(
                 )
             }
 
-            if (currentTab == Tab.Audio && librariesState != null && showLibrarySelector) {
+            if (currentTab == Tab.Libraries && librariesState != null && showLibrarySelector) {
                 LibrariesSelectorSheet(
                     libraries = librariesState.libraries,
                     selectedLibraryId = librariesState.selectedLibraryId,

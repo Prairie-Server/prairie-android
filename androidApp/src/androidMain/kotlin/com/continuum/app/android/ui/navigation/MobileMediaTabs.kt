@@ -1,22 +1,20 @@
 package com.continuum.app.android.ui.navigation
 
-import com.continuum.app.model.navigation.MediaMode
 import com.continuum.app.model.navigation.MediaModeCapabilities
 
 val Tab.isUtilityTab: Boolean
     get() = this == Tab.Downloads
 
-fun tabForMediaMode(mode: MediaMode): Tab = when (mode) {
-    MediaMode.Video -> Tab.Video
-    MediaMode.Audio -> Tab.Audio
-    MediaMode.Reading -> Tab.Reading
-}
-
+// Apple/web-aligned shell: Home · Libraries · For You, plus a Downloads tab only
+// when the user has downloads. There is no per-media-type tab — library content
+// (video / audio / reading) is reached through the Libraries picker.
 fun visibleMobileTabs(
-    capabilities: MediaModeCapabilities,
+    @Suppress("UNUSED_PARAMETER") capabilities: MediaModeCapabilities,
     showDownloads: Boolean,
 ): List<Tab> = buildList {
-    capabilities.mobileModes().forEach { add(tabForMediaMode(it)) }
+    add(Tab.Home)
+    add(Tab.Libraries)
+    add(Tab.ForYou)
     if (showDownloads) add(Tab.Downloads)
 }
 

@@ -2,83 +2,63 @@ package com.continuum.app.android.ui.navigation
 
 import com.continuum.app.model.navigation.MediaMode
 import com.continuum.app.model.navigation.MediaModeCapabilities
-import com.continuum.app.model.navigation.mobileMediaModeCapabilities
-import com.continuum.app.model.personal.UserLibrary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MobileMediaTabsTest {
+
+    // Apple/web-aligned shell: Home · Libraries · For You, independent of which
+    // media types the libraries contain. Library content (video / audio /
+    // reading) is reached through the Libraries picker. Downloads only appears
+    // when the user has downloads.
+    private val base = listOf(Tab.Home, Tab.Libraries, Tab.ForYou)
+
     @Test
-    fun videoOnlyAccountShowsVideoAndDownloads() {
+    fun fixedTabsAppendDownloadsWhenPresent() {
         val tabs = visibleMobileTabs(
             capabilities = MediaModeCapabilities(listOf(MediaMode.Video)),
             showDownloads = true,
         )
 
-        assertEquals(listOf(Tab.Video, Tab.Downloads), tabs)
+        assertEquals(base + Tab.Downloads, tabs)
     }
 
     @Test
-    fun audiobookOnlyAccountShowsAudioAndDownloads() {
-        val tabs = visibleMobileTabs(
-            capabilities = listOf(userLibrary(type = "audiobook")).mobileMediaModeCapabilities(),
-            showDownloads = true,
+    fun tabsAreFixedRegardlessOfLibraryTypes() {
+        assertEquals(
+            base,
+            visibleMobileTabs(MediaModeCapabilities(listOf(MediaMode.Audio)), showDownloads = false),
         )
-
-        assertEquals(listOf(Tab.Audio, Tab.Downloads), tabs)
-        assertFalse(Tab.Reading in tabs)
-    }
-
-    @Test
-    fun musicOnlyAccountShowsAudioAndDownloads() {
-        val tabs = visibleMobileTabs(
-            capabilities = listOf(userLibrary(type = "music")).mobileMediaModeCapabilities(),
-            showDownloads = true,
+        assertEquals(
+            base,
+            visibleMobileTabs(MediaModeCapabilities(listOf(MediaMode.Reading)), showDownloads = false),
         )
-
-        assertEquals(listOf(Tab.Audio, Tab.Downloads), tabs)
-    }
-
-    @Test
-    fun readingOnlyAccountShowsReadingAndDownloads() {
-        val tabs = visibleMobileTabs(
-            capabilities = MediaModeCapabilities(listOf(MediaMode.Reading)),
-            showDownloads = true,
+        assertEquals(
+            base,
+            visibleMobileTabs(MediaModeCapabilities(emptyList()), showDownloads = false),
         )
-
-        assertEquals(listOf(Tab.Reading, Tab.Downloads), tabs)
     }
 
     @Test
-    fun allModesKeepStableOrder() {
-        val tabs = visibleMobileTabs(
-            capabilities = MediaModeCapabilities(listOf(MediaMode.Video, MediaMode.Audio, MediaMode.Reading)),
-            showDownloads = true,
-        )
-
-        assertEquals(listOf(Tab.Video, Tab.Audio, Tab.Reading, Tab.Downloads), tabs)
-    }
-
-    @Test
-    fun downloadsCanStayHiddenWhenNoDownloadsExist() {
+    fun downloadsStaysHiddenWhenNoDownloadsExist() {
         val tabs = visibleMobileTabs(
             capabilities = MediaModeCapabilities(listOf(MediaMode.Video, MediaMode.Audio)),
             showDownloads = false,
         )
 
-        assertEquals(listOf(Tab.Video, Tab.Audio), tabs)
+        assertEquals(base, tabs)
         assertFalse(Tab.Downloads in tabs)
     }
 
     @Test
     fun choosesFirstVisibleMediaTabBeforeDownloads() {
         assertEquals(
-            Tab.Audio,
+            Tab.Home,
             fallbackMobileTab(
-                visibleTabs = listOf(Tab.Audio, Tab.Downloads),
-                defaultTab = Tab.Video,
+                visibleTabs = listOf(Tab.Home, Tab.Libraries, Tab.Downloads),
+                defaultTab = Tab.ForYou,
             ),
         )
     }
@@ -88,13 +68,10 @@ class MobileMediaTabsTest {
         assertEquals(
             Tab.Downloads,
             fallbackMobileTab(
-                visibleTabs = listOf(Tab.Audio, Tab.Downloads),
+                visibleTabs = listOf(Tab.Home, Tab.Downloads),
                 defaultTab = Tab.Downloads,
             ),
         )
         assertTrue(Tab.Downloads.isUtilityTab)
     }
-
-    private fun userLibrary(type: String): UserLibrary =
-        UserLibrary(id = 1, name = "Library", type = type)
 }

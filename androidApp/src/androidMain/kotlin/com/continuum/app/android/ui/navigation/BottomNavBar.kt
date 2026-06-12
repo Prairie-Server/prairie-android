@@ -1,14 +1,14 @@
 package com.continuum.app.android.ui.navigation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.Headphones
-import androidx.compose.material.icons.outlined.LiveTv
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -36,28 +36,15 @@ enum class Tab(
     val icon: ImageVector,
     val selectedIcon: ImageVector,
 ) {
-    Video(Route.Video.route, "Video", Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
-    Audio(Route.Audio.route, "Audio", Icons.Outlined.Headphones, Icons.Filled.Headphones),
-    Reading(
-        Route.Reading.route,
-        "Reading",
-        Icons.AutoMirrored.Outlined.MenuBook,
-        Icons.AutoMirrored.Filled.MenuBook,
-    ),
+    Home(Route.Home.route, "Home", Icons.Outlined.Home, Icons.Filled.Home),
+    Libraries(Route.Libraries.route, "Libraries", Icons.Outlined.GridView, Icons.Filled.GridView),
+    ForYou(Route.Recommendations.route, "For You", Icons.Outlined.AutoAwesome, Icons.Filled.AutoAwesome),
     Downloads(
         Route.Downloads.route,
         "Downloads",
         Icons.Outlined.Download,
         Icons.Filled.Download,
-    );
-
-    companion object {
-        // Temporary aliases for legacy route call sites until the shell is
-        // fully rewired to media-mode routes.
-        val Home: Tab = Video
-        val Libraries: Tab = Audio
-        val Recommendations: Tab = Reading
-    }
+    ),
 }
 
 /**
