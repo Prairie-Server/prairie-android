@@ -397,7 +397,9 @@ private fun HeroActionRow(
             }
         }
 
-        if (hasVersionPicker || qualitySummary != null) {
+        // Audiobooks have no meaningful video "version"/quality (the "720p" was
+        // the cover-art mjpeg stream); hide the version/quality picker for them.
+        if (!isAudiobookItemType(detail.type) && (hasVersionPicker || qualitySummary != null)) {
             TvVersionPicker(
                 versions = detail.versions,
                 fallbackLabel = qualitySummary,
