@@ -52,7 +52,11 @@ data class AudiobookPlayerUiState(
     val durationSeconds: Double = 0.0,
     val positionSeconds: Double = 0.0,
     val isPlaying: Boolean = false,
-    val isPaused: Boolean = true,
+    // Default to "not paused" so the player auto-plays on open: the Compose
+    // layer mirrors isPaused into Media3's playWhenReady, and a `true` default
+    // raced the resume/auto-play wiring and left the book paused at 0:00 until
+    // the user hit play.
+    val isPaused: Boolean = false,
     val playbackSpeed: Float = 1.0f,
     val skipBackSeconds: Int = 30,
     val skipForwardSeconds: Int = 30,
