@@ -90,6 +90,9 @@ class AudiobookPlayerViewModel(
     private val hasRequestedFileId: Boolean = !requestedFileIdRaw.isNullOrBlank()
     private val requestedFileId: Int? = requestedFileIdRaw?.toIntOrNull()
 
+    /** When true ("Play from beginning"), ignore saved progress and start at 0. */
+    private val startFromBeginning: Boolean = savedStateHandle.get<Boolean>("fromStart") ?: false
+
     private val _uiState = MutableStateFlow(AudiobookPlayerUiState())
     val uiState: StateFlow<AudiobookPlayerUiState> = _uiState.asStateFlow()
 
@@ -198,7 +201,12 @@ class AudiobookPlayerViewModel(
                         return@launch
                     }
 
-                    val resumePosition = loadResumePositionSnapshot(d.userData?.positionSeconds)
+                    val resumePosition = if (startFromBeginning) {
+                        _resumePosition.value = null
+                        null
+                    } else {
+                        loadResumePositionSnapshot(d.userData?.positionSeconds)
+                    }
                     val offlineMedia = offlineMediaResolver.findLocalMedia(
                         contentId = d.contentId,
                         requestedFileId = selectedVersion.fileId,
@@ -360,8 +368,9 @@ class AudiobookPlayerViewModel(
             _uiState.update { it.copy(isLoading = false, error = error) }
             return
         }
-        // No server detail when offline — resume from the local snapshot alone.
-        loadResumePositionSnapshot()
+        // No server detail when offline — resume from the local snapshot alone
+        // (unless the user explicitly chose to play from the beginning).
+        if (!startFromBeginning) loadResumePositionSnapshot()
         _uiState.update {
             it.copy(
                 isLoading = false,

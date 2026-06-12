@@ -159,13 +159,22 @@ sealed class Route(val route: String) {
     }
 
     // --- Audiobook player (fullscreen, audio-only UI) ---
-    data class AudiobookPlayer(val contentId: String, val fileId: Int? = null) : Route(
-        "audiobook/$contentId" + fileId?.let { "?fileId=$it" }.orEmpty(),
+    data class AudiobookPlayer(
+        val contentId: String,
+        val fileId: Int? = null,
+        val fromStart: Boolean = false,
+    ) : Route(
+        "audiobook/$contentId" +
+            listOfNotNull(
+                fileId?.let { "fileId=$it" },
+                if (fromStart) "fromStart=true" else null,
+            ).let { params -> if (params.isEmpty()) "" else "?" + params.joinToString("&") },
     ) {
         companion object {
-            const val ROUTE = "audiobook/{contentId}?fileId={fileId}"
+            const val ROUTE = "audiobook/{contentId}?fileId={fileId}&fromStart={fromStart}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
+            const val ARG_FROM_START = "fromStart"
         }
     }
 

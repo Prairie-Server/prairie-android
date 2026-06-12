@@ -442,8 +442,8 @@ fun AppNavigation(
                         navController.navigate(Route.PersonDetail(id).route)
                     }
                 },
-                onAudiobookPlayClick = { contentId, fileId ->
-                    navController.navigate(Route.AudiobookPlayer(contentId, fileId).route)
+                onAudiobookPlayClick = { contentId, fileId, fromStart ->
+                    navController.navigate(Route.AudiobookPlayer(contentId, fileId, fromStart).route)
                 },
                 onBookReadClick = { contentId, fileId ->
                     navController.navigate(Route.BookReader(contentId, fileId).route)
@@ -491,6 +491,10 @@ fun AppNavigation(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument(Route.AudiobookPlayer.ARG_FROM_START) {
+                    type = NavType.BoolType
+                    defaultValue = false
                 },
             ),
         ) {

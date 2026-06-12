@@ -57,7 +57,7 @@ fun ItemDetailScreen(
     onPersonClick: (String) -> Unit,
     onSeriesClick: (String) -> Unit,
     onSeasonClick: (String, Int) -> Unit,
-    onAudiobookPlayClick: (String, Int?) -> Unit = { _, _ -> },
+    onAudiobookPlayClick: (contentId: String, fileId: Int?, fromStart: Boolean) -> Unit = { _, _, _ -> },
     onBookReadClick: (String, Int?) -> Unit = { _, _ -> },
     onWatchTogether: (String, Int?) -> Unit = { _, _ -> },
     viewModel: ItemDetailViewModel,
@@ -148,10 +148,13 @@ fun ItemDetailScreen(
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
                             onPlayClick = { fileId ->
-                                onAudiobookPlayClick(detail.contentId, fileId)
+                                onAudiobookPlayClick(detail.contentId, fileId, false)
+                            },
+                            onPlayFromStartClick = { fileId ->
+                                onAudiobookPlayClick(detail.contentId, fileId, true)
                             },
                             onChapterClick = { _ ->
-                                onAudiobookPlayClick(detail.contentId, effectiveAudiobookFileId)
+                                onAudiobookPlayClick(detail.contentId, effectiveAudiobookFileId, false)
                             },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },

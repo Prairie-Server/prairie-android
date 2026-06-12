@@ -30,6 +30,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +67,7 @@ fun AudiobookDetailContent(
     isDownloaded: Boolean = false,
     downloadProgress: Float? = null,
     onPlayClick: (fileId: Int?) -> Unit,
+    onPlayFromStartClick: (fileId: Int?) -> Unit = {},
     onChapterClick: (VersionChapter) -> Unit,
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
@@ -80,6 +82,9 @@ fun AudiobookDetailContent(
         ?: detail.versions.firstOrNull()
     val durationSeconds = meta?.totalDurationSeconds?.toDouble()
         ?: playableVersion?.duration
+    // Server-recorded resume position (Continue Listening); drives the
+    // "Resume · h:mm:ss" hero label when the listener is partway through.
+    val resumeSeconds = detail.userData?.positionSeconds?.takeIf { it > 0 }
     val chapters = playableVersion?.chapters.orEmpty()
     val displayableNarrations = meta?.otherNarrations.orEmpty()
         .filter { it.title.isNotBlank() }
@@ -152,12 +157,27 @@ fun AudiobookDetailContent(
         // Big play pill — mirrors the movie/series hero action.
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { onPlayClick(playableVersion?.fileId) },
-                    enabled = playableVersion != null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (playableVersion == null) "Unavailable" else "Play")
+                if (playableVersion != null && resumeSeconds != null) {
+                    Button(
+                        onClick = { onPlayClick(playableVersion.fileId) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Resume · ${formatClock(resumeSeconds)}")
+                    }
+                    TextButton(
+                        onClick = { onPlayFromStartClick(playableVersion.fileId) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Play from beginning")
+                    }
+                } else {
+                    Button(
+                        onClick = { onPlayClick(playableVersion?.fileId) },
+                        enabled = playableVersion != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (playableVersion == null) "Unavailable" else "Play")
+                    }
                 }
                 OutlinedButton(
                     onClick = { onDownloadClick?.invoke() },
@@ -428,4 +448,13 @@ private fun formatDuration(seconds: Double): String {
         m > 0 -> "${m}m ${s}s"
         else -> "${s}s"
     }
+}
+
+/** Clock-style position label (h:mm:ss / m:ss) for the Resume button. */
+private fun formatClock(seconds: Double): String {
+    val total = seconds.toLong().coerceAtLeast(0)
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
