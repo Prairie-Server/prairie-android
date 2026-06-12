@@ -147,6 +147,12 @@ fun AudiobookPlayerScreen(
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
                 }
+
+                // Pause intent — distinct from transient buffering. Without
+                // this a seek's rebuffer would latch the book paused.
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    viewModel.onPauseStateChanged(!playWhenReady)
+                }
             }
             c.addListener(listener)
             onDispose { runCatching { c.removeListener(listener) } }
@@ -237,7 +243,9 @@ fun AudiobookPlayerScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         AudiobookTransport(
-            isPlaying = state.isPlaying,
+            // Drive the icon from pause intent so it stays "pause" through the
+            // transient rebuffer a seek causes (isPlaying briefly flips false).
+            isPlaying = !state.isPaused,
             enabled = state.streamUrl != null,
             hasChapters = state.chapters.isNotEmpty(),
             skipBackSeconds = state.skipBackSeconds,

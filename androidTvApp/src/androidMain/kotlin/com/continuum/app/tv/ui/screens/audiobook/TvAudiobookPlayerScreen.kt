@@ -152,6 +152,12 @@ fun TvAudiobookPlayerScreen(
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
                 }
+
+                // Pause intent — distinct from transient buffering. Without
+                // this a seek's rebuffer would latch the book paused.
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    viewModel.onPauseStateChanged(!playWhenReady)
+                }
             }
             c.addListener(listener)
             onDispose { runCatching { c.removeListener(listener) } }
@@ -232,7 +238,9 @@ fun TvAudiobookPlayerScreen(
                         Spacer(Modifier.height(28.dp))
                         TvAudiobookTransportRow(
                             modifier = Modifier.focusProperties { down = speedChipFocus },
-                            isPlaying = state.isPlaying,
+                            // Pause intent, not transient isPlaying, so the icon
+                            // stays stable through a seek's rebuffer.
+                            isPlaying = !state.isPaused,
                             chaptersEnabled = hasChapters,
                             skipBackSeconds = state.skipBackSeconds,
                             skipForwardSeconds = state.skipForwardSeconds,

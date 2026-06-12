@@ -382,9 +382,18 @@ class AudiobookPlayerViewModel(
         maybeFireSleepBoundary(previous, seconds)
     }
 
-    /** Reflect playWhenReady state from Media3. */
+    /** Reflect Media3's *actual* playing state (false while buffering/seeking).
+     *  Deliberately does NOT touch [isPaused]: a seek triggers a transient
+     *  rebuffer that flips isPlaying false, and conflating that with pause
+     *  intent latched the player paused after every skip. Pause intent comes
+     *  from [onPauseStateChanged] (playWhenReady) instead. */
     fun onPlayingChanged(playing: Boolean) {
-        _uiState.update { it.copy(isPlaying = playing, isPaused = !playing) }
+        _uiState.update { it.copy(isPlaying = playing) }
+    }
+
+    /** Reflect Media3's playWhenReady — the real pause intent. */
+    fun onPauseStateChanged(isPaused: Boolean) {
+        _uiState.update { it.copy(isPaused = isPaused) }
     }
 
     fun togglePlay() {
