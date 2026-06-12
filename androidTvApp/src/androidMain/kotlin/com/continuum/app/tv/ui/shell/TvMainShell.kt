@@ -381,6 +381,10 @@ fun TvMainShell(
                         onNavigateToWatchlist = { navigateToRoute(TvMainRoute.Watchlist.route) },
                         onNavigateToHistory = { navigateToRoute(TvMainRoute.History.route) },
                         onNavigateToCollections = { navigateToRoute(TvMainRoute.Collections.route) },
+                        onNavigateToRequests = {
+                            navigateToRoute(TvMainRoute.Requests.route)
+                            moveFocusToContent(TvMainRoute.Requests.route)
+                        },
                         onNavigateToAdmin = {
                             navigateToRoute(TvMainRoute.Admin.route)
                             moveFocusToContent(TvMainRoute.Admin.route)
@@ -469,20 +473,23 @@ fun TvMainShell(
  */
 private fun mapRouteToRoot(route: String): TvRootDestination? = when (route) {
     TvMainRoute.Search.route -> TvRootDestination.Search
+    // Video/Audio are legacy aliases kept harmless during the nav alignment;
+    // they map to the Apple/web Home / Libraries tabs.
     TvMainRoute.Video.route,
-    TvMainRoute.Home.route -> TvRootDestination.Video
+    TvMainRoute.Home.route -> TvRootDestination.Home
     TvMainRoute.Audio.route,
-    TvMainRoute.Libraries.route -> TvRootDestination.Audio
-    TvMainRoute.Requests.route,
-    TvMainRoute.MyRequests.route -> TvRootDestination.Requests
+    TvMainRoute.Libraries.route -> TvRootDestination.Libraries
+    TvMainRoute.ForYou.route -> TvRootDestination.ForYou
+    // Requests/MyRequests are non-tab routes now (reached from Settings); like
+    // Settings/Inbox they map to null so no top tab is highlighted.
     else -> null
 }
 
 private fun TvRootDestination.toRoute(): String = when (this) {
     TvRootDestination.Search -> TvMainRoute.Search.route
-    TvRootDestination.Video -> TvMainRoute.Video.route
-    TvRootDestination.Audio -> TvMainRoute.Audio.route
-    TvRootDestination.Requests -> TvMainRoute.Requests.route
+    TvRootDestination.Home -> TvMainRoute.Home.route
+    TvRootDestination.Libraries -> TvMainRoute.Libraries.route
+    TvRootDestination.ForYou -> TvMainRoute.ForYou.route
 }
 
 /**

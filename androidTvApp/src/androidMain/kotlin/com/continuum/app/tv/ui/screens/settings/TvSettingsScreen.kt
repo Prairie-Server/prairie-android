@@ -60,6 +60,7 @@ fun TvSettingsScreen(
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCollections: () -> Unit = {},
+    onNavigateToRequests: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
     onSignedOut: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
@@ -170,6 +171,7 @@ fun TvSettingsScreen(
                 onNavigateToWatchlist = onNavigateToWatchlist,
                 onNavigateToHistory = onNavigateToHistory,
                 onNavigateToCollections = onNavigateToCollections,
+                onNavigateToRequests = onNavigateToRequests,
             )
         }
 
@@ -382,6 +384,7 @@ private fun LibraryShortcutsSection(
     onNavigateToWatchlist: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToCollections: () -> Unit,
+    onNavigateToRequests: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(title = "Library")
@@ -389,6 +392,7 @@ private fun LibraryShortcutsSection(
         SettingsRowAction(label = "Watchlist", onClick = onNavigateToWatchlist)
         SettingsRowAction(label = "Watch history", onClick = onNavigateToHistory)
         SettingsRowAction(label = "Collections", onClick = onNavigateToCollections)
+        SettingsRowAction(label = "Requests", onClick = onNavigateToRequests)
     }
 }
 

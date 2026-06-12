@@ -85,7 +85,7 @@ object TvTopMenuLayout {
 }
 
 /** Identifies which top-level destination the menu bar selects/highlights. */
-enum class TvRootDestination { Search, Video, Audio, Requests }
+enum class TvRootDestination { Search, Home, Libraries, ForYou }
 
 /**
  * The custom top menu bar that replaces the legacy left-side rail.
@@ -126,7 +126,7 @@ fun TvTopMenuBar(
     val searchFocusRequester = remember { FocusRequester() }
     val homeFocusRequester = remember { FocusRequester() }
     val librariesFocusRequester = remember { FocusRequester() }
-    val requestsFocusRequester = remember { FocusRequester() }
+    val forYouFocusRequester = remember { FocusRequester() }
     val profileFocusRequester = remember { FocusRequester() }
 
     // Track which button currently holds focus so we can shape colors/scale
@@ -144,9 +144,9 @@ fun TvTopMenuBar(
         // lands on the bar rather than being dropped.
         val target = when (selectedRoot) {
             TvRootDestination.Search -> searchFocusRequester
-            TvRootDestination.Video -> homeFocusRequester
-            TvRootDestination.Audio -> librariesFocusRequester
-            TvRootDestination.Requests -> requestsFocusRequester
+            TvRootDestination.Home -> homeFocusRequester
+            TvRootDestination.Libraries -> librariesFocusRequester
+            TvRootDestination.ForYou -> forYouFocusRequester
             null -> searchFocusRequester
         }
         runCatching { target.requestFocus() }
@@ -220,52 +220,52 @@ fun TvTopMenuBar(
                         extraModifier = Modifier.focusProperties { left = profileFocusRequester },
                     )
 
-                    TvRootDestination.Video -> TvTopMenuTextButton(
-                        label = "Video",
+                    TvRootDestination.Home -> TvTopMenuTextButton(
+                        label = "Home",
                         width = TvTopMenuLayout.homeButtonWidth,
-                        isSelected = selectedRoot == TvRootDestination.Video,
-                        isFocused = focusedButton == TvTopMenuFocus.Video,
+                        isSelected = selectedRoot == TvRootDestination.Home,
+                        isFocused = focusedButton == TvTopMenuFocus.Home,
                         focusRequester = homeFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
-                                TvTopMenuFocus.Video
+                                TvTopMenuFocus.Home
                             } else {
-                                focusedButton.takeUnless { it == TvTopMenuFocus.Video }
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Home }
                             }
                         },
-                        onClick = { onSelectRoot(TvRootDestination.Video) },
+                        onClick = { onSelectRoot(TvRootDestination.Home) },
                     )
 
-                    TvRootDestination.Audio -> TvTopMenuTextButton(
-                        label = "Audio",
+                    TvRootDestination.Libraries -> TvTopMenuTextButton(
+                        label = "Libraries",
                         width = TvTopMenuLayout.librariesButtonWidth,
-                        isSelected = selectedRoot == TvRootDestination.Audio,
-                        isFocused = focusedButton == TvTopMenuFocus.Audio,
+                        isSelected = selectedRoot == TvRootDestination.Libraries,
+                        isFocused = focusedButton == TvTopMenuFocus.Libraries,
                         focusRequester = librariesFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
-                                TvTopMenuFocus.Audio
+                                TvTopMenuFocus.Libraries
                             } else {
-                                focusedButton.takeUnless { it == TvTopMenuFocus.Audio }
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Libraries }
                             }
                         },
-                        onClick = { onSelectRoot(TvRootDestination.Audio) },
+                        onClick = { onSelectRoot(TvRootDestination.Libraries) },
                     )
 
-                    TvRootDestination.Requests -> TvTopMenuTextButton(
-                        label = "Requests",
-                        width = TvTopMenuLayout.requestsButtonWidth,
-                        isSelected = selectedRoot == TvRootDestination.Requests,
-                        isFocused = focusedButton == TvTopMenuFocus.Requests,
-                        focusRequester = requestsFocusRequester,
+                    TvRootDestination.ForYou -> TvTopMenuTextButton(
+                        label = "For You",
+                        width = TvTopMenuLayout.librariesButtonWidth,
+                        isSelected = selectedRoot == TvRootDestination.ForYou,
+                        isFocused = focusedButton == TvTopMenuFocus.ForYou,
+                        focusRequester = forYouFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
-                                TvTopMenuFocus.Requests
+                                TvTopMenuFocus.ForYou
                             } else {
-                                focusedButton.takeUnless { it == TvTopMenuFocus.Requests }
+                                focusedButton.takeUnless { it == TvTopMenuFocus.ForYou }
                             }
                         },
-                        onClick = { onSelectRoot(TvRootDestination.Requests) },
+                        onClick = { onSelectRoot(TvRootDestination.ForYou) },
                     )
                 }
             }
@@ -295,7 +295,7 @@ fun TvTopMenuBar(
     }
 }
 
-private enum class TvTopMenuFocus { Search, Video, Audio, Requests, Profile }
+private enum class TvTopMenuFocus { Search, Home, Libraries, ForYou, Profile }
 
 /** Minimal account view-data the menu bar renders. */
 data class TvAccountState(
