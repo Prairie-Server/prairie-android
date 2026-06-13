@@ -66,6 +66,9 @@ import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SubtitleManager
+import com.continuum.app.common.player.VideoPlayerMediaSpec
+import com.continuum.app.common.player.mountVideoMedia
+import com.continuum.app.common.player.refreshMountedVideoMedia
 import com.continuum.app.model.watchtogether.RoomPlaybackState
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
@@ -378,19 +381,16 @@ fun TvPlayerScreen(
         val controller = mediaController ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         val method = state.playMethod ?: return@LaunchedEffect
-        val mediaItem = playerFactory.buildMediaItem(
+        val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = url,
             playMethod = method,
             serverUrl = state.serverUrl,
             subtitles = state.subtitleUrls,
             title = state.title.ifBlank { null },
             artworkUrl = state.artworkUrl,
+            startPositionSeconds = state.startPosition,
         )
-        controller.setMediaItem(mediaItem)
-        val startMs = (state.startPosition * 1000).toLong()
-        if (startMs > 0) controller.seekTo(startMs)
-        controller.prepare()
-        controller.playWhenReady = true
+        mountVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
     }
 
     // Subtitle refresh (search download / AI completion): Media3 cannot add
@@ -403,19 +403,16 @@ fun TvPlayerScreen(
         val controller = mediaController ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         val method = state.playMethod ?: return@LaunchedEffect
-        val resumeMs = controller.currentPosition.coerceAtLeast(0L)
-        val wasPlaying = controller.playWhenReady
-        val mediaItem = playerFactory.buildMediaItem(
+        val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = url,
             playMethod = method,
             serverUrl = state.serverUrl,
             subtitles = state.subtitleUrls,
             title = state.title.ifBlank { null },
             artworkUrl = state.artworkUrl,
+            startPositionSeconds = state.startPosition,
         )
-        controller.setMediaItem(mediaItem, resumeMs)
-        controller.prepare()
-        controller.playWhenReady = wasPlaying
+        refreshMountedVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
     }
 
     // Auto-select a freshly downloaded/translated subtitle track once the
