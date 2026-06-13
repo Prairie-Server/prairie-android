@@ -1,0 +1,21 @@
+package com.continuum.app.common.player
+
+import com.continuum.app.model.playback.PlayMethod
+import com.continuum.app.model.playback.PlayerSubtitleInfo
+
+data class VideoPlayerMediaSpec(
+    val streamUrl: String,
+    val playMethod: PlayMethod,
+    val serverUrl: String,
+    val subtitles: List<PlayerSubtitleInfo> = emptyList(),
+    val title: String? = null,
+    val subtitle: String? = null,
+    val artworkUrl: String? = null,
+    val startPositionSeconds: Double = 0.0,
+) {
+    val startPositionMs: Long
+        get() {
+            val seconds = if (startPositionSeconds.isFinite()) startPositionSeconds else 0.0
+            return (seconds * 1000.0).toLong().coerceAtLeast(0L)
+        }
+}
