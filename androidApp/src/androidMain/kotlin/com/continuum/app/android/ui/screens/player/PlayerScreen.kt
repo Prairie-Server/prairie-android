@@ -52,6 +52,9 @@ import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.RefreshRateMatcher
 import com.continuum.app.common.player.SubtitleManager
+import com.continuum.app.common.player.VideoPlayerMediaSpec
+import com.continuum.app.common.player.mountVideoMedia
+import com.continuum.app.common.player.refreshMountedVideoMedia
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -69,6 +72,7 @@ import org.koin.compose.koinInject
  * @param initialFileId Optional explicit file selection from the detail screen
  * @param initialAudioTrackIndex Optional explicit audio selection from the detail screen
  * @param initialSubtitleTrackIndex Optional explicit subtitle selection from the detail screen
+ * @param resumePositionOverride Optional start position supplied by the launcher
  * @param navController Navigation controller for back navigation
  */
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -78,6 +82,7 @@ fun PlayerScreen(
     initialFileId: Int? = null,
     initialAudioTrackIndex: Int? = null,
     initialSubtitleTrackIndex: Int? = null,
+    resumePositionOverride: Double? = null,
     // Watch Together room id, present when this player was launched into a
     // synchronized room. When set, a RoomSyncController binds this player to the
     // room (clock sync, transport mirroring, gating, room_closed exit).
@@ -217,12 +222,13 @@ fun PlayerScreen(
     }
 
     // Load content on first composition
-    LaunchedEffect(contentId, initialFileId, initialAudioTrackIndex, initialSubtitleTrackIndex) {
+    LaunchedEffect(contentId, initialFileId, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
         viewModel.loadContent(
             contentId = contentId,
             preferredFileId = initialFileId,
             initialAudioTrackIndex = initialAudioTrackIndex,
             initialSubtitleTrackIndex = initialSubtitleTrackIndex,
+            resumePositionOverride = resumePositionOverride,
         )
     }
 
@@ -268,7 +274,7 @@ fun PlayerScreen(
     }
 
     // Set up the media item when stream URL becomes available
-    LaunchedEffect(mediaController, uiState.streamUrl, uiState.playMethod) {
+    LaunchedEffect(mediaController, uiState.streamUrl, uiState.playMethod, uiState.startPosition) {
         val controller = mediaController ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
@@ -296,7 +302,7 @@ fun PlayerScreen(
         }
         val effectiveStreamUrl = localUri ?: streamUrl
 
-        val mediaItem = playerFactory.buildMediaItem(
+        val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = effectiveStreamUrl,
             // Local files play as progressive (DIRECT), regardless of how
             // the server originally provisioned the session.
@@ -306,32 +312,22 @@ fun PlayerScreen(
             title = uiState.title.ifBlank { null },
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
+            startPositionSeconds = uiState.startPosition,
         )
-
-        controller.setMediaItem(mediaItem)
-        controller.prepare()
-
-        val startMs = (uiState.startPosition * 1000).toLong()
-        if (startMs > 0) controller.seekTo(startMs)
-
-        controller.playWhenReady = true
+        mountVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
     }
 
     // Mid-playback subtitle refresh (downloaded / AI-generated tracks).
     // Subtitle configs are baked into the MediaItem at build time, so when
     // refreshSubtitles merges new tracks it bumps subtitleRefreshNonce and we
-    // rebuild the SAME stream's MediaItem with the enlarged subtitle list,
-    // then re-prepare at the captured live position. setMediaItem(item, posMs)
-    // preserves the playhead; playWhenReady is restored so a paused player
-    // stays paused. The session is NOT restarted (web parity).
+    // ask the shared mounter to refresh the SAME stream's MediaItem with the
+    // enlarged subtitle list while preserving position/playWhenReady.
+    // The session is NOT restarted (web parity).
     LaunchedEffect(mediaController, uiState.subtitleRefreshNonce) {
         if (uiState.subtitleRefreshNonce == 0) return@LaunchedEffect
         val controller = mediaController ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
-
-        val resumePositionMs = controller.currentPosition
-        val wasPlaying = controller.playWhenReady
 
         // Mirror the start effect's local-file preference so a rebuild never
         // silently switches a local-file playback back to the remote stream.
@@ -347,7 +343,7 @@ fun PlayerScreen(
         }
         val effectiveStreamUrl = localUri ?: streamUrl
 
-        val mediaItem = playerFactory.buildMediaItem(
+        val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = effectiveStreamUrl,
             playMethod = if (localUri != null) com.continuum.app.model.playback.PlayMethod.DIRECT else playMethod,
             serverUrl = uiState.serverUrl,
@@ -355,11 +351,9 @@ fun PlayerScreen(
             title = uiState.title.ifBlank { null },
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
+            startPositionSeconds = uiState.startPosition,
         )
-
-        controller.setMediaItem(mediaItem, resumePositionMs)
-        controller.prepare()
-        controller.playWhenReady = wasPlaying
+        refreshMountedVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
     }
 
     // Sync play/pause from ViewModel to player
@@ -430,6 +424,7 @@ fun PlayerScreen(
                     // live VM state — `uiState` here can be a stale closure capture.
                     subtitleManager.selectSubtitle(
                         controller,
+                        viewModel.uiState.value.subtitleTracks,
                         viewModel.uiState.value.selectedSubtitleIndex,
                     )
                 }
@@ -474,9 +469,9 @@ fun PlayerScreen(
     }
 
     // Handle subtitle selection
-    LaunchedEffect(mediaController, uiState.selectedSubtitleIndex) {
+    LaunchedEffect(mediaController, uiState.subtitleTracks, uiState.selectedSubtitleIndex) {
         val controller = mediaController ?: return@LaunchedEffect
-        subtitleManager.selectSubtitle(controller, uiState.selectedSubtitleIndex)
+        subtitleManager.selectSubtitle(controller, uiState.subtitleTracks, uiState.selectedSubtitleIndex)
     }
 
     // Notify the ViewModel we're leaving the screen.
