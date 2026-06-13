@@ -14,6 +14,17 @@ class VideoPlaybackSessionCoordinator(
                 subtitle = result.subtitle,
                 artworkUrl = result.artworkUrl,
                 startPositionSeconds = result.startPositionSeconds,
+                sessionId = result.sessionId,
+                serverUrl = result.serverUrl,
+                accessToken = result.accessToken,
+                mediaFileId = result.mediaFileId,
+                durationSeconds = result.durationSeconds,
+                subtitleUrls = result.subtitleUrls,
+                preferredAudioLanguage = result.preferredAudioLanguage,
+                preferredTextLanguage = result.preferredTextLanguage,
+                intro = result.intro,
+                credits = result.credits,
+                chapters = result.chapters,
             )
             is VideoPlaybackStartResult.Error -> VideoPlayerUiState.Error(
                 contentId = result.contentId,

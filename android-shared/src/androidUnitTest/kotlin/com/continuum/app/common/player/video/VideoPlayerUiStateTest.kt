@@ -1,6 +1,7 @@
 package com.continuum.app.common.player.video
 
 import com.continuum.app.model.playback.PlayMethod
+import com.continuum.app.model.playback.PlayerSubtitleInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -25,10 +26,12 @@ class VideoPlayerUiStateTest {
             subtitle = "Movie",
             artworkUrl = "https://lib.strm.cafe/poster.jpg",
             startPositionSeconds = 1887.25,
+            subtitleUrls = listOf(PlayerSubtitleInfo(index = 0, language = "en", url = "/subtitles/en.srt")),
         )
 
         assertTrue(state.hasPlayableMedia)
         assertEquals(PlayMethod.DIRECT, state.playMethod)
         assertEquals(1_887_250L, state.startPositionMs)
+        assertEquals(listOf(PlayerSubtitleInfo(index = 0, language = "en", url = "/subtitles/en.srt")), state.subtitleUrls)
     }
 }

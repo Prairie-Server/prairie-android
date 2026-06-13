@@ -1,6 +1,9 @@
 package com.continuum.app.common.player.video
 
+import com.continuum.app.model.catalog.TimeRange
+import com.continuum.app.model.catalog.VersionChapter
 import com.continuum.app.model.playback.PlayMethod
+import com.continuum.app.model.playback.PlayerSubtitleInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -35,6 +38,17 @@ class VideoPlaybackSessionCoordinatorTest {
                 subtitle = "Movie",
                 artworkUrl = "https://lib.strm.cafe/poster.jpg",
                 startPositionSeconds = 1887.25,
+                sessionId = "session-1",
+                serverUrl = "https://lib.strm.cafe",
+                accessToken = "token-1",
+                mediaFileId = 99,
+                durationSeconds = 7200.5,
+                subtitleUrls = listOf(PlayerSubtitleInfo(index = 0, language = "en", url = "/subtitles/en.srt")),
+                preferredAudioLanguage = "en",
+                preferredTextLanguage = "nl",
+                intro = TimeRange(start = 12.0, end = 88.0),
+                credits = TimeRange(start = 7000.0, end = 7200.5),
+                chapters = listOf(VersionChapter(index = 0, title = "Opening", startSeconds = 0.0)),
             ),
         )
         val coordinator = VideoPlaybackSessionCoordinator(starter)
@@ -50,6 +64,17 @@ class VideoPlaybackSessionCoordinatorTest {
         assertEquals("Movie", ready.subtitle)
         assertEquals("https://lib.strm.cafe/poster.jpg", ready.artworkUrl)
         assertEquals(1887.25, ready.startPositionSeconds)
+        assertEquals("session-1", ready.sessionId)
+        assertEquals("https://lib.strm.cafe", ready.serverUrl)
+        assertEquals("token-1", ready.accessToken)
+        assertEquals(99, ready.mediaFileId)
+        assertEquals(7200.5, ready.durationSeconds)
+        assertEquals(listOf(PlayerSubtitleInfo(index = 0, language = "en", url = "/subtitles/en.srt")), ready.subtitleUrls)
+        assertEquals("en", ready.preferredAudioLanguage)
+        assertEquals("nl", ready.preferredTextLanguage)
+        assertEquals(TimeRange(start = 12.0, end = 88.0), ready.intro)
+        assertEquals(TimeRange(start = 7000.0, end = 7200.5), ready.credits)
+        assertEquals(listOf(VersionChapter(index = 0, title = "Opening", startSeconds = 0.0)), ready.chapters)
     }
 
     @Test
