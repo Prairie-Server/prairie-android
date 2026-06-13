@@ -154,7 +154,6 @@ val androidModule = module {
             catalogRepository = get(),
             playbackSessionManager = get(),
             profileRepository = get(),
-            serverRegistry = get(),
             personalDataRepository = get(),
             capabilityDetector = get(),
             offlineMediaResolver = get(),

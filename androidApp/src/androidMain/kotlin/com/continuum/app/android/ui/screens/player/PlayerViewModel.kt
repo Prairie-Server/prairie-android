@@ -3,7 +3,6 @@ package com.continuum.app.android.ui.screens.player
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.continuum.app.common.downloads.DownloadEnqueuer
 import com.continuum.app.common.downloads.OfflineMediaResolver
 import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackSessionLifecycle
@@ -37,7 +36,6 @@ import com.continuum.app.model.subtitles.SubtitleResult
 import com.continuum.app.model.subtitles.SubtitleSearchRequest
 import com.continuum.app.model.subtitles.SubtitleTranslateRequest
 import com.continuum.app.network.ApiResult
-import com.continuum.app.network.ServerRegistry
 import com.continuum.app.network.errorMessage
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.PersonalDataRepository
@@ -73,7 +71,6 @@ class PlayerViewModel(
     private val catalogRepository: CatalogRepository,
     private val playbackSessionManager: PlaybackSessionManager,
     private val profileRepository: ProfileRepository,
-    private val serverRegistry: ServerRegistry,
     private val personalDataRepository: PersonalDataRepository,
     private val capabilityDetector: PlaybackCapabilityDetector,
     private val offlineMediaResolver: OfflineMediaResolver,
@@ -1090,12 +1087,8 @@ class PlayerViewModel(
         preferredFileId: Int?,
         resumePositionOverride: Double?,
     ): Boolean {
-        val serverId = serverRegistry.activeServerId.value ?: DownloadEnqueuer.DEFAULT_SERVER_ID
-        val profileId = profileRepository.getActiveProfileId() ?: DownloadEnqueuer.DEFAULT_PROFILE_ID
         val media = withContext(kotlinx.coroutines.Dispatchers.IO) {
             offlineMediaResolver.findLocalMedia(
-                serverId = serverId,
-                profileId = profileId,
                 contentId = contentId,
                 requestedFileId = preferredFileId,
             )
