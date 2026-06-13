@@ -82,6 +82,21 @@ class PlaybackSessionLifecycle(
         return startInternal(params)
     }
 
+    /**
+     * Hands the lifecycle a session that the caller already started. This keeps
+     * progress reporting and recovery centralized without creating a second
+     * playback session on the server.
+     */
+    fun adoptActiveSession(params: StartParams, session: PlaybackSessionResponse) {
+        cancelRecoveryJobs()
+        _notice.value = null
+        lastStartParams = params
+        lastReportedPosition = params.startPosition ?: session.position
+        recoveringFromMissingSession = null
+        _state.value = SessionState.Active(session)
+        startProgressReporter()
+    }
+
     private suspend fun startInternal(params: StartParams): SessionState {
         _notice.value = null
         _state.value = SessionState.Loading

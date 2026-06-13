@@ -117,6 +117,30 @@ class PlaybackSessionLifecycleTest {
     }
 
     @Test
+    fun `adoptActiveSession reports progress without starting duplicate session`() = runTest {
+        val sessionMgr = FakeSessionManager()
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+
+        lifecycle.adoptActiveSession(
+            params = defaultStartParams(startPosition = 12.0),
+            session = makeSession("sess-adopted"),
+        )
+
+        assertEquals(0, sessionMgr.startCallCount)
+        val active = lifecycle.state.value
+        assertTrue(active is SessionState.Active)
+        assertEquals("sess-adopted", (active as SessionState.Active).session.sessionId)
+
+        lifecycle.reportPosition(positionSec = 33.0, durationSec = 100.0, isPaused = false)
+        advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
+
+        assertEquals(0, sessionMgr.startCallCount)
+        assertEquals(1, sessionMgr.progressCallCount)
+        assertEquals("sess-adopted", sessionMgr.lastProgressSessionId)
+        assertEquals(33.0, sessionMgr.lastProgressPosition)
+    }
+
+    @Test
     fun `reportPosition with 404 triggers session-missing recovery and re-starts`() = runTest {
         val sessionMgr = FakeSessionManager().apply {
             // Two distinct sessions back-to-back: original then renewed.
@@ -480,6 +504,8 @@ private open class FakeSessionManager : PlaybackSessionManager(
     var progressCallCount = 0
     var stopCallCount = 0
     var lastStartPosition: Double? = null
+    var lastProgressSessionId: String? = null
+    var lastProgressPosition: Double? = null
 
     override suspend fun startSession(
         fileId: Int,
@@ -500,6 +526,8 @@ private open class FakeSessionManager : PlaybackSessionManager(
         isPaused: Boolean,
     ): ApiResult<Unit> {
         progressCallCount++
+        lastProgressSessionId = sessionId
+        lastProgressPosition = position
         return progressResults?.takeIf { it.isNotEmpty() }?.removeFirst() ?: progressDefault
     }
 

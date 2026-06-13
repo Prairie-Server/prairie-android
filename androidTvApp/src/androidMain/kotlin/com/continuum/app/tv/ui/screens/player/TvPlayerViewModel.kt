@@ -4,18 +4,18 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.common.player.PlaybackAnalyticsListener
-import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackSessionLifecycle
 import com.continuum.app.common.player.PlaybackSessionManager
 import com.continuum.app.common.player.PlayerNotice
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SleepTimerController
 import com.continuum.app.common.player.SleepTimerState
-import com.continuum.app.common.player.StartParams
+import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
+import com.continuum.app.common.player.video.VideoPlaybackStartRequest
+import com.continuum.app.common.player.video.VideoPlayerUiState
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.domain.player.IntroAutoSkipController
 import com.continuum.app.domain.player.IntroAutoSkipState
-import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.TimeRange
 import com.continuum.app.model.catalog.VersionChapter
 import com.continuum.app.model.personal.SyncProgressItem
@@ -32,9 +32,7 @@ import com.continuum.app.model.subtitles.SubtitleSearchRequest
 import com.continuum.app.model.subtitles.SubtitleTranslateRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.errorMessage
-import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.PersonalDataRepository
-import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.repository.SubtitlesRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -45,7 +43,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -76,6 +73,13 @@ enum class VideoFillMode {
     /** Zoom: preserve aspect ratio, fill screen, may crop edges. */
     Zoom,
 }
+
+data class TvPlayerLaunchArgs(
+    val contentId: String,
+    val preferredFileId: Int? = null,
+    val roomId: String? = null,
+    val resumePositionOverride: Double? = null,
+)
 
 /**
  * Snapshot of player statistics surfaced in the HUD's Stats pane.
@@ -208,11 +212,9 @@ data class AiTranslateUiState(
  * composable.
  */
 class TvPlayerViewModel(
-    private val catalogRepository: CatalogRepository,
+    private val videoPlaybackCoordinator: VideoPlaybackSessionCoordinator,
     private val playbackSessionManager: PlaybackSessionManager,
-    private val profileRepository: ProfileRepository,
     private val personalDataRepository: PersonalDataRepository,
-    private val capabilityDetector: PlaybackCapabilityDetector,
     private val playbackAnalytics: PlaybackAnalyticsListener,
     // Phase 3 TV uplift dependencies.
     private val playerSettingsStore: PlayerSettingsStore,
@@ -221,7 +223,15 @@ class TvPlayerViewModel(
     private val sleepTimer: SleepTimerController,
     // Subtitle suite (provider search/download + AI translate).
     private val subtitlesRepository: SubtitlesRepository,
-    private val contentId: String,
+    private val launchArgs: TvPlayerLaunchArgs,
+) : ViewModel() {
+
+    companion object {
+        private const val TAG = "TvPlayerViewModel"
+        private const val PROGRESS_REPORT_INTERVAL_MS = 10_000L
+    }
+
+    private val contentId: String = launchArgs.contentId
     /**
      * Preferred file version to play (chosen by the user in
      * [com.continuum.app.tv.ui.screens.detail.TvVersionPicker]). When the
@@ -234,14 +244,9 @@ class TvPlayerViewModel(
      * to `versions.first()`, which for many titles is the lower-
      * resolution file because of the server's version sort order.
      */
-    private val preferredFileId: Int? = null,
-    private val resumePositionOverride: Double? = null,
-) : ViewModel() {
-
-    companion object {
-        private const val TAG = "TvPlayerViewModel"
-        private const val PROGRESS_REPORT_INTERVAL_MS = 10_000L
-    }
+    private val preferredFileId: Int? = launchArgs.preferredFileId
+    private val roomId: String? = launchArgs.roomId
+    private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
 
     data class UiState(
         val isLoading: Boolean = true,
@@ -449,154 +454,52 @@ class TvPlayerViewModel(
         startPositionOverride: Double? = null,
         preferredFileIdOverride: Int? = null,
     ) {
-        // A fresh load resets any in-flight intro countdown / cancellation
-        // memory so a new content session starts clean.
         introAutoSkipController.reset()
 
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             try {
-                val watchDetail = when (val r = catalogRepository.getWatchDetail(contentId)) {
-                    is ApiResult.Success -> r.data
-                    is ApiResult.Error -> return@launch fail("Failed to load content: ${r.message}")
-                    is ApiResult.NetworkError -> return@launch fail(
-                        "Network error: ${r.exception.message}",
-                    )
-                }
-                if (watchDetail.versions.isEmpty()) {
-                    return@launch fail("No playable versions available")
-                }
-
-                // Honor the user's explicit version choice from the detail
-                // screen (e.g. 4K over 1080p). If the requested fileId is no
-                // longer present (unlikely, but can happen if the library
-                // was rescanned between detail open and Play), silently fall
-                // back to the server's default rather than error — picking a
-                // version is a best-effort UX nicety.
-                val requestedFileId = preferredFileIdOverride ?: preferredFileId
-                // Read once from the player-settings store: device + user
-                // overrides resolve through the same cascade the server
-                // returns from `effective`.
-                val serverUrl = playbackSessionManager.getServerUrl()
-                val preferredQuality = playerSettingsStore.preferredQualityFlow.first()
-                val version = requestedFileId
-                    ?.let { id -> watchDetail.versions.firstOrNull { it.fileId == id } }
-                    ?: pickPreferredVersion(
-                        watchDetail.versions,
-                        watchDetail.userData?.lastFileId,
-                        preferredQuality,
-                    )
-                val activeProfile = profileRepository.getActiveProfile()
-                val profileId = activeProfile?.id ?: profileRepository.getActiveProfileId()
-                    ?: return@launch fail("No active profile selected")
-                val preferredAudioLanguage = playerSettingsStore.audioLanguageFlow
-                    .first().ifBlank { null }
-                val accessToken = playbackSessionManager.getAccessToken()
-                    ?: return@launch fail("Not authenticated")
-                _uiState.update {
-                    it.copy(
-                        preferredAudioLanguage = preferredAudioLanguage ?: activeProfile?.language,
-                        preferredTextLanguage = activeProfile?.subtitleLanguage,
-                    )
-                }
-
-                val capabilities = capabilityDetector.detect()
-
-                val session = when (
-                    val r = playbackSessionManager.startSession(
-                        fileId = version.fileId,
-                        profileId = profileId,
-                        capabilities = capabilities,
-                        qualityPreference = preferredQuality,
-                        startPosition = startPositionOverride,
-                    )
-                ) {
-                    is ApiResult.Success -> r.data
-                    is ApiResult.Error -> return@launch fail("Failed to start playback: ${r.message}")
-                    is ApiResult.NetworkError -> return@launch fail(
-                        "Network error: ${r.exception.message}",
-                    )
-                }
-
-                // DIRECT play: the session's stream URL is ready. REMUX and TRANSCODE
-                // both need a transcode-start call to produce an HLS manifest —
-                // delegated to startTranscodeFallback so phone + TV share one
-                // code path.
-                val resolved: PlaybackSessionResponse = when (session.playMethod) {
-                    PlayMethod.DIRECT -> session
-                    PlayMethod.REMUX, PlayMethod.TRANSCODE -> {
-                        val mode = if (session.playMethod == PlayMethod.REMUX) {
-                            PlaybackSessionManager.TranscodeMode.REMUX
-                        } else {
-                            PlaybackSessionManager.TranscodeMode.FULL
-                        }
-                        when (val r = playbackSessionManager.startTranscodeFallback(
-                            session = session,
-                            seekSeconds = startPositionOverride ?: watchDetail.userData?.positionSeconds ?: 0.0,
-                            resolution = version.resolution.orEmpty(),
-                            mode = mode,
-                        )) {
-                            is ApiResult.Success -> r.data
-                            is ApiResult.Error -> return@launch fail(
-                                "Failed to start transcode: ${r.message}",
-                            )
-                            is ApiResult.NetworkError -> return@launch fail(
-                                "Network error starting transcode: ${r.exception.message}",
-                            )
-                        }
-                    }
-                }
-
-                val startPos = startPositionOverride ?: watchDetail.userData?.positionSeconds ?: resolved.position
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = null,
-                        title = watchDetail.title,
-                        artworkUrl = watchDetail.posterUrl?.takeIf { it.isNotBlank() }
-                            ?: watchDetail.backdropUrl?.takeIf { it.isNotBlank() },
-                        sessionId = resolved.sessionId,
-                        playMethod = resolved.playMethod,
-                        streamUrl = resolved.streamUrl,
-                        serverUrl = serverUrl,
-                        accessToken = accessToken,
-                        selectedFileId = version.fileId,
-                        // onUnsupportedPlayback's synthetic PlaybackSessionResponse
-                        // (mediaFileId = 0) never flows back into UiState, so the
-                        // id captured here survives transcode fallback.
-                        mediaFileId = resolved.mediaFileId.takeIf { id -> id > 0 }
-                            ?: session.mediaFileId.takeIf { id -> id > 0 },
-                        startPosition = startPos,
-                        position = startPos,
-                        duration = resolved.durationSeconds ?: version.duration,
-                        isPaused = false,
-                        subtitleUrls = resolved.subtitleUrls ?: emptyList(),
-                        intro = watchDetail.intro,
-                        credits = watchDetail.credits,
-                        chapters = version.chapters.orEmpty(),
-                    )
-                }
-                recoveringSessionId = null
-                startProgressReporting(resolved.sessionId)
-
-                // Hand off progress reporting + 404/outage recovery to the
-                // lifecycle in parallel. The lifecycle starts its own session
-                // (a dup of the one we just created) — accept this short-term
-                // v1 cost; full migration off the legacy progressJob is a
-                // later pass. This dual-call mirrors the phone VM.
-                sessionLifecycle.start(
-                    StartParams(
+                when (val result = videoPlaybackCoordinator.start(
+                    VideoPlaybackStartRequest(
                         contentId = contentId,
-                        fileId = version.fileId,
-                        capabilities = capabilities,
-                        audioTrackIndex = resolved.audioTrackIndex,
-                        qualityPreference = preferredQuality,
-                        startPosition = startPos,
+                        preferredFileId = preferredFileIdOverride ?: preferredFileId,
+                        roomId = roomId,
+                        resumePositionOverride = startPositionOverride,
                     ),
-                )
-
-                // Begin observing intro auto-skip inputs for this session.
-                startIntroAutoSkipObserver()
+                )) {
+                    is VideoPlayerUiState.Ready -> {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                error = null,
+                                title = result.title,
+                                artworkUrl = result.artworkUrl,
+                                sessionId = result.sessionId,
+                                playMethod = result.playMethod,
+                                streamUrl = result.streamUrl,
+                                serverUrl = result.serverUrl,
+                                accessToken = result.accessToken,
+                                selectedFileId = result.fileId,
+                                mediaFileId = result.mediaFileId,
+                                startPosition = result.startPositionSeconds,
+                                position = result.startPositionSeconds,
+                                duration = result.durationSeconds,
+                                isPaused = false,
+                                subtitleUrls = result.subtitleUrls,
+                                preferredAudioLanguage = result.preferredAudioLanguage,
+                                preferredTextLanguage = result.preferredTextLanguage,
+                                intro = result.intro,
+                                credits = result.credits,
+                                chapters = result.chapters,
+                            )
+                        }
+                        recoveringSessionId = null
+                        result.sessionId?.let { startProgressReporting(it) }
+                        startIntroAutoSkipObserver()
+                    }
+                    is VideoPlayerUiState.Error -> fail(result.message)
+                    is VideoPlayerUiState.Loading -> Unit
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading content", e)
                 fail("Unexpected error: ${e.message}")
@@ -1276,38 +1179,6 @@ class TvPlayerViewModel(
         val error = result as? ApiResult.Error ?: return false
         return error.code == 404 &&
             (error.error == "playback_session_not_found" || error.message == "Playback session not found")
-    }
-
-    private fun pickPreferredVersion(
-        versions: List<FileVersion>,
-        lastFileId: Int?,
-        preferredQuality: String?,
-    ): FileVersion {
-        if (lastFileId != null) {
-            versions.firstOrNull { it.fileId == lastFileId }?.let { return it }
-        }
-        val target = preferredQuality?.lowercase().orEmpty()
-        if (target.isBlank() || target == "auto") {
-            return versions.first()
-        }
-        val preferredRank = resolutionRank(target)
-        return versions
-            .sortedByDescending { resolutionRank(it.resolution) }
-            .firstOrNull { version ->
-                target == "original" || resolutionRank(version.resolution) <= preferredRank
-            }
-            ?: versions.first()
-    }
-
-    private fun resolutionRank(value: String?): Int {
-        val normalized = value?.lowercase().orEmpty()
-        return when {
-            normalized.contains("2160") || normalized.contains("4k") -> 2160
-            normalized.contains("1080") -> 1080
-            normalized.contains("720") -> 720
-            normalized.contains("480") -> 480
-            else -> 0
-        }
     }
 
 }

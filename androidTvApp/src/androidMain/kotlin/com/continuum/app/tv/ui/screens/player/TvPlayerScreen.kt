@@ -103,9 +103,16 @@ fun TvPlayerScreen(
     // the detail screen and replaying actually spins up a fresh player
     // session instead of reusing the cached one bound to the first fileId.
     viewModel: TvPlayerViewModel = koinViewModel(
-        key = "tv-player-$contentId-${preferredFileId ?: "auto"}-${resumePositionOverride ?: "server"}",
+        key = "tv-player-$contentId-${preferredFileId ?: "auto"}-${roomId ?: "solo"}-${resumePositionOverride ?: "server"}",
         parameters = {
-            parametersOf(contentId, preferredFileId, resumePositionOverride)
+            parametersOf(
+                TvPlayerLaunchArgs(
+                    contentId = contentId,
+                    preferredFileId = preferredFileId,
+                    roomId = roomId,
+                    resumePositionOverride = resumePositionOverride,
+                ),
+            )
         },
     ),
     playerFactory: ContinuumPlayerFactory = koinInject(),

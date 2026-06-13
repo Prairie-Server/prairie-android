@@ -20,6 +20,9 @@ import com.continuum.app.tv.ui.screens.settings.TvSettingsViewModel
 import com.continuum.app.common.player.ContinuumPlayerFactory
 import com.continuum.app.common.player.PlaybackSessionManager
 import com.continuum.app.common.player.SubtitleManager
+import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
+import com.continuum.app.common.player.video.VideoPlaybackStarter
+import com.continuum.app.tv.ui.screens.player.TvPlayerLaunchArgs
 import com.continuum.app.tv.ui.screens.auth.TvLoginViewModel
 import com.continuum.app.tv.ui.screens.auth.TvServerSetupViewModel
 import com.continuum.app.tv.ui.screens.collections.TvCollectionDetailViewModel
@@ -39,6 +42,7 @@ import com.continuum.app.viewmodel.FavoritesViewModel
 import com.continuum.app.viewmodel.HistoryViewModel
 import com.continuum.app.viewmodel.WatchlistViewModel
 import com.continuum.app.tv.ui.screens.player.TvPlayerViewModel
+import com.continuum.app.tv.ui.screens.player.TvVideoPlaybackStarter
 import com.continuum.app.tv.ui.screens.profiles.TvProfileSelectionViewModel
 import com.continuum.app.tv.ui.screens.search.TvSearchViewModel
 import com.continuum.app.tv.watchnext.WatchNextRepository
@@ -93,6 +97,21 @@ val androidTvModule = module {
         )
     }
     single { PlaybackSessionManager(get(), get()) }
+    factory<VideoPlaybackStarter>(named("tvVideoPlaybackStarter")) {
+        TvVideoPlaybackStarter(
+            catalogRepository = get(),
+            playbackSessionManager = get(),
+            profileRepository = get(),
+            capabilityDetector = get(),
+            playerSettingsStore = get(),
+            sessionLifecycle = get(),
+        )
+    }
+    factory {
+        VideoPlaybackSessionCoordinator(
+            starter = get(named("tvVideoPlaybackStarter")),
+        )
+    }
 
     // Audiobook player deps. TV reuses the shared android-shared VM. The TV
     // graph has no downloads (streaming-only), so register the resolver inline:
@@ -232,11 +251,9 @@ val androidTvModule = module {
     }
     viewModel { params ->
         TvPlayerViewModel(
-            catalogRepository = get(),
+            videoPlaybackCoordinator = get(),
             playbackSessionManager = get(),
-            profileRepository = get(),
             personalDataRepository = get(),
-            capabilityDetector = get(),
             playbackAnalytics = get(),
             // Phase 3 TV uplift dependencies (per-profile settings, intro
             // auto-skip controller, lifecycle, sleep timer).
@@ -245,11 +262,7 @@ val androidTvModule = module {
             sessionLifecycle = get(),
             sleepTimer = get(),
             subtitlesRepository = get(),
-            contentId = params.get(),
-            // Positional `getOrNull<Int>()` reads the 2nd parametersOf slot —
-            // absent when callers opt for the "auto" version (episodes, rows).
-            preferredFileId = params.getOrNull<Int>(),
-            resumePositionOverride = params.getOrNull<Double>(),
+            launchArgs = params.get<TvPlayerLaunchArgs>(),
         )
     }
 
