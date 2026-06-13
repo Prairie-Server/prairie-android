@@ -1,11 +1,13 @@
 package com.continuum.app.android.ui.navigation
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -93,6 +95,10 @@ fun AppNavigation(
     NavHost(
         navController = navController,
         startDestination = startDestination,
+        // Fill the bounded Surface so destinations get a bounded height. Without
+        // this the host wraps to content, leaking unbounded height into screens
+        // like the reader whose WebView paginates against the viewport height.
+        modifier = Modifier.fillMaxSize(),
     ) {
         // ---- Auth flow ----
         composable(Route.ServerSetup.route) {

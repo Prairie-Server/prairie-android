@@ -140,41 +140,46 @@ fun ReaderScreen(
             )
         }
 
-        when {
-            state.isLoading -> CenteredText("Loading book…")
-            state.error != null -> CenteredText(state.error ?: "Failed to load")
-            state.fileUrl.isNullOrBlank() -> CenteredText("No file available for this book.")
-            else -> when (state.format) {
-                BookFormat.Epub, BookFormat.Fb2, BookFormat.Fbz, BookFormat.Txt, BookFormat.Markdown ->
-                    ReflowableReader(
-                        format = state.format,
+        // The reader fills all remaining space below the toolbar. This bounded
+        // height is required: the reflow engine paginates against `100vh`, so an
+        // unbounded/wrap height collapses every page to zero (blank reader).
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                state.isLoading -> CenteredText("Loading book…")
+                state.error != null -> CenteredText(state.error ?: "Failed to load")
+                state.fileUrl.isNullOrBlank() -> CenteredText("No file available for this book.")
+                else -> when (state.format) {
+                    BookFormat.Epub, BookFormat.Fb2, BookFormat.Fbz, BookFormat.Txt, BookFormat.Markdown ->
+                        ReflowableReader(
+                            format = state.format,
+                            fileUrl = state.fileUrl!!,
+                            settings = state.displaySettings,
+                            initialLocator = state.progressLocation,
+                            onLocatorChanged = viewModel::onLocatorChanged,
+                            onSectionsKnown = viewModel::setSections,
+                            onTextScaleNudge = viewModel::nudgeTextScale,
+                            jumpToLocation = state.pendingJumpLocation,
+                            onJumpConsumed = viewModel::consumeJump,
+                        )
+                    BookFormat.Pdf -> PdfReader(
                         fileUrl = state.fileUrl!!,
-                        settings = state.displaySettings,
-                        initialLocator = state.progressLocation,
-                        onLocatorChanged = viewModel::onLocatorChanged,
-                        onSectionsKnown = viewModel::setSections,
-                        onTextScaleNudge = viewModel::nudgeTextScale,
-                        jumpToLocation = state.pendingJumpLocation,
-                        onJumpConsumed = viewModel::consumeJump,
+                        title = state.title,
+                        initialPage = state.currentPage,
+                        onPageChanged = viewModel::onPageChanged,
+                        onPageCountKnown = viewModel::onPageCountKnown,
                     )
-                BookFormat.Pdf -> PdfReader(
-                    fileUrl = state.fileUrl!!,
-                    title = state.title,
-                    initialPage = state.currentPage,
-                    onPageChanged = viewModel::onPageChanged,
-                    onPageCountKnown = viewModel::onPageCountKnown,
-                )
-                BookFormat.Cbz -> ComicReader(
-                    fileUrl = state.fileUrl!!,
-                    title = state.title,
-                    initialPage = state.currentPage,
-                    onPageChanged = viewModel::onPageChanged,
-                    onPageCountKnown = viewModel::onPageCountKnown,
-                )
-                else -> CenteredText(
-                    "Format not supported yet: ${state.format.displayName}\n" +
-                        "Open the file on a desktop reader for now.",
-                )
+                    BookFormat.Cbz -> ComicReader(
+                        fileUrl = state.fileUrl!!,
+                        title = state.title,
+                        initialPage = state.currentPage,
+                        onPageChanged = viewModel::onPageChanged,
+                        onPageCountKnown = viewModel::onPageCountKnown,
+                    )
+                    else -> CenteredText(
+                        "Format not supported yet: ${state.format.displayName}\n" +
+                            "Open the file on a desktop reader for now.",
+                    )
+                }
             }
         }
     }

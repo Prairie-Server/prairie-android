@@ -3,6 +3,7 @@ package com.continuum.app.android.ui.screens.reader.reflow
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
@@ -67,6 +68,21 @@ fun ReflowWebView(
     DisposableEffect(webView) {
         val mainHandler = Handler(Looper.getMainLooper())
         var readyDelivered = false
+        val density = context.resources.displayMetrics.density
+
+        // Push the WebView's real, Compose-measured size into the page as CSS px.
+        // This is what gives every page a non-zero height; the WebView's own
+        // viewport (`100vh`) latches to 0 because the page loads before layout.
+        fun pushViewport() {
+            val w = (webView.width / density).toInt()
+            val h = (webView.height / density).toInt()
+            if (w > 0 && h > 0) {
+                webView.evaluateJavascript(
+                    "window.ReflowApi&&window.ReflowApi.setViewport($w,$h)",
+                    null,
+                )
+            }
+        }
 
         val bridge = object {
             @JavascriptInterface
@@ -78,10 +94,18 @@ fun ReflowWebView(
                         readyDelivered = true
                         onReady(ReflowController(webView))
                     }
+                    if (event is ReflowEvent.Ready) pushViewport()
                     onEvent(event)
                 }
             }
         }
+
+        // Re-push whenever the view is (re)laid out, e.g. rotation or the very
+        // first measure pass that happens after the page has already loaded.
+        val layoutListener = View.OnLayoutChangeListener { _, l, t, r, b, ol, ot, or2, ob ->
+            if (r - l != or2 - ol || b - t != ob - ot) pushViewport()
+        }
+        webView.addOnLayoutChangeListener(layoutListener)
 
         webView.addJavascriptInterface(bridge, "AndroidReflow")
         webView.webViewClient = object : WebViewClient() {
@@ -96,6 +120,7 @@ fun ReflowWebView(
         webView.loadUrl("file:///android_asset/reader/reflow/reader.html")
 
         onDispose {
+            webView.removeOnLayoutChangeListener(layoutListener)
             webView.removeJavascriptInterface("AndroidReflow")
             webView.destroy()
         }
