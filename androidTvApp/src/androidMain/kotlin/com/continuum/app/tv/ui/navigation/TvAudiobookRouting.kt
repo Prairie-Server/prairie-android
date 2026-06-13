@@ -15,8 +15,25 @@ fun tvPlayDestinationFor(
     contentId: String,
     fileId: Int?,
 ): String =
+    tvPlayDestinationFor(
+        itemType = itemType,
+        contentId = contentId,
+        fileId = fileId,
+        resumePositionSeconds = null,
+    )
+
+fun tvPlayDestinationFor(
+    itemType: String?,
+    contentId: String,
+    fileId: Int?,
+    resumePositionSeconds: Double?,
+): String =
     if (isAudiobookItemType(itemType)) {
         TvRoute.AudiobookPlayer(contentId, fileId).route
     } else {
-        TvRoute.Player(contentId, fileId).route
+        TvRoute.Player(
+            contentId = contentId,
+            fileId = fileId,
+            resumePositionSeconds = resumePositionSeconds,
+        ).route
     }

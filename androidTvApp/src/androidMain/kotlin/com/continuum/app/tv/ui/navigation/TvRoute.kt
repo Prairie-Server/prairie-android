@@ -1,7 +1,6 @@
 package com.continuum.app.tv.ui.navigation
 
 import com.continuum.app.common.player.video.VideoPlayerRouteArgs
-import com.continuum.app.model.catalog.isAudiobookItemType
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
@@ -176,19 +175,3 @@ sealed class TvMainRoute(val route: String) {
 
 private fun String.routeEncode(): String =
     URLEncoder.encode(this, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-
-fun tvPlayDestinationFor(
-    itemType: String?,
-    contentId: String,
-    fileId: Int?,
-    resumePositionSeconds: Double?,
-): String =
-    if (isAudiobookItemType(itemType)) {
-        TvRoute.AudiobookPlayer(contentId, fileId).route
-    } else {
-        TvRoute.Player(
-            contentId = contentId,
-            fileId = fileId,
-            resumePositionSeconds = resumePositionSeconds,
-        ).route
-    }

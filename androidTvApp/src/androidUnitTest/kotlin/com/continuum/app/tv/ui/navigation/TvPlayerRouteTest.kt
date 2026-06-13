@@ -3,8 +3,13 @@ package com.continuum.app.tv.ui.navigation
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class TvPlayerRouteTest {
+    private val detailSource = java.io.File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/detail/TvItemDetailScreen.kt",
+    ).readText()
+
     @Test
     fun playerRouteIncludesResumePositionWhenPresent() {
         val route = TvRoute.Player(
@@ -28,5 +33,13 @@ class TvPlayerRouteTest {
         ).route
 
         assertFalse(route.contains("resumePosition="))
+    }
+
+    @Test
+    fun startOverPassesExplicitZeroResumePosition() {
+        assertTrue(
+            detailSource.contains("onPlay(detail.contentId, selectedFileId, detail.type, 0.0)"),
+            "Start Over must pass an explicit 0.0 override; null falls back to stored progress",
+        )
     }
 }

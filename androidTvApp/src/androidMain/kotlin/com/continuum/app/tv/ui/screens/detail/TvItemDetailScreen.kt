@@ -343,7 +343,7 @@ private fun HeroActionRow(
                     label = "Start Over",
                     icon = Icons.Filled.Replay,
                     variant = TvPillVariant.Hollow,
-                    onClick = { onPlay(detail.contentId, selectedFileId, detail.type, null) },
+                    onClick = { onPlay(detail.contentId, selectedFileId, detail.type, 0.0) },
                 )
             }
 
