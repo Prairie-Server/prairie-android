@@ -9,6 +9,7 @@ class VideoPlaybackSessionCoordinator(
                 contentId = result.contentId,
                 fileId = result.fileId,
                 streamUrl = result.streamUrl,
+                playMethod = result.playMethod,
                 title = result.title,
                 subtitle = result.subtitle,
                 artworkUrl = result.artworkUrl,

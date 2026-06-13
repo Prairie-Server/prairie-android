@@ -1,5 +1,6 @@
 package com.continuum.app.common.player.video
 
+import com.continuum.app.model.playback.PlayMethod
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -19,6 +20,7 @@ class VideoPlayerUiStateTest {
             contentId = "movie-123",
             fileId = 44,
             streamUrl = "https://lib.strm.cafe/api/stream/movie",
+            playMethod = PlayMethod.DIRECT,
             title = "Michael",
             subtitle = "Movie",
             artworkUrl = "https://lib.strm.cafe/poster.jpg",
@@ -26,6 +28,7 @@ class VideoPlayerUiStateTest {
         )
 
         assertTrue(state.hasPlayableMedia)
+        assertEquals(PlayMethod.DIRECT, state.playMethod)
         assertEquals(1_887_250L, state.startPositionMs)
     }
 }

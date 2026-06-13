@@ -1,5 +1,7 @@
 package com.continuum.app.common.player.video
 
+import com.continuum.app.model.playback.PlayMethod
+
 sealed interface VideoPlayerUiState {
     val contentId: String
     val hasPlayableMedia: Boolean
@@ -21,6 +23,7 @@ sealed interface VideoPlayerUiState {
         override val contentId: String,
         val fileId: Int?,
         val streamUrl: String,
+        val playMethod: PlayMethod,
         val title: String,
         val subtitle: String?,
         val artworkUrl: String?,
