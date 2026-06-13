@@ -42,6 +42,7 @@ class VideoPlaybackSessionCoordinatorTest {
                 serverUrl = "https://lib.strm.cafe",
                 accessToken = "token-1",
                 mediaFileId = 99,
+                audioTrackIndex = 3,
                 durationSeconds = 7200.5,
                 subtitleUrls = listOf(PlayerSubtitleInfo(index = 0, language = "en", url = "/subtitles/en.srt")),
                 preferredAudioLanguage = "en",
@@ -68,6 +69,7 @@ class VideoPlaybackSessionCoordinatorTest {
         assertEquals("https://lib.strm.cafe", ready.serverUrl)
         assertEquals("token-1", ready.accessToken)
         assertEquals(99, ready.mediaFileId)
+        assertEquals(3, ready.audioTrackIndex)
         assertEquals(7200.5, ready.durationSeconds)
         assertEquals(listOf(PlayerSubtitleInfo(index = 0, language = "en", url = "/subtitles/en.srt")), ready.subtitleUrls)
         assertEquals("en", ready.preferredAudioLanguage)

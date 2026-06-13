@@ -1,0 +1,132 @@
+package com.continuum.app.android.ui.screens.player
+
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class PlayerViewModelSharedCoordinatorTest {
+    private val viewModelSource = java.io.File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/PlayerViewModel.kt",
+    ).readText()
+    private val moduleSource = java.io.File(
+        "src/androidMain/kotlin/com/continuum/app/android/di/AndroidModule.kt",
+    ).readText()
+
+    @Test
+    fun mobilePlayerViewModelStartsRemotePlaybackThroughSharedCoordinator() {
+        assertTrue(
+            viewModelSource.contains("VideoPlaybackSessionCoordinator"),
+            "Mobile player ViewModel must depend on the shared video playback coordinator",
+        )
+        assertTrue(
+            viewModelSource.contains("VideoPlaybackStartRequest("),
+            "Mobile player ViewModel must build the shared video playback start request",
+        )
+        assertTrue(
+            viewModelSource.contains("contentId = contentId"),
+            "Mobile player ViewModel must pass contentId into the shared start request",
+        )
+        assertTrue(
+            viewModelSource.contains("preferredFileId = preferredFileId"),
+            "Mobile player ViewModel must pass the requested file id into the shared start request",
+        )
+        assertTrue(
+            viewModelSource.contains("roomId = null"),
+            "Mobile player ViewModel must explicitly pass no Watch Together room id for normal mobile startup",
+        )
+        assertTrue(
+            viewModelSource.contains("resumePositionOverride = resumePositionOverride"),
+            "Mobile player ViewModel must preserve explicit resume override semantics",
+        )
+        assertTrue(
+            viewModelSource.contains("videoPlaybackCoordinator.start("),
+            "Mobile player ViewModel must delegate remote startup to the shared coordinator",
+        )
+    }
+
+    @Test
+    fun mobilePlayerViewModelKeepsOfflineFallbackBeforeRemoteCoordinatorStartup() {
+        assertTrue(
+            viewModelSource.contains("private suspend fun tryLocalPlayback"),
+            "Mobile player ViewModel must retain the offline/local playback fallback",
+        )
+
+        val loadContentBody = viewModelSource
+            .substringAfter("fun loadContent(")
+            .substringBefore("private fun startIntroAutoSkipObserver")
+        val localIndex = loadContentBody.indexOf("tryLocalPlayback(")
+        val coordinatorIndex = loadContentBody.indexOf("videoPlaybackCoordinator.start(")
+
+        assertTrue(localIndex >= 0, "loadContent must try local playback")
+        assertTrue(coordinatorIndex >= 0, "loadContent must start remote playback through the coordinator")
+        assertTrue(
+            localIndex < coordinatorIndex,
+            "Mobile offline/local playback fallback must run before remote coordinator startup",
+        )
+        assertFalse(
+            loadContentBody.contains("playbackSessionManager.startSession("),
+            "Mobile initial remote startup must not start sessions directly in PlayerViewModel",
+        )
+    }
+
+    @Test
+    fun mobilePlaybackStarterOwnsRemoteStartupAlgorithm() {
+        val starterFile = java.io.File(
+            "src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/MobileVideoPlaybackStarter.kt",
+        )
+        assertTrue(
+            starterFile.exists(),
+            "Mobile remote playback startup algorithm must live in MobileVideoPlaybackStarter",
+        )
+        val starterSource = starterFile.readText()
+
+        assertTrue(
+            starterSource.contains("class MobileVideoPlaybackStarter"),
+            "Mobile starter must expose MobileVideoPlaybackStarter",
+        )
+        assertTrue(
+            starterSource.contains("startSession("),
+            "Mobile starter must start playback sessions",
+        )
+        assertTrue(
+            starterSource.contains("startTranscodeFallback("),
+            "Mobile starter must preserve remux/transcode fallback",
+        )
+        assertTrue(
+            starterSource.contains("resolvePlaybackStartPosition("),
+            "Mobile starter must preserve resolved resume/start position semantics",
+        )
+        assertTrue(
+            starterSource.contains("resolvePlaybackStartRequestPosition("),
+            "Mobile starter must preserve explicit Start Over request semantics",
+        )
+        assertTrue(
+            starterSource.contains("adoptActiveSession("),
+            "Mobile starter must adopt the initial session into PlaybackSessionLifecycle",
+        )
+        assertFalse(
+            starterSource.contains("manageProgress = false"),
+            "Mobile starter must use lifecycle-managed progress/recovery adoption",
+        )
+    }
+
+    @Test
+    fun androidModuleWiresMobileStarterAndCoordinatorIntoPlayerViewModel() {
+        assertTrue(
+            moduleSource.contains("MobileVideoPlaybackStarter"),
+            "Android Koin module must provide the mobile video playback starter",
+        )
+        assertTrue(
+            moduleSource.contains("VideoPlaybackSessionCoordinator"),
+            "Android Koin module must provide the shared video playback coordinator",
+        )
+        assertTrue(
+            moduleSource.contains("mobileVideoPlaybackStarter"),
+            "Android Koin module should name the mobile starter binding",
+        )
+        assertTrue(
+            moduleSource.contains("videoPlaybackCoordinator = get()"),
+            "Android Koin module must inject the shared coordinator into PlayerViewModel",
+        )
+    }
+}

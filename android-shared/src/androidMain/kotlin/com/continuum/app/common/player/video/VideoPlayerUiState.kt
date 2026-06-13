@@ -35,6 +35,7 @@ sealed interface VideoPlayerUiState {
         val serverUrl: String = "",
         val accessToken: String = "",
         val mediaFileId: Int? = null,
+        val audioTrackIndex: Int = 0,
         val durationSeconds: Double = 0.0,
         val subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
         val preferredAudioLanguage: String? = null,

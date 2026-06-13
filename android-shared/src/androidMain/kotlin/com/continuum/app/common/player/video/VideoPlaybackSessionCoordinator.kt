@@ -18,6 +18,7 @@ class VideoPlaybackSessionCoordinator(
                 serverUrl = result.serverUrl,
                 accessToken = result.accessToken,
                 mediaFileId = result.mediaFileId,
+                audioTrackIndex = result.audioTrackIndex,
                 durationSeconds = result.durationSeconds,
                 subtitleUrls = result.subtitleUrls,
                 preferredAudioLanguage = result.preferredAudioLanguage,

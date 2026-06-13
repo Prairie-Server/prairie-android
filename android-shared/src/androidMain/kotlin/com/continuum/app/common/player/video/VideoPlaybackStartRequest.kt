@@ -5,4 +5,5 @@ data class VideoPlaybackStartRequest(
     val preferredFileId: Int?,
     val roomId: String?,
     val resumePositionOverride: Double?,
+    val audioTrackIndex: Int? = null,
 )

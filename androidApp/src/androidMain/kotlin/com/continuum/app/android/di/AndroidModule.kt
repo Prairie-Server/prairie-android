@@ -10,6 +10,8 @@ import com.continuum.app.common.player.ContinuumPlayerFactory
 import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackSessionManager
 import com.continuum.app.common.player.SubtitleManager
+import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
+import com.continuum.app.common.player.video.VideoPlaybackStarter
 import com.continuum.app.common.network.AndroidDeviceMetadataProvider
 import com.continuum.app.common.settings.AndroidServerSettingsCache
 import android.content.SharedPreferences
@@ -53,6 +55,7 @@ import com.continuum.app.viewmodel.RequestDetailViewModel
 import com.continuum.app.viewmodel.RequestSearchViewModel
 import com.continuum.app.viewmodel.RequestsViewModel
 import com.continuum.app.viewmodel.WatchlistViewModel
+import com.continuum.app.android.ui.screens.player.MobileVideoPlaybackStarter
 import com.continuum.app.android.ui.screens.player.PlayerViewModel
 import com.continuum.app.android.ui.screens.reading.ReadingHubViewModel
 import com.continuum.app.android.ui.screens.search.SearchViewModel
@@ -61,6 +64,7 @@ import com.continuum.app.android.ui.theme.ThemeManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 /**
@@ -109,6 +113,21 @@ val androidModule = module {
         )
     }
     single { PlaybackSessionManager(get(), get()) }
+    factory<VideoPlaybackStarter>(named("mobileVideoPlaybackStarter")) {
+        MobileVideoPlaybackStarter(
+            catalogRepository = get(),
+            playbackSessionManager = get(),
+            profileRepository = get(),
+            capabilityDetector = get(),
+            playerSettingsStore = get(),
+            sessionLifecycle = get(),
+        )
+    }
+    factory {
+        VideoPlaybackSessionCoordinator(
+            starter = get(named("mobileVideoPlaybackStarter")),
+        )
+    }
 
     // Offline downloads — public MediaStore bytes plus private sidecars.
     // Media files keep original names so other Android readers/players can
@@ -129,7 +148,23 @@ val androidModule = module {
     }
 
     // ViewModels
-    factory { PlayerViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    factory {
+        PlayerViewModel(
+            videoPlaybackCoordinator = get(),
+            catalogRepository = get(),
+            playbackSessionManager = get(),
+            profileRepository = get(),
+            serverRegistry = get(),
+            personalDataRepository = get(),
+            capabilityDetector = get(),
+            offlineMediaResolver = get(),
+            playerSettingsStore = get(),
+            introAutoSkipController = get(),
+            sessionLifecycle = get(),
+            sleepTimer = get(),
+            subtitlesRepository = get(),
+        )
+    }
     viewModel { HomeViewModel(get(), get()) }
     viewModel { MainHeaderViewModel(get()) }
     viewModel { LibrariesViewModel(get(), get(), get()) }

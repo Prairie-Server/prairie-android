@@ -3,6 +3,7 @@ package com.continuum.app.android.ui.screens.player
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.continuum.app.common.downloads.DownloadEnqueuer
 import com.continuum.app.common.downloads.OfflineMediaResolver
 import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackSessionLifecycle
@@ -12,6 +13,9 @@ import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SleepTimerController
 import com.continuum.app.common.player.SleepTimerState
 import com.continuum.app.common.player.StartParams
+import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
+import com.continuum.app.common.player.video.VideoPlaybackStartRequest
+import com.continuum.app.common.player.video.VideoPlayerUiState
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.domain.player.IntroAutoSkipController
 import com.continuum.app.domain.player.IntroAutoSkipState
@@ -24,6 +28,7 @@ import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlaybackSessionResponse
 import com.continuum.app.model.playback.PlayerSubtitleInfo
 import com.continuum.app.model.playback.mergeDownloadedSubtitles
+import com.continuum.app.model.playback.resolvePlaybackStartPosition
 import com.continuum.app.model.subtitles.SubtitleAiJob
 import com.continuum.app.model.subtitles.SubtitleAiQuota
 import com.continuum.app.model.subtitles.SubtitleAiStatus
@@ -32,6 +37,7 @@ import com.continuum.app.model.subtitles.SubtitleResult
 import com.continuum.app.model.subtitles.SubtitleSearchRequest
 import com.continuum.app.model.subtitles.SubtitleTranslateRequest
 import com.continuum.app.network.ApiResult
+import com.continuum.app.network.ServerRegistry
 import com.continuum.app.network.errorMessage
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.PersonalDataRepository
@@ -45,7 +51,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -64,9 +69,11 @@ import kotlinx.coroutines.withContext
  * one-shot fire) is owned by [IntroAutoSkipController].
  */
 class PlayerViewModel(
+    private val videoPlaybackCoordinator: VideoPlaybackSessionCoordinator,
     private val catalogRepository: CatalogRepository,
     private val playbackSessionManager: PlaybackSessionManager,
     private val profileRepository: ProfileRepository,
+    private val serverRegistry: ServerRegistry,
     private val personalDataRepository: PersonalDataRepository,
     private val capabilityDetector: PlaybackCapabilityDetector,
     private val offlineMediaResolver: OfflineMediaResolver,
@@ -299,124 +306,26 @@ class PlayerViewModel(
                     return@launch
                 }
 
-                // Fetch watch detail for versions, user progress, intro/credits markers
-                val watchDetailResult = catalogRepository.getWatchDetail(contentId)
-                val watchDetail = when (watchDetailResult) {
-                    is ApiResult.Success -> watchDetailResult.data
-                    is ApiResult.Error -> {
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                error = "Failed to load content: ${watchDetailResult.message}",
-                            )
-                        }
-                        return@launch
-                    }
-                    is ApiResult.NetworkError -> {
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                error = "Network error: ${watchDetailResult.exception.message}",
-                            )
-                        }
-                        return@launch
-                    }
-                }
-
-                if (watchDetail.versions.isEmpty()) {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "No playable versions available")
-                    }
-                    return@launch
-                }
-
-                // Build display title
-                val displayTitle = watchDetail.title
-                val displaySubtitle = buildSubtitle(watchDetail)
-
-                // Determine which version to play (prefer last-used or first).
-                // Read from the player-settings store so device + user
-                // overrides win — `settingsCache` was the pre-store source
-                // and is now stale once `refreshFromServer()` has run.
-                val serverUrl = playbackSessionManager.getServerUrl()
-                val preferredQuality = playerSettingsStore.preferredQualityFlow.first()
-                val preferredAudioLanguage = playerSettingsStore.audioLanguageFlow
-                    .first().ifBlank { null }
-                val versionIndex = findPreferredVersion(watchDetail, preferredFileId, preferredQuality)
-                val version = watchDetail.versions[versionIndex]
-
-                // Get active profile — language preferences flow into the
-                // track selector so tracks in the preferred audio / subtitle
-                // language win over codec-equivalent alternatives.
-                val activeProfile = profileRepository.getActiveProfile()
-                val profileId = activeProfile?.id ?: profileRepository.getActiveProfileId()
-                if (profileId == null) {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "No active profile selected")
-                    }
-                    return@launch
-                }
-                _uiState.update {
-                    it.copy(
-                        preferredAudioLanguage = preferredAudioLanguage ?: activeProfile?.language,
-                        preferredTextLanguage = activeProfile?.subtitleLanguage,
+                when (val playbackState = videoPlaybackCoordinator.start(
+                    VideoPlaybackStartRequest(
+                        contentId = contentId,
+                        preferredFileId = preferredFileId,
+                        roomId = null,
+                        resumePositionOverride = resumePositionOverride,
+                        audioTrackIndex = initialAudioTrackIndex,
+                    ),
+                )) {
+                    is VideoPlayerUiState.Ready -> applyCoordinatorStateToUi(
+                        playbackState = playbackState,
+                        preferredFileId = preferredFileId,
+                        initialSubtitleTrackIndex = initialSubtitleTrackIndex,
                     )
-                }
-
-                // Get server URL and token for stream auth
-                val accessToken = playbackSessionManager.getAccessToken()
-                if (accessToken == null) {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "Not authenticated")
-                    }
-                    return@launch
-                }
-
-                // Start playback session
-                val capabilities = capabilityDetector.detect()
-                val sessionResult = playbackSessionManager.startSession(
-                    fileId = version.fileId,
-                    profileId = profileId,
-                    capabilities = capabilities,
-                    audioTrackIndex = initialAudioTrackIndex,
-                    qualityPreference = preferredQuality,
-                    startPosition = resumePositionOverride,
-                )
-
-                when (sessionResult) {
-                    is ApiResult.Success -> {
-                        val session = sessionResult.data
-                        handleSessionStarted(
-                            session = session,
-                            watchDetail = watchDetail,
-                            displayTitle = displayTitle,
-                            displaySubtitle = displaySubtitle,
-                            versionIndex = versionIndex,
-                            serverUrl = serverUrl,
-                            accessToken = accessToken,
-                            initialAudioTrackIndex = initialAudioTrackIndex,
-                            initialSubtitleTrackIndex = initialSubtitleTrackIndex,
-                            resumePositionOverride = resumePositionOverride,
-                            capabilities = capabilities,
-                            preferredQuality = preferredQuality,
-                        )
-                    }
-                    is ApiResult.Error -> {
+                    is VideoPlayerUiState.Error -> {
                         _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                error = "Failed to start playback: ${sessionResult.message}",
-                            )
+                            it.copy(isLoading = false, error = playbackState.message)
                         }
                     }
-                    is ApiResult.NetworkError -> {
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                error = "Network error: ${sessionResult.exception.message}",
-                            )
-                        }
-                    }
+                    is VideoPlayerUiState.Loading -> Unit
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading content", e)
@@ -427,143 +336,68 @@ class PlayerViewModel(
         }
     }
 
-    private suspend fun handleSessionStarted(
-        session: PlaybackSessionResponse,
-        watchDetail: com.continuum.app.model.catalog.WatchDetail,
-        displayTitle: String,
-        displaySubtitle: String,
-        versionIndex: Int,
-        serverUrl: String,
-        accessToken: String,
-        initialAudioTrackIndex: Int?,
+    private suspend fun applyCoordinatorStateToUi(
+        playbackState: VideoPlayerUiState.Ready,
+        preferredFileId: Int?,
         initialSubtitleTrackIndex: Int?,
-        resumePositionOverride: Double?,
-        capabilities: com.continuum.app.model.playback.ClientCodecCapabilities,
-        preferredQuality: String?,
     ) {
-        // Both remux and transcode need HLS delivery. Only direct play uses
-        // the progressive /stream/{id} URL. Server picked the path — we just
-        // translate it into the HLS session via startTranscodeFallback.
-        if (session.playMethod == PlayMethod.TRANSCODE || session.playMethod == PlayMethod.REMUX) {
-            val mode = if (session.playMethod == PlayMethod.REMUX) {
-                com.continuum.app.common.player.PlaybackSessionManager.TranscodeMode.REMUX
-            } else {
-                com.continuum.app.common.player.PlaybackSessionManager.TranscodeMode.FULL
-            }
-            when (val r = playbackSessionManager.startTranscodeFallback(
-                session = session,
-                seekSeconds = resumePositionOverride ?: watchDetail.userData?.positionSeconds ?: 0.0,
-                resolution = watchDetail.versions[versionIndex].resolution.orEmpty(),
-                mode = mode,
-            )) {
-                is ApiResult.Success -> applySessionToState(
-                    session = r.data,
-                    watchDetail = watchDetail,
-                    displayTitle = displayTitle,
-                    displaySubtitle = displaySubtitle,
-                    versionIndex = versionIndex,
-                    serverUrl = serverUrl,
-                    accessToken = accessToken,
-                    initialAudioTrackIndex = initialAudioTrackIndex,
-                    initialSubtitleTrackIndex = initialSubtitleTrackIndex,
-                    resumePositionOverride = resumePositionOverride,
-                    capabilities = capabilities,
-                    preferredQuality = preferredQuality,
-                )
-                is ApiResult.Error -> _uiState.update {
-                    it.copy(isLoading = false, error = "Failed to start transcode: ${r.message}")
-                }
-                is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = "Network error starting transcode: ${r.exception.message}",
+        val watchDetail = when (val r = catalogRepository.getWatchDetail(playbackState.contentId)) {
+            is ApiResult.Success -> r.data
+            else -> null
+        }
+        val versions = watchDetail?.versions?.takeIf { it.isNotEmpty() }
+            ?: playbackState.fileId
+                ?.let { fileId ->
+                    listOf(
+                        FileVersion(
+                            fileId = fileId,
+                            duration = playbackState.durationSeconds,
+                            chapters = playbackState.chapters.takeIf { it.isNotEmpty() },
+                        ),
                     )
                 }
-            }
-        } else {
-            applySessionToState(
-                session = session,
-                watchDetail = watchDetail,
-                displayTitle = displayTitle,
-                displaySubtitle = displaySubtitle,
-                versionIndex = versionIndex,
-                serverUrl = serverUrl,
-                accessToken = accessToken,
-                initialAudioTrackIndex = initialAudioTrackIndex,
-                initialSubtitleTrackIndex = initialSubtitleTrackIndex,
-                resumePositionOverride = resumePositionOverride,
-                capabilities = capabilities,
-                preferredQuality = preferredQuality,
-            )
-        }
-    }
-
-    private fun applySessionToState(
-        session: PlaybackSessionResponse,
-        watchDetail: com.continuum.app.model.catalog.WatchDetail,
-        displayTitle: String,
-        displaySubtitle: String,
-        versionIndex: Int,
-        serverUrl: String,
-        accessToken: String,
-        initialAudioTrackIndex: Int?,
-        initialSubtitleTrackIndex: Int?,
-        resumePositionOverride: Double?,
-        capabilities: com.continuum.app.model.playback.ClientCodecCapabilities,
-        preferredQuality: String?,
-    ) {
-        val version = watchDetail.versions[versionIndex]
-        val startPos = resumePositionOverride ?: watchDetail.userData?.positionSeconds ?: session.position
+            ?: emptyList()
+        val versionIndex = playbackState.fileId
+            ?.let { fileId -> versions.indexOfFirst { it.fileId == fileId } }
+            ?.takeIf { it >= 0 }
+            ?: watchDetail?.let { findPreferredVersion(it, preferredFileId, null) }
+            ?: 0
+        val version = versions.getOrNull(versionIndex)
         val resolvedSubtitleIndex = initialSubtitleTrackIndex
-            ?.takeIf { it == -1 || it in (session.subtitleUrls ?: emptyList()).indices }
+            ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
             ?: -1
 
         _uiState.update {
             it.copy(
                 isLoading = false,
                 error = null,
-                title = displayTitle,
-                subtitle = displaySubtitle,
-                // Now Playing artwork — poster preferred, backdrop fallback.
-                artworkUrl = watchDetail.posterUrl?.takeIf { it.isNotBlank() }
-                    ?: watchDetail.backdropUrl?.takeIf { it.isNotBlank() },
-                sessionId = session.sessionId,
-                playMethod = session.playMethod,
-                streamUrl = session.streamUrl,
-                serverUrl = serverUrl,
-                accessToken = accessToken,
-                startPosition = startPos,
-                position = startPos,
-                duration = session.durationSeconds ?: version.duration,
+                title = watchDetail?.title ?: playbackState.title,
+                subtitle = watchDetail?.let { detail -> buildSubtitle(detail) } ?: playbackState.subtitle.orEmpty(),
+                artworkUrl = playbackState.artworkUrl,
+                sessionId = playbackState.sessionId,
+                playMethod = playbackState.playMethod,
+                streamUrl = playbackState.streamUrl,
+                serverUrl = playbackState.serverUrl,
+                accessToken = playbackState.accessToken,
+                startPosition = playbackState.startPositionSeconds,
+                position = playbackState.startPositionSeconds,
+                duration = playbackState.durationSeconds.takeIf { duration -> duration > 0.0 }
+                    ?: version?.duration
+                    ?: 0.0,
                 isPlaying = true,
                 isPaused = false,
-                subtitleTracks = session.subtitleUrls ?: emptyList(),
-                audioTracks = version.audioTracks ?: emptyList(),
-                selectedAudioIndex = session.audioTrackIndex,
+                subtitleTracks = playbackState.subtitleUrls,
+                audioTracks = version?.audioTracks ?: emptyList(),
+                selectedAudioIndex = playbackState.audioTrackIndex,
                 selectedSubtitleIndex = resolvedSubtitleIndex,
-                intro = watchDetail.intro,
-                credits = watchDetail.credits,
-                chapters = version.chapters.orEmpty(),
-                versions = watchDetail.versions,
+                intro = playbackState.intro,
+                credits = playbackState.credits,
+                chapters = playbackState.chapters.ifEmpty { version?.chapters.orEmpty() },
+                versions = versions,
                 selectedVersionIndex = versionIndex,
-                seriesId = watchDetail.seriesId,
-            )
-        }
-
-        // Hand off progress reporting + 404/outage recovery to the lifecycle.
-        // It maintains its own session inside `start()` (a duplicate of the one
-        // we already started above) — accept this short-term v1 cost; the VM will
-        // fully migrate to the lifecycle's session in Phase 3.
-        viewModelScope.launch {
-            sessionLifecycle.start(
-                StartParams(
-                    contentId = _uiState.value.contentId,
-                    fileId = version.fileId,
-                    capabilities = capabilities,
-                    audioTrackIndex = initialAudioTrackIndex ?: session.audioTrackIndex,
-                    qualityPreference = preferredQuality,
-                    startPosition = startPos,
-                ),
+                seriesId = watchDetail?.seriesId,
+                preferredAudioLanguage = playbackState.preferredAudioLanguage,
+                preferredTextLanguage = playbackState.preferredTextLanguage,
             )
         }
 
@@ -1115,9 +949,10 @@ class PlayerViewModel(
                             chapters = version.chapters.orEmpty(),
                         )
                     }
-                    // Restart lifecycle reporter against the new session.
-                    sessionLifecycle.start(
-                        StartParams(
+                    // Restart lifecycle reporting against the active session
+                    // without creating another server playback session.
+                    sessionLifecycle.adoptActiveSession(
+                        params = StartParams(
                             contentId = currentState.contentId,
                             fileId = version.fileId,
                             capabilities = capabilities,
@@ -1125,6 +960,7 @@ class PlayerViewModel(
                             qualityPreference = null,
                             startPosition = currentPosition,
                         ),
+                        session = session,
                     )
                     // Resume the intro auto-skip observer; the introKey now embeds the new
                     // sessionId/fileId so any prior cancellation does not carry over.
@@ -1254,12 +1090,15 @@ class PlayerViewModel(
         preferredFileId: Int?,
         resumePositionOverride: Double?,
     ): Boolean {
-        // Disk-first lookup via the shared resolver: it walks sidecars across
-        // ALL (serverId, profileId) scopes and resolves the bytes under the
-        // scope the sidecar actually lives in — not the active scope, which
-        // may differ from the one the download was made under.
+        val serverId = serverRegistry.activeServerId.value ?: DownloadEnqueuer.DEFAULT_SERVER_ID
+        val profileId = profileRepository.getActiveProfileId() ?: DownloadEnqueuer.DEFAULT_PROFILE_ID
         val media = withContext(kotlinx.coroutines.Dispatchers.IO) {
-            offlineMediaResolver.findLocalMedia(contentId, requestedFileId = preferredFileId)
+            offlineMediaResolver.findLocalMedia(
+                serverId = serverId,
+                profileId = profileId,
+                contentId = contentId,
+                requestedFileId = preferredFileId,
+            )
         } ?: return false
         val sidecar = media.sidecar
         val fileId = media.fileId
@@ -1279,9 +1118,11 @@ class PlayerViewModel(
             )
         val selectedIndex = versions.indexOfFirst { it.fileId == fileId }
             .coerceAtLeast(0)
-        val startPos = resumePositionOverride
-            ?: watchDetail?.userData?.positionSeconds
-            ?: 0.0
+        val startPos = resolvePlaybackStartPosition(
+            overridePosition = resumePositionOverride,
+            sessionPosition = 0.0,
+            detailPosition = watchDetail?.userData?.positionSeconds,
+        )
         val artworkUrl = watchDetail?.posterUrl?.takeIf { url -> url.isNotBlank() }
             ?: watchDetail?.backdropUrl?.takeIf { url -> url.isNotBlank() }
             ?: sidecar.posterUrl?.takeIf { url -> url.isNotBlank() }
