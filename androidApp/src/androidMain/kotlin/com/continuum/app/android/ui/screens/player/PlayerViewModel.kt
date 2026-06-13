@@ -910,12 +910,19 @@ class PlayerViewModel(
         val currentPosition = currentState.position
 
         viewModelScope.launch {
-            // Stop the current session
-            currentState.sessionId?.let { playbackSessionManager.stopSession(it) }
+            val lifecycleSessionId = (sessionLifecycle.state.value as? SessionState.Active)
+                ?.session
+                ?.sessionId
+            currentState.sessionId?.let { sessionId ->
+                sessionLifecycle.stop()
+                if (sessionId != lifecycleSessionId) {
+                    playbackSessionManager.stopSession(sessionId)
+                }
+            }
             // Cancel any in-flight intro skip countdown — we're loading a new version.
             introAutoSkipController.reset()
 
-            _uiState.update { it.copy(isLoading = true, selectedVersionIndex = index) }
+            _uiState.update { it.copy(isLoading = true, selectedVersionIndex = index, sessionId = null) }
 
             val version = versions[index]
             val profileId = profileRepository.getActiveProfileId() ?: return@launch

@@ -70,6 +70,27 @@ class PlayerViewModelSharedCoordinatorTest {
     }
 
     @Test
+    fun mobileVersionSwitchStopsLifecycleBeforeReplacingSession() {
+        val onSelectVersionBody = viewModelSource
+            .substringAfter("fun onSelectVersion(")
+            .substringBefore("fun onPlaybackSpeedChanged")
+        val lifecycleStopIndex = onSelectVersionBody.indexOf("sessionLifecycle.stop()")
+        val directStopIndex = onSelectVersionBody.indexOf("playbackSessionManager.stopSession(")
+        val startIndex = onSelectVersionBody.indexOf("playbackSessionManager.startSession(")
+
+        assertTrue(lifecycleStopIndex >= 0, "version switch must stop lifecycle ownership first")
+        assertTrue(startIndex >= 0, "version switch must still start the selected version")
+        assertTrue(
+            lifecycleStopIndex < startIndex,
+            "version switch must cancel the old lifecycle session before starting the new one",
+        )
+        assertTrue(
+            directStopIndex < 0 || lifecycleStopIndex < directStopIndex,
+            "direct session stop must not race the lifecycle owner",
+        )
+    }
+
+    @Test
     fun mobilePlaybackStarterOwnsRemoteStartupAlgorithm() {
         val starterFile = java.io.File(
             "src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/MobileVideoPlaybackStarter.kt",
