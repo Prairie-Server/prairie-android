@@ -67,6 +67,8 @@ import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.common.player.VideoPlayerMediaSpec
+import com.continuum.app.common.player.video.VideoPlayerTrackEntry
+import com.continuum.app.common.player.video.VideoTrackSelectionCoordinator
 import com.continuum.app.common.player.mountVideoMedia
 import com.continuum.app.common.player.refreshMountedVideoMedia
 import com.continuum.app.model.watchtogether.RoomPlaybackState
@@ -125,6 +127,9 @@ fun TvPlayerScreen(
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val introSkipState by viewModel.introSkipState.collectAsState()
+    val trackSelectionCoordinator = remember(subtitleManager) {
+        VideoTrackSelectionCoordinator(subtitleManager)
+    }
     val subtitleAppearance by viewModel.subtitleAppearance.collectAsState()
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val audioDelayMs by viewModel.audioDelayMs.collectAsState()
@@ -428,7 +433,17 @@ fun TvPlayerScreen(
     LaunchedEffect(mediaController) {
         val controller = mediaController ?: return@LaunchedEffect
         viewModel.subtitleSelectRequests.collect { idx ->
-            subtitleManager.selectSubtitle(controller, idx)
+            val liveState = viewModel.uiState.value
+            val mediaSpec = tvTrackSelectionMediaSpec(liveState) ?: return@collect
+            val selectedTrack = liveState.subtitleTracks
+                .firstOrNull { it.index == idx }
+                ?.toVideoTrackEntry()
+            trackSelectionCoordinator.selectSubtitle(
+                player = controller,
+                playerFactory = playerFactory,
+                mediaSpec = mediaSpec,
+                selectedTrack = selectedTrack,
+            )
         }
     }
 
@@ -619,10 +634,34 @@ fun TvPlayerScreen(
                             stats = state.stats,
                             videoFillMode = state.videoFillMode,
                             onSelectAudio = { idx ->
-                                mediaController?.let { audioTrackManager.selectAudioTrack(it, idx) }
+                                val selectedTrack = state.audioTracks
+                                    .firstOrNull { it.index == idx }
+                                    ?.toVideoTrackEntry()
+                                if (selectedTrack != null) {
+                                    mediaController?.let {
+                                        trackSelectionCoordinator.selectAudioTrack(
+                                            player = it,
+                                            audioTrackManager = audioTrackManager,
+                                            selectedTrack = selectedTrack,
+                                        )
+                                    }
+                                }
                             },
                             onSelectSubtitle = { idx ->
-                                mediaController?.let { subtitleManager.selectSubtitle(it, idx) }
+                                val mediaSpec = tvTrackSelectionMediaSpec(state)
+                                val selectedTrack = state.subtitleTracks
+                                    .firstOrNull { it.index == idx }
+                                    ?.toVideoTrackEntry()
+                                if (mediaSpec != null) {
+                                    mediaController?.let {
+                                        trackSelectionCoordinator.selectSubtitle(
+                                            player = it,
+                                            playerFactory = playerFactory,
+                                            mediaSpec = mediaSpec,
+                                            selectedTrack = selectedTrack,
+                                        )
+                                    }
+                                }
                             },
                             onSelectVideo = { _ ->
                                 // Selecting a specific video track on a single-stream
@@ -1043,6 +1082,28 @@ private fun formatPlayerTime(seconds: Double): String {
     val s = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
+
+private fun tvTrackSelectionMediaSpec(state: TvPlayerViewModel.UiState): VideoPlayerMediaSpec? {
+    val streamUrl = state.streamUrl ?: return null
+    val playMethod = state.playMethod ?: return null
+    return VideoPlayerMediaSpec(
+        streamUrl = streamUrl,
+        playMethod = playMethod,
+        serverUrl = state.serverUrl,
+        subtitles = state.subtitleUrls,
+        title = state.title.ifBlank { null },
+        artworkUrl = state.artworkUrl,
+        startPositionSeconds = state.startPosition,
+    )
+}
+
+private fun PlayerTrackEntry.toVideoTrackEntry(): VideoPlayerTrackEntry =
+    VideoPlayerTrackEntry(
+        index = index,
+        label = label,
+        language = language,
+        isSelected = isSelected,
+    )
 
 /**
  * Flatten an ExoPlayer [Tracks] object into TV-facing entries. Each unique

@@ -53,8 +53,11 @@ import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.RefreshRateMatcher
 import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.common.player.VideoPlayerMediaSpec
+import com.continuum.app.common.player.video.VideoPlayerTrackEntry
+import com.continuum.app.common.player.video.VideoTrackSelectionCoordinator
 import com.continuum.app.common.player.mountVideoMedia
 import com.continuum.app.common.player.refreshMountedVideoMedia
+import com.continuum.app.model.playback.PlayerSubtitleInfo
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -101,6 +104,9 @@ fun PlayerScreen(
     val serverRegistry: com.continuum.app.network.ServerRegistry = koinInject()
     val profileRepository: com.continuum.app.repository.ProfileRepository = koinInject()
     val subtitleManager = remember { SubtitleManager() }
+    val trackSelectionCoordinator = remember(subtitleManager) {
+        VideoTrackSelectionCoordinator(subtitleManager)
+    }
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
@@ -119,6 +125,32 @@ fun PlayerScreen(
                 scope = roomScope,
             )
         }
+    }
+    fun trackSelectionMediaSpec(state: PlayerViewModel.PlayerUiState): VideoPlayerMediaSpec? {
+        val streamUrl = state.streamUrl ?: return null
+        val playMethod = state.playMethod ?: return null
+        return VideoPlayerMediaSpec(
+            streamUrl = streamUrl,
+            playMethod = playMethod,
+            serverUrl = state.serverUrl,
+            subtitles = state.subtitleTracks,
+            title = state.title.ifBlank { null },
+            subtitle = state.subtitle.ifBlank { null },
+            artworkUrl = state.artworkUrl,
+            startPositionSeconds = state.startPosition,
+        )
+    }
+
+    fun subtitleTrackEntry(subtitles: List<PlayerSubtitleInfo>, selectedIndex: Int): VideoPlayerTrackEntry? {
+        if (selectedIndex < 0) return null
+        val subtitle = subtitles.getOrNull(selectedIndex) ?: return null
+        return VideoPlayerTrackEntry(
+            index = selectedIndex,
+            label = subtitle.label ?: subtitle.language ?: "Subtitle ${selectedIndex + 1}",
+            language = subtitle.language,
+            isSelected = true,
+            subtitle = subtitle,
+        )
     }
     DisposableEffect(roomController) {
         roomController?.start()
@@ -422,10 +454,16 @@ fun PlayerScreen(
                     // already fired (against the OLD tracks), so without this the
                     // auto-selected downloaded/AI track never engages. Reads the
                     // live VM state — `uiState` here can be a stale closure capture.
-                    subtitleManager.selectSubtitle(
-                        controller,
-                        viewModel.uiState.value.subtitleTracks,
-                        viewModel.uiState.value.selectedSubtitleIndex,
+                    val liveState = viewModel.uiState.value
+                    val mediaSpec = trackSelectionMediaSpec(liveState) ?: return
+                    trackSelectionCoordinator.selectSubtitle(
+                        player = controller,
+                        playerFactory = playerFactory,
+                        mediaSpec = mediaSpec,
+                        selectedTrack = subtitleTrackEntry(
+                            liveState.subtitleTracks,
+                            liveState.selectedSubtitleIndex,
+                        ),
                     )
                 }
             }
@@ -471,7 +509,13 @@ fun PlayerScreen(
     // Handle subtitle selection
     LaunchedEffect(mediaController, uiState.subtitleTracks, uiState.selectedSubtitleIndex) {
         val controller = mediaController ?: return@LaunchedEffect
-        subtitleManager.selectSubtitle(controller, uiState.subtitleTracks, uiState.selectedSubtitleIndex)
+        val mediaSpec = trackSelectionMediaSpec(uiState) ?: return@LaunchedEffect
+        trackSelectionCoordinator.selectSubtitle(
+            player = controller,
+            playerFactory = playerFactory,
+            mediaSpec = mediaSpec,
+            selectedTrack = subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex),
+        )
     }
 
     // Notify the ViewModel we're leaving the screen.
