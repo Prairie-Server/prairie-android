@@ -10,6 +10,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.continuum.app.common.player.video.VideoPlayerRouteArgs
 import com.continuum.app.network.TokenManager
 import com.continuum.app.tv.ui.shell.TvMainShell
 import com.continuum.app.tv.ui.screens.audiobook.TvAudiobookPlayerScreen
@@ -227,9 +228,14 @@ fun TvAppNavigation(
                 // actually binds to that version instead of always defaulting
                 // to the server's first listed file (which for multi-version
                 // titles is often the lower-resolution encode).
-                onPlay = { playContentId, fileId, itemType ->
+                onPlay = { playContentId, fileId, itemType, resumePositionSeconds ->
                     navController.navigate(
-                        tvPlayDestinationFor(itemType, playContentId, fileId),
+                        tvPlayDestinationFor(
+                            itemType = itemType,
+                            contentId = playContentId,
+                            fileId = fileId,
+                            resumePositionSeconds = resumePositionSeconds,
+                        ),
                     )
                 },
                 onItemDetail = { itemContentId ->
@@ -250,6 +256,8 @@ fun TvAppNavigation(
                             contentId = snapshot.selectedContentId!!,
                             fileId = snapshot.selectedFileId,
                             roomId = snapshot.roomId,
+                            resumePositionSeconds = snapshot.anchorPositionSeconds
+                                .takeIf { it.isFinite() && it > 0.0 },
                         ).route
                     } else {
                         TvRoute.WatchTogetherLobby(roomId = snapshot.roomId).route
@@ -279,6 +287,11 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(TvRoute.Player.ARG_RESUME_POSITION) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStack ->
             val contentId = backStack.arguments
@@ -289,10 +302,14 @@ fun TvAppNavigation(
                 ?.toIntOrNull()
             val roomId = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_ROOM_ID)
+            val resumePositionOverride = VideoPlayerRouteArgs.parseResumePosition(
+                backStack.arguments?.getString(TvRoute.Player.ARG_RESUME_POSITION),
+            )
             TvPlayerScreen(
                 contentId = contentId,
                 preferredFileId = preferredFileId,
                 roomId = roomId,
+                resumePositionOverride = resumePositionOverride,
                 onExit = { navController.popBackStack() },
             )
         }

@@ -1,6 +1,9 @@
 package com.continuum.app.tv.ui.navigation
 
-import android.net.Uri
+import com.continuum.app.common.player.video.VideoPlayerRouteArgs
+import com.continuum.app.model.catalog.isAudiobookItemType
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
  * TV navigation routes.
@@ -51,21 +54,26 @@ sealed class TvRoute(val route: String) {
         val contentId: String,
         val fileId: Int? = null,
         val roomId: String? = null,
+        val resumePositionSeconds: Double? = null,
     ) : TvRoute(
         buildString {
             append("player/$contentId")
             val query = buildList {
                 if (fileId != null) add("fileId=$fileId")
                 if (roomId != null) add("roomId=${roomId.routeEncode()}")
+                VideoPlayerRouteArgs.encodeResumePosition(resumePositionSeconds)?.let { value ->
+                    add("${VideoPlayerRouteArgs.RESUME_POSITION}=$value")
+                }
             }
             if (query.isNotEmpty()) append("?").append(query.joinToString("&"))
         },
     ) {
         companion object {
-            const val ROUTE = "player/{contentId}?fileId={fileId}&roomId={roomId}"
+            const val ROUTE = "player/{contentId}?fileId={fileId}&roomId={roomId}&resumePosition={resumePosition}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
             const val ARG_ROOM_ID = "roomId"
+            const val ARG_RESUME_POSITION = VideoPlayerRouteArgs.RESUME_POSITION
         }
     }
 
@@ -166,4 +174,21 @@ sealed class TvMainRoute(val route: String) {
     data object Admin : TvMainRoute("main/admin")
 }
 
-private fun String.routeEncode(): String = Uri.encode(this)
+private fun String.routeEncode(): String =
+    URLEncoder.encode(this, StandardCharsets.UTF_8.toString()).replace("+", "%20")
+
+fun tvPlayDestinationFor(
+    itemType: String?,
+    contentId: String,
+    fileId: Int?,
+    resumePositionSeconds: Double?,
+): String =
+    if (isAudiobookItemType(itemType)) {
+        TvRoute.AudiobookPlayer(contentId, fileId).route
+    } else {
+        TvRoute.Player(
+            contentId = contentId,
+            fileId = fileId,
+            resumePositionSeconds = resumePositionSeconds,
+        ).route
+    }

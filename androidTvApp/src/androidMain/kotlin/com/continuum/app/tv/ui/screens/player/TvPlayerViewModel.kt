@@ -235,6 +235,7 @@ class TvPlayerViewModel(
      * resolution file because of the server's version sort order.
      */
     private val preferredFileId: Int? = null,
+    private val resumePositionOverride: Double? = null,
 ) : ViewModel() {
 
     companion object {
@@ -441,7 +442,7 @@ class TvPlayerViewModel(
             }
         }
 
-        if (contentId.isNotBlank()) loadContent()
+        if (contentId.isNotBlank()) loadContent(startPositionOverride = resumePositionOverride)
     }
 
     private fun loadContent(

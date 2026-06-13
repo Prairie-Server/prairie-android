@@ -98,14 +98,14 @@ fun TvPlayerScreen(
     // Watch Together room binding. When non-null, a [TvRoomSyncController]
     // binds this player to the synced room for the lifetime of the screen.
     roomId: String? = null,
+    resumePositionOverride: Double? = null,
     // Scope the ViewModel key by fileId too so switching 4K <-> 1080p on
     // the detail screen and replaying actually spins up a fresh player
     // session instead of reusing the cached one bound to the first fileId.
     viewModel: TvPlayerViewModel = koinViewModel(
-        key = "tv-player-$contentId-${preferredFileId ?: "auto"}",
+        key = "tv-player-$contentId-${preferredFileId ?: "auto"}-${resumePositionOverride ?: "server"}",
         parameters = {
-            if (preferredFileId != null) parametersOf(contentId, preferredFileId)
-            else parametersOf(contentId)
+            parametersOf(contentId, preferredFileId, resumePositionOverride)
         },
     ),
     playerFactory: ContinuumPlayerFactory = koinInject(),

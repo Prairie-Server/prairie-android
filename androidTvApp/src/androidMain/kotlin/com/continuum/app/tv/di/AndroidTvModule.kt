@@ -249,6 +249,7 @@ val androidTvModule = module {
             // Positional `getOrNull<Int>()` reads the 2nd parametersOf slot —
             // absent when callers opt for the "auto" version (episodes, rows).
             preferredFileId = params.getOrNull<Int>(),
+            resumePositionOverride = params.getOrNull<Double>(),
         )
     }
 
