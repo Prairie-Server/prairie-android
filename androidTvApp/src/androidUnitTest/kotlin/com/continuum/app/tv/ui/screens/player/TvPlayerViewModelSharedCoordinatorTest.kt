@@ -87,6 +87,14 @@ class TvPlayerViewModelSharedCoordinatorTest {
             starterSource.contains("adoptActiveSession("),
             "TV starter must adopt the initial session into PlaybackSessionLifecycle",
         )
+        assertTrue(
+            starterSource.contains("manageProgress = false"),
+            "TV starter must leave progress and 404 recovery with the TV ViewModel until recovery is fully shared",
+        )
+        assertTrue(
+            starterSource.contains("stopSessionOnStop = false"),
+            "TV starter must not make lifecycle stop the same session the TV ViewModel stops",
+        )
     }
 
     @Test

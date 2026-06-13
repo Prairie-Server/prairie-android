@@ -141,6 +141,35 @@ class PlaybackSessionLifecycleTest {
     }
 
     @Test
+    fun `adoptActiveSession can leave progress and stop owned by caller`() = runTest {
+        val sessionMgr = FakeSessionManager()
+        val personalRepo = RecordingPersonalDataRepository()
+        val lifecycle = newLifecycle(
+            sessionMgr = sessionMgr,
+            personalRepo = personalRepo,
+            scope = backgroundScope,
+        )
+
+        lifecycle.adoptActiveSession(
+            params = defaultStartParams(startPosition = 12.0),
+            session = makeSession("sess-passive"),
+            manageProgress = false,
+            stopSessionOnStop = false,
+        )
+
+        lifecycle.reportPosition(positionSec = 33.0, durationSec = 100.0, isPaused = false)
+        advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
+        lifecycle.stop()
+        advanceUntilIdle()
+
+        assertEquals(0, sessionMgr.startCallCount)
+        assertEquals(0, sessionMgr.progressCallCount)
+        assertEquals(0, sessionMgr.stopCallCount)
+        assertTrue(personalRepo.syncCalls.isEmpty())
+        assertTrue(lifecycle.state.value is SessionState.Idle)
+    }
+
+    @Test
     fun `reportPosition with 404 triggers session-missing recovery and re-starts`() = runTest {
         val sessionMgr = FakeSessionManager().apply {
             // Two distinct sessions back-to-back: original then renewed.

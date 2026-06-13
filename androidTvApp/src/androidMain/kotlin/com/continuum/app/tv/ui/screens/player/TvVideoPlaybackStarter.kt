@@ -126,6 +126,8 @@ class TvVideoPlaybackStarter(
                     startPosition = startPos,
                 ),
                 session = resolved,
+                manageProgress = false,
+                stopSessionOnStop = false,
             )
 
             VideoPlaybackStartResult.Ready(
