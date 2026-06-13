@@ -107,6 +107,7 @@ fun PlayerScreen(
     val trackSelectionCoordinator = remember(subtitleManager) {
         VideoTrackSelectionCoordinator(subtitleManager)
     }
+    var mountedVideoMediaSpec by remember { mutableStateOf<VideoPlayerMediaSpec?>(null) }
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
@@ -127,6 +128,15 @@ fun PlayerScreen(
         }
     }
     fun trackSelectionMediaSpec(state: PlayerViewModel.PlayerUiState): VideoPlayerMediaSpec? {
+        mountedVideoMediaSpec?.let { mountedSpec ->
+            return mountedSpec.copy(
+                subtitles = state.subtitleTracks,
+                title = state.title.ifBlank { null },
+                subtitle = state.subtitle.ifBlank { null },
+                artworkUrl = state.artworkUrl,
+                startPositionSeconds = state.startPosition,
+            )
+        }
         val streamUrl = state.streamUrl ?: return null
         val playMethod = state.playMethod ?: return null
         return VideoPlayerMediaSpec(
@@ -255,6 +265,7 @@ fun PlayerScreen(
 
     // Load content on first composition
     LaunchedEffect(contentId, initialFileId, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
+        mountedVideoMediaSpec = null
         viewModel.loadContent(
             contentId = contentId,
             preferredFileId = initialFileId,
@@ -346,6 +357,7 @@ fun PlayerScreen(
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
         )
+        mountedVideoMediaSpec = mediaSpec
         mountVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
     }
 
@@ -385,6 +397,7 @@ fun PlayerScreen(
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
         )
+        mountedVideoMediaSpec = mediaSpec
         refreshMountedVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
     }
 

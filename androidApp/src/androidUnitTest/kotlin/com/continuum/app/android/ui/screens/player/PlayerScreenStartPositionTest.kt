@@ -31,4 +31,24 @@ class PlayerScreenStartPositionTest {
             "mobile subtitle refresh must use the shared refresh helper",
         )
     }
+
+    @Test
+    fun playerScreenTrackSelectionPreservesEffectiveMountedMediaSpec() {
+        assertTrue(
+            source.contains("var mountedVideoMediaSpec by remember { mutableStateOf<VideoPlayerMediaSpec?>(null) }"),
+            "mobile player must remember the effective mounted spec, including local/offline media",
+        )
+        assertTrue(
+            source.contains("mountedVideoMediaSpec?.let { mountedSpec ->"),
+            "track selection must reuse the mounted spec instead of rebuilding from the remote stream only",
+        )
+        assertTrue(
+            source.contains("mountedVideoMediaSpec = mediaSpec"),
+            "initial mount and subtitle refresh must update the remembered mounted spec",
+        )
+        assertTrue(
+            source.contains("mountedVideoMediaSpec = null"),
+            "new content loads must clear the remembered mounted spec",
+        )
+    }
 }
