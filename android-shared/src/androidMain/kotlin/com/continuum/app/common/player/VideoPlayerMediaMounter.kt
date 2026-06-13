@@ -1,0 +1,49 @@
+package com.continuum.app.common.player
+
+import androidx.annotation.OptIn
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+
+@OptIn(UnstableApi::class)
+fun mountVideoMedia(
+    player: Player,
+    playerFactory: ContinuumPlayerFactory,
+    spec: VideoPlayerMediaSpec,
+    startPositionMs: Long = spec.startPositionMs,
+    playWhenReady: Boolean = true,
+) {
+    val mediaItem = playerFactory.buildMediaItem(
+        streamUrl = spec.streamUrl,
+        playMethod = spec.playMethod,
+        serverUrl = spec.serverUrl,
+        subtitles = spec.subtitles,
+        title = spec.title,
+        subtitle = spec.subtitle,
+        artworkUrl = spec.artworkUrl,
+    )
+    player.setMediaItem(mediaItem, startPositionMs.coerceAtLeast(0L))
+    player.prepare()
+    player.playWhenReady = playWhenReady
+}
+
+@OptIn(UnstableApi::class)
+fun refreshMountedVideoMedia(
+    player: Player,
+    playerFactory: ContinuumPlayerFactory,
+    spec: VideoPlayerMediaSpec,
+) {
+    val resumePositionMs = player.currentPosition
+    val wasPlaying = player.playWhenReady
+    val mediaItem = playerFactory.buildMediaItem(
+        streamUrl = spec.streamUrl,
+        playMethod = spec.playMethod,
+        serverUrl = spec.serverUrl,
+        subtitles = spec.subtitles,
+        title = spec.title,
+        subtitle = spec.subtitle,
+        artworkUrl = spec.artworkUrl,
+    )
+    player.setMediaItem(mediaItem, resumePositionMs)
+    player.prepare()
+    player.playWhenReady = wasPlaying
+}
