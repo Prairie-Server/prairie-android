@@ -45,6 +45,12 @@ class VideoTrackSelectionCoordinator(
         return subtitleManager.selectSubtitle(player, selectedTrack.index)
     }
 
+    fun selectMountedSubtitle(
+        player: Player,
+        subtitles: List<PlayerSubtitleInfo>,
+        selectedIndex: Int,
+    ): Boolean = subtitleManager.selectSubtitle(player, subtitles, selectedIndex)
+
     fun selectAudioTrack(
         player: Player,
         audioTrackManager: AudioTrackManager,

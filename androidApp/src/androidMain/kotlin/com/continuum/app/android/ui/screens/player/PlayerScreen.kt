@@ -468,15 +468,10 @@ fun PlayerScreen(
                     // auto-selected downloaded/AI track never engages. Reads the
                     // live VM state — `uiState` here can be a stale closure capture.
                     val liveState = viewModel.uiState.value
-                    val mediaSpec = trackSelectionMediaSpec(liveState) ?: return
-                    trackSelectionCoordinator.selectSubtitle(
+                    trackSelectionCoordinator.selectMountedSubtitle(
                         player = controller,
-                        playerFactory = playerFactory,
-                        mediaSpec = mediaSpec,
-                        selectedTrack = subtitleTrackEntry(
-                            liveState.subtitleTracks,
-                            liveState.selectedSubtitleIndex,
-                        ),
+                        subtitles = liveState.subtitleTracks,
+                        selectedIndex = liveState.selectedSubtitleIndex,
                     )
                 }
             }

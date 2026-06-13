@@ -1,6 +1,7 @@
 package com.continuum.app.android.ui.screens.player
 
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlayerScreenStartPositionTest {
@@ -49,6 +50,26 @@ class PlayerScreenStartPositionTest {
         assertTrue(
             source.contains("mountedVideoMediaSpec = null"),
             "new content loads must clear the remembered mounted spec",
+        )
+    }
+
+    @Test
+    fun playerScreenTrackChangeReselectsMountedSubtitleWithoutRemountingMedia() {
+        val trackChangeBody = source
+            .substringAfter("override fun onTracksChanged(tracks: androidx.media3.common.Tracks)")
+            .substringBefore("controller.addListener(listener)")
+
+        assertTrue(
+            trackChangeBody.contains("trackSelectionCoordinator.selectMountedSubtitle("),
+            "track changes must reselect the already-mounted subtitle through the shared coordinator",
+        )
+        assertFalse(
+            trackChangeBody.contains("trackSelectionCoordinator.selectSubtitle("),
+            "track changes must not use the remounting subtitle selection path",
+        )
+        assertFalse(
+            trackChangeBody.contains("trackSelectionMediaSpec("),
+            "track changes must not rebuild the media spec or remount media",
         )
     }
 }

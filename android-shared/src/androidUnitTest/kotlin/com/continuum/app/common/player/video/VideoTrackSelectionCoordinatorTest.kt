@@ -44,6 +44,23 @@ class VideoTrackSelectionCoordinatorTest {
     }
 
     @Test
+    fun reselectingMountedSubtitleDoesNotRemountMedia() {
+        val source = sourceFile.readText()
+        val methodBody = source
+            .substringAfter("fun selectMountedSubtitle(")
+            .substringBefore("fun selectAudioTrack(")
+
+        assertTrue(
+            methodBody.contains("subtitleManager.selectSubtitle(player, subtitles, selectedIndex)"),
+            "mounted subtitle re-selection must use metadata-aware SubtitleManager selection",
+        )
+        assertTrue(
+            !methodBody.contains("refreshMountedVideoMedia("),
+            "mounted subtitle re-selection must not remount the MediaItem",
+        )
+    }
+
+    @Test
     fun selectingAudioTrackUsesAudioTrackManager() {
         val source = sourceFile.readText()
 
