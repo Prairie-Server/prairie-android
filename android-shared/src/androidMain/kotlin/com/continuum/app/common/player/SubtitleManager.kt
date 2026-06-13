@@ -3,10 +3,14 @@ package com.continuum.app.common.player
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
@@ -37,8 +41,8 @@ class SubtitleManager {
         serverUrl: String,
     ): List<MediaItem.SubtitleConfiguration> {
         return subtitles.map { subtitle ->
-            val absoluteUrl = resolveUrl(serverUrl, subtitle.url)
-            val mimeType = codecToMimeType(subtitle.codec)
+            val absoluteUrl = resolveSubtitleUrl(serverUrl, subtitle.url)
+            val mimeType = subtitleMimeType(subtitle.codec, absoluteUrl)
 
             MediaItem.SubtitleConfiguration.Builder(Uri.parse(absoluteUrl))
                 .setMimeType(mimeType)
@@ -61,37 +65,61 @@ class SubtitleManager {
      * @param player The player instance (ExoPlayer or MediaController)
      * @param subtitleIndex The subtitle track index to select, or -1 to disable subtitles
      */
-    fun selectSubtitle(player: Player, subtitleIndex: Int) {
+    fun selectSubtitle(player: Player, subtitleIndex: Int): Boolean {
         if (subtitleIndex < 0) {
-            // Disable all text tracks
-            player.trackSelectionParameters = player.trackSelectionParameters
-                .buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                .build()
+            disableSubtitles(player)
+            return true
         } else {
-            // Enable text tracks and select the specific one
-            val trackGroups = player.currentTracks.groups
-            var textGroupIndex = 0
-
-            for (group in trackGroups) {
-                if (group.type == C.TRACK_TYPE_TEXT) {
-                    if (textGroupIndex == subtitleIndex) {
-                        player.trackSelectionParameters = player.trackSelectionParameters
-                            .buildUpon()
-                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                            .setOverrideForType(
-                                androidx.media3.common.TrackSelectionOverride(
-                                    group.mediaTrackGroup,
-                                    /* trackIndex = */ 0,
-                                )
-                            )
-                            .build()
-                        return
-                    }
-                    textGroupIndex++
-                }
+            val selection = resolveSubtitleSelection(player.currentTracks, subtitleIndex)
+            if (selection == null) {
+                Log.w(
+                    TAG,
+                    "selectSubtitle failed: index=$subtitleIndex not found " +
+                        "tracks=${player.currentTracks.describeTextTracks()}",
+                )
+                return false
             }
+            applySubtitleSelection(player, selection)
+            return true
         }
+    }
+
+    /**
+     * Selects a subtitle from the app/server subtitle list. Mobile renders
+     * [PlayerSubtitleInfo] rows, while Media3 can expose embedded text tracks
+     * before sidecar tracks; selecting by raw ordinal would then choose the
+     * wrong language. Prefer metadata matching and fall back to the old flat
+     * ordinal for callers whose tracks do not expose labels yet.
+     */
+    fun selectSubtitle(
+        player: Player,
+        subtitles: List<PlayerSubtitleInfo>,
+        subtitleIndex: Int,
+    ): Boolean {
+        if (subtitleIndex < 0) {
+            disableSubtitles(player)
+            return true
+        }
+
+        val subtitle = subtitles.getOrNull(subtitleIndex)
+        if (subtitle == null) {
+            Log.w(TAG, "selectSubtitle failed: app index=$subtitleIndex outside subtitles=${subtitles.size}")
+            return false
+        }
+
+        val selection = resolveSubtitleSelection(player.currentTracks, subtitle)
+            ?: resolveSubtitleSelection(player.currentTracks, subtitleIndex)
+        if (selection == null) {
+            Log.w(
+                TAG,
+                "selectSubtitle failed: app index=$subtitleIndex metadata=${subtitle.label ?: subtitle.language} " +
+                    "tracks=${player.currentTracks.describeTextTracks()}",
+            )
+            return false
+        }
+
+        applySubtitleSelection(player, selection)
+        return true
     }
 
     /**
@@ -196,6 +224,21 @@ class SubtitleManager {
         return ((alpha and 0xFF) shl 24) or (rgb and 0x00FFFFFF)
     }
 
+    private fun subtitleMimeType(codec: String?, url: String): String =
+        mimeTypeFromUrl(url) ?: codecToMimeType(codec)
+
+    private fun mimeTypeFromUrl(url: String): String? {
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".vtt") || path.endsWith(".webvtt") -> MimeTypes.TEXT_VTT
+            path.endsWith(".ass") || path.endsWith(".ssa") -> MimeTypes.TEXT_SSA
+            path.endsWith(".sup") -> MimeTypes.APPLICATION_PGS
+            path.endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
+            path.endsWith(".ttml") -> MimeTypes.APPLICATION_TTML
+            else -> null
+        }
+    }
+
     private fun codecToMimeType(codec: String?): String {
         return when (codec?.lowercase()) {
             "srt", "subrip" -> MimeTypes.APPLICATION_SUBRIP
@@ -208,11 +251,116 @@ class SubtitleManager {
         }
     }
 
-    private fun resolveUrl(serverUrl: String, url: String): String {
-        return if (url.startsWith("http://") || url.startsWith("https://")) {
-            url
-        } else {
-            "${serverUrl.trimEnd('/')}$url"
+    private fun disableSubtitles(player: Player) {
+        // Disable all text tracks
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
+    }
+
+    private fun applySubtitleSelection(
+        player: Player,
+        selection: SubtitleSelection,
+    ) {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(
+                TrackSelectionOverride(
+                    selection.mediaTrackGroup,
+                    selection.trackIndex,
+                )
+            )
+            .build()
+    }
+
+}
+
+internal fun resolveSubtitleUrl(serverUrl: String, url: String): String =
+    resolvePlaybackStreamUrl(serverUrl, url)
+
+internal data class SubtitleSelection(
+    val mediaTrackGroup: TrackGroup,
+    val trackIndex: Int,
+)
+
+internal fun resolveSubtitleSelection(
+    tracks: Tracks,
+    subtitleIndex: Int,
+): SubtitleSelection? {
+    var flatIndex = 0
+    for (group in tracks.groups) {
+        if (group.type != C.TRACK_TYPE_TEXT) continue
+        for (trackIndex in 0 until group.length) {
+            if (flatIndex == subtitleIndex) {
+                return SubtitleSelection(group.mediaTrackGroup, trackIndex)
+            }
+            flatIndex++
         }
     }
+    return null
 }
+
+internal fun resolveSubtitleSelection(
+    tracks: Tracks,
+    subtitle: PlayerSubtitleInfo,
+): SubtitleSelection? {
+    val label = subtitle.label?.trim()?.takeIf { it.isNotBlank() }
+    val language = subtitle.language?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+    if (label == null && language == null) return null
+
+    val candidates = textTrackCandidates(tracks)
+    if (label != null) {
+        candidates.firstOrNull { it.label?.trim() == label }?.let { return it.selection }
+    }
+    if (label != null) {
+        val normalizedLabel = label.lowercase()
+        candidates.firstOrNull { candidate ->
+            candidate.label?.trim()?.lowercase() == normalizedLabel
+        }?.let { return it.selection }
+    }
+    if (language != null) {
+        candidates.firstOrNull { it.language?.trim()?.lowercase() == language }?.let { return it.selection }
+    }
+    return null
+}
+
+private data class TextTrackCandidate(
+    val selection: SubtitleSelection,
+    val label: String?,
+    val language: String?,
+)
+
+private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
+    val candidates = mutableListOf<TextTrackCandidate>()
+    for (group in tracks.groups) {
+        if (group.type != C.TRACK_TYPE_TEXT) continue
+        for (trackIndex in 0 until group.length) {
+            val format = group.getTrackFormat(trackIndex)
+            candidates += TextTrackCandidate(
+                selection = SubtitleSelection(group.mediaTrackGroup, trackIndex),
+                label = format.label,
+                language = format.language,
+            )
+        }
+    }
+    return candidates
+}
+
+private fun Tracks.describeTextTracks(): String {
+    val parts = mutableListOf<String>()
+    var flatIndex = 0
+    for (group in groups) {
+        if (group.type != C.TRACK_TYPE_TEXT) continue
+        for (trackIndex in 0 until group.length) {
+            val format = group.getTrackFormat(trackIndex)
+            parts += "$flatIndex:${format.label ?: format.language ?: "?"}" +
+                "[selected=${group.isTrackSelected(trackIndex)} supported=${group.isTrackSupported(trackIndex)}]"
+            flatIndex++
+        }
+    }
+    return parts.joinToString(prefix = "[", postfix = "]")
+}
+
+private const val TAG = "SiloSubtitles"
