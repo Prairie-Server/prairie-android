@@ -10,6 +10,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderFileCacheTest {
+    private val source = java.io.File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ReaderFileCache.kt",
+    ).readText()
 
     @Test
     fun `successful fetch lands at the final path with no tmp residue`() {
@@ -69,6 +72,13 @@ class ReaderFileCacheTest {
     @Test
     fun `cache key is the sha1 hex of the url`() {
         assertEquals("a9993e364706816aba3e25717850c26c9cd0d89d", readerCacheKey("abc"))
+    }
+
+    @Test
+    fun `reader fetch errors do not expose full urls`() {
+        assertFalse(source.contains("Could not open \$url"))
+        assertFalse(source.contains("fetching \$requestUrl"))
+        assertFalse(source.contains("body for \$requestUrl"))
     }
 
     private fun newCacheDir(): File =

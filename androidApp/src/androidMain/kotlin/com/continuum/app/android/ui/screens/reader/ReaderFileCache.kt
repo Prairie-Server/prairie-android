@@ -82,14 +82,14 @@ internal suspend fun resolveReaderFile(
         return@withContext cacheReaderFile(cacheDir, fileName) { out ->
             context.contentResolver.openInputStream(Uri.parse(requestUrl))?.use { input ->
                 input.copyTo(out)
-            } ?: error("Could not open $url")
+            } ?: error("Could not open content reader file")
         }
     }
     cacheReaderFile(cacheDir, fileName) { out ->
         val req = Request.Builder().url(requestUrl).build()
         okHttp.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("HTTP ${resp.code} fetching $requestUrl")
-            val body = resp.body ?: error("Empty body for $requestUrl")
+            if (!resp.isSuccessful) error("HTTP ${resp.code} fetching reader file")
+            val body = resp.body ?: error("Empty body fetching reader file")
             body.byteStream().copyTo(out)
         }
     }
