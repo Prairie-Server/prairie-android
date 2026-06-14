@@ -36,6 +36,12 @@ data class EbookFormatSupport(
     val canDownloadOriginal: Boolean get() = readMode != EbookReadMode.Unsupported
 }
 
+data class ReaderVersionTarget(
+    val version: FileVersion,
+    val support: EbookFormatSupport,
+    val format: BookFormat,
+)
+
 fun ebookFormatKey(container: String?, fileName: String?): String? {
     val containerKey = container
         ?.trim()
@@ -166,3 +172,34 @@ fun chooseEbookVersion(
         preferredOrder.indexOf(version.ebookFormatKey()).takeIf { it >= 0 } ?: Int.MAX_VALUE
     }
 }
+
+fun chooseReaderVersion(
+    versions: List<FileVersion>,
+    requestedFileId: Int?,
+): ReaderVersionTarget? {
+    val targets = versions.mapNotNull { version ->
+        val support = version.ebookFormatSupport()
+        if (support.readMode == EbookReadMode.Unsupported) {
+            null
+        } else {
+            ReaderVersionTarget(
+                version = version,
+                support = support,
+                format = version.bookFormatFromEbookVersion(),
+            )
+        }
+    }
+
+    if (requestedFileId != null) {
+        targets.firstOrNull { it.version.fileId == requestedFileId }?.let { return it }
+    }
+
+    return targets.preferredReaderTarget(EbookReadMode.InApp)
+        ?: targets.preferredReaderTarget(EbookReadMode.ExternalOnly)
+}
+
+private fun List<ReaderVersionTarget>.preferredReaderTarget(readMode: EbookReadMode): ReaderVersionTarget? =
+    filter { it.support.readMode == readMode }
+        .minByOrNull { target ->
+            preferredOrder.indexOf(target.support.key).takeIf { it >= 0 } ?: Int.MAX_VALUE
+        }

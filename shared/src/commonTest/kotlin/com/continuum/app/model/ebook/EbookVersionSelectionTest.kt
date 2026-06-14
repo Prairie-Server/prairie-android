@@ -63,6 +63,48 @@ class EbookVersionSelectionTest {
     }
 
     @Test
+    fun requestedExternalOnlyVersionIsAReaderTarget() {
+        val versions = listOf(
+            FileVersion(fileId = 1, fileName = "book.epub", container = "epub"),
+            FileVersion(fileId = 2, fileName = "book.mobi", container = "mobi"),
+        )
+
+        val target = chooseReaderVersion(versions, requestedFileId = 2)
+
+        assertEquals(2, target?.version?.fileId)
+        assertEquals(BookFormat.Mobi, target?.format)
+        assertEquals(EbookReadMode.ExternalOnly, target?.support?.readMode)
+    }
+
+    @Test
+    fun readerTargetFallsBackToExternalOriginalWhenNoInAppFormatExists() {
+        val versions = listOf(
+            FileVersion(fileId = 1, fileName = "book.azw3", container = "azw3"),
+            FileVersion(fileId = 2, fileName = "book.mobi", container = "mobi"),
+        )
+
+        val target = chooseReaderVersion(versions, requestedFileId = null)
+
+        assertEquals(2, target?.version?.fileId)
+        assertEquals(BookFormat.Mobi, target?.format)
+        assertEquals(EbookReadMode.ExternalOnly, target?.support?.readMode)
+    }
+
+    @Test
+    fun readerTargetStillPrefersInAppFormatsWhenAvailable() {
+        val versions = listOf(
+            FileVersion(fileId = 1, fileName = "book.mobi", container = "mobi"),
+            FileVersion(fileId = 2, fileName = "book.epub", container = "epub"),
+        )
+
+        val target = chooseReaderVersion(versions, requestedFileId = null)
+
+        assertEquals(2, target?.version?.fileId)
+        assertEquals(BookFormat.Epub, target?.format)
+        assertEquals(EbookReadMode.InApp, target?.support?.readMode)
+    }
+
+    @Test
     fun returnsNullWhenNothingReadable() {
         val versions = listOf(FileVersion(fileId = 1, fileName = "cover.jpg", container = "jpg"))
 

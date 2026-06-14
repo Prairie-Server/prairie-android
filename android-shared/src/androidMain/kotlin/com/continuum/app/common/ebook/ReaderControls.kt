@@ -32,6 +32,7 @@ data class ReaderCapabilities(
     val supportsTextSize: Boolean,
     val supportsMargins: Boolean,
     val supportsExternalOnly: Boolean = false,
+    val engineKind: ReaderEngineKind = ReaderEngineKind.External,
 ) {
     companion object {
         fun forFormat(format: BookFormat): ReaderCapabilities = when (format) {
@@ -42,14 +43,25 @@ data class ReaderCapabilities(
                 supportsTheme = true,
                 supportsTextSize = true,
                 supportsMargins = true,
+                engineKind = ReaderEngineKind.Reflowable,
             )
-            BookFormat.Pdf, BookFormat.Cbz -> ReaderCapabilities(
+            BookFormat.Pdf -> ReaderCapabilities(
                 supportsBookmarks = true,
                 supportsPageJump = true,
                 supportsSections = false,
                 supportsTheme = false,
                 supportsTextSize = false,
                 supportsMargins = false,
+                engineKind = ReaderEngineKind.FixedDocument,
+            )
+            BookFormat.Cbz -> ReaderCapabilities(
+                supportsBookmarks = true,
+                supportsPageJump = true,
+                supportsSections = false,
+                supportsTheme = false,
+                supportsTextSize = false,
+                supportsMargins = false,
+                engineKind = ReaderEngineKind.ComicManga,
             )
             BookFormat.Txt, BookFormat.Markdown, BookFormat.Fb2, BookFormat.Fbz -> ReaderCapabilities(
                 supportsBookmarks = true,
@@ -58,6 +70,7 @@ data class ReaderCapabilities(
                 supportsTheme = true,
                 supportsTextSize = true,
                 supportsMargins = true,
+                engineKind = ReaderEngineKind.Reflowable,
             )
             else -> ReaderCapabilities(
                 supportsBookmarks = false,
