@@ -191,6 +191,11 @@ fun TvPlayerScreen(
             )
         }
     }
+    LaunchedEffect(videoBackend) {
+        videoBackend?.let { backend ->
+            viewModel.onBackendCapabilities(backend.capabilities)
+        }
+    }
     val stopPlaybackAndExit = {
         if (!exitRequested) {
             exitRequested = true

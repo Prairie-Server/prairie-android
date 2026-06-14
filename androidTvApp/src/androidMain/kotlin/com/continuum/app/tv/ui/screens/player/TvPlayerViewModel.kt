@@ -10,6 +10,7 @@ import com.continuum.app.common.player.PlayerNotice
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SleepTimerController
 import com.continuum.app.common.player.SleepTimerState
+import com.continuum.app.common.player.backend.VideoBackendCapabilities
 import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
 import com.continuum.app.common.player.video.VideoPlaybackStartRequest
 import com.continuum.app.common.player.video.VideoPlayerUiState
@@ -101,6 +102,9 @@ data class TvPlayerLaunchArgs(
  * cumulative counters since the snapshot was created.
  */
 data class PlayerStatsSnapshot(
+    val backendKind: String? = null,
+    val backendRoute: String? = null,
+    val subtitleRendering: String? = null,
     val videoDecoderName: String? = null,
     val audioDecoderName: String? = null,
     val videoCodec: String? = null,
@@ -460,6 +464,18 @@ class TvPlayerViewModel(
         }
 
         if (contentId.isNotBlank()) loadContent(startPositionOverride = resumePositionOverride)
+    }
+
+    fun onBackendCapabilities(capabilities: VideoBackendCapabilities) {
+        _uiState.update { state ->
+            state.copy(
+                stats = state.stats.copy(
+                    backendKind = capabilities.backendKind.name,
+                    backendRoute = capabilities.route.name,
+                    subtitleRendering = capabilities.subtitleRendering.name,
+                ),
+            )
+        }
     }
 
     private fun loadContent(
