@@ -691,7 +691,32 @@ class MpvPlayer(
         mediaItems: MutableList<MediaItem>,
     ) {}
 
-    override fun removeMediaItems(fromIndex: Int, toIndex: Int) {}
+    override fun removeMediaItems(fromIndex: Int, toIndex: Int) {
+        if (fromIndex < 0 || toIndex > internalMediaItems.size || fromIndex >= toIndex) return
+
+        if (fromIndex == 0 && toIndex == internalMediaItems.size) {
+            mpv.command(arrayOf("playlist-clear"))
+            internalMediaItems.clear()
+            currentMediaItemIndex = 0
+            oldMediaItem = null
+            resetInternalState()
+            listeners.sendEvent(EVENT_TIMELINE_CHANGED) { listener ->
+                listener.onTimelineChanged(currentTimeline, TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+            }
+            return
+        }
+
+        for (index in (toIndex - 1) downTo fromIndex) {
+            internalMediaItems.removeAt(index)
+            mpv.command(arrayOf("playlist-remove", index.toString()))
+        }
+        currentMediaItemIndex = currentMediaItemIndex.coerceAtMost(
+            (internalMediaItems.size - 1).coerceAtLeast(0),
+        )
+        listeners.sendEvent(EVENT_TIMELINE_CHANGED) { listener ->
+            listener.onTimelineChanged(currentTimeline, TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+        }
+    }
 
     override fun prepare() {
         applyHttpHeaderFields()

@@ -187,4 +187,19 @@ class MpvPlayerSourceTest {
         assertTrue(stopBody.contains("arrayOf(\"stop\")"))
         assertTrue(releaseBody.contains("mpv.destroy()"))
     }
+
+    @Test
+    fun mpvPlayerRemoveMediaItemsBacksMediaSessionClear() {
+        val text = source.readText()
+        val removeBody = text.substringAfter("override fun removeMediaItems(")
+            .substringBefore("override fun prepare()")
+
+        assertFalse(
+            removeBody.trim().startsWith("fromIndex: Int, toIndex: Int) {}"),
+            "MediaSession clearMediaItems() delegates to removeMediaItems(); MPV must not leave it as a no-op",
+        )
+        assertTrue(removeBody.contains("internalMediaItems.clear()"))
+        assertTrue(removeBody.contains("arrayOf(\"playlist-clear\")"))
+        assertTrue(removeBody.contains("EVENT_TIMELINE_CHANGED"))
+    }
 }
