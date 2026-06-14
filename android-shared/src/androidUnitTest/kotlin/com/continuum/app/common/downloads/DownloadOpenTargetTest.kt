@@ -52,6 +52,12 @@ class DownloadOpenTargetTest {
     }
 
     @Test
+    fun `mime type trims padded container metadata`() {
+        assertEquals("application/epub+zip", mimeTypeForDownloadName("42", " .EPUB "))
+        assertEquals("video/x-matroska", mimeTypeForDownloadName("42", " .MKV "))
+    }
+
+    @Test
     fun `unknown mime type falls back to octet stream`() {
         assertEquals(
             "application/octet-stream",
@@ -107,6 +113,19 @@ class DownloadOpenTargetTest {
             localUri = "content://downloads/video",
             displayName = null,
             container = "mkv",
+        )
+
+        assertEquals("download.mkv", target?.displayName)
+        assertEquals("video/x-matroska", target?.mimeType)
+    }
+
+    @Test
+    fun `open target fallback name trims padded container metadata`() {
+        val target = DownloadOpenTarget.from(
+            isComplete = true,
+            localUri = "content://downloads/video",
+            displayName = null,
+            container = " .MKV ",
         )
 
         assertEquals("download.mkv", target?.displayName)

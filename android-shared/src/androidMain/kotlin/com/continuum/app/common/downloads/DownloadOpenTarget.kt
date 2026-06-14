@@ -15,7 +15,7 @@ data class DownloadOpenTarget(
             container: String?,
         ): DownloadOpenTarget? {
             if (!isComplete || localUri.isNullOrBlank()) return null
-            val extension = container.orEmpty().removePrefix(".").lowercase()
+            val extension = normalizedDownloadExtension(container)
             val safeName = displayName
                 ?.takeIf { it.isNotBlank() }
                 ?: "download.${extension.ifBlank { "download" }}"
@@ -29,10 +29,10 @@ data class DownloadOpenTarget(
 }
 
 fun mimeTypeForDownloadName(displayName: String, container: String?): String {
-    val extension = displayName.substringAfterLast('.', missingDelimiterValue = "")
-        .ifBlank { container.orEmpty() }
-        .removePrefix(".")
-        .lowercase()
+    val extension = normalizedDownloadExtension(
+        displayName.substringAfterLast('.', missingDelimiterValue = "")
+            .ifBlank { container.orEmpty() },
+    )
     return when (extension) {
         "epub" -> "application/epub+zip"
         "pdf" -> "application/pdf"
@@ -60,3 +60,9 @@ fun mimeTypeForDownloadName(displayName: String, container: String?): String {
             ?: "application/octet-stream"
     }
 }
+
+private fun normalizedDownloadExtension(value: String?): String = value.orEmpty()
+    .trim()
+    .removePrefix(".")
+    .trim()
+    .lowercase()
