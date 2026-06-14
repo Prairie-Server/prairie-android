@@ -20,6 +20,7 @@ class VideoPlaybackBackendFactory(
     ): VideoPlaybackBackend = when (request.preference) {
         VideoPlaybackBackendPreference.Auto,
         VideoPlaybackBackendPreference.Media3,
+        VideoPlaybackBackendPreference.Mpv,
         -> Media3VideoPlaybackBackend(
             playerFactory = playerFactory,
             audioTrackManager = audioTrackManager,

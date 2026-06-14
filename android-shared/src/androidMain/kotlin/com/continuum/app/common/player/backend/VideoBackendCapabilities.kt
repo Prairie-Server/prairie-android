@@ -12,6 +12,8 @@ data class VideoBackendCapabilities(
     val supportsSubtitleDelay: Boolean,
     val supportsAudioDelay: Boolean,
     val subtitleRendering: SubtitleRendering,
+    val supportsHardContainers: Boolean,
+    val displayName: String,
 ) {
     companion object {
         fun media3(
@@ -26,6 +28,24 @@ data class VideoBackendCapabilities(
             supportsSubtitleDelay = true,
             supportsAudioDelay = true,
             subtitleRendering = SubtitleRendering.Media3Text,
+            supportsHardContainers = false,
+            displayName = "Media3",
+        )
+
+        fun mpv(
+            route: PlaybackRoute = PlaybackRoute.Compatibility,
+        ): VideoBackendCapabilities = VideoBackendCapabilities(
+            backendKind = VideoPlaybackBackendKind.Mpv,
+            route = route,
+            supportsSidecarSubtitles = true,
+            supportsEmbeddedSubtitleSelection = true,
+            supportsAudioTrackSelection = true,
+            supportsBufferReporting = true,
+            supportsSubtitleDelay = true,
+            supportsAudioDelay = false,
+            subtitleRendering = SubtitleRendering.NativeBackend,
+            supportsHardContainers = true,
+            displayName = "MPV",
         )
     }
 }

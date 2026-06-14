@@ -98,7 +98,7 @@ Add a dependency assertion test to the same file:
 ```kotlin
 @Test
 fun mpvDependencyIsDeclaredInSharedAndroidMain() {
-    val catalog = java.io.File("../../gradle/libs.versions.toml").readText()
+    val catalog = java.io.File("../gradle/libs.versions.toml").readText()
     val build = java.io.File("build.gradle.kts").readText()
 
     assertTrue(catalog.contains("libmpv = \"1.0.0\""))
