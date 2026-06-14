@@ -44,4 +44,24 @@ class TvPlayerViewModelPlaybackPositionTest {
             "TV must not keep duplicate progress snapshot flushing outside PlaybackSessionLifecycle",
         )
     }
+
+    @Test
+    fun stopSessionForExitClearsPlayableStateBeforeNavigationCompletes() {
+        val stopBody = source
+            .substringAfter("suspend fun stopSessionForExit()")
+            .substringBefore("fun onExit()")
+
+        assertTrue(
+            stopBody.contains("sessionId = null"),
+            "TV exit must clear the active playback session id",
+        )
+        assertTrue(
+            stopBody.contains("streamUrl = null"),
+            "TV exit must clear the stale stream URL so Compose cannot remount it",
+        )
+        assertTrue(
+            stopBody.contains("playMethod = null"),
+            "TV exit must clear play method along with the stale stream URL",
+        )
+    }
 }

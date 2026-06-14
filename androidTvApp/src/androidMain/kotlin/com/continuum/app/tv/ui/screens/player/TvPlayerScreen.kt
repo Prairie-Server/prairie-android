@@ -484,6 +484,7 @@ fun TvPlayerScreen(
 
     // Prepare the player when a stream URL becomes available.
     LaunchedEffect(videoBackend, state.streamUrl, state.sessionId) {
+        if (exitRequested) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         val method = state.playMethod ?: return@LaunchedEffect
@@ -505,6 +506,7 @@ fun TvPlayerScreen(
     // and resume at the captured position. Keyed on the refresh nonce so the
     // initial prepare effect above remains the only session-start path.
     LaunchedEffect(videoBackend, state.subtitleRefreshNonce) {
+        if (exitRequested) return@LaunchedEffect
         if (state.subtitleRefreshNonce == 0) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect

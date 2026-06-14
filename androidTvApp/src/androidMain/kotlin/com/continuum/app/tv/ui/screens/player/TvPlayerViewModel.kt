@@ -1142,7 +1142,17 @@ class TvPlayerViewModel(
         sessionLifecycle.stop()
         introObserveJob?.cancel()
         introAutoSkipController.reset()
-        _uiState.update { it.copy(sessionId = null) }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                sessionId = null,
+                playMethod = null,
+                streamUrl = null,
+                subtitleUrls = emptyList(),
+                isPaused = true,
+                isPlaying = false,
+            )
+        }
     }
 
     fun onExit() {

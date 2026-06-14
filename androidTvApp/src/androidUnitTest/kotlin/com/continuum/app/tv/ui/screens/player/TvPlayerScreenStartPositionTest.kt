@@ -84,4 +84,23 @@ class TvPlayerScreenStartPositionTest {
             "TV player must not read subtitle cue text for diagnostics",
         )
     }
+
+    @Test
+    fun tvPlayerDoesNotMountOrRefreshMediaWhileExiting() {
+        val mountEffect = source
+            .substringAfter("// Prepare the player when a stream URL becomes available.")
+            .substringBefore("// Subtitle refresh")
+        val refreshEffect = source
+            .substringAfter("// Subtitle refresh")
+            .substringBefore("// Auto-select a freshly downloaded/translated subtitle track")
+
+        assertTrue(
+            mountEffect.contains("if (exitRequested) return@LaunchedEffect"),
+            "TV player must not mount media after exit has been requested",
+        )
+        assertTrue(
+            refreshEffect.contains("if (exitRequested) return@LaunchedEffect"),
+            "TV player must not refresh media after exit has been requested",
+        )
+    }
 }
