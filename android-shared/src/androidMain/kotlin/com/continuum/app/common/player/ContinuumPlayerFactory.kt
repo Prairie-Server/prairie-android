@@ -242,6 +242,7 @@ class ContinuumPlayerFactory(
         title: String? = null,
         subtitle: String? = null,
         artworkUrl: String? = null,
+        durationMs: Long? = null,
     ): MediaItem {
         this.serverUrl = serverUrl
         val absoluteUrl = buildAbsoluteUrl(serverUrl, streamUrl)
@@ -257,12 +258,16 @@ class ContinuumPlayerFactory(
         // existing callers compile unchanged; when provided, the OS surfaces
         // them on lock screen, Bluetooth devices, and Wear watchfaces. Mirrors
         // iOS's NowPlayingController (iosApp/Screens/Player/NowPlayingController.swift).
-        if (title != null || subtitle != null || artworkUrl != null) {
+        if (title != null || subtitle != null || artworkUrl != null || durationMs != null) {
             val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
             title?.let { metadataBuilder.setTitle(it) }
-            subtitle?.let { metadataBuilder.setSubtitle(it) }
+            subtitle?.let {
+                metadataBuilder.setSubtitle(it)
+                metadataBuilder.setArtist(it)
+            }
             artworkUrl?.takeIf { it.isNotBlank() }
                 ?.let { metadataBuilder.setArtworkUri(android.net.Uri.parse(it)) }
+            durationMs?.let { metadataBuilder.setDurationMs(it) }
             builder.setMediaMetadata(metadataBuilder.build())
         }
 

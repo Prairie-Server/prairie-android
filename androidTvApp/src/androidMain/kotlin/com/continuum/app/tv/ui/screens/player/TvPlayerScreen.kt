@@ -496,6 +496,7 @@ fun TvPlayerScreen(
             title = state.title.ifBlank { null },
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
+            durationSeconds = state.duration,
         )
         backend.mount(mediaSpec)
     }
@@ -519,6 +520,7 @@ fun TvPlayerScreen(
             title = state.title.ifBlank { null },
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
+            durationSeconds = state.duration,
         )
         backend.refresh(mediaSpec)
     }

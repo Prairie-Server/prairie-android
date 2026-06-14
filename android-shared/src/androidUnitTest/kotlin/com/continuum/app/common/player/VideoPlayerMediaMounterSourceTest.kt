@@ -38,4 +38,12 @@ class VideoPlayerMediaMounterSourceTest {
             "refresh must remount at the preserved position",
         )
     }
+
+    @Test
+    fun mediaItemsCarryDurationMetadataForSystemMediaSession() {
+        assertTrue(
+            source.contains("durationMs = spec.durationMs"),
+            "mount and refresh must carry known duration into the MediaItem so Android media controls export a matching queue item",
+        )
+    }
 }

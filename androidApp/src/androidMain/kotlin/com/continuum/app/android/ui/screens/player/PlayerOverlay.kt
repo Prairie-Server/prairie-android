@@ -127,16 +127,19 @@ fun PlayerOverlay(
     val subtitleToolsAvailable = state.sessionId != null && state.mediaFileId != null
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Gesture layer (always active, underneath controls)
-        PlayerGestureHandler(
-            position = state.position,
-            duration = state.duration,
-            onToggleControls = onToggleControls,
-            onSeek = gatedSeek,
-            onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
-            onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
-            modifier = Modifier.zIndex(0f),
-        )
+        // Gesture layer stays out of the tree while controls are visible so
+        // full-screen pointer handlers cannot consume taps meant for buttons.
+        if (!state.showControls) {
+            PlayerGestureHandler(
+                position = state.position,
+                duration = state.duration,
+                onToggleControls = onToggleControls,
+                onSeek = gatedSeek,
+                onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
+                onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+                modifier = Modifier.zIndex(0f),
+            )
+        }
 
         // Buffering indicator. Shown during ExoPlayer buffering AND during outage
         // recovery — the lifecycle's Reconnecting state isn't visible to the player,

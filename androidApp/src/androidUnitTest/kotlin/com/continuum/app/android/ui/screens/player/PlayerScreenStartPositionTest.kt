@@ -31,6 +31,10 @@ class PlayerScreenStartPositionTest {
             source.contains("mountVideoMedia("),
             "mobile player must not call the raw Media3 mounter directly",
         )
+        assertTrue(
+            source.contains("durationSeconds = uiState.duration"),
+            "mobile player media specs must carry known duration into system media metadata",
+        )
     }
 
     @Test

@@ -35,6 +35,10 @@ class TvPlayerScreenStartPositionTest {
             !source.contains("mountVideoMedia("),
             "TV player must not call the raw Media3 mounter directly",
         )
+        assertTrue(
+            source.contains("durationSeconds = state.duration"),
+            "TV player media specs must carry known duration into system media metadata",
+        )
     }
 
     @Test

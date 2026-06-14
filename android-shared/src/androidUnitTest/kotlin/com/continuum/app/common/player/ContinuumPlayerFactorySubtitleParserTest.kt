@@ -20,4 +20,24 @@ class ContinuumPlayerFactorySubtitleParserTest {
             "DefaultMediaSourceFactory must use the normalizing parser for sidecar subtitles.",
         )
     }
+
+    @Test
+    fun nowPlayingMetadataCarriesSecondaryTextAndDuration() {
+        assertTrue(
+            source.contains("durationMs: Long? = null"),
+            "buildMediaItem should accept the normalized runtime so MediaSession queue metadata is not duration=0",
+        )
+        assertTrue(
+            !source.contains("durationSeconds\n            .takeIf"),
+            "duration conversion should live in VideoPlayerMediaSpec, not be duplicated in the factory",
+        )
+        assertTrue(
+            source.contains("metadataBuilder.setArtist(it)"),
+            "Android media controls compare artist, not subtitle, for the secondary now-playing line",
+        )
+        assertTrue(
+            source.contains("metadataBuilder.setDurationMs(it)"),
+            "MediaItem metadata must carry duration to keep MediaSession queue and current metadata in sync",
+        )
+    }
 }

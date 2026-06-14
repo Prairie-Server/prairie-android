@@ -20,6 +20,7 @@ fun mountVideoMedia(
         title = spec.title,
         subtitle = spec.subtitle,
         artworkUrl = spec.artworkUrl,
+        durationMs = spec.durationMs,
     )
     player.setMediaItem(mediaItem, startPositionMs.coerceAtLeast(0L))
     player.prepare()
@@ -42,6 +43,7 @@ fun refreshMountedVideoMedia(
         title = spec.title,
         subtitle = spec.subtitle,
         artworkUrl = spec.artworkUrl,
+        durationMs = spec.durationMs,
     )
     player.setMediaItem(mediaItem, resumePositionMs)
     player.prepare()

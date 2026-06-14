@@ -12,10 +12,17 @@ data class VideoPlayerMediaSpec(
     val subtitle: String? = null,
     val artworkUrl: String? = null,
     val startPositionSeconds: Double = 0.0,
+    val durationSeconds: Double = 0.0,
 ) {
     val startPositionMs: Long
         get() {
             val seconds = if (startPositionSeconds.isFinite()) startPositionSeconds else 0.0
             return (seconds * 1000.0).toLong().coerceAtLeast(0L)
+        }
+
+    val durationMs: Long?
+        get() {
+            val seconds = durationSeconds.takeIf { it.isFinite() && it > 0.0 } ?: return null
+            return (seconds * 1000.0).toLong().coerceAtLeast(1L)
         }
 }

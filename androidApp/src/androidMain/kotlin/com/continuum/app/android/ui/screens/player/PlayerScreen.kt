@@ -342,6 +342,7 @@ fun PlayerScreen(
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
+            durationSeconds = uiState.duration,
         )
         backend.mount(mediaSpec)
     }
@@ -382,6 +383,7 @@ fun PlayerScreen(
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
+            durationSeconds = uiState.duration,
         )
         backend.refresh(mediaSpec)
     }
