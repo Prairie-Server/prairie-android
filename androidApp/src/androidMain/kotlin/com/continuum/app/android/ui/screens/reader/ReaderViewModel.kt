@@ -13,12 +13,13 @@ import com.continuum.app.common.ebook.ReaderSection
 import com.continuum.app.model.book.BookFormat
 import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.ebook.EbookAnnotation
+import com.continuum.app.model.ebook.EbookReadMode
 import com.continuum.app.model.ebook.SaveEbookProgressRequest
 import com.continuum.app.model.ebook.bookFormatFromEbookVersion
-import com.continuum.app.model.ebook.chooseEbookVersion
+import com.continuum.app.model.ebook.chooseReaderVersion
+import com.continuum.app.model.ebook.ebookFormatSupport
 import com.continuum.app.model.ebook.ebookPageNumberFromProgressLocation
 import com.continuum.app.model.ebook.ebookProgressPercentForPage
-import com.continuum.app.model.ebook.isInAppReadableEbookVersion
 import com.continuum.app.model.ebook.localBookmarkAnnotation
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.ServerRegistry
@@ -47,6 +48,8 @@ data class ReaderUiState(
     val title: String = "",
     val author: String? = null,
     val format: BookFormat = BookFormat.Unknown,
+    val readMode: EbookReadMode = EbookReadMode.Unsupported,
+    val formatDisplayName: String = "",
     val fileUrl: String? = null,
     val localUri: String? = null,
     val localDisplayName: String? = null,
@@ -103,8 +106,8 @@ class ReaderViewModel(
             when (val r = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
                     val d = r.data
-                    val version = chooseEbookVersion(d.versions, requestedFileId)
-                    if (version == null) {
+                    val target = chooseReaderVersion(d.versions, requestedFileId)
+                    if (target == null) {
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -115,6 +118,7 @@ class ReaderViewModel(
                         }
                         return@launch
                     }
+                    val version = target.version
                     val (serverId, profileId) = resolveScope()
                     val offlineMedia = offlineMediaResolver.findLocalMedia(
                         serverId = serverId,
@@ -126,16 +130,31 @@ class ReaderViewModel(
                     val readerState = loadReaderState(version.fileId)
                     val displaySettings = loadDisplaySettings()
                     shouldSuppressInitialPageChange = readerState.progressLocation != null
-                    val format = version.bookFormatFromEbookVersion()
+                    val format = target.format
+                    val fileUrl = if (target.support.canReadInApp) {
+                        offlineMedia?.fileUrl ?: ebookReaderRepository.readPath(d.contentId, version.fileId)
+                    } else {
+                        offlineMedia?.fileUrl
+                    }
+                    val error = if (
+                        target.support.readMode == EbookReadMode.ExternalOnly &&
+                        offlineMedia == null
+                    ) {
+                        "Download this original to open it with another reader."
+                    } else {
+                        null
+                    }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             title = d.title,
                             author = d.ebook?.authorNames ?: d.book?.author,
                             format = format,
-                            fileUrl = offlineMedia?.fileUrl ?: ebookReaderRepository.readPath(d.contentId, version.fileId),
+                            readMode = target.support.readMode,
+                            formatDisplayName = target.support.displayName,
+                            fileUrl = fileUrl,
                             localUri = offlineMedia?.uriString,
-                            localDisplayName = offlineMedia?.displayName,
+                            localDisplayName = offlineMedia?.displayName ?: version.fileName,
                             fileId = version.fileId,
                             pageCount = d.book?.pageCount,
                             capabilities = ReaderCapabilities.forFormat(format),
@@ -144,6 +163,7 @@ class ReaderViewModel(
                             progressPercent = readerState.progressPercent ?: it.progressPercent,
                             bookmarks = readerState.bookmarks ?: it.bookmarks,
                             displaySettings = displaySettings,
+                            error = error,
                         )
                     }
                 }
@@ -168,11 +188,12 @@ class ReaderViewModel(
         }
         val version = media.toFileVersion()
         val format = version.bookFormatFromEbookVersion()
-        if (!version.isInAppReadableEbookVersion() || format == BookFormat.Unknown) {
+        val support = version.ebookFormatSupport()
+        if (support.readMode == EbookReadMode.Unsupported || format == BookFormat.Unknown) {
             _uiState.update {
                 it.copy(
                     isLoading = false,
-                    error = "This downloaded ebook format opens with another reader from Downloads.",
+                    error = "This file is not a supported reading format.",
                 )
             }
             return
@@ -186,6 +207,8 @@ class ReaderViewModel(
                 title = media.sidecar.title,
                 author = null,
                 format = format,
+                readMode = support.readMode,
+                formatDisplayName = support.displayName,
                 fileUrl = media.fileUrl,
                 localUri = media.uriString,
                 localDisplayName = media.displayName,
