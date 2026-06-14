@@ -54,14 +54,25 @@ import kotlinx.coroutines.launch
  * `Tracks` object. `id` is just the ordinal position among groups of the
  * same type — it's used as the index argument when calling
  * [com.continuum.app.common.player.AudioTrackManager.selectAudioTrack] or
- * [com.continuum.app.common.player.SubtitleManager.selectSubtitle].
+ * [com.continuum.app.common.player.SubtitleManager.selectSubtitle]. [label]
+ * stays the raw Media3 selector label for matching re-prepared subtitle
+ * groups; [displayLabel] is the polished user-facing string.
  */
 data class PlayerTrackEntry(
     val index: Int,
     val label: String,
     val language: String?,
     val isSelected: Boolean,
+    val displayLabel: String = label,
 )
+
+internal fun subtitleTracksWithSelection(
+    tracks: List<PlayerTrackEntry>,
+    selectedIndex: Int,
+): List<PlayerTrackEntry> =
+    tracks.map { track ->
+        track.copy(isSelected = selectedIndex >= 0 && track.index == selectedIndex)
+    }
 
 /**
  * How the video surface scales to fill the player area. Session-scoped
@@ -313,6 +324,7 @@ class TvPlayerViewModel(
         // so the overlay can react to play/pause state changes).
         val showControls: Boolean = true,
         val hudOpen: Boolean = false,
+        val showSubtitleMenu: Boolean = false,
         val preferredAudioLanguage: String? = null,
         val preferredTextLanguage: String? = null,
         // Intro / credits ranges — populated from `WatchDetail`. Used by the
@@ -669,16 +681,23 @@ class TvPlayerViewModel(
         resolvePendingSubtitleSelection(subtitle)
     }
 
+    fun onSubtitleSelectionApplied(index: Int) {
+        _uiState.update {
+            it.copy(subtitleTracks = subtitleTracksWithSelection(it.subtitleTracks, index))
+        }
+    }
+
     /**
      * After refreshSubtitles bumps the nonce, the screen re-prepares the item
      * and a fresh onTracksChanged arrives. Sidecar tracks expose their
      * SubtitleConfiguration label as Format.label, which extractTrackEntries
-     * copies into PlayerTrackEntry.label — so matching by label is exact.
+     * keeps in PlayerTrackEntry.label even when displayLabel is friendlier —
+     * so matching by raw label is exact.
      * Emits the ordinal text-group index for SubtitleManager.selectSubtitle.
      */
     private fun resolvePendingSubtitleSelection(subtitle: List<PlayerTrackEntry>) {
         val label = pendingSubtitleSelectLabel ?: return
-        val match = subtitle.firstOrNull { it.label == label } ?: return
+        val match = subtitle.firstOrNull { it.label == label || it.displayLabel == label } ?: return
         pendingSubtitleSelectLabel = null
         _subtitleSelectRequests.tryEmit(match.index)
     }
@@ -709,11 +728,19 @@ class TvPlayerViewModel(
     }
 
     fun openHUD() {
-        _uiState.update { it.copy(hudOpen = true, showControls = true) }
+        _uiState.update { it.copy(hudOpen = true, showSubtitleMenu = false, showControls = true) }
     }
 
     fun closeHUD() {
         _uiState.update { it.copy(hudOpen = false) }
+    }
+
+    fun openSubtitleMenu() {
+        _uiState.update { it.copy(showSubtitleMenu = true, hudOpen = false, showControls = true) }
+    }
+
+    fun closeSubtitleMenu() {
+        _uiState.update { it.copy(showSubtitleMenu = false) }
     }
 
     fun onVideoFillModeChanged(mode: VideoFillMode) {
@@ -898,7 +925,7 @@ class TvPlayerViewModel(
             // honor auto-select against the already-mounted tracks and skip
             // the rebuild entirely.
             autoSelectLabel?.let { label ->
-                state.subtitleTracks.firstOrNull { it.label == label }
+                state.subtitleTracks.firstOrNull { it.label == label || it.displayLabel == label }
                     ?.let { _subtitleSelectRequests.tryEmit(it.index) }
             }
             return

@@ -1,6 +1,7 @@
 package com.continuum.app.common.downloads
 
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.media.MediaScannerConnection
@@ -48,7 +49,7 @@ class DownloadStorage(
 
     fun locateLocalMedia(serverId: String, profileId: String, fileId: Int): DownloadLocation? {
         readSidecar(serverId, profileId, fileId)?.localUri?.let { uri ->
-            return publicStore.locate(uri)
+            publicStore.locate(uri)?.let { return it }
         }
         return publicStore.locateByFileId(serverId, profileId, fileId)
     }
@@ -95,6 +96,9 @@ class DownloadStorage(
     fun completeWrite(uriString: String) {
         publicStore.complete(uriString)
     }
+
+    fun totalBytesUsed(serverId: String, profileId: String): Long =
+        publicStore.totalBytesUsed(serverId, profileId)
 
     fun deleteUri(uriString: String): Boolean =
         publicStore.delete("", "", -1, uriString)
@@ -162,6 +166,17 @@ class DownloadStorage(
     fun listAllSidecars(): List<DownloadSidecar> =
         listAllSidecarsWithScope().map { it.third }
 
+    fun listSidecars(serverId: String, profileId: String): List<DownloadSidecar> {
+        val dir = File(downloadsRoot, "$serverId/$profileId")
+        if (!dir.exists()) return emptyList()
+        return dir.walkTopDown()
+            .filter { it.isFile && it.name.endsWith(".record.json") }
+            .mapNotNull { file ->
+                runCatching { JSON.decodeFromString<DownloadSidecar>(file.readText()) }.getOrNull()
+            }
+            .toList()
+    }
+
     /**
      * Like [listAllSidecars] but preserves the `(serverId, profileId)`
      * scope derived from each sidecar's path
@@ -215,6 +230,11 @@ class DownloadStorage(
             }
         }
         return null
+    }
+
+    fun locateSidecarByFileId(serverId: String, profileId: String, fileId: Int): Triple<String, String, DownloadSidecar>? {
+        val sidecar = readSidecar(serverId, profileId, fileId) ?: return null
+        return Triple(serverId, profileId, sidecar)
     }
 
     private fun localMediaFileName(fileId: Int, fileName: String?, container: String?): String {
@@ -282,6 +302,7 @@ interface PublicDownloadStore {
     fun deleteAllForProfile(serverId: String, profileId: String): Boolean
     fun deleteAllForServer(serverId: String): Boolean
     fun totalBytesUsed(): Long
+    fun totalBytesUsed(serverId: String, profileId: String): Long
 }
 
 class FileBackedPublicDownloadStore(
@@ -366,6 +387,16 @@ class FileBackedPublicDownloadStore(
         root.walkTopDown().forEach { if (it.isFile) total += it.length() }
         return total
     }
+
+    override fun totalBytesUsed(serverId: String, profileId: String): Long {
+        if (!root.exists()) return 0L
+        var total = 0L
+        PublicDownloadCollection.entries.forEach { collection ->
+            val dir = File(root, "${collection.directoryName}/$serverId/$profileId")
+            if (dir.exists()) dir.walkTopDown().forEach { if (it.isFile) total += it.length() }
+        }
+        return total
+    }
 }
 
 class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
@@ -385,7 +416,7 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
             put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeForDownloadName(displayName, container))
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "${collection.relativeRoot}/Silo/$serverId/$profileId/$fileId")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, mediaStoreRelativePath(collection, serverId, profileId, fileId))
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
         }
@@ -410,7 +441,33 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
         return null
     }
 
-    override fun locateByFileId(serverId: String, profileId: String, fileId: Int): DownloadLocation? = null
+    override fun locateByFileId(serverId: String, profileId: String, fileId: Int): DownloadLocation? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val projection = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.SIZE,
+        )
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+        PublicDownloadCollection.entries.forEach { collection ->
+            resolver.query(
+                collection.contentUri(),
+                projection,
+                selection,
+                arrayOf(mediaStoreRelativePath(collection, serverId, profileId, fileId)),
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(0)
+                    val name = cursor.getString(1) ?: fileId.toString()
+                    val size = cursor.getLong(2)
+                    val uri = ContentUris.withAppendedId(collection.contentUri(), id)
+                    return DownloadLocation(uri.toString(), name, size)
+                }
+            }
+        }
+        return null
+    }
 
     override fun delete(serverId: String, profileId: String, fileId: Int, uriString: String?): Boolean {
         uriString?.let { uri ->
@@ -442,6 +499,25 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
         return total
     }
 
+    override fun totalBytesUsed(serverId: String, profileId: String): Long {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0L
+        val projection = arrayOf(MediaStore.MediaColumns.SIZE)
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        var total = 0L
+        PublicDownloadCollection.entries.forEach { collection ->
+            resolver.query(
+                collection.contentUri(),
+                projection,
+                selection,
+                arrayOf("${collection.relativeRoot}/Silo/$serverId/$profileId/%"),
+                null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) total += cursor.getLong(0)
+            }
+        }
+        return total
+    }
+
     override fun complete(uriString: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
@@ -462,6 +538,13 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
         return deleted
     }
 }
+
+fun mediaStoreRelativePath(
+    collection: PublicDownloadCollection,
+    serverId: String,
+    profileId: String,
+    fileId: Int,
+): String = "${collection.relativeRoot}/Silo/$serverId/$profileId/$fileId/"
 
 enum class PublicDownloadCollection(val directoryName: String, val relativeRoot: String) {
     Video("Movies", "Movies"),

@@ -24,7 +24,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,11 +33,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -46,6 +49,7 @@ import com.continuum.app.tv.R
 import com.continuum.app.tv.ui.components.TvAnimatedMeshBackground
 import com.continuum.app.tv.ui.components.TvHeroActionPill
 import com.continuum.app.tv.ui.components.TvPillVariant
+import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -95,10 +99,10 @@ fun TvServerSetupScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .width(720.dp)
+                .width(840.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 40.dp, bottom = Spacing.lg, start = Spacing.lg, end = Spacing.lg),
+                .padding(top = 48.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
         ) {
             BrandHeader()
 
@@ -106,16 +110,29 @@ fun TvServerSetupScreen(
 
             Text(
                 text = "Connect to your server",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground,
+                style = TvServerSetupTextStyles.Title,
+                color = Color.White,
             )
 
             OutlinedTextField(
                 value = state.serverUrl,
                 onValueChange = viewModel::onServerUrlChanged,
-                label = { Text("Server URL") },
-                placeholder = { Text("https://streamapp.example.com") },
+                label = {
+                    Text(
+                        text = "Server URL",
+                        style = TvServerSetupTextStyles.FieldLabel,
+                        color = Color.White,
+                    )
+                },
+                placeholder = {
+                    Text(
+                        text = "https://streamapp.example.com",
+                        style = TvServerSetupTextStyles.FieldText,
+                        color = Color.White.copy(alpha = 0.68f),
+                    )
+                },
                 singleLine = true,
+                textStyle = TvServerSetupTextStyles.FieldText,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Uri,
                     imeAction = ImeAction.Go,
@@ -135,18 +152,18 @@ fun TvServerSetupScreen(
                         if (fs.isFocused) scope.launch { urlBringIntoView.bringIntoView() }
                     }
                     .focusRequester(focusRequester),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    focusedLabelColor = MaterialTheme.colorScheme.primary,
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                colors = tvOutlinedTextFieldColors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedBorderColor = Color.White.copy(alpha = 0.96f),
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.58f),
                 ),
             )
 
             if (state.error != null) {
                 Text(
                     text = state.error!!,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = TvServerSetupTextStyles.Error,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
@@ -162,11 +179,52 @@ fun TvServerSetupScreen(
                     label = if (state.isLoading) "Connecting…" else "Connect",
                     icon = Icons.AutoMirrored.Filled.ArrowForward,
                     variant = TvPillVariant.Filled,
+                    heightOverride = 72.dp,
+                    horizontalPaddingOverride = 44.dp,
+                    labelStyle = TvServerSetupTextStyles.Button,
                     onClick = viewModel::onConnectClick,
                 )
             }
         }
     }
+}
+
+private object TvServerSetupTextStyles {
+    val Title = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 34.sp,
+        lineHeight = 40.sp,
+        letterSpacing = 0.sp,
+    )
+
+    val FieldLabel = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 22.sp,
+        lineHeight = 26.sp,
+        letterSpacing = 0.sp,
+    )
+
+    val FieldText = TextStyle(
+        fontWeight = FontWeight.Normal,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
+        letterSpacing = 0.sp,
+        color = Color.White,
+    )
+
+    val Button = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 22.sp,
+        lineHeight = 26.sp,
+        letterSpacing = 0.sp,
+    )
+
+    val Error = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 20.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp,
+    )
 }
 
 /** Compact horizontal brand row — replaces the oversized centered logo/title pair. */

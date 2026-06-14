@@ -98,8 +98,8 @@ private fun TvNoticePill(notice: PlayerNotice) {
             Text(
                 text = notice.message,
                 color = Color.White,
-                fontSize = 15.sp,
-                lineHeight = 21.sp,
+                fontSize = 18.sp,
+                lineHeight = 24.sp,
             )
         }
     }

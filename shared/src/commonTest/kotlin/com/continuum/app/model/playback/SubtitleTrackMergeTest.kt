@@ -65,14 +65,12 @@ class SubtitleTrackMergeTest {
         assertEquals("Dune.Part.Three.WEB-DL (opensubtitles)", first.label)  // `${release_name} (${provider})`
         assertEquals("downloaded", first.source)
         assertNull(first.forced)
-        // Web: buildPlayerStreamUrl(apiBaseUrl, `/stream/${sid}/subtitles/${index}`, …)
-        // with apiBaseUrl "/api/v1", absolutized against the server origin on Android.
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/2", first.url)
+        assertEquals("/stream/sess-1/subtitles/2.vtt", first.url)
 
         val second = merged[3]
         assertEquals(3, second.index)
         assertEquals("Dune Part Three (subdl)", second.label)
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/3", second.url)
+        assertEquals("/stream/sess-1/subtitles/3.ass", second.url)
     }
 
     @Test
@@ -124,7 +122,7 @@ class SubtitleTrackMergeTest {
         )
 
         assertEquals(4, merged.last().index)  // max(0,3)+1, not size (2)
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/4", merged.last().url)
+        assertEquals("/stream/sess-1/subtitles/4.vtt", merged.last().url)
     }
 
     @Test
@@ -137,7 +135,7 @@ class SubtitleTrackMergeTest {
         )
 
         assertEquals(0, merged.single().index)
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/0", merged.single().url)
+        assertEquals("/stream/sess-1/subtitles/0.vtt", merged.single().url)
     }
 
     @Test
@@ -149,6 +147,6 @@ class SubtitleTrackMergeTest {
             serverUrl = "https://silo.example/",
         )
 
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/0", merged.single().url)
+        assertEquals("/stream/sess-1/subtitles/0.vtt", merged.single().url)
     }
 }

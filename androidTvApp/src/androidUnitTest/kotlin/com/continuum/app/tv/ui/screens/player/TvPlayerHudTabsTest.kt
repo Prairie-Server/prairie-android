@@ -14,7 +14,7 @@ class TvPlayerHudTabsTest {
         )
 
         assertEquals(
-            listOf(HudTab.Info, HudTab.Video, HudTab.Audio, HudTab.Subtitles),
+            listOf(HudTab.Info, HudTab.Video, HudTab.Audio),
             tabs,
         )
     }
@@ -27,7 +27,7 @@ class TvPlayerHudTabsTest {
         )
 
         assertEquals(
-            listOf(HudTab.Info, HudTab.Stats, HudTab.Video, HudTab.Audio, HudTab.Subtitles),
+            listOf(HudTab.Info, HudTab.Stats, HudTab.Video, HudTab.Audio),
             tabs,
         )
     }
@@ -42,7 +42,7 @@ class TvPlayerHudTabsTest {
         )
 
         assertEquals(
-            listOf(HudTab.Info, HudTab.Video, HudTab.Audio, HudTab.Subtitles, HudTab.Chapters),
+            listOf(HudTab.Info, HudTab.Video, HudTab.Audio, HudTab.Chapters),
             tabs,
         )
     }
@@ -62,7 +62,6 @@ class TvPlayerHudTabsTest {
                 HudTab.Stats,
                 HudTab.Video,
                 HudTab.Audio,
-                HudTab.Subtitles,
                 HudTab.Chapters,
             ),
             tabs,

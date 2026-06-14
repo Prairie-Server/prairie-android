@@ -16,7 +16,7 @@ class DownloadOpenTargetTest {
         assertEquals("application/vnd.amazon.ebook", mimeTypeForDownloadName("book.azw", "azw"))
         assertEquals("application/vnd.amazon.ebook", mimeTypeForDownloadName("book.azw3", "azw3"))
         assertEquals("application/x-fictionbook+xml", mimeTypeForDownloadName("book.fb2", "fb2"))
-        assertEquals("application/x-fictionbook+xml", mimeTypeForDownloadName("book.fbz", "fbz"))
+        assertEquals("application/zip", mimeTypeForDownloadName("book.fbz", "fbz"))
         assertEquals("text/markdown", mimeTypeForDownloadName("notes.md", "md"))
     }
 

@@ -270,8 +270,8 @@ private fun NowViewingTag() {
             text = "NOW VIEWING",
             style = MaterialTheme.typography.labelSmall.copy(
                 fontWeight = FontWeight.Black,
-                letterSpacing = 1.6.sp,
-                fontSize = 12.sp,
+                letterSpacing = 1.1.sp,
+                fontSize = 16.sp,
             ),
             color = Color.Black,
         )

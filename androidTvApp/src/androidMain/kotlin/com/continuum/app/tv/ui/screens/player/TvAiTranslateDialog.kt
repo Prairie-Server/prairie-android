@@ -115,8 +115,8 @@ fun TvAiTranslateDialog(
                 Text(
                     text = "TRANSLATE WITH AI",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 12.sp,
-                        letterSpacing = 1.8.sp,
+                        fontSize = 16.sp,
+                        letterSpacing = 1.1.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White.copy(alpha = 0.58f),
@@ -199,7 +199,7 @@ fun TvAiTranslateDialog(
                                 val pos = audioSourcePos.coerceIn(0, audioSources.lastIndex)
                                 TvDialogCyclerRow(
                                     title = "Source audio",
-                                    value = audioSources[pos].label
+                                    value = audioSources[pos].displayLabel
                                         .ifBlank { "Track ${audioSources[pos].index + 1}" },
                                     onPrevious = {
                                         audioSourcePos =
@@ -237,7 +237,7 @@ fun TvAiTranslateDialog(
                                     } else {
                                         "${q.remaining} of ${q.limit} transcriptions left ${quotaPeriodText(q.period)}"
                                     },
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = if (quotaExhausted) {
                                         Color(0xFFF59E0B)
                                     } else {
@@ -250,7 +250,7 @@ fun TvAiTranslateDialog(
                             if (phase is AiJobPhase.Failed) {
                                 Text(
                                     text = phase.message,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFEF4444),
                                     modifier = Modifier.padding(horizontal = 8.dp),
                                 )
@@ -342,7 +342,7 @@ private fun TvAiJobProgress(
         message?.takeIf { it.isNotBlank() }?.let {
             Text(
                 text = it,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.66f),
             )
         }
@@ -355,9 +355,13 @@ private fun TvAiJobProgress(
 }
 
 private fun subtitleSourceLabel(info: PlayerSubtitleInfo): String =
-    info.label
-        ?: info.language?.let { tvLanguageDisplayName(it) }
-        ?: "Track ${info.index}"
+    formatSubtitleTrackDisplayLabel(
+        rawLabel = info.label,
+        language = info.language,
+        codecOrMime = info.codec,
+        isForced = info.forced == true,
+        index = info.index,
+    )
 
 private fun quotaPeriodText(period: String): String = when (period.lowercase()) {
     "day" -> "today"

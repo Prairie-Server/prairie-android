@@ -12,7 +12,7 @@ import kotlin.test.assertEquals
 class TvRequestPresentationTest {
 
     @Test
-    fun tvRequestResultsOnlyIncludeSupportedVideoMediaTypes() {
+    fun tvRequestResultsIncludeVideoAndAudiobooksButNotEbooks() {
         val results = listOf(
             requestResult(title = "The Signal", mediaType = RequestMediaType.Movie),
             requestResult(title = "The Expanse", mediaType = RequestMediaType.Series),
@@ -23,7 +23,7 @@ class TvRequestPresentationTest {
 
         val visible = results.filterTvRequestResults()
 
-        assertEquals(listOf("The Signal", "The Expanse"), visible.map { it.title })
+        assertEquals(listOf("The Signal", "The Expanse", "Dungeon Crawler Carl"), visible.map { it.title })
     }
 
     @Test
@@ -51,7 +51,7 @@ class TvRequestPresentationTest {
     }
 
     @Test
-    fun tvMyRequestsOnlyIncludeSupportedVideoMediaTypes() {
+    fun tvMyRequestsIncludeVideoAndAudiobooksButNotEbooks() {
         val requests = listOf(
             mediaRequest(title = "Movie Request", mediaType = RequestMediaType.Movie),
             mediaRequest(title = "Series Request", mediaType = RequestMediaType.Series),
@@ -61,7 +61,7 @@ class TvRequestPresentationTest {
 
         val visible = requests.filterTvMediaRequests()
 
-        assertEquals(listOf("Movie Request", "Series Request"), visible.map { it.title })
+        assertEquals(listOf("Movie Request", "Series Request", "Audio Request"), visible.map { it.title })
     }
 
     private fun requestResult(

@@ -16,13 +16,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
 import com.continuum.app.android.ui.screens.MainScreen
-import com.continuum.app.android.ui.screens.admin.AdminHubScreen
-import com.continuum.app.android.ui.screens.admin.AdminLogsScreen
-import com.continuum.app.android.ui.screens.admin.AdminScansScreen
-import com.continuum.app.android.ui.screens.admin.AdminSessionsScreen
-import com.continuum.app.android.ui.screens.admin.AdminStatsScreen
-import com.continuum.app.android.ui.screens.admin.AdminUserEditScreen
-import com.continuum.app.android.ui.screens.admin.AdminUsersScreen
 import com.continuum.app.android.ui.screens.auth.LoginScreen
 import com.continuum.app.android.ui.screens.auth.DevicePairingScreen
 import com.continuum.app.android.ui.screens.auth.ServerSetupScreen
@@ -287,9 +280,6 @@ fun AppNavigation(
                 onNavigateToRequests = {
                     navController.navigate(Route.Requests.route)
                 },
-                onNavigateToAdmin = {
-                    navController.navigate(Route.Admin.route)
-                },
                 onLoggedOut = {
                     navController.navigate(Route.Login.route) {
                         popUpTo(0) { inclusive = true }
@@ -424,13 +414,14 @@ fun AppNavigation(
             var wtTarget by remember { mutableStateOf<Pair<String, Int?>?>(null) }
             ItemDetailScreen(
                 onBackClick = { navController.popBackStack() },
-                onPlayClick = { contentId, fileId, audioTrackIndex, subtitleTrackIndex ->
+                onPlayClick = { contentId, fileId, audioTrackIndex, subtitleTrackIndex, resumePositionSeconds ->
                     navController.navigate(
                         Route.Player(
                             contentId = contentId,
                             fileId = fileId,
                             audioTrackIndex = audioTrackIndex,
                             subtitleTrackIndex = subtitleTrackIndex,
+                            resumePositionSeconds = resumePositionSeconds,
                         ).route,
                     )
                 },
@@ -562,6 +553,11 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("resumePosition") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument("roomId") {
                     type = NavType.StringType
                     nullable = true
@@ -574,6 +570,7 @@ fun AppNavigation(
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
                 initialAudioTrackIndex = backStackEntry.arguments?.getString("audioTrackIndex")?.toIntOrNull(),
                 initialSubtitleTrackIndex = backStackEntry.arguments?.getString("subtitleTrackIndex")?.toIntOrNull(),
+                resumePositionOverride = backStackEntry.arguments?.getString("resumePosition")?.toDoubleOrNull(),
                 roomId = backStackEntry.arguments?.getString("roomId"),
                 navController = navController,
             )
@@ -619,55 +616,6 @@ fun AppNavigation(
             )
         }
 
-        // ---- Admin (acting-admin gated) ----
-        composable(Route.Admin.route) {
-            AdminHubScreen(
-                onBackClick = { navController.popBackStack() },
-                onOpenDashboard = { navController.navigate(Route.AdminStats.route) },
-                onOpenUsers = { navController.navigate(Route.AdminUsers.route) },
-                onOpenSessions = { navController.navigate(Route.AdminSessions.route) },
-                onOpenLogs = { navController.navigate(Route.AdminLogs.route) },
-                onOpenScans = { navController.navigate(Route.AdminScans.route) },
-            )
-        }
-        composable(Route.AdminStats.route) {
-            AdminStatsScreen(onBackClick = { navController.popBackStack() })
-        }
-        composable(Route.AdminUsers.route) {
-            AdminUsersScreen(
-                onBackClick = { navController.popBackStack() },
-                onCreateUser = { navController.navigate(Route.AdminUserEdit().route) },
-                onEditUser = { id -> navController.navigate(Route.AdminUserEdit(id).route) },
-            )
-        }
-        composable(Route.AdminUserEdit.CREATE_ROUTE) {
-            AdminUserEditScreen(
-                userId = null,
-                onBackClick = { navController.popBackStack() },
-                onSaved = { navController.popBackStack() },
-            )
-        }
-        composable(
-            route = Route.AdminUserEdit.ROUTE,
-            arguments = listOf(
-                navArgument(Route.AdminUserEdit.ARG_USER_ID) { type = NavType.IntType },
-            ),
-        ) { backStackEntry ->
-            AdminUserEditScreen(
-                userId = backStackEntry.arguments?.getInt(Route.AdminUserEdit.ARG_USER_ID),
-                onBackClick = { navController.popBackStack() },
-                onSaved = { navController.popBackStack() },
-            )
-        }
-        composable(Route.AdminSessions.route) {
-            AdminSessionsScreen(onBackClick = { navController.popBackStack() })
-        }
-        composable(Route.AdminLogs.route) {
-            AdminLogsScreen(onBackClick = { navController.popBackStack() })
-        }
-        composable(Route.AdminScans.route) {
-            AdminScansScreen(onBackClick = { navController.popBackStack() })
-        }
         composable(Route.History.route) {
             HistoryScreen(
                 onBackClick = { navController.popBackStack() },

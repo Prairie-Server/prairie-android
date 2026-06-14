@@ -54,12 +54,12 @@ class ReaderControlsTest {
     @Test
     fun `display settings normalize scale values`() {
         val tooLow = ReaderDisplaySettings(textScale = 0.2f, marginScale = 0.2f).normalized()
-        val tooHigh = ReaderDisplaySettings(textScale = 2.5f, marginScale = 2.5f).normalized()
+        val tooHigh = ReaderDisplaySettings(textScale = 3.5f, marginScale = 2.5f).normalized()
         val inRange = ReaderDisplaySettings(textScale = 1.2f, marginScale = 1.1f).normalized()
 
-        assertEquals(0.8f, tooLow.textScale)
+        assertEquals(0.6f, tooLow.textScale)
         assertEquals(0.75f, tooLow.marginScale)
-        assertEquals(1.6f, tooHigh.textScale)
+        assertEquals(3.0f, tooHigh.textScale)
         assertEquals(1.5f, tooHigh.marginScale)
         assertEquals(1.2f, inRange.textScale)
         assertEquals(1.1f, inRange.marginScale)

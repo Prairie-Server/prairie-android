@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,8 +45,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -206,10 +209,31 @@ fun TvPlayerScrubber(
         label = "scrubberPuckSize",
     )
 
-    Box(modifier = modifier.height(64.dp)) {
-        // Auto-seek visualization is owned by [TvHoldSeekIndicator] rendered
-        // by the parent overlay so it can float top-center above the
-        // transport instead of crowding the scrubber.
+    Column(
+        modifier = modifier.height(82.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = formatScrubberTime(positionSec),
+                color = Color.White.copy(alpha = 0.82f),
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+            )
+            Text(
+                text = formatRemainingTime(durationSec - positionSec),
+                color = Color.White.copy(alpha = 0.70f),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+
+        Box(modifier = Modifier.weight(1f)) {
+            // Auto-seek visualization is owned by [TvHoldSeekIndicator] rendered
+            // by the parent overlay so it can float top-center above the
+            // transport instead of crowding the scrubber.
 
         BoxWithConstraints(
             modifier = Modifier
@@ -358,7 +382,7 @@ fun TvPlayerScrubber(
                 )
             }
 
-            // Chapter ticks — skip the chapter-0 tick at x≈0 so it doesn't
+            // Chapter marker ticks — skip the chapter-0 tick at x≈0 so it doesn't
             // sit under the capsule endcap. Iterate with `for` (rather than
             // `forEach`) so the lambda body keeps composable scope.
             if (durationSec > 0) {
@@ -369,9 +393,10 @@ fun TvPlayerScrubber(
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .offset(x = barWidthDp * frac - 1.5.dp)
-                                .width(if (isTimelineScrubbing) 4.dp else 3.dp)
-                                .height(trackHeight + 14.dp)
-                                .background(Color.White.copy(alpha = 0.85f)),
+                                .width(if (isTimelineScrubbing) 3.dp else 2.dp)
+                                .height(trackHeight + 8.dp)
+                                .clip(RoundedCornerShape(percent = 50))
+                                .background(Color.White.copy(alpha = 0.45f)),
                         )
                     }
                 }
@@ -398,3 +423,18 @@ fun TvPlayerScrubber(
     }
 }
 
+}
+
+private fun formatScrubberTime(seconds: Double): String = formatTimelineClock(seconds)
+
+private fun formatRemainingTime(secondsRemaining: Double): String =
+    "-${formatTimelineClock(secondsRemaining.coerceAtLeast(0.0))}"
+
+private fun formatTimelineClock(seconds: Double): String {
+    if (seconds <= 0 || seconds.isNaN()) return "0:00"
+    val total = seconds.toInt()
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}

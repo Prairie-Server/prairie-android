@@ -25,6 +25,8 @@ import com.continuum.app.android.ui.navigation.ContinuumBottomNavBar
 import com.continuum.app.android.ui.navigation.Route
 import com.continuum.app.android.ui.navigation.Tab
 import com.continuum.app.android.ui.navigation.fallbackMobileTab
+import com.continuum.app.android.ui.navigation.scopedLocalDownloadBytes
+import com.continuum.app.android.ui.navigation.shouldShowDownloadsTab
 import com.continuum.app.android.ui.navigation.visibleMobileTabs
 import com.continuum.app.android.ui.screens.libraries.LibrariesScreen
 import com.continuum.app.android.ui.screens.libraries.LibrariesSelectorSheet
@@ -36,6 +38,7 @@ import com.continuum.app.model.navigation.MediaMode
 import com.continuum.app.model.navigation.MediaModeCapabilities
 import com.continuum.app.model.navigation.mobileMediaModeCapabilities
 import com.continuum.app.network.ApiResult
+import com.continuum.app.network.ServerRegistry
 import com.continuum.app.repository.PersonalDataRepository
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -72,6 +75,8 @@ fun MainScreen(
     val personalDataRepository: PersonalDataRepository = koinInject()
     val downloadsRepository: com.continuum.app.repository.DownloadsRepository = koinInject()
     val downloadStorage: com.continuum.app.common.downloads.DownloadStorage = koinInject()
+    val serverRegistry: ServerRegistry = koinInject()
+    val activeEntry by serverRegistry.activeEntry.collectAsState()
     val mediaCapabilities by produceState(
         initialValue = MediaModeCapabilities(
             listOf(
@@ -88,10 +93,24 @@ fun MainScreen(
         }
     }
     val downloadRecords by downloadsRepository.records.collectAsState()
-    // Re-poll on records change (cheap, walks <filesDir>/downloads).
-    val hasLocalDownloads = remember(downloadRecords) { downloadStorage.totalBytesUsed() > 0L }
-    val visibleTabs = remember(mediaCapabilities, downloadRecords, hasLocalDownloads) {
-        val hasAnyDownload = downloadRecords.isNotEmpty() || hasLocalDownloads
+    val activeScopeLocalBytes by produceState(
+        initialValue = 0L,
+        downloadRecords,
+        activeEntry?.id,
+        activeEntry?.profileId,
+        headerState.activeProfile?.id,
+    ) {
+        value = scopedLocalDownloadBytes(
+            storage = downloadStorage,
+            serverId = activeEntry?.id,
+            profileId = activeEntry?.profileId ?: headerState.activeProfile?.id,
+        )
+    }
+    val visibleTabs = remember(mediaCapabilities, downloadRecords, activeScopeLocalBytes) {
+        val hasAnyDownload = shouldShowDownloadsTab(
+            serverRecordCount = downloadRecords.size,
+            activeScopeLocalBytes = activeScopeLocalBytes,
+        )
         visibleMobileTabs(
             capabilities = mediaCapabilities,
             showDownloads = hasAnyDownload,
@@ -145,8 +164,13 @@ fun MainScreen(
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
-                            onPlayClick = { contentId ->
-                                navController.navigate(Route.Player(contentId).route)
+                            onPlayClick = { contentId, resumePositionSeconds ->
+                                navController.navigate(
+                                    Route.Player(
+                                        contentId = contentId,
+                                        resumePositionSeconds = resumePositionSeconds,
+                                    ).route,
+                                )
                             },
                             onSeeAllClick = { sectionId ->
                                 navController.navigate(Route.Browse().route)
@@ -171,8 +195,13 @@ fun MainScreen(
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
-                            onPlayClick = { contentId ->
-                                navController.navigate(Route.Player(contentId).route)
+                            onPlayClick = { contentId, resumePositionSeconds ->
+                                navController.navigate(
+                                    Route.Player(
+                                        contentId = contentId,
+                                        resumePositionSeconds = resumePositionSeconds,
+                                    ).route,
+                                )
                             },
                             onCollectionClick = { collectionId, libraryId ->
                                 navController.navigate(Route.CollectionDetail(collectionId, libraryId).route)

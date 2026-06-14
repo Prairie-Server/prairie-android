@@ -22,12 +22,15 @@ import com.continuum.app.repository.DownloadsRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.net.URLDecoder
 
 /**
  * Streams `GET /api/v1/downloads/{id}/file` to the local
@@ -70,10 +73,17 @@ class DownloadWorker(
             setForeground(buildForegroundInfo(downloadId, displayTitle, progress = 0, indeterminate = true))
         }.onFailure { Log.w(TAG, "setForeground initial failed", it) }
 
-        val target = storage.prepareWrite(serverId, profileId, fileId, fileName, container, mediaType)
+        var target: DownloadTarget? = null
 
         try {
             httpClient.prepareGet("/api/v1/downloads/$downloadId/file").execute { response ->
+                downloadHttpStatusFailure(response.status)?.let { throw it }
+                val resolvedFileName = downloadFileNameForTarget(
+                    catalogFileName = fileName,
+                    contentDisposition = response.headers["Content-Disposition"],
+                )
+                val activeTarget = storage.prepareWrite(serverId, profileId, fileId, resolvedFileName, container, mediaType)
+                    .also { target = it }
                 val total = response.headers["Content-Length"]?.toLongOrNull() ?: -1L
                 val channel = response.bodyAsChannel()
                 var written = 0L
@@ -84,7 +94,7 @@ class DownloadWorker(
                 // Avoids version-fragile ByteReadChannel read APIs and keeps
                 // the streaming copy + progress reporting on the same thread.
                 channel.toInputStream().use { input ->
-                    target.openOutputStream().use { out ->
+                    activeTarget.openOutputStream().use { out ->
                         while (true) {
                             val n = input.read(buf)
                             if (n < 0) break
@@ -121,8 +131,9 @@ class DownloadWorker(
             // Server flips status → completed when its serve handler returns;
             // a refresh here ensures the cache reflects that before the
             // worker exits and the UI re-renders.
-            storage.completeWrite(target.uriString)
-            Log.i(TAG, "doWork success id=$downloadId bytes=${target.sizeBytes()}")
+            val completedTarget = target ?: error("download target was not created")
+            storage.completeWrite(completedTarget.uriString)
+            Log.i(TAG, "doWork success id=$downloadId bytes=${completedTarget.sizeBytes()}")
             repository.refresh()
             // Update the sidecar to status=completed. Enqueuer wrote the
             // initial sidecar with title + poster; we just flip status here
@@ -130,11 +141,12 @@ class DownloadWorker(
             updateSidecarStatus(
                 serverId, profileId, fileId,
                 status = com.continuum.app.model.download.DownloadStatus.Completed.wire,
-                bytesSent = target.sizeBytes(),
-                fileSize = target.sizeBytes(),
-                localUri = target.uriString,
+                bytesSent = completedTarget.sizeBytes(),
+                fileSize = completedTarget.sizeBytes(),
+                localUri = completedTarget.uriString,
+                fileName = completedTarget.displayName,
             )
-            Result.success(workDataOf(KEY_BYTES_WRITTEN to target.sizeBytes(), KEY_TOTAL_BYTES to target.sizeBytes()))
+            Result.success(workDataOf(KEY_BYTES_WRITTEN to completedTarget.sizeBytes(), KEY_TOTAL_BYTES to completedTarget.sizeBytes()))
         } catch (e: CancellationException) {
             // Worker stopped — user cancel (notification action /
             // DownloadEnqueuer.cancel → cancelAllWorkByTag) or a
@@ -148,7 +160,7 @@ class DownloadWorker(
             // downloads with a red badge and delete-then-fail them.
             Log.i(TAG, "doWork cancelled id=$downloadId")
             withContext(NonCancellable) {
-                runCatching { storage.deleteUri(target.uriString) }
+                target?.let { runCatching { storage.deleteUri(it.uriString) } }
             }
             throw e
         } catch (e: IOException) {
@@ -156,12 +168,12 @@ class DownloadWorker(
             // next attempt starts fresh (no resume in v1). Sidecar stays so
             // the row is visible in the UI as "downloading" awaiting retry.
             Log.w(TAG, "doWork IO error id=$downloadId → retry", e)
-            runCatching { storage.deleteUri(target.uriString) }
+            target?.let { runCatching { storage.deleteUri(it.uriString) } }
             Result.retry()
         } catch (e: Throwable) {
             // Permanent — clean up local file and let the user retry manually.
             Log.e(TAG, "doWork fatal id=$downloadId", e)
-            runCatching { storage.deleteUri(target.uriString) }
+            target?.let { runCatching { storage.deleteUri(it.uriString) } }
             // Best-effort: publish failed state into the repo + sidecar.
             val record = repository.recordForFile(fileId)
             if (record != null) {
@@ -172,7 +184,7 @@ class DownloadWorker(
                 status = DownloadStatus.Failed.wire,
                 bytesSent = 0,
                 fileSize = 0,
-                localUri = target.uriString,
+                localUri = target?.uriString,
             )
             Result.failure()
         }
@@ -192,6 +204,7 @@ class DownloadWorker(
         bytesSent: Long,
         fileSize: Long,
         localUri: String? = null,
+        fileName: String? = null,
     ) {
         runCatching {
             val existing = storage.readSidecar(serverId, profileId, fileId) ?: return@runCatching
@@ -204,6 +217,7 @@ class DownloadWorker(
                         fileSize = if (fileSize > 0) fileSize else existing.record.fileSize,
                     ),
                     localUri = localUri ?: existing.localUri,
+                    fileName = fileName?.takeIf { it.isNotBlank() } ?: existing.fileName,
                     updatedAtMs = System.currentTimeMillis(),
                 ),
             )
@@ -304,4 +318,45 @@ class DownloadWorker(
             WorkManager.getInstance(context).cancelAllWorkByTag(tagFor(downloadId))
         }
     }
+}
+
+internal fun downloadHttpStatusFailure(status: HttpStatusCode): Throwable? = when {
+    status.isSuccess() -> null
+    status.value >= 500 -> IOException("HTTP ${status.value} while downloading")
+    else -> IllegalStateException("HTTP ${status.value} while downloading")
+}
+
+internal fun downloadFileNameForTarget(
+    catalogFileName: String?,
+    contentDisposition: String?,
+): String? =
+    catalogFileName?.trim()?.takeIf { it.isNotBlank() }
+        ?: contentDispositionFileName(contentDisposition)
+
+private fun contentDispositionFileName(value: String?): String? {
+    val header = value?.takeIf { it.isNotBlank() } ?: return null
+    encodedFileNameRegex.find(header)?.groupValues?.getOrNull(1)
+        ?.trim()
+        ?.unquoteHttpValue()
+        ?.decodeRfc5987()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { return it }
+    return plainFileNameRegex.find(header)?.groupValues?.getOrNull(1)
+        ?.trim()
+        ?.unquoteHttpValue()
+        ?.takeIf { it.isNotBlank() }
+}
+
+private val encodedFileNameRegex = Regex("""(?i)(?:^|;)\s*filename\*\s*=\s*("[^"]*"|[^;]*)""")
+private val plainFileNameRegex = Regex("""(?i)(?:^|;)\s*filename\s*=\s*("(?:\\.|[^"])*"|[^;]*)""")
+
+private fun String.unquoteHttpValue(): String {
+    val trimmed = trim()
+    if (trimmed.length < 2 || trimmed.first() != '"' || trimmed.last() != '"') return trimmed
+    return trimmed.substring(1, trimmed.length - 1).replace("\\\"", "\"")
+}
+
+private fun String.decodeRfc5987(): String {
+    val encoded = substringAfter("''", missingDelimiterValue = this)
+    return runCatching { URLDecoder.decode(encoded, Charsets.UTF_8.name()) }.getOrDefault(encoded)
 }

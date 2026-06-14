@@ -1,13 +1,18 @@
 package com.continuum.app.tv.ui.shell
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +34,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -45,7 +51,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.common.ui.components.rememberProfileServerUrl
 import com.continuum.app.model.navigation.MediaMode
@@ -68,7 +77,6 @@ import com.continuum.app.tv.ui.screens.recommendations.TvRecommendationsScreen
 import com.continuum.app.tv.ui.screens.requests.TvMyRequestsScreen
 import com.continuum.app.tv.ui.screens.requests.TvRequestsScreen
 import com.continuum.app.tv.ui.screens.search.TvSearchScreen
-import com.continuum.app.tv.ui.screens.admin.TvAdminScreen
 import com.continuum.app.tv.ui.screens.settings.TvSettingsScreen
 import org.koin.compose.koinInject
 
@@ -385,22 +393,9 @@ fun TvMainShell(
                             navigateToRoute(TvMainRoute.Requests.route)
                             moveFocusToContent(TvMainRoute.Requests.route)
                         },
-                        onNavigateToAdmin = {
-                            navigateToRoute(TvMainRoute.Admin.route)
-                            moveFocusToContent(TvMainRoute.Admin.route)
-                        },
                         onSignedOut = onSignedOut,
                         onSwitchProfile = onSwitchProfile,
                         onInitialContentFocus = { profileMenuOpen = false },
-                    )
-                }
-                composable(TvMainRoute.Admin.route) {
-                    TvAdminScreen(
-                        onBack = {
-                            if (nestedNav.previousBackStackEntry != null) {
-                                nestedNav.popBackStack()
-                            }
-                        },
                     )
                 }
                 composable(TvMainRoute.Inbox.route) {
@@ -437,6 +432,12 @@ fun TvMainShell(
         )
 
         if (profileMenuOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.58f))
+                    .zIndex(1f),
+            )
             TvProfileActionsPanel(
                 onNotifications = openInbox,
                 onSettings = closeMenuAnd {
@@ -495,8 +496,8 @@ private fun TvRootDestination.toRoute(): String = when (this) {
 /**
  * Profile dropdown — fires from the avatar button on the top menu. tvOS uses
  * `TVProfileActionsPanel` (a dimmed full-screen overlay anchored top-left);
- * we render an anchored card so it floats below the avatar without dimming
- * the entire shell.
+ * we render the same interaction model as an anchored card with a scrim so
+ * content behind the menu cannot visually merge with the actions.
  */
 @Composable
 private fun TvProfileActionsPanel(
@@ -513,12 +514,17 @@ private fun TvProfileActionsPanel(
 
     Column(
         modifier = modifier
-            .width(160.dp)
+            .width(300.dp)
             .background(
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(18.dp),
             )
-            .padding(vertical = 4.dp)
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(18.dp),
+            )
+            .padding(vertical = 12.dp)
             .focusGroup()
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyUp &&
@@ -544,21 +550,40 @@ private fun ProfileActionRow(
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
-    androidx.tv.material3.Surface(
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp)
+            .height(58.dp)
+            .padding(horizontal = 10.dp)
             .let { if (focusRequester != null) it.focusRequester(focusRequester) else it },
         onClick = onClick,
-        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            focusedContainerColor = Color.White.copy(alpha = 0.92f),
+            focusedContentColor = Color.Black,
+            pressedContainerColor = Color.White.copy(alpha = 0.86f),
+            pressedContentColor = Color.Black,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.96f)),
+                shape = RoundedCornerShape(12.dp),
+            ),
+        ),
     ) {
         Text(
             text = label,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 7.dp),
+                .padding(horizontal = 18.dp, vertical = 14.dp),
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (isFocused) Color.Black else MaterialTheme.colorScheme.onSurface,
         )
     }
 }

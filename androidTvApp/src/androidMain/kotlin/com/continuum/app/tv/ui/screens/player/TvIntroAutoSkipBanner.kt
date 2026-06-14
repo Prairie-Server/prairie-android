@@ -197,7 +197,7 @@ private fun TvCancelButton(
         Text(
             text = "Cancel",
             color = Color.White,
-            fontSize = 14.sp,
+            fontSize = 18.sp,
             fontWeight = FontWeight.Medium,
         )
     }
@@ -238,4 +238,3 @@ private fun TvCountdownRing(
         )
     }
 }
-

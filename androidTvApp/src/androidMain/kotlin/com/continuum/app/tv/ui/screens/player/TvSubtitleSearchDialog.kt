@@ -153,8 +153,8 @@ fun TvSubtitleSearchDialog(
                 Text(
                     text = "SEARCH SUBTITLES",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 12.sp,
-                        letterSpacing = 1.8.sp,
+                        fontSize = 16.sp,
+                        letterSpacing = 1.1.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White.copy(alpha = 0.58f),
@@ -187,7 +187,7 @@ fun TvSubtitleSearchDialog(
                 state.error?.let { error ->
                     Text(
                         text = error,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                        style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFEF4444),
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
@@ -301,7 +301,7 @@ private fun TvSubtitleResultRow(
                 Text(
                     text = result.score.toInt().toString(),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 13.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White,
@@ -337,7 +337,6 @@ private fun TvSubtitleResultRow(
                         Text(
                             text = subtitleProviderAbbreviation(result.provider),
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                             ),
                             color = Color.White,
@@ -347,7 +346,6 @@ private fun TvSubtitleResultRow(
                         Text(
                             text = "HI",
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                             ),
                             color = if (isFocused) {
@@ -359,7 +357,7 @@ private fun TvSubtitleResultRow(
                     }
                     Text(
                         text = "${result.downloads} downloads · ${tvLanguageDisplayName(result.language)}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        style = MaterialTheme.typography.bodySmall,
                         color = if (isFocused) {
                             FocusedContent.copy(alpha = 0.70f)
                         } else {

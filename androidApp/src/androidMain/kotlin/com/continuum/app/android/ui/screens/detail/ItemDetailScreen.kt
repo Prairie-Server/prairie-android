@@ -31,6 +31,7 @@ import com.continuum.app.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import com.continuum.app.android.downloads.hasLegacyPublicDownloadPermission
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
+import com.continuum.app.android.ui.util.playbackResumePosition
 import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.isAudiobookItemType
 import com.continuum.app.model.catalog.isBookLikeItemType
@@ -52,7 +53,7 @@ import com.continuum.app.model.download.statusEnum
 @Composable
 fun ItemDetailScreen(
     onBackClick: () -> Unit,
-    onPlayClick: (String, Int?, Int?, Int?) -> Unit,
+    onPlayClick: (String, Int?, Int?, Int?, Double?) -> Unit,
     onItemDetailClick: (String) -> Unit,
     onPersonClick: (String) -> Unit,
     onSeriesClick: (String) -> Unit,
@@ -227,11 +228,18 @@ fun ItemDetailScreen(
                             isInWatchlist = state.isInWatchlist,
                             nextEpisodeLabel = nextEpisodeLabel,
                             onPlayClick = {
-                                nextEpisode?.let { onPlayClick(it.contentId, null, null, null) }
-                                    ?: onPlayClick(detail.contentId, null, null, null)
+                                nextEpisode?.let {
+                                    onPlayClick(it.contentId, null, null, null, playbackResumePosition(it))
+                                } ?: onPlayClick(
+                                    detail.contentId,
+                                    null,
+                                    null,
+                                    null,
+                                    playbackResumePosition(detail.userData),
+                                )
                             },
-                            onEpisodePlayClick = { contentId ->
-                                onPlayClick(contentId, null, null, null)
+                            onEpisodePlayClick = { contentId, resumePositionSeconds ->
+                                onPlayClick(contentId, null, null, null, resumePositionSeconds)
                             },
                             onEpisodeDetailClick = onItemDetailClick,
                             onSeasonSelected = { viewModel.selectSeason(it) },
@@ -279,6 +287,7 @@ fun ItemDetailScreen(
                                     explicitFileId,
                                     explicitAudioIndex,
                                     explicitSubtitleIndex,
+                                    playbackResumePosition(detail.userData),
                                 )
                             },
                             onFavoriteClick = { viewModel.toggleFavorite() },

@@ -3,6 +3,7 @@ package com.continuum.app.android.ui.screens.player
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.continuum.app.common.downloads.DownloadEnqueuer
 import com.continuum.app.common.downloads.OfflineMediaResolver
 import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackSessionLifecycle
@@ -36,6 +37,7 @@ import com.continuum.app.model.subtitles.SubtitleResult
 import com.continuum.app.model.subtitles.SubtitleSearchRequest
 import com.continuum.app.model.subtitles.SubtitleTranslateRequest
 import com.continuum.app.network.ApiResult
+import com.continuum.app.network.ServerRegistry
 import com.continuum.app.network.errorMessage
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.PersonalDataRepository
@@ -74,6 +76,7 @@ class PlayerViewModel(
     private val personalDataRepository: PersonalDataRepository,
     private val capabilityDetector: PlaybackCapabilityDetector,
     private val offlineMediaResolver: OfflineMediaResolver,
+    private val serverRegistry: ServerRegistry,
     // Phase 1 Phase 0-infra dependencies:
     private val playerSettingsStore: PlayerSettingsStore,
     private val introAutoSkipController: IntroAutoSkipController,
@@ -1095,7 +1098,10 @@ class PlayerViewModel(
         resumePositionOverride: Double?,
     ): Boolean {
         val media = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val (serverId, profileId) = resolveDownloadScope()
             offlineMediaResolver.findLocalMedia(
+                serverId = serverId,
+                profileId = profileId,
                 contentId = contentId,
                 requestedFileId = preferredFileId,
             )
@@ -1181,5 +1187,11 @@ class PlayerViewModel(
                 playbackSessionManager.stopSession(sessionId)
             }
         }
+    }
+
+    private suspend fun resolveDownloadScope(): Pair<String, String> {
+        val serverId = serverRegistry.activeServerId.value ?: DownloadEnqueuer.DEFAULT_SERVER_ID
+        val profileId = profileRepository.getActiveProfileId() ?: DownloadEnqueuer.DEFAULT_PROFILE_ID
+        return serverId to profileId
     }
 }

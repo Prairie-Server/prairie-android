@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.common.settings.LibraryPlaybackPrefsStore
 import com.continuum.app.common.settings.PlayerSettingsStore
+import com.continuum.app.model.admin.shouldShowClientAdminSurface
 import com.continuum.app.model.auth.User
 import com.continuum.app.model.auth.isActingAdmin
 import com.continuum.app.model.notifications.NotificationPreferencesUpdate
@@ -65,8 +66,7 @@ class TvSettingsViewModel(
         // Notifications (in-app). The section is hidden entirely unless the
         // server reports in-app notifications are enabled AND preferences
         // load — so no toggles (least of all push) ever render otherwise.
-        // Admin dashboard row in Settings — true only for acting-admin
-        // (role == "admin" AND active profile is primary, or no profile resolved yet).
+        // Client admin is hidden for now even when the server would accept acting-admin.
         val adminVisible: Boolean = false,
         val notificationsVisible: Boolean = false,
         val notificationsEnabled: Boolean = true,
@@ -98,7 +98,7 @@ class TvSettingsViewModel(
                             user = r.data,
                             userLoading = false,
                             userError = null,
-                            adminVisible = isActingAdmin(r.data, profile),
+                            adminVisible = shouldShowClientAdminSurface(isActingAdmin(r.data, profile)),
                         )
                     }
                 }

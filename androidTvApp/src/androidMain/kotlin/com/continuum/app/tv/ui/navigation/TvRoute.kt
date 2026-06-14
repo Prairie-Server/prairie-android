@@ -169,8 +169,6 @@ sealed class TvMainRoute(val route: String) {
     data object Watchlist : TvMainRoute("main/watchlist")
     data object History : TvMainRoute("main/history")
 
-    /** Admin stats dashboard — reachable from Settings when acting-admin gate passes. */
-    data object Admin : TvMainRoute("main/admin")
 }
 
 private fun String.routeEncode(): String =

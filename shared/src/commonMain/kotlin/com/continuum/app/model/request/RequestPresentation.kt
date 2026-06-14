@@ -36,6 +36,8 @@ fun RequestMediaResult.badgeStatus(): String = when {
 fun String.requestDisplayLabel(): String = when (lowercase()) {
     RequestMediaType.Movie -> "Movie"
     RequestMediaType.Series -> "Series"
+    RequestMediaType.Audiobook -> "Audiobook"
+    RequestMediaType.Ebook -> "Ebook"
     RequestMediaType.All -> "All"
     RequestAvailability.Available -> "In Library"
     RequestAvailability.Missing -> "Missing"

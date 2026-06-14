@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -43,10 +42,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -55,6 +57,7 @@ import com.continuum.app.tv.R
 import com.continuum.app.tv.ui.components.TvAnimatedMeshBackground
 import com.continuum.app.tv.ui.components.TvHeroActionPill
 import com.continuum.app.tv.ui.components.TvPillVariant
+import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
 import com.continuum.app.tv.ui.theme.ElevatedSurface
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
@@ -180,12 +183,12 @@ private fun CredentialFormCard(
     ) {
         Text(
             text = "Sign in",
-            style = MaterialTheme.typography.headlineMedium,
+            style = TvLoginTextStyles.Title,
             color = MaterialTheme.colorScheme.onBackground,
         )
         Text(
             text = "Use the account from your Silo server.",
-            style = MaterialTheme.typography.bodyMedium,
+            style = TvLoginTextStyles.Body,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
@@ -199,6 +202,7 @@ private fun CredentialFormCard(
                 imeAction = ImeAction.Next,
             ),
             enabled = !state.isLoading,
+            textStyle = TvLoginTextStyles.Field,
             modifier = Modifier
                 .fillMaxWidth()
                 .bringIntoViewRequester(usernameBringIntoView)
@@ -206,17 +210,7 @@ private fun CredentialFormCard(
                     if (fs.isFocused) scope.launch { usernameBringIntoView.bringIntoView() }
                 }
                 .focusRequester(usernameFocus),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                focusedLabelColor = MaterialTheme.colorScheme.onBackground,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedBorderColor = Color.White.copy(alpha = 0.14f),
-                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                focusedContainerColor = Color.White.copy(alpha = 0.04f),
-                unfocusedContainerColor = Color.White.copy(alpha = 0.03f),
-                cursorColor = MaterialTheme.colorScheme.primary,
-            ),
+            colors = tvOutlinedTextFieldColors(),
         )
 
         OutlinedTextField(
@@ -240,29 +234,20 @@ private fun CredentialFormCard(
                 },
             ),
             enabled = !state.isLoading,
+            textStyle = TvLoginTextStyles.Field,
             modifier = Modifier
                 .fillMaxWidth()
                 .bringIntoViewRequester(passwordBringIntoView)
                 .onFocusEvent { fs ->
                     if (fs.isFocused) scope.launch { passwordBringIntoView.bringIntoView() }
                 },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                focusedLabelColor = MaterialTheme.colorScheme.onBackground,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedBorderColor = Color.White.copy(alpha = 0.14f),
-                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                focusedContainerColor = Color.White.copy(alpha = 0.04f),
-                unfocusedContainerColor = Color.White.copy(alpha = 0.03f),
-                cursorColor = MaterialTheme.colorScheme.primary,
-            ),
+            colors = tvOutlinedTextFieldColors(),
         )
 
         if (state.error != null) {
             Text(
                 text = state.error!!,
-                style = MaterialTheme.typography.bodyMedium,
+                style = TvLoginTextStyles.Error,
                 color = MaterialTheme.colorScheme.error,
             )
         }
@@ -278,10 +263,51 @@ private fun CredentialFormCard(
                 label = if (state.isLoading) "Signing in…" else "Sign In",
                 icon = Icons.AutoMirrored.Filled.Login,
                 variant = TvPillVariant.Filled,
+                heightOverride = 64.dp,
+                horizontalPaddingOverride = 38.dp,
+                labelStyle = TvLoginTextStyles.Button,
                 onClick = onLoginClick,
             )
         }
     }
+}
+
+private object TvLoginTextStyles {
+    val Title = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 30.sp,
+        lineHeight = 36.sp,
+        letterSpacing = 0.sp,
+    )
+
+    val Body = TextStyle(
+        fontWeight = FontWeight.Normal,
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp,
+    )
+
+    val Field = TextStyle(
+        fontWeight = FontWeight.Normal,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 0.sp,
+        color = Color.White,
+    )
+
+    val Error = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp,
+    )
+
+    val Button = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 20.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp,
+    )
 }
 
 /**

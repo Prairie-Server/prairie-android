@@ -103,8 +103,8 @@ fun TvOptionDialog(
                 Text(
                     text = title.uppercase(),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 12.sp,
-                        letterSpacing = 1.8.sp,
+                        fontSize = 16.sp,
+                        letterSpacing = 1.1.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White.copy(alpha = 0.58f),
@@ -224,8 +224,8 @@ private fun TvOptionDialogRow(
                     Text(
                         text = it,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 12.sp,
-                            lineHeight = 14.sp,
+                            fontSize = 16.sp,
+                            lineHeight = 20.sp,
                         ),
                         color = if (isFocused) {
                             FocusedContent.copy(alpha = 0.70f)

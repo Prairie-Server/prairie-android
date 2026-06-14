@@ -312,7 +312,7 @@ private fun ReaderSettingsSheet(
             Slider(
                 value = settings.textScale,
                 onValueChange = { onSettingsChange(settings.copy(textScale = it).normalized()) },
-                valueRange = 0.8f..1.6f,
+                valueRange = 0.6f..3.0f,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
         }

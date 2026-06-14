@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon as M3Icon
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,6 +48,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -63,6 +63,7 @@ import com.continuum.app.repository.RequestsRepository
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvFilterChip
 import com.continuum.app.tv.ui.components.TvLoadingScreen
+import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
 import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.ContinuumBlue
 import com.continuum.app.tv.ui.theme.ContinuumBlueBorderIdle
@@ -424,10 +425,21 @@ private fun RequestsHeader(
                 placeholder = {
                     androidx.compose.material3.Text(
                         text = "Search movies and series to request",
-                        color = Color.White.copy(alpha = 0.44f),
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 20.sp,
+                            lineHeight = 24.sp,
+                            letterSpacing = 0.sp,
+                        ),
+                        color = Color.White.copy(alpha = 0.56f),
                     )
                 },
                 singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 20.sp,
+                    lineHeight = 24.sp,
+                    letterSpacing = 0.sp,
+                    color = Color.White,
+                ),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Search,
@@ -443,19 +455,16 @@ private fun RequestsHeader(
                         }
                     },
                 ),
-                colors = OutlinedTextFieldDefaults.colors(
+                colors = tvOutlinedTextFieldColors(
                     focusedContainerColor = ElevatedSurface,
                     unfocusedContainerColor = ElevatedSurface,
-                    focusedTextColor = MaterialTheme.colorScheme.onBackground,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                    cursorColor = MaterialTheme.colorScheme.onBackground,
-                    focusedBorderColor = Color.White.copy(alpha = 0.18f),
+                    focusedBorderColor = Color.White.copy(alpha = 0.34f),
                     unfocusedBorderColor = ContinuumBlueBorderIdle,
                 ),
                 shape = RoundedCornerShape(18.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(62.dp)
                     .focusRequester(searchFieldFocusRequester)
                     .focusProperties { down = firstFilterChipFocusRequester },
             )

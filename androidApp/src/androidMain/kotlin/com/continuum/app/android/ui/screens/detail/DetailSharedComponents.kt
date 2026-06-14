@@ -64,6 +64,7 @@ import com.continuum.app.android.ui.theme.ContinuumOnSurface
 import com.continuum.app.android.ui.theme.ContinuumSecondaryText
 import com.continuum.app.android.ui.theme.ContinuumSurfaceElevated
 import com.continuum.app.android.ui.theme.PillShape
+import com.continuum.app.android.ui.util.playbackResumePosition
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.catalog.Season
@@ -782,16 +783,8 @@ fun computePlayLabel(
     if (detail.type == "series" && nextEpisodeLabel != null) {
         return "Play $nextEpisodeLabel"
     }
-    if (detail.type == "episode") {
-        val s = detail.seasonNumber
-        val e = detail.episodeNumber
-        if (s != null && e != null) {
-            return if (s == 0) "Play E$e" else "Play S$s·E$e"
-        }
-    }
-    val pos = detail.userData?.positionSeconds
-    val played = detail.userData?.played == true
-    if (pos != null && pos > 30 && !played) {
+    val pos = playbackResumePosition(detail.userData)
+    if (pos != null) {
         val totalSec = pos.toInt()
         val h = totalSec / 3600
         val m = (totalSec % 3600) / 60
@@ -800,6 +793,13 @@ fun computePlayLabel(
             "Resume %d:%02d:%02d".format(h, m, s)
         } else {
             "Resume %d:%02d".format(m, s)
+        }
+    }
+    if (detail.type == "episode") {
+        val s = detail.seasonNumber
+        val e = detail.episodeNumber
+        if (s != null && e != null) {
+            return if (s == 0) "Play E$e" else "Play S$s·E$e"
         }
     }
     return "Play"

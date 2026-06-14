@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.common.settings.LibraryPlaybackPrefsStore
 import com.continuum.app.common.settings.PlayerSettingsStore
+import com.continuum.app.model.admin.shouldShowClientAdminSurface
 import com.continuum.app.model.auth.AuthSession
 import com.continuum.app.model.auth.User
 import com.continuum.app.model.auth.isActingAdmin
@@ -50,8 +51,7 @@ data class SettingsUiState(
     val isLoadingSessions: Boolean = false,
     val showSessions: Boolean = false,
     val loggedOut: Boolean = false,
-    // Whether the acting user (admin role + primary active profile) may see the
-    // Admin entry. Mirrors the server's RequireActingAdmin gate.
+    // Client admin is hidden for now even when the server would accept acting-admin.
     val isAdminVisible: Boolean = false,
 
     // Appearance
@@ -125,14 +125,16 @@ class SettingsViewModel(
                             subtitleLanguage = profile.subtitleLanguage?.ifBlank { "Off" } ?: "Off",
                             subtitleMode = subtitleModeFromServer(profile.subtitleMode),
                             showForcedSubtitles = profile.showForcedSubtitles ?: true,
-                            isAdminVisible = isActingAdmin(it.user, profile),
+                            isAdminVisible = shouldShowClientAdminSurface(isActingAdmin(it.user, profile)),
                         )
                     }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> {
                     // Active profile unresolved — fall back to the user role
                     // only (a null profile does not block an admin per the gate).
-                    _uiState.update { it.copy(isAdminVisible = isActingAdmin(it.user, null)) }
+                    _uiState.update {
+                        it.copy(isAdminVisible = shouldShowClientAdminSurface(isActingAdmin(it.user, null)))
+                    }
                 }
             }
         }

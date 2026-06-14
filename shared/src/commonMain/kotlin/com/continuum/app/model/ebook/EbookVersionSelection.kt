@@ -46,7 +46,7 @@ fun FileVersion.ebookFormatKey(): String? {
     if (containerKey != null) return containerKey
 
     val name = fileName?.lowercase().orEmpty()
-    if (name.endsWith(".fb2.zip")) return "fb2"
+    if (name.endsWith(".fb2.zip")) return "fbz"
     return name.substringAfterLast('.', missingDelimiterValue = "")
         .takeIf { it in supportedEbookExtensions }
         ?.normalizedEbookFormatKey()

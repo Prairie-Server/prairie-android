@@ -13,6 +13,8 @@ import com.continuum.app.model.audiobook.AudiobookBookmark
 import com.continuum.app.model.catalog.VersionChapter
 import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlaybackSessionResponse
+import com.continuum.app.model.playback.resolvePlaybackStartPosition
+import com.continuum.app.model.playback.resolvePlaybackStartRequestPosition
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.ServerRegistry
 import com.continuum.app.repository.CatalogRepository
@@ -208,7 +210,15 @@ class AudiobookPlayerViewModel(
                     } else {
                         loadResumePositionSnapshot(d.userData?.positionSeconds)
                     }
+                    val explicitStartOverride = if (startFromBeginning) 0.0 else null
+                    val requestStartPosition = resolvePlaybackStartRequestPosition(
+                        overridePosition = explicitStartOverride,
+                        detailPosition = resumePosition,
+                    )
+                    val (downloadServerId, downloadProfileId) = resolveScope()
                     val offlineMedia = offlineMediaResolver.findLocalMedia(
+                        serverId = downloadServerId,
+                        profileId = downloadProfileId,
                         contentId = d.contentId,
                         requestedFileId = selectedVersion.fileId,
                         allowFallback = !hasRequestedFileId,
@@ -259,11 +269,15 @@ class AudiobookPlayerViewModel(
                         fileId = selectedVersion.fileId,
                         profileId = profileId,
                         capabilities = capabilities,
-                        startPosition = resumePosition ?: 0.0,
+                        startPosition = requestStartPosition,
                     )) {
                         is ApiResult.Success -> applySession(
                             session = playback.data,
-                            seekSeconds = resumePosition ?: 0.0,
+                            seekSeconds = resolvePlaybackStartPosition(
+                                overridePosition = explicitStartOverride,
+                                sessionPosition = playback.data.position,
+                                detailPosition = resumePosition,
+                            ),
                         )
                         is ApiResult.Error -> _uiState.update {
                             it.copy(
@@ -311,6 +325,8 @@ class AudiobookPlayerViewModel(
         // Compose layer hands them straight to Media3, so they must be
         // absolute here or OkHttp fails the open with "Malformed URL".
         val serverUrl = playbackSessionManager.getServerUrl()
+        val resolvedStartPosition = seekSeconds.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+        _resumePosition.value = resolvedStartPosition.takeIf { it > 0.0 }
         if (session.playMethod == PlayMethod.TRANSCODE || session.playMethod == PlayMethod.REMUX) {
             val mode = if (session.playMethod == PlayMethod.REMUX) {
                 PlaybackSessionManager.TranscodeMode.REMUX
@@ -319,7 +335,7 @@ class AudiobookPlayerViewModel(
             }
             when (val r = playbackSessionManager.startTranscodeFallback(
                 session = session,
-                seekSeconds = seekSeconds,
+                seekSeconds = resolvedStartPosition,
                 resolution = "",
                 mode = mode,
             )) {
@@ -327,6 +343,7 @@ class AudiobookPlayerViewModel(
                     it.copy(
                         streamUrl = resolvePlaybackStreamUrl(serverUrl, r.data.streamUrl),
                         sessionId = r.data.sessionId,
+                        positionSeconds = resolvedStartPosition,
                         error = null,
                     )
                 }
@@ -354,6 +371,7 @@ class AudiobookPlayerViewModel(
                 it.copy(
                     streamUrl = resolvePlaybackStreamUrl(serverUrl, session.streamUrl),
                     sessionId = session.sessionId,
+                    positionSeconds = resolvedStartPosition,
                     error = null,
                 )
             }
@@ -361,7 +379,10 @@ class AudiobookPlayerViewModel(
     }
 
     private suspend fun loadOfflineOnly(error: String?) {
+        val (serverId, profileId) = resolveScope()
         val media = offlineMediaResolver.findLocalMedia(
+            serverId = serverId,
+            profileId = profileId,
             contentId = contentId,
             requestedFileId = requestedFileId,
             allowFallback = !hasRequestedFileId,

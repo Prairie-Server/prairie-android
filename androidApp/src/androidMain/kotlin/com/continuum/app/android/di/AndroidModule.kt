@@ -157,6 +157,7 @@ val androidModule = module {
             personalDataRepository = get(),
             capabilityDetector = get(),
             offlineMediaResolver = get(),
+            serverRegistry = get(),
             playerSettingsStore = get(),
             introAutoSkipController = get(),
             sessionLifecycle = get(),

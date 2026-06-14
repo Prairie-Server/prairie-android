@@ -21,7 +21,7 @@ class OfflineMediaResolverTest {
         storage.prepareWrite("srv1", "profA", 42, fileName = "Novel.epub").writeTargetBytes(ByteArray(10))
         storage.writeSidecar("srv1", "profA", sidecar(42, contentId = "book-1", fileName = "Novel.epub"))
 
-        val media = OfflineMediaResolver(storage).findLocalMedia("book-1", requestedFileId = 42)
+        val media = OfflineMediaResolver(storage).findLocalMedia("srv1", "profA", "book-1", requestedFileId = 42)
 
         assertEquals("srv1", media?.serverId)
         assertEquals("profA", media?.profileId)
@@ -40,7 +40,7 @@ class OfflineMediaResolverTest {
             sidecar(42, contentId = "book-1", status = "downloading", fileName = "Novel.epub"),
         )
 
-        assertNull(OfflineMediaResolver(storage).findLocalMedia("book-1", requestedFileId = 42))
+        assertNull(OfflineMediaResolver(storage).findLocalMedia("srv1", "profA", "book-1", requestedFileId = 42))
     }
 
     @Test
@@ -51,11 +51,32 @@ class OfflineMediaResolverTest {
 
         assertNull(
             OfflineMediaResolver(storage).findLocalMedia(
+                serverId = "srv1",
+                profileId = "profA",
                 contentId = "book-1",
                 requestedFileId = 2,
                 allowFallback = false,
             ),
         )
+    }
+
+    @Test
+    fun `findLocalMedia stays inside the requested server profile scope`() {
+        val storage = newStorage()
+        storage.prepareWrite("srv1", "profA", 42, fileName = "Wrong.epub").writeTargetBytes(ByteArray(10))
+        storage.writeSidecar("srv1", "profA", sidecar(42, contentId = "book-1", fileName = "Wrong.epub"))
+        storage.prepareWrite("srv1", "profB", 42, fileName = "Right.epub").writeTargetBytes(ByteArray(10))
+        storage.writeSidecar("srv1", "profB", sidecar(42, contentId = "book-1", fileName = "Right.epub"))
+
+        val media = OfflineMediaResolver(storage).findLocalMedia(
+            serverId = "srv1",
+            profileId = "profB",
+            contentId = "book-1",
+            requestedFileId = 42,
+        )
+
+        assertEquals("profB", media?.profileId)
+        assertEquals("Right.epub", media?.displayName)
     }
 
     private fun sidecar(

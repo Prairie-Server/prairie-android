@@ -103,8 +103,8 @@ fun TvRatingDialog(
                 Text(
                     text = "RATE THIS TITLE",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 12.sp,
-                        letterSpacing = 1.8.sp,
+                        fontSize = 16.sp,
+                        letterSpacing = 1.1.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White.copy(alpha = 0.58f),

@@ -192,7 +192,7 @@ class DownloadsViewModel(
     init {
         viewModelScope.launch {
             // Bootstrap: backfill + initial sidecar read.
-            withContext(Dispatchers.IO) { reloadSidecarMetadata() }
+            reloadSidecarMetadata()
             val seeded = metadataByRecordId.values.toList()
             repository.seedFromSidecars(seeded.map { it.record })
 
@@ -209,7 +209,8 @@ class DownloadsViewModel(
                     if (records.any { it.id !in metadataByRecordId }) {
                         reloadSidecarMetadata()
                     }
-                    records.toSections() to storage.totalBytesUsed()
+                    val (serverId, profileId) = activeDownloadScope()
+                    records.toSections() to storage.totalBytesUsed(serverId, profileId)
                 }
                 _uiState.update {
                     it.copy(
@@ -228,7 +229,7 @@ class DownloadsViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { reloadSidecarMetadata() }
+            reloadSidecarMetadata()
             val keep = metadataByRecordId.keys
             when (val r = repository.refresh(keepIdsAbsentFromServer = keep)) {
                 is ApiResult.Success -> _uiState.update { it.copy(error = null) }
@@ -264,10 +265,7 @@ class DownloadsViewModel(
 
     private suspend fun removeRecords(ids: List<String>) {
         if (ids.isEmpty()) return
-        val serverId = serverRegistry.activeServerId.value ?: DownloadEnqueuer.DEFAULT_SERVER_ID
-        val profileId = withContext(Dispatchers.IO) {
-            profileRepository.getActiveProfileId()
-        } ?: DownloadEnqueuer.DEFAULT_PROFILE_ID
+        val activeScope = activeDownloadScope()
 
         var firstError: String? = null
         for (id in ids) {
@@ -308,6 +306,7 @@ class DownloadsViewModel(
             }
 
             if (fileId != null) {
+                val (serverId, profileId) = scopeByFileId[fileId] ?: activeScope
                 withContext(Dispatchers.IO) {
                     storage.delete(serverId, profileId, fileId)
                     storage.deleteSidecar(serverId, profileId, fileId)
@@ -316,7 +315,8 @@ class DownloadsViewModel(
             }
             metadataByRecordId = metadataByRecordId - id
         }
-        val bytesUsed = withContext(Dispatchers.IO) { storage.totalBytesUsed() }
+        val (serverId, profileId) = activeDownloadScope()
+        val bytesUsed = withContext(Dispatchers.IO) { storage.totalBytesUsed(serverId, profileId) }
         _uiState.update {
             it.copy(
                 error = firstError,
@@ -326,12 +326,26 @@ class DownloadsViewModel(
     }
 
     /** One filesystem walk loads both lookup maps. Call on Dispatchers.IO. */
-    private fun reloadSidecarMetadata() {
-        val scoped = runCatching { storage.listAllSidecarsWithScope() }.getOrElse { emptyList() }
+    private suspend fun reloadSidecarMetadata() {
+        val (activeServerId, activeProfileId) = activeDownloadScope()
+        val scoped = withContext(Dispatchers.IO) {
+            runCatching { storage.listAllSidecarsWithScope() }.getOrElse { emptyList() }
+                .filter { (serverId, profileId, _) ->
+                    serverId == activeServerId && profileId == activeProfileId
+                }
+        }
         metadataByRecordId = scoped.associate { (_, _, sidecar) -> sidecar.record.id to sidecar }
         scopeByFileId = scoped.associate { (serverId, profileId, sidecar) ->
             sidecar.record.mediaFileId to (serverId to profileId)
         }
+    }
+
+    private suspend fun activeDownloadScope(): Pair<String, String> {
+        val serverId = serverRegistry.activeServerId.value ?: DownloadEnqueuer.DEFAULT_SERVER_ID
+        val profileId = withContext(Dispatchers.IO) {
+            profileRepository.getActiveProfileId()
+        } ?: DownloadEnqueuer.DEFAULT_PROFILE_ID
+        return serverId to profileId
     }
 
     companion object {

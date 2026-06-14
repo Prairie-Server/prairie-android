@@ -21,11 +21,13 @@ data class OfflineMedia(
 class OfflineMediaResolver(private val storage: DownloadStorage) {
 
     fun findLocalMedia(
+        serverId: String,
+        profileId: String,
         contentId: String,
         requestedFileId: Int?,
         allowFallback: Boolean = true,
     ): OfflineMedia? {
-        val candidates = storage.listAllSidecars()
+        val candidates = storage.listSidecars(serverId, profileId)
             .filter { sidecar ->
                 sidecar.record.contentId == contentId &&
                     sidecar.record.statusEnum() == DownloadStatus.Completed
@@ -41,8 +43,8 @@ class OfflineMediaResolver(private val storage: DownloadStorage) {
 
         for (sidecar in candidates) {
             val fileId = sidecar.record.mediaFileId
-            val located = storage.locateSidecarByFileId(fileId) ?: continue
-            val (serverId, profileId, locatedSidecar) = located
+            val located = storage.locateSidecarByFileId(serverId, profileId, fileId) ?: continue
+            val (_, _, locatedSidecar) = located
             if (locatedSidecar.record.contentId != contentId) continue
             val media = storage.locateLocalMedia(serverId, profileId, fileId) ?: continue
             return OfflineMedia(

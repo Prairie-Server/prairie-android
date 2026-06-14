@@ -6,6 +6,8 @@ import kotlinx.serialization.Serializable
 object RequestMediaType {
     const val Movie = "movie"
     const val Series = "series"
+    const val Audiobook = "audiobook"
+    const val Ebook = "ebook"
     const val All = "all"
 }
 

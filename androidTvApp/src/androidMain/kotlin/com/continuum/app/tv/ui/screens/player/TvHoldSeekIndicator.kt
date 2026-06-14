@@ -93,7 +93,7 @@ fun TvHoldSeekIndicator(
                     Text(
                         text = formatTime(previewTimeSec, durationSec),
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = 18.sp,
                         fontFamily = FontFamily.Monospace,
                     )
                 }
@@ -101,7 +101,7 @@ fun TvHoldSeekIndicator(
                 Text(
                     text = "← → speed  ·  ◉ play  ·  ↩ cancel",
                     color = Color.White.copy(alpha = 0.60f),
-                    fontSize = 11.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                 )
             }

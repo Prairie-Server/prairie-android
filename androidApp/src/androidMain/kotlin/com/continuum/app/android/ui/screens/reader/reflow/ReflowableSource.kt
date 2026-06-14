@@ -44,19 +44,19 @@ suspend fun buildReflowableSource(format: BookFormat, file: File): ReflowableSou
     withContext(Dispatchers.IO) {
         when (format) {
             BookFormat.Epub -> EpubReflowSource(EpubBook.open(file, file.parentFile ?: file))
-            BookFormat.Fb2 -> Fb2ReflowSource.fromXml(file.readText())
-            BookFormat.Fbz -> Fb2ReflowSource.fromXml(readFb2FromZip(file))
+            BookFormat.Fb2 -> file.inputStream().use { Fb2ReflowSource.fromInputStream(it) }
+            BookFormat.Fbz -> readFb2FromZip(file)
             BookFormat.Markdown -> MarkdownReflowSource(file.readText())
             BookFormat.Txt -> PlainTextReflowSource(file.readText())
             else -> error("unsupported reflow format $format")
         }
     }
 
-/** Reads the first `.fb2` entry from an FBZ (zip) archive as UTF-8 text. */
-private fun readFb2FromZip(file: File): String =
+/** Reads the first `.fb2` entry from an FBZ (zip) archive using XML encoding sniffing. */
+private fun readFb2FromZip(file: File): Fb2ReflowSource =
     ZipFile(file).use { zip ->
         val entry =
             zip.entries().asSequence().firstOrNull { it.name.endsWith(".fb2", ignoreCase = true) }
                 ?: error("FBZ archive contains no .fb2 entry")
-        zip.getInputStream(entry).use { it.readBytes().toString(Charsets.UTF_8) }
+        zip.getInputStream(entry).use { Fb2ReflowSource.fromInputStream(it) }
     }

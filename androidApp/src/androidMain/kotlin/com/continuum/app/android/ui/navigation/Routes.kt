@@ -128,6 +128,7 @@ sealed class Route(val route: String) {
         val fileId: Int? = null,
         val audioTrackIndex: Int? = null,
         val subtitleTrackIndex: Int? = null,
+        val resumePositionSeconds: Double? = null,
         val roomId: String? = null,
     ) : Route(
         buildString {
@@ -136,6 +137,9 @@ sealed class Route(val route: String) {
                 fileId?.let { "fileId=$it" },
                 audioTrackIndex?.let { "audioTrackIndex=$it" },
                 subtitleTrackIndex?.let { "subtitleTrackIndex=$it" },
+                resumePositionSeconds
+                    ?.takeIf { it.isFinite() && it >= 0.0 }
+                    ?.let { "resumePosition=$it" },
                 roomId?.takeIf { it.isNotBlank() }?.let { "roomId=${Uri.encode(it)}" },
             )
             if (queryParams.isNotEmpty()) {
@@ -146,7 +150,7 @@ sealed class Route(val route: String) {
     ) {
         companion object {
             const val ROUTE =
-                "player/{contentId}?fileId={fileId}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}&roomId={roomId}"
+                "player/{contentId}?fileId={fileId}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}&resumePosition={resumePosition}&roomId={roomId}"
         }
     }
 
@@ -194,30 +198,6 @@ sealed class Route(val route: String) {
 
     // --- Notifications ---
     data object Inbox : Route("inbox")
-
-    // --- Admin (acting-admin gated) ---
-    data object Admin : Route("admin")
-    data object AdminStats : Route("admin/stats")
-    data object AdminUsers : Route("admin/users")
-
-    /**
-     * Create (userId == null) and edit (userId set) form for an admin user.
-     * Mirrors [EditProfile]: data-class constructor builds the resolved route,
-     * the companion holds the placeholder pattern for NavHost.
-     */
-    data class AdminUserEdit(val userId: Int? = null) : Route(
-        if (userId != null) "admin/users/$userId/edit" else "admin/users/create",
-    ) {
-        companion object {
-            const val ROUTE = "admin/users/{userId}/edit"
-            const val CREATE_ROUTE = "admin/users/create"
-            const val ARG_USER_ID = "userId"
-        }
-    }
-
-    data object AdminSessions : Route("admin/sessions")
-    data object AdminLogs : Route("admin/logs")
-    data object AdminScans : Route("admin/scans")
 
     // --- Personal data ---
     data object Favorites : Route("favorites")

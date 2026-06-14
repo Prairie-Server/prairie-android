@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.continuum.app.android.ui.util.LanguageNames
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SleepTimerState
@@ -134,6 +135,7 @@ fun PlayerOverlay(
             onSeek = gatedSeek,
             onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
             onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+            modifier = Modifier.zIndex(0f),
         )
 
         // Buffering indicator. Shown during ExoPlayer buffering AND during outage
@@ -209,7 +211,9 @@ fun PlayerOverlay(
             visible = state.showControls,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(1f),
         ) {
             PlayerControls(
                 title = state.title,
@@ -246,8 +250,9 @@ fun PlayerOverlay(
         // Intro auto-skip banner (Hidden / ShowingButton / CountingDown)
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 120.dp, end = 24.dp),
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 120.dp, end = 24.dp)
+                .zIndex(2f),
             contentAlignment = Alignment.BottomEnd,
         ) {
             IntroAutoSkipBanner(
@@ -264,7 +269,8 @@ fun PlayerOverlay(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 120.dp, end = 24.dp),
+                .padding(bottom = 120.dp, end = 24.dp)
+                .zIndex(2f),
         ) {
             Button(
                 onClick = onNextEpisode,
@@ -287,7 +293,8 @@ fun PlayerOverlay(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 16.dp),
+                .padding(top = 16.dp, end = 16.dp)
+                .zIndex(2f),
         ) {
             val active = sleepTimerState as? SleepTimerState.Active
             if (active != null) {
@@ -483,4 +490,3 @@ private fun SleepTimerChip(remainingSeconds: Int) {
         )
     }
 }
-

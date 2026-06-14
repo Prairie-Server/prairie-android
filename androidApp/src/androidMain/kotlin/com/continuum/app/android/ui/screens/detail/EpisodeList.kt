@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.continuum.app.android.ui.util.playbackResumePosition
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.EpisodeListItem
 
@@ -47,7 +48,7 @@ import com.continuum.app.model.catalog.EpisodeListItem
 @Composable
 fun EpisodeList(
     episodes: List<EpisodeListItem>,
-    onEpisodePlayClick: (String) -> Unit,
+    onEpisodePlayClick: (String, Double?) -> Unit,
     onEpisodeDetailClick: (String) -> Unit,
     onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -59,7 +60,7 @@ fun EpisodeList(
         episodes.forEach { episode ->
             EpisodeRow(
                 episode = episode,
-                onPlayClick = { onEpisodePlayClick(episode.contentId) },
+                onPlayClick = { onEpisodePlayClick(episode.contentId, playbackResumePosition(episode)) },
                 onDetailClick = { onEpisodeDetailClick(episode.contentId) },
                 onDownloadClick = onEpisodeDownloadClick?.let { cb -> { cb(episode) } },
             )

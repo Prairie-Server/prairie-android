@@ -115,7 +115,10 @@ class ReaderViewModel(
                         }
                         return@launch
                     }
+                    val (serverId, profileId) = resolveScope()
                     val offlineMedia = offlineMediaResolver.findLocalMedia(
+                        serverId = serverId,
+                        profileId = profileId,
                         contentId = d.contentId,
                         requestedFileId = version.fileId,
                         allowFallback = requestedFileId == null,
@@ -151,7 +154,10 @@ class ReaderViewModel(
     }
 
     private suspend fun loadOfflineOnly(error: String?) {
+        val (serverId, profileId) = resolveScope()
         val media = offlineMediaResolver.findLocalMedia(
+            serverId = serverId,
+            profileId = profileId,
             contentId = contentId,
             requestedFileId = requestedFileId,
             allowFallback = requestedFileId == null,

@@ -31,7 +31,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import org.koin.compose.koinInject
-import kotlin.math.roundToInt
 
 /**
  * Orchestrates a reflowable-reader session: resolves the source file, builds a
@@ -116,6 +115,9 @@ fun ReflowableReader(
     var pendingPageProgression by remember(source) {
         mutableStateOf(ReflowLocatorCodec.decode(initialLocator)?.pageProgression ?: 0.0)
     }
+    var relocationGate by remember(source) {
+        mutableStateOf(ReflowInitialRelocationGate(pendingPageProgression))
+    }
     var pageCount by remember(source) { mutableStateOf(1) }
     var page by remember(source) { mutableStateOf(0) }
     var controller by remember(source) { mutableStateOf<ReflowController?>(null) }
@@ -142,6 +144,7 @@ fun ReflowableReader(
             ReflowLocatorCodec.decode(jumpToLocation)?.let {
                 sectionIndex = it.sectionIndex
                 pendingPageProgression = it.pageProgression
+                relocationGate = ReflowInitialRelocationGate(it.pageProgression)
             }
             onJumpConsumed()
         }
@@ -157,6 +160,7 @@ fun ReflowableReader(
             controller?.goToPage(page + 1)
         } else if (sectionIndex < source.sections.lastIndex) {
             pendingPageProgression = 0.0
+            relocationGate = ReflowInitialRelocationGate(0.0)
             sectionIndex++
         }
     }
@@ -165,6 +169,7 @@ fun ReflowableReader(
             controller?.goToPage(page - 1)
         } else if (sectionIndex > 0) {
             pendingPageProgression = 1.0
+            relocationGate = ReflowInitialRelocationGate(1.0)
             sectionIndex--
         }
     }
@@ -195,12 +200,13 @@ fun ReflowableReader(
                 when (ev) {
                     is ReflowEvent.Paginated -> {
                         pageCount = ev.pageCount.coerceAtLeast(1)
-                        val target = (pendingPageProgression * (pageCount - 1)).roundToInt()
+                        val target = relocationGate.onPaginated(pageCount)
                         controller?.goToPage(target)
                         pendingPageProgression = 0.0
                     }
                     is ReflowEvent.Relocated -> {
                         page = ev.page
+                        if (!relocationGate.shouldPersistRelocation(ev.page)) return@ReflowWebView
                         val bp = weights.bookProgression(sectionIndex, ev.pageProgression)
                         onLocatorChanged(
                             ReflowLocatorCodec.encode(

@@ -59,13 +59,15 @@ class ContinuumPlayerFactory(
         serverUrlProvider = { serverUrl },
     )
 
+    private val subtitleParserFactory = OffsetSubtitleParserFactory(subtitleOffsetHolder)
+
     private val extractorsFactory = DefaultExtractorsFactory()
         // Media3 1.10 expects parsed cue samples by default. Forcing raw
         // subtitle payloads here makes SRT/ASS tracks crash the text renderer
         // on Android TV with "Legacy decoding is disabled". The offset wrapper
         // delegates to DefaultSubtitleParserFactory and shifts cue start times
         // by the per-profile subtitle-sync value (A.3f).
-        .setSubtitleParserFactory(OffsetSubtitleParserFactory(subtitleOffsetHolder))
+        .setSubtitleParserFactory(subtitleParserFactory)
 
     fun createPlayer(
         preferFfmpegAudio: Boolean = BuildConfig.FFMPEG_AUDIO_ENABLED,
@@ -123,19 +125,20 @@ class ContinuumPlayerFactory(
 
         val mediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
             .setDataSourceFactory(dataSourceFactory)
+            .setSubtitleParserFactory(subtitleParserFactory)
 
-        // 4K HDR bitrates can chew through default buffers on the first
-        // few segments — 60 s min / 120 s max gives headroom, and
-        // prioritizing time over size keeps the pre-buffer bounded when
-        // the network briefly spikes.
+        // Staged buffer: start once a modest cushion is ready, wait longer
+        // after an actual stall, and let playback grow a deeper forward
+        // buffer in the background without bypassing Media3's byte caps.
+        val bufferPolicy = PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 60_000,
-                /* maxBufferMs = */ 120_000,
-                /* bufferForPlaybackMs = */ 2_500,
-                /* bufferForPlaybackAfterRebufferMs = */ 5_000,
+                /* minBufferMs = */ bufferPolicy.minBufferMs,
+                /* maxBufferMs = */ bufferPolicy.maxBufferMs,
+                /* bufferForPlaybackMs = */ bufferPolicy.bufferForPlaybackMs,
+                /* bufferForPlaybackAfterRebufferMs = */ bufferPolicy.bufferForPlaybackAfterRebufferMs,
             )
-            .setPrioritizeTimeOverSizeThresholds(true)
+            .setPrioritizeTimeOverSizeThresholds(bufferPolicy.prioritizeTimeOverSizeThresholds)
             .build()
 
         val builder = ExoPlayer.Builder(context, renderersFactory)
@@ -256,8 +259,9 @@ class ContinuumPlayerFactory(
  * Resolves a server stream URL to an absolute, loadable URL.
  *
  * Already-absolute URLs (`http`/`https`) and local offline URIs
- * (`file`/`content`) are returned unchanged; a server-relative path is
- * prefixed with the server base URL and the `/api/v1` mount.
+ * (`file`/`content`) are returned unchanged. API-relative URLs are only
+ * prefixed with the server base URL; stream-relative paths are prefixed with
+ * the server base URL and the `/api/v1` mount.
  *
  * Shared by [ContinuumPlayerFactory] (video) and the audiobook player so both
  * resolve identically. Players that hand a relative URI straight to Media3 hit
@@ -271,6 +275,7 @@ fun resolvePlaybackStreamUrl(serverUrl: String, streamUrl: String): String {
             streamUrl.startsWith("https://") ||
             streamUrl.startsWith("file://") ||
             streamUrl.startsWith("content://") -> streamUrl // Already absolute / local offline: nothing to prefix.
+        streamUrl.startsWith("/api/") -> "$base$streamUrl"
         else -> "$base/api/v1$streamUrl"
     }
 }

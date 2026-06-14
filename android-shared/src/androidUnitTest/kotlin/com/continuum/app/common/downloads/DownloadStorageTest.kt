@@ -129,6 +129,19 @@ class DownloadStorageTest {
     }
 
     @Test
+    fun `locateLocalMedia falls back to file id when sidecar uri is stale`() {
+        val storage = newStorage()
+        storage.prepareWrite("srv1", "profA", 42, fileName = "Recovered.epub").writeTargetBytes(ByteArray(10))
+        storage.writeSidecar(
+            "srv1",
+            "profA",
+            stubSidecar(42).copy(localUri = "file://${tmp.root}/missing.epub"),
+        )
+
+        assertEquals("Recovered.epub", storage.locateLocalMedia("srv1", "profA", 42)?.displayName)
+    }
+
+    @Test
     fun `delete removes only the targeted file`() {
         val storage = newStorage()
         storage.prepareWrite("srv1", "profA", 1).writeTargetBytes(ByteArray(10))
@@ -174,6 +187,16 @@ class DownloadStorageTest {
         storage.prepareWrite("srv1", "profB", 2).writeTargetBytes(ByteArray(250))
         storage.prepareWrite("srv2", "profA", 3).writeTargetBytes(ByteArray(50))
         assertEquals(400L, storage.totalBytesUsed())
+    }
+
+    @Test
+    fun `scoped totalBytesUsed sums only one server profile`() {
+        val storage = newStorage()
+        storage.prepareWrite("srv1", "profA", 1).writeTargetBytes(ByteArray(100))
+        storage.prepareWrite("srv1", "profB", 2).writeTargetBytes(ByteArray(250))
+        storage.prepareWrite("srv2", "profA", 3).writeTargetBytes(ByteArray(50))
+
+        assertEquals(100L, storage.totalBytesUsed("srv1", "profA"))
     }
 
     @Test
@@ -252,6 +275,40 @@ class DownloadStorageTest {
         assertEquals(
             storage.listAllSidecarsWithScope().map { it.third }.toSet(),
             storage.listAllSidecars().toSet(),
+        )
+    }
+
+    @Test
+    fun `listSidecars returns only the requested server profile scope`() {
+        val storage = newStorage()
+        storage.writeSidecar("srv1", "profA", stubSidecar(1))
+        storage.writeSidecar("srv1", "profB", stubSidecar(2))
+        storage.writeSidecar("srv2", "profA", stubSidecar(3))
+
+        assertEquals(
+            listOf(1),
+            storage.listSidecars("srv1", "profA").map { it.record.mediaFileId },
+        )
+    }
+
+    @Test
+    fun `scoped sidecar lookup does not return same file id from another profile`() {
+        val storage = newStorage()
+        storage.writeSidecar("srv1", "profA", stubSidecar(7, contentId = "wrong"))
+        storage.writeSidecar("srv1", "profB", stubSidecar(7, contentId = "right"))
+
+        assertEquals(
+            "right",
+            storage.locateSidecarByFileId("srv1", "profB", 7)?.third?.record?.contentId,
+        )
+        assertNull(storage.locateSidecarByFileId("srv2", "profB", 7))
+    }
+
+    @Test
+    fun `media store relative path includes the file id directory`() {
+        assertEquals(
+            "Downloads/Silo/srv1/profA/42/",
+            mediaStoreRelativePath(PublicDownloadCollection.Downloads, "srv1", "profA", 42),
         )
     }
 

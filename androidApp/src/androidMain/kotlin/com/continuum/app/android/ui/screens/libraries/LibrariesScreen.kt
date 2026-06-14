@@ -471,7 +471,7 @@ private const val ChromeFadeDistanceDp = 80f
 @Composable
 fun LibrariesScreen(
     onItemClick: (String) -> Unit,
-    onPlayClick: (String) -> Unit,
+    onPlayClick: (String, Double?) -> Unit,
     onCollectionClick: (String, Int) -> Unit,
     viewModel: LibrariesViewModel,
     activeProfile: Profile?,
@@ -622,7 +622,7 @@ private fun RecommendedTabContent(
     state: LibrariesUiState,
     listState: androidx.compose.foundation.lazy.LazyListState,
     onItemClick: (String) -> Unit,
-    onPlayClick: (String) -> Unit,
+    onPlayClick: (String, Double?) -> Unit,
     onRetry: () -> Unit,
     onSeeAllClick: () -> Unit,
     onActiveBackdropChange: (url: String?, thumbhash: String?) -> Unit,

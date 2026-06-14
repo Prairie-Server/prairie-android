@@ -21,13 +21,11 @@ const val SUBTITLE_SOURCE_DOWNLOADED = "downloaded"
  *    since server-side burn-in skipping can leave index gaps — starting at 0
  *    when there are no remaining tracks
  *  - label is `"${release_name} (${provider})"`, codec is the stored format
- *  - the track URL is the web's `/stream/{sessionId}/subtitles/{index}` path
- *    under `/api/v1` (web/src/player/stream-url.ts `buildPlayerStreamUrl`
- *    with apiBaseUrl "/api/v1"), absolutized against [serverUrl] because the
- *    Android player is not same-origin. Unlike the web, no `?token=` query is
- *    appended: the player's OkHttp stack injects Authorization headers via
- *    MediaAuthInterceptor, and SubtitleManager.resolveUrl passes absolute
- *    URLs through untouched.
+ *  - the track URL mirrors the playback API's own delivery-format extension:
+ *    ASS/SSA stays raw, PGS stays `.sup`, and other text subtitles are served
+ *    as WebVTT. Android resolves it through the same `/api/v1` stream mount as
+ *    server-provided subtitle URLs and injects Authorization headers through
+ *    MediaAuthInterceptor.
  *
  * Existing tracks keep their list positions, so the players' position-based
  * text-track selection (SubtitleManager.selectSubtitle) survives the merge.
@@ -35,6 +33,7 @@ const val SUBTITLE_SOURCE_DOWNLOADED = "downloaded"
  * `mergedSize - downloaded.size + downloaded.indexOfFirst { it.id == id }`,
  * which is what auto-select-after-download callers rely on.
  */
+@Suppress("UNUSED_PARAMETER")
 fun mergeDownloadedSubtitles(
     existing: List<PlayerSubtitleInfo>,
     downloaded: List<DownloadedSubtitle>,
@@ -45,8 +44,6 @@ fun mergeDownloadedSubtitles(
 
     val base = existing.filter { it.source != SUBTITLE_SOURCE_DOWNLOADED }
     val baseIndex = (base.maxOfOrNull { it.index } ?: -1) + 1
-    val apiBase = serverUrl.trimEnd('/') + "/api/v1"
-
     val newTracks = downloaded.mapIndexed { i, dl ->
         val index = baseIndex + i
         PlayerSubtitleInfo(
@@ -56,9 +53,17 @@ fun mergeDownloadedSubtitles(
             label = "${dl.releaseName} (${dl.provider})",
             source = SUBTITLE_SOURCE_DOWNLOADED,
             forced = null,
-            url = "$apiBase/stream/$sessionId/subtitles/$index",
+            url = "/stream/$sessionId/subtitles/$index${subtitleUrlExtension(dl.format)}",
         )
     }
 
     return base + newTracks
+}
+
+private fun subtitleUrlExtension(format: String): String {
+    return when (format.trim().lowercase()) {
+        "ass", "ssa" -> ".ass"
+        "pgs", "hdmv_pgs_subtitle" -> ".sup"
+        else -> ".vtt"
+    }
 }

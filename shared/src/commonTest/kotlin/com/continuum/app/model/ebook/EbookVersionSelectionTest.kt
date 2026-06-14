@@ -92,6 +92,14 @@ class EbookVersionSelectionTest {
     }
 
     @Test
+    fun `fb2 zip filename routes through fictionbook zip reader`() {
+        val version = FileVersion(fileId = 1, fileName = "book.fb2.zip", container = null)
+
+        assertEquals("fbz", version.ebookFormatKey())
+        assertEquals(BookFormat.Fbz, version.bookFormatFromEbookVersion())
+    }
+
+    @Test
     fun parsesPageProgressLocationsGracefully() {
         assertEquals(37, ebookPageNumberFromProgressLocation("page:37"))
         assertNull(ebookPageNumberFromProgressLocation("page:not-a-number"))

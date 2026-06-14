@@ -598,7 +598,7 @@ private fun EpisodesSection(
                     text = "$count episode${if (count == 1) "" else "s"}",
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp,
+                        fontSize = 16.sp,
                     ),
                     color = Color.White.copy(alpha = 0.55f),
                 )

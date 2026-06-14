@@ -1,7 +1,6 @@
 package com.continuum.app.android.ui.screens.admin
 
 import com.continuum.app.model.auth.User
-import com.continuum.app.model.auth.isActingAdmin
 import com.continuum.app.model.profile.Profile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -16,10 +15,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * The acting-admin decision itself is exercised in the shared module's tests
- * for [isActingAdmin]; here we verify the view model folds that decision into
- * [AdminEntryViewModel.AdminUiState.isAdminVisible] for the user/profile
- * combinations that drive the Settings "Admin" entry and the hub gate.
+ * Admin client surfaces are disabled for now. Acting-admin still matters
+ * server-side, but this ViewModel must keep the mobile admin hub hidden.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminEntryViewModelTest {
@@ -33,12 +30,11 @@ class AdminEntryViewModelTest {
     private fun profile(primary: Boolean) =
         Profile(id = "p1", name = "Primary", isPrimary = primary)
 
-    private fun vm(user: User?, profile: Profile?) = AdminEntryViewModel(
-        gateProvider = { isActingAdmin(user, profile) },
-    )
+    private fun vm(@Suppress("UNUSED_PARAMETER") user: User?, @Suppress("UNUSED_PARAMETER") profile: Profile?) =
+        AdminEntryViewModel(gateProvider = { true })
 
-    @Test fun `admin role with primary profile is visible`() = runTest(dispatcher) {
-        assertTrue(vm(user("admin"), profile(true)).uiState.value.isAdminVisible)
+    @Test fun `admin role with primary profile is hidden while client admin is disabled`() = runTest(dispatcher) {
+        assertFalse(vm(user("admin"), profile(true)).uiState.value.isAdminVisible)
     }
 
     @Test fun `admin role with non-primary profile is hidden`() = runTest(dispatcher) {
@@ -49,8 +45,8 @@ class AdminEntryViewModelTest {
         assertFalse(vm(user("user"), profile(true)).uiState.value.isAdminVisible)
     }
 
-    @Test fun `admin with no active profile is visible`() = runTest(dispatcher) {
-        assertTrue(vm(user("admin"), null).uiState.value.isAdminVisible)
+    @Test fun `admin with no active profile is hidden while client admin is disabled`() = runTest(dispatcher) {
+        assertFalse(vm(user("admin"), null).uiState.value.isAdminVisible)
     }
 
     @Test fun `null user is hidden`() = runTest(dispatcher) {

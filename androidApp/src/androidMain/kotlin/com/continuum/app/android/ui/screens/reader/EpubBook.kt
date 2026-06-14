@@ -2,6 +2,7 @@ package com.continuum.app.android.ui.screens.reader
 
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 /**
@@ -16,36 +17,27 @@ internal class EpubBook private constructor(
 ) {
     /** Read a chapter's HTML by spine href. Returns null when missing. */
     fun readChapterHtml(href: String): String? {
-        val f = File(opfDir, href)
+        val root = unpackedRoot.canonicalFile
+        val f = File(opfDir, href).canonicalFile
+        if (f.path != root.path && !f.path.startsWith(root.path + File.separator)) return null
         if (!f.isFile) return null
         return f.readText(Charsets.UTF_8)
     }
 
     companion object {
         fun open(epub: File, cacheRoot: File): EpubBook {
-            // Unpack each EPUB once into a cache subdir keyed by file
-            // path so subsequent opens skip the unzip.
-            val key = readerCacheKey(epub.absolutePath)
-            val unpacked = File(cacheRoot, "readers/epub-$key").apply { mkdirs() }
+            val key = fileContentCacheKey(epub)
+            val cacheDir = File(cacheRoot, "readers").apply { mkdirs() }
+            val unpacked = File(cacheDir, "epub-$key")
             if (unpacked.listFiles().isNullOrEmpty()) {
-                ZipFile(epub).use { zip ->
-                    zip.entries().toList().forEach { entry ->
-                        val out = File(unpacked, entry.name)
-                        if (entry.isDirectory) {
-                            out.mkdirs()
-                        } else {
-                            out.parentFile?.mkdirs()
-                            zip.getInputStream(entry).use { it.copyTo(FileOutputStream(out)) }
-                        }
-                    }
-                }
+                unpackAtomically(epub, unpacked)
             }
 
             // container.xml points to the OPF package.
-            val containerXml = File(unpacked, "META-INF/container.xml").readText()
+            val containerXml = safeChild(unpacked, "META-INF/container.xml", unpacked).readText()
             val opfHref = OPF_HREF_REGEX.find(containerXml)?.groupValues?.get(1)
                 ?: error("EPUB missing OPF rootfile")
-            val opfFile = File(unpacked, opfHref)
+            val opfFile = safeChild(unpacked, opfHref, unpacked)
             val opfDir = opfFile.parentFile!!
             val opfXml = opfFile.readText()
 
@@ -61,6 +53,57 @@ internal class EpubBook private constructor(
                 .toList()
 
             return EpubBook(unpacked, opfDir, spine)
+        }
+
+        private fun unpackAtomically(epub: File, unpacked: File) {
+            val tmp = File(unpacked.parentFile, "${unpacked.name}.tmp-${System.nanoTime()}")
+            tmp.deleteRecursively()
+            tmp.mkdirs()
+            try {
+                ZipFile(epub).use { zip ->
+                    zip.entries().toList().forEach { entry ->
+                        val out = safeChild(tmp, entry.name, tmp)
+                        if (entry.isDirectory) {
+                            out.mkdirs()
+                        } else {
+                            out.parentFile?.mkdirs()
+                            zip.getInputStream(entry).use { input ->
+                                FileOutputStream(out).use { output -> input.copyTo(output) }
+                            }
+                        }
+                    }
+                }
+                unpacked.deleteRecursively()
+                if (!tmp.renameTo(unpacked)) {
+                    tmp.copyRecursively(unpacked, overwrite = true)
+                    tmp.deleteRecursively()
+                }
+            } catch (throwable: Throwable) {
+                tmp.deleteRecursively()
+                throw throwable
+            }
+        }
+
+        private fun safeChild(parent: File, name: String, root: File): File {
+            val canonicalRoot = root.canonicalFile
+            val out = File(parent, name).canonicalFile
+            require(out.path == canonicalRoot.path || out.path.startsWith(canonicalRoot.path + File.separator)) {
+                "EPUB entry escapes unpack directory: $name"
+            }
+            return out
+        }
+
+        private fun fileContentCacheKey(file: File): String {
+            val md = MessageDigest.getInstance("SHA-1")
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            file.inputStream().use { input ->
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    md.update(buffer, 0, read)
+                }
+            }
+            return md.digest().joinToString("") { "%02x".format(it) }
         }
 
         // Quick-and-dirty regex parsing — full XML parser overkill for

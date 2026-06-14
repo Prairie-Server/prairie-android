@@ -10,19 +10,17 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -49,21 +47,18 @@ import androidx.tv.material3.Icon
 /**
  * Bottom transport row mirroring `iosApp/.../tvOS/TVPlayerTransportCluster.swift`.
  * Uniform circular buttons that flip white-on-black ↔ black-on-white when
- * focused; left/right cycles within the row, Up returns focus to the scrubber.
- *
- * The layout is a single row split into two clusters with `Spacer(weight=1)`
- * between — primary (skip back / play-pause / skip forward) on the left,
- * secondary (HUD options + close) on the right. Matches the spec's
- * "4–5 icon buttons, 24-32 dp gap, focus glow ring".
+ * focused; left/right cycles within the centered dock, Up returns focus to
+ * the scrubber.
  */
 @Composable
 fun TvPlayerTransportCluster(
     isPlaying: Boolean,
+    onBack: () -> Unit,
     onSkipBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSkipForward: () -> Unit,
+    onOpenTracks: () -> Unit,
     onOpenHUD: () -> Unit,
-    onClose: () -> Unit,
     playPauseFocus: FocusRequester,
     onMoveUpToScrubber: () -> Unit,
     modifier: Modifier = Modifier,
@@ -71,14 +66,22 @@ fun TvPlayerTransportCluster(
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.Center,
     ) {
+        TransportIconButton(
+            icon = Icons.AutoMirrored.Filled.ArrowBack,
+            description = "Back",
+            onClick = onBack,
+            onMoveUp = onMoveUpToScrubber,
+        )
+        DockGap()
         TransportIconButton(
             icon = Icons.Filled.Replay10,
             description = "Skip back 10 seconds",
             onClick = onSkipBack,
             onMoveUp = onMoveUpToScrubber,
         )
+        DockGap()
         TransportIconButton(
             icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
             description = if (isPlaying) "Pause" else "Play",
@@ -87,27 +90,35 @@ fun TvPlayerTransportCluster(
             focusRequester = playPauseFocus,
             onMoveUp = onMoveUpToScrubber,
         )
+        DockGap()
         TransportIconButton(
             icon = Icons.Filled.Forward10,
             description = "Skip forward 10 seconds",
             onClick = onSkipForward,
             onMoveUp = onMoveUpToScrubber,
         )
-        Spacer(modifier = Modifier.width(24.dp))
-        Spacer(modifier = Modifier.weight(1f))
+        DockGap()
         TransportIconButton(
-            icon = Icons.Filled.Tune,
-            description = "Info and options",
+            icon = Icons.Filled.Subtitles,
+            description = "Audio and subtitles",
+            onClick = onOpenTracks,
+            onMoveUp = onMoveUpToScrubber,
+        )
+        DockGap()
+        TransportIconButton(
+            icon = Icons.Filled.MoreHoriz,
+            description = "More options",
             onClick = onOpenHUD,
             onMoveUp = onMoveUpToScrubber,
         )
-        TransportIconButton(
-            icon = Icons.Filled.Close,
-            description = "Close player",
-            onClick = onClose,
-            onMoveUp = onMoveUpToScrubber,
-        )
     }
+}
+
+@Composable
+private fun DockGap() {
+    androidx.compose.foundation.layout.Spacer(
+        modifier = Modifier.size(width = 18.dp, height = 1.dp),
+    )
 }
 
 @Composable
@@ -122,8 +133,8 @@ private fun TransportIconButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val buttonSize = 66.dp
-    val symbolSize = if (isPrimary) 30.dp else 25.dp
+    val buttonSize = if (isPrimary) 82.dp else 64.dp
+    val symbolSize = if (isPrimary) 36.dp else 26.dp
 
     val focusBg = if (isFocused) Color.White else Color.Black.copy(alpha = 0.35f)
     val iconTint = if (isFocused) Color.Black else Color.White

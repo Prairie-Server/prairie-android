@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.theme.PillShape
+import com.continuum.app.android.ui.util.playbackResumePosition
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.section.SectionItem
 import kotlin.math.absoluteValue
@@ -78,7 +79,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 @Composable
 fun FeaturedCarousel(
     items: List<SectionItem>,
-    onPlayClick: (String) -> Unit,
+    onPlayClick: (String, Double?) -> Unit,
     onInfoClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     onActiveBackdropChange: ((url: String?, thumbhash: String?) -> Unit)? = null,
@@ -149,7 +150,7 @@ fun FeaturedCarousel(
                 item = item,
                 emphasis = emphasis,
                 cornerRadius = cardCornerRadius,
-                onPlayClick = { onPlayClick(item.contentId) },
+                onPlayClick = { onPlayClick(item.contentId, playbackResumePosition(item)) },
                 onInfoClick = { onInfoClick(item.contentId) },
                 modifier = Modifier
                     .width(cardWidth)

@@ -18,4 +18,9 @@ internal fun List<MediaRequest>.filterTvMediaRequests(): List<MediaRequest> =
     filter { it.mediaType.isSupportedTvRequestMediaType() }
 
 private fun String.isSupportedTvRequestMediaType(): Boolean =
-    this == RequestMediaType.Movie || this == RequestMediaType.Series
+    trim().lowercase() in setOf(
+        RequestMediaType.Movie,
+        RequestMediaType.Series,
+        RequestMediaType.Audiobook,
+        "audiobooks",
+    )

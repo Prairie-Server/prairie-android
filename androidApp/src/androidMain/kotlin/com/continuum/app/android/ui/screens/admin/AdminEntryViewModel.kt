@@ -2,6 +2,7 @@ package com.continuum.app.android.ui.screens.admin
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.continuum.app.model.admin.shouldShowClientAdminSurface
 import com.continuum.app.model.auth.isActingAdmin
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.AuthRepository
@@ -13,10 +14,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Resolves whether the acting user may see admin surfaces. The Settings
- * "Admin" entry and the [AdminHubScreen] itself both gate on
- * [AdminUiState.isAdminVisible], mirroring the server's RequireActingAdmin
- * gate (account role == "admin" AND the active household profile is primary).
+ * Resolves whether the acting user may see admin surfaces. Client admin is
+ * disabled for now, so this folds the server-side acting-admin result through
+ * the shared client policy before exposing [AdminUiState.isAdminVisible].
  *
  * The acting-admin decision itself lives in the shared, separately-tested
  * [isActingAdmin]; this view model only folds the current user + active
@@ -51,7 +51,7 @@ class AdminEntryViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            val visible = gateProvider()
+            val visible = shouldShowClientAdminSurface(gateProvider())
             _uiState.update { it.copy(isLoading = false, isAdminVisible = visible) }
         }
     }

@@ -2,7 +2,9 @@ package com.continuum.app.tv.ui.screens.player
 
 import android.app.Activity
 import android.content.ComponentName
+import android.util.Log
 import android.view.KeyEvent
+import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -51,6 +53,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -146,6 +149,7 @@ fun TvPlayerScreen(
     val rootFocus = remember { FocusRequester() }
     val exitScope = rememberCoroutineScope()
     var exitRequested by remember { mutableStateOf(false) }
+    var requestedHudTab by remember { mutableStateOf(HudTab.Info) }
     // Captured PlayerView reference so subtitleManager.applyAppearance can hit
     // the inflated subtitleView after the AndroidView factory runs. Mirrors
     // the phone PlayerScreen's `playerViewRef` pattern.
@@ -199,6 +203,24 @@ fun TvPlayerScreen(
             }
         }
     }
+    val applyTvSubtitleSelection: (Int, Boolean) -> Unit = { idx, dismiss ->
+        mediaController?.let { controller ->
+            val mediaSpec = tvTrackSelectionMediaSpec(state) ?: return@let
+            val selectedTrack = state.subtitleTracks
+                .firstOrNull { it.index == idx }
+                ?.toVideoTrackEntry()
+            if (trackSelectionCoordinator.selectSubtitle(
+                    player = controller,
+                    playerFactory = playerFactory,
+                    mediaSpec = mediaSpec,
+                    selectedTrack = selectedTrack,
+                )
+            ) {
+                viewModel.onSubtitleSelectionApplied(idx)
+                if (dismiss) viewModel.closeSubtitleMenu()
+            }
+        }
+    }
 
     DisposableEffect(context) {
         val sessionToken = SessionToken(
@@ -223,6 +245,7 @@ fun TvPlayerScreen(
 
     BackHandler(enabled = true) {
         when {
+            state.showSubtitleMenu -> viewModel.closeSubtitleMenu()
             state.hudOpen -> viewModel.closeHUD()
             showLeaveDialog -> showLeaveDialog = false
             state.showControls -> viewModel.setControlsVisible(false)
@@ -347,7 +370,25 @@ fun TvPlayerScreen(
                     val audio = extractTrackEntries(tracks, C.TRACK_TYPE_AUDIO)
                     val subtitle = extractTrackEntries(tracks, C.TRACK_TYPE_TEXT)
                     val video = extractTrackEntries(tracks, C.TRACK_TYPE_VIDEO)
+                    Log.i(
+                        TAG,
+                        "onTracksChanged subtitles=" + subtitle.joinToString(
+                            prefix = "[",
+                            postfix = "]",
+                        ) { "${it.index}:${it.displayLabel}:selected=${it.isSelected}:lang=${it.language}" },
+                    )
                     viewModel.onTracksChanged(audio, subtitle, video)
+                }
+                override fun onCues(cueGroup: CueGroup) {
+                    val sample = cueGroup.cues
+                        .take(2)
+                        .joinToString(" | ") { cue ->
+                            cue.text?.toString()?.take(80).orEmpty()
+                        }
+                    Log.i(
+                        TAG,
+                        "onCues count=${cueGroup.cues.size} positionMs=${controller.currentPosition} sample=$sample",
+                    )
                 }
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
                     // MediaController doesn't expose ExoPlayer's `videoFormat`
@@ -433,17 +474,19 @@ fun TvPlayerScreen(
     LaunchedEffect(mediaController) {
         val controller = mediaController ?: return@LaunchedEffect
         viewModel.subtitleSelectRequests.collect { idx ->
-            val liveState = viewModel.uiState.value
-            val mediaSpec = tvTrackSelectionMediaSpec(liveState) ?: return@collect
-            val selectedTrack = liveState.subtitleTracks
+            val mediaSpec = tvTrackSelectionMediaSpec(viewModel.uiState.value) ?: return@collect
+            val selectedTrack = viewModel.uiState.value.subtitleTracks
                 .firstOrNull { it.index == idx }
                 ?.toVideoTrackEntry()
-            trackSelectionCoordinator.selectSubtitle(
-                player = controller,
-                playerFactory = playerFactory,
-                mediaSpec = mediaSpec,
-                selectedTrack = selectedTrack,
-            )
+            if (trackSelectionCoordinator.selectSubtitle(
+                    player = controller,
+                    playerFactory = playerFactory,
+                    mediaSpec = mediaSpec,
+                    selectedTrack = selectedTrack,
+                )
+            ) {
+                viewModel.onSubtitleSelectionApplied(idx)
+            }
         }
     }
 
@@ -522,6 +565,9 @@ fun TvPlayerScreen(
                         factory = { ctx ->
                             PlayerView(ctx).apply {
                                 useController = false
+                                isFocusable = false
+                                isFocusableInTouchMode = false
+                                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                                 setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                                 // Capture the inflated view so the subtitle
                                 // appearance LaunchedEffect can target it.
@@ -538,7 +584,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showControls && !state.hudOpen) {
+                if (state.showControls && !state.hudOpen && !state.showSubtitleMenu) {
                     // In a room, transport authority gates what the local
                     // member may drive: a guest who can't seek gets a disabled
                     // scrubber + skip; play/pause only under guest_play_pause.
@@ -546,6 +592,10 @@ fun TvPlayerScreen(
                         tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek) == TransportGate.Send
                     val canPlayPauseInRoom = roomController == null ||
                         tvRoomTransportGate(roomSnapshot, TvTransportIntent.PlayPause) == TransportGate.Send
+                    val bufferedAheadSec = (
+                        (mediaController?.bufferedPosition ?: 0L) -
+                            (mediaController?.currentPosition ?: 0L)
+                    ).coerceAtLeast(0L) / 1000.0
                     TvPlayerIdleOverlay(
                         title = state.title,
                         positionSec = state.position,
@@ -553,6 +603,7 @@ fun TvPlayerScreen(
                         isPaused = state.isPaused,
                         isScrubbing = state.isScrubbing,
                         scrubPreviewSec = state.scrubPreviewSec,
+                        bufferedAheadSec = bufferedAheadSec,
                         chapters = state.chapters,
                         // In a room, skip/scrub/seek are routed through the
                         // controller (transport_request → server → broadcast
@@ -607,7 +658,13 @@ fun TvPlayerScreen(
                             }
                             viewModel.setControlsVisible(true)
                         },
-                        onOpenHUD = { viewModel.openHUD() },
+                        onOpenTracks = {
+                            viewModel.openSubtitleMenu()
+                        },
+                        onOpenHUD = {
+                            requestedHudTab = HudTab.Info
+                            viewModel.openHUD()
+                        },
                         onClose = {
                             when {
                                 roomController != null && roomSnapshot?.isHost == true ->
@@ -629,7 +686,6 @@ fun TvPlayerScreen(
                             positionSec = state.position,
                             durationSec = state.duration,
                             audioTracks = state.audioTracks,
-                            subtitleTracks = state.subtitleTracks,
                             videoTracks = state.videoTracks,
                             stats = state.stats,
                             videoFillMode = state.videoFillMode,
@@ -647,22 +703,6 @@ fun TvPlayerScreen(
                                     }
                                 }
                             },
-                            onSelectSubtitle = { idx ->
-                                val mediaSpec = tvTrackSelectionMediaSpec(state)
-                                val selectedTrack = state.subtitleTracks
-                                    .firstOrNull { it.index == idx }
-                                    ?.toVideoTrackEntry()
-                                if (mediaSpec != null) {
-                                    mediaController?.let {
-                                        trackSelectionCoordinator.selectSubtitle(
-                                            player = it,
-                                            playerFactory = playerFactory,
-                                            mediaSpec = mediaSpec,
-                                            selectedTrack = selectedTrack,
-                                        )
-                                    }
-                                }
-                            },
                             onSelectVideo = { _ ->
                                 // Selecting a specific video track on a single-stream
                                 // playback rarely matters (tracks are equivalent
@@ -673,22 +713,6 @@ fun TvPlayerScreen(
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
                             audioDelayMs = audioDelayMs,
                             onAudioDelayChanged = viewModel::onAudioDelayChanged,
-                            subtitleDelayMs = subtitleDelayMs,
-                            onSubtitleDelayChanged = viewModel::onSubtitleDelayChanged,
-                            onSubtitlesPaneShown = viewModel::onSubtitlesPaneShown,
-                            onSearchSubtitles = if (state.mediaFileId != null) {
-                                { viewModel.openSubtitleSearchDialog() }
-                            } else {
-                                null
-                            },
-                            onTranslateWithAi = if (
-                                state.mediaFileId != null &&
-                                (aiTranslate.status.enabled || aiTranslate.status.transcribeEnabled)
-                            ) {
-                                { viewModel.openAiTranslateDialog() }
-                            } else {
-                                null
-                            },
                             hdrEnabled = hdrEnabled,
                             onHdrEnabledChanged = viewModel::onSetHdrEnabled,
                             chapters = state.chapters,
@@ -698,7 +722,41 @@ fun TvPlayerScreen(
                                 }
                             },
                             onDismiss = { viewModel.closeHUD() },
-                            modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
+                            initialTab = requestedHudTab,
+                            modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
+                        )
+                    }
+                }
+
+                if (state.showSubtitleMenu) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        TvSubtitleMenu(
+                            subtitleTracks = state.subtitleTracks,
+                            subtitleDelayMs = subtitleDelayMs,
+                            onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, true) },
+                            onSubtitleDelayChanged = viewModel::onSubtitleDelayChanged,
+                            onPaneShown = viewModel::onSubtitlesPaneShown,
+                            onSearchSubtitles = if (state.mediaFileId != null) {
+                                {
+                                    viewModel.closeSubtitleMenu()
+                                    viewModel.openSubtitleSearchDialog()
+                                }
+                            } else {
+                                null
+                            },
+                            onTranslateWithAi = if (
+                                state.mediaFileId != null &&
+                                (aiTranslate.status.enabled || aiTranslate.status.transcribeEnabled)
+                            ) {
+                                {
+                                    viewModel.closeSubtitleMenu()
+                                    viewModel.openAiTranslateDialog()
+                                }
+                            } else {
+                                null
+                            },
+                            onDismiss = viewModel::closeSubtitleMenu,
+                            modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
                         )
                     }
                 }
@@ -843,6 +901,7 @@ private fun TvPlayerIdleOverlay(
     isPaused: Boolean,
     isScrubbing: Boolean,
     scrubPreviewSec: Double,
+    bufferedAheadSec: Double,
     chapters: List<com.continuum.app.model.catalog.VersionChapter>,
     onPlayPause: () -> Unit,
     onSkipBack: () -> Unit,
@@ -852,6 +911,7 @@ private fun TvPlayerIdleOverlay(
     onCommitScrub: () -> Unit,
     onCancelScrub: () -> Unit,
     onOpenHUD: () -> Unit,
+    onOpenTracks: () -> Unit,
     onClose: () -> Unit,
     // Watch Together transport authority. Solo playback leaves both true.
     // A guest who can't seek gets a no-op scrubber/skip; a guest who can't
@@ -862,7 +922,7 @@ private fun TvPlayerIdleOverlay(
     val scrubberFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
     var currentRate by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) { runCatching { scrubberFocus.requestFocus() } }
+    LaunchedEffect(Unit) { runCatching { playPauseFocus.requestFocus() } }
 
     Box(
         modifier = Modifier
@@ -915,21 +975,12 @@ private fun TvPlayerIdleOverlay(
                 .padding(horizontal = 80.dp, vertical = 40.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Title row.
-            if (title.isNotBlank()) {
-                androidx.tv.material3.Text(
-                    text = title,
-                    color = Color.White,
-                    style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
-                )
-            }
-
             // Interactive scrubber — capsule track with chapter ticks, ±10s
             // skip, hold-to-auto-seek, and Select to commit. tvOS spec §4.1.
             TvPlayerScrubber(
                 positionSec = positionSec,
                 durationSec = durationSec,
-                bufferedAheadSec = 0.0,
+                bufferedAheadSec = bufferedAheadSec,
                 isScrubbing = isScrubbing,
                 scrubPreviewSec = scrubPreviewSec,
                 chapters = chapters.map {
@@ -957,16 +1008,40 @@ private fun TvPlayerIdleOverlay(
 
             TvPlayerTransportCluster(
                 isPlaying = !isPaused,
+                onBack = onClose,
                 onSkipBack = onSkipBack,
                 onPlayPause = onPlayPause,
                 onSkipForward = onSkipForward,
+                onOpenTracks = onOpenTracks,
                 onOpenHUD = onOpenHUD,
-                onClose = onClose,
                 playPauseFocus = playPauseFocus,
                 onMoveUpToScrubber = {
                     runCatching { scrubberFocus.requestFocus() }
                 },
             )
+        }
+
+        if (title.isNotBlank()) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 80.dp, top = 72.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.42f))
+                    .padding(horizontal = 22.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                androidx.tv.material3.Text(
+                    text = title,
+                    color = Color.White,
+                    style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
+                )
+                androidx.tv.material3.Text(
+                    text = "Playing",
+                    color = Color.White.copy(alpha = 0.70f),
+                    style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
 
         Box(
@@ -1105,19 +1180,44 @@ private fun PlayerTrackEntry.toVideoTrackEntry(): VideoPlayerTrackEntry =
         isSelected = isSelected,
     )
 
+private const val TAG = "TvPlayerScreen"
+
 /**
- * Flatten an ExoPlayer [Tracks] object into TV-facing entries. Each unique
- * [C.TRACK_TYPE_AUDIO] or [C.TRACK_TYPE_TEXT] group becomes one entry whose
- * `index` is its ordinal among same-type groups — that's what
- * [AudioTrackManager.selectAudioTrack] and [SubtitleManager.selectSubtitle]
- * expect as their "which track" argument.
+ * Flatten an ExoPlayer [Tracks] object into TV-facing entries. Audio/video
+ * keep the legacy group-level mapping. Text tracks flatten every format inside
+ * each Media3 group because sidecar subtitles can share one group; their
+ * `index` is the flat text-track ordinal expected by [SubtitleManager].
  */
-private fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEntry> {
+internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEntry> {
     val result = mutableListOf<PlayerTrackEntry>()
     var groupIndex = 0
+    var flatTextIndex = 0
     for (group in tracks.groups) {
         if (group.type != type) continue
         val mediaGroup = group.mediaTrackGroup
+        if (type == C.TRACK_TYPE_TEXT) {
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val label = format.label.orEmpty().ifBlank { format.language?.uppercase() ?: "" }
+                result.add(
+                    PlayerTrackEntry(
+                        index = flatTextIndex,
+                        label = label,
+                        language = format.language,
+                        isSelected = group.isTrackSelected(trackIndex),
+                        displayLabel = formatSubtitleTrackDisplayLabel(
+                            rawLabel = label,
+                            language = format.language,
+                            codecOrMime = format.sampleMimeType ?: format.codecs,
+                            isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                            index = flatTextIndex,
+                        ),
+                    ),
+                )
+                flatTextIndex++
+            }
+            continue
+        }
         val format = if (mediaGroup.length > 0) mediaGroup.getFormat(0) else null
         val label = format?.label.orEmpty().ifBlank { format?.language?.uppercase() ?: "" }
         val language = format?.language
@@ -1128,6 +1228,7 @@ private fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEntr
                 label = label,
                 language = language,
                 isSelected = selected,
+                displayLabel = label,
             ),
         )
         groupIndex++

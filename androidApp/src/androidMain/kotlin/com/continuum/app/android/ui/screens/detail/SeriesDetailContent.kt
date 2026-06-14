@@ -50,7 +50,7 @@ fun SeriesDetailContent(
     isInWatchlist: Boolean,
     nextEpisodeLabel: String?,
     onPlayClick: () -> Unit,
-    onEpisodePlayClick: (String) -> Unit,
+    onEpisodePlayClick: (String, Double?) -> Unit,
     onEpisodeDetailClick: (String) -> Unit,
     onSeasonSelected: (Int) -> Unit,
     onFavoriteClick: () -> Unit,

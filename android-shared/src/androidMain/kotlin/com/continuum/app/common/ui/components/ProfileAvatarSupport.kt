@@ -52,7 +52,7 @@ fun resolveAvatarUrl(serverUrl: String, avatar: String): String? {
         .any(lowercasedAvatar::startsWith)
 
     if (isAbsoluteAvatar) {
-        trimmedAvatar
+        return trimmedAvatar
     }
 
     if (!isImageAvatar(trimmedAvatar) || normalizedServerUrl.isEmpty()) {

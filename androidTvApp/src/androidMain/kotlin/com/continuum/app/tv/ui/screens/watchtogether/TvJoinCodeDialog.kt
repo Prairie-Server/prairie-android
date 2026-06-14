@@ -112,8 +112,8 @@ fun TvJoinCodeDialog(
                 Text(
                     text = "JOIN BY CODE",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 12.sp,
-                        letterSpacing = 1.8.sp,
+                        fontSize = 16.sp,
+                        letterSpacing = 1.1.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White.copy(alpha = 0.58f),
@@ -180,7 +180,7 @@ fun TvJoinCodeDialog(
                 error?.let { message ->
                     Text(
                         text = message,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                        style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFEF4444),
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )

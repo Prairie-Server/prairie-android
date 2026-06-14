@@ -27,6 +27,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -74,6 +75,7 @@ fun TvHeroActionPill(
     onDirectionDown: (() -> Boolean)? = null,
     heightOverride: androidx.compose.ui.unit.Dp? = null,
     horizontalPaddingOverride: androidx.compose.ui.unit.Dp? = null,
+    labelStyle: TextStyle = navRailLabel,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -197,7 +199,7 @@ fun TvHeroActionPill(
             if (label.isNotBlank()) {
                 Text(
                     text = label,
-                    style = navRailLabel,
+                    style = labelStyle,
                     color = if (isFocused) FocusedContent else restFg,
                     maxLines = 1,
                 )

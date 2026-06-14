@@ -38,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.components.LoadingIndicator
+import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -77,6 +79,8 @@ fun DownloadsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Surface delete/refresh failures — without this the error in uiState
     // was never rendered anywhere.
@@ -137,6 +141,13 @@ fun DownloadsScreen(
                             section = section,
                             onItemClick = onItemClick,
                             onReadEbook = { item -> onReadEbook(item.contentId, item.fileId) },
+                            onOpenExternalDownload = { item ->
+                                if (!openDownloadInExternalApp(context, item)) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("No app found to open this file.")
+                                    }
+                                }
+                            },
                             onDeleteSingle = { item -> viewModel.removeDownload(item.id) },
                             onDeleteEntry = { entry -> viewModel.removeEntry(entry) },
                             onDeleteSection = { sec -> viewModel.removeSection(sec) },
@@ -364,4 +375,3 @@ private fun rememberOnlineState(): Boolean {
     }
     return online
 }
-

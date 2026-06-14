@@ -2,6 +2,7 @@ package com.continuum.app.android.ui.screens.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 class ReaderFileResolverTest {
 
@@ -33,6 +34,26 @@ class ReaderFileResolverTest {
         assertEquals(
             "content://media/external/downloads/12",
             resolveReaderRequestUrl("content://media/external/downloads/12", "https://lib.strm.cafe"),
+        )
+    }
+
+    @Test
+    fun `cache filename includes resolved server url for relative reader paths`() {
+        val path = "/api/v1/ebooks/book-1/files/7/read"
+
+        assertNotEquals(
+            readerCacheFileName(path, "https://one.example", "epub"),
+            readerCacheFileName(path, "https://two.example", "epub"),
+        )
+    }
+
+    @Test
+    fun `cache filename for absolute urls ignores active server url`() {
+        val url = "https://cdn.example.test/book.epub"
+
+        assertEquals(
+            readerCacheFileName(url, "https://one.example", "epub"),
+            readerCacheFileName(url, "https://two.example", "epub"),
         )
     }
 }

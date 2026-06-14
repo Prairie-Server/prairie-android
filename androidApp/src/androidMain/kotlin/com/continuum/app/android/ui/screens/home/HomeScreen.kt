@@ -78,7 +78,7 @@ private const val ChromeFadeDistanceDp = 72f
 @Composable
 fun HomeScreen(
     onItemClick: (String) -> Unit,
-    onPlayClick: (String) -> Unit,
+    onPlayClick: (String, Double?) -> Unit,
     onSeeAllClick: (String) -> Unit,
     viewModel: HomeViewModel,
     activeProfile: Profile?,

@@ -18,6 +18,9 @@ internal fun readerCacheKey(url: String): String {
     return md.digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
 }
 
+internal fun readerCacheFileName(url: String, serverUrl: String, extension: String): String =
+    "${readerCacheKey(resolveReaderRequestUrl(url, serverUrl))}.$extension"
+
 /**
  * Fill `<cacheDir>/<fileName>` atomically. [fetch] writes into a `.tmp`
  * sibling which is renamed to the final name only when it completes
@@ -73,15 +76,15 @@ internal suspend fun resolveReaderFile(
 ): File = withContext(Dispatchers.IO) {
     if (url.startsWith("file://")) return@withContext File(url.removePrefix("file://"))
     val cacheDir = File(context.cacheDir, "readers")
-    val fileName = "${readerCacheKey(url)}.$extension"
+    val requestUrl = resolveReaderRequestUrl(url, serverUrl)
+    val fileName = readerCacheFileName(url, serverUrl, extension)
     if (url.startsWith("content://")) {
         return@withContext cacheReaderFile(cacheDir, fileName) { out ->
-            context.contentResolver.openInputStream(Uri.parse(url))?.use { input ->
+            context.contentResolver.openInputStream(Uri.parse(requestUrl))?.use { input ->
                 input.copyTo(out)
             } ?: error("Could not open $url")
         }
     }
-    val requestUrl = resolveReaderRequestUrl(url, serverUrl)
     cacheReaderFile(cacheDir, fileName) { out ->
         val req = Request.Builder().url(requestUrl).build()
         okHttp.newCall(req).execute().use { resp ->

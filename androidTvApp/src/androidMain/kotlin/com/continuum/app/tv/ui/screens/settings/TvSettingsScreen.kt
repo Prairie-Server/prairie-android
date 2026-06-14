@@ -35,8 +35,8 @@ import com.continuum.app.tv.data.preferences.PlaybackQuality
 import com.continuum.app.tv.data.preferences.SubtitleMode
 import com.continuum.app.tv.data.preferences.SubtitleSize
 import com.continuum.app.tv.ui.components.TvFilterChip
+import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.Spacing
-import com.continuum.app.tv.ui.theme.tvPageContentPadding
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -94,7 +94,12 @@ fun TvSettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
-        contentPadding = tvPageContentPadding(),
+        contentPadding = PaddingValues(
+            start = 72.dp,
+            top = TvTopMenuLayout.contentTopInset,
+            end = 72.dp,
+            bottom = Spacing.xxxl,
+        ),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
     ) {
         item {

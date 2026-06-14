@@ -24,6 +24,7 @@ import androidx.lifecycle.lifecycleScope
 import com.continuum.app.android.ui.navigation.AppNavigation
 import com.continuum.app.android.ui.navigation.Route
 import com.continuum.app.android.ui.navigation.deviceLoginPairRouteOrNull
+import com.continuum.app.android.ui.navigation.hasLocalDownloadsForScope
 import com.continuum.app.android.ui.screens.settings.ThemePreference
 import com.continuum.app.android.ui.theme.ContinuumTheme
 import com.continuum.app.android.ui.theme.ThemeManager
@@ -158,7 +159,7 @@ class MainActivity : ComponentActivity() {
         // we have downloaded media on disk, land directly on the Downloads
         // tab so the user isn't greeted with HomeScreen's "Something went
         // wrong / Check your connection" error. Online flows are unchanged.
-        if (!isOnline() && hasLocalDownloads()) {
+        if (!isOnline() && hasLocalDownloads(activeEntry.id, profileId)) {
             return Route.Downloads.route
         }
 
@@ -174,10 +175,10 @@ class MainActivity : ComponentActivity() {
             caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun hasLocalDownloads(): Boolean {
+    private fun hasLocalDownloads(serverId: String, profileId: String): Boolean {
         val storage = get<com.continuum.app.common.downloads.DownloadStorage>(
             com.continuum.app.common.downloads.DownloadStorage::class.java
         )
-        return storage.totalBytesUsed() > 0L
+        return hasLocalDownloadsForScope(storage, serverId, profileId)
     }
 }
