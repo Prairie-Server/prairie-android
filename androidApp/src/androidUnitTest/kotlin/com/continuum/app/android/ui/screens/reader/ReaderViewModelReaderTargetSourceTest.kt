@@ -152,10 +152,61 @@ class ReaderViewModelReaderTargetSourceTest {
         assertEquals("No supported ebook file is available.", state.error)
     }
 
+    @Test
+    fun onlineNoRequestUsesSelectedCatalogTargetNotDifferentLocalFallback() = runTest(dispatcher) {
+        val storage = DownloadStorage(tmp.newFolder("downloads"))
+        storage.writeCompletedDownload(fileId = 7, fileName = "book.mobi")
+
+        val vm = viewModel(
+            catalogRepository = catalogRepository(
+                responseBody = itemDetailJson(fileId = 8, fileName = "book.epub", container = "epub"),
+            ),
+            downloadStorage = storage,
+            requestedFileId = null,
+        )
+
+        advanceUntilIdle()
+        val state = vm.awaitLoaded()
+
+        assertEquals(8, state.fileId)
+        assertEquals(BookFormat.Epub, state.format)
+        assertEquals(EbookReadMode.InApp, state.readMode)
+        assertEquals("/api/v1/ebooks/$CONTENT_ID/files/8/read", state.fileUrl)
+        assertNull(state.localUri)
+        assertEquals("book.epub", state.localDisplayName)
+        assertNull(state.error)
+    }
+
+    @Test
+    fun offlineOnlyNoRequestPrefersDownloadedInAppTargetOverEarlierExternalOriginal() = runTest(dispatcher) {
+        val storage = DownloadStorage(tmp.newFolder("downloads"))
+        storage.writeCompletedDownload(fileId = 7, fileName = "book.mobi")
+        storage.writeCompletedDownload(fileId = 8, fileName = "book.epub")
+
+        val vm = viewModel(
+            catalogRepository = catalogRepository(status = HttpStatusCode.InternalServerError),
+            downloadStorage = storage,
+            requestedFileId = null,
+        )
+
+        advanceUntilIdle()
+        val state = vm.awaitLoaded()
+
+        assertEquals(8, state.fileId)
+        assertEquals(BookFormat.Epub, state.format)
+        assertEquals(EbookReadMode.InApp, state.readMode)
+        assertEquals("EPUB", state.formatDisplayName)
+        assertTrue(state.fileUrl?.startsWith("file://") == true)
+        assertTrue(state.fileUrl?.contains("book.epub") == true)
+        assertEquals(state.fileUrl, state.localUri)
+        assertEquals("book.epub", state.localDisplayName)
+        assertNull(state.error)
+    }
+
     private fun viewModel(
         catalogRepository: CatalogRepository,
         downloadStorage: DownloadStorage,
-        requestedFileId: Int = FILE_ID,
+        requestedFileId: Int? = FILE_ID,
     ): ReaderViewModel =
         ReaderViewModel(
             catalogRepository = catalogRepository,
@@ -164,7 +215,12 @@ class ReaderViewModelReaderTargetSourceTest {
             localStateStore = EbookLocalStateStore(tmp.newFolder("reader-state")),
             serverRegistry = FakeServerRegistry(),
             profileRepository = FakeProfileRepository(),
-            savedStateHandle = SavedStateHandle(mapOf("contentId" to CONTENT_ID, "fileId" to requestedFileId.toString())),
+            savedStateHandle = SavedStateHandle(
+                buildMap {
+                    put("contentId", CONTENT_ID)
+                    requestedFileId?.let { put("fileId", it.toString()) }
+                },
+            ),
         )
 
     private suspend fun ReaderViewModel.awaitLoaded(): ReaderUiState {
@@ -247,27 +303,28 @@ class ReaderViewModelReaderTargetSourceTest {
         }
         """.trimIndent()
 
-    private fun DownloadStorage.writeCompletedDownload(fileName: String) {
-        prepareWrite(SERVER_ID, PROFILE_ID, FILE_ID, fileName = fileName, container = "mobi").writeTargetBytes(
-            "mobi".encodeToByteArray(),
+    private fun DownloadStorage.writeCompletedDownload(fileId: Int = FILE_ID, fileName: String) {
+        val container = fileName.substringAfterLast('.', missingDelimiterValue = "")
+        prepareWrite(SERVER_ID, PROFILE_ID, fileId, fileName = fileName, container = container).writeTargetBytes(
+            container.encodeToByteArray(),
         )
         writeSidecar(
             SERVER_ID,
             PROFILE_ID,
             DownloadSidecar(
                 record = DownloadRecord(
-                    id = "dl-$FILE_ID",
+                    id = "dl-$fileId",
                     contentId = CONTENT_ID,
-                    mediaFileId = FILE_ID,
-                    fileSize = 4,
-                    bytesSent = 4,
+                    mediaFileId = fileId,
+                    fileSize = container.length.toLong(),
+                    bytesSent = container.length.toLong(),
                     kind = "queued",
                     status = "completed",
                     createdAt = "2026-06-14T00:00:00Z",
                 ),
                 title = "Book",
                 fileName = fileName,
-                container = "mobi",
+                container = container,
                 mediaType = "ebook",
                 updatedAtMs = 1L,
             ),

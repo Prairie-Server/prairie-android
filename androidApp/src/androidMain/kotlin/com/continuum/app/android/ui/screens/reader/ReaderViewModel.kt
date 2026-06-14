@@ -15,9 +15,7 @@ import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.ebook.EbookAnnotation
 import com.continuum.app.model.ebook.EbookReadMode
 import com.continuum.app.model.ebook.SaveEbookProgressRequest
-import com.continuum.app.model.ebook.bookFormatFromEbookVersion
 import com.continuum.app.model.ebook.chooseReaderVersion
-import com.continuum.app.model.ebook.ebookFormatSupport
 import com.continuum.app.model.ebook.ebookPageNumberFromProgressLocation
 import com.continuum.app.model.ebook.ebookProgressPercentForPage
 import com.continuum.app.model.ebook.localBookmarkAnnotation
@@ -125,7 +123,7 @@ class ReaderViewModel(
                         profileId = profileId,
                         contentId = d.contentId,
                         requestedFileId = version.fileId,
-                        allowFallback = requestedFileId == null,
+                        allowFallback = false,
                     )
                     val readerState = loadReaderState(version.fileId)
                     val displaySettings = loadDisplaySettings()
@@ -175,25 +173,30 @@ class ReaderViewModel(
 
     private suspend fun loadOfflineOnly(error: String?) {
         val (serverId, profileId) = resolveScope()
-        val media = offlineMediaResolver.findLocalMedia(
+        val candidates = offlineMediaResolver.listLocalMedia(
             serverId = serverId,
             profileId = profileId,
             contentId = contentId,
-            requestedFileId = requestedFileId,
-            allowFallback = requestedFileId == null,
         )
-        if (media == null) {
-            _uiState.update { it.copy(isLoading = false, error = error) }
+        val target = chooseReaderVersion(
+            versions = candidates.map { media -> media.toFileVersion() },
+            requestedFileId = requestedFileId,
+        )
+        if (target == null) {
+            val message = if (candidates.isEmpty()) {
+                error
+            } else {
+                "This file is not a supported reading format."
+            }
+            _uiState.update { it.copy(isLoading = false, error = message) }
             return
         }
-        val version = media.toFileVersion()
-        val format = version.bookFormatFromEbookVersion()
-        val support = version.ebookFormatSupport()
-        if (support.readMode == EbookReadMode.Unsupported || format == BookFormat.Unknown) {
+        val media = candidates.firstOrNull { it.fileId == target.version.fileId }
+        if (media == null) {
             _uiState.update {
                 it.copy(
                     isLoading = false,
-                    error = "This file is not a supported reading format.",
+                    error = error,
                 )
             }
             return
@@ -206,15 +209,15 @@ class ReaderViewModel(
                 isLoading = false,
                 title = media.sidecar.title,
                 author = null,
-                format = format,
-                readMode = support.readMode,
-                formatDisplayName = support.displayName,
+                format = target.format,
+                readMode = target.support.readMode,
+                formatDisplayName = target.support.displayName,
                 fileUrl = media.fileUrl,
                 localUri = media.uriString,
                 localDisplayName = media.displayName,
                 fileId = media.fileId,
                 pageCount = null,
-                capabilities = ReaderCapabilities.forFormat(format),
+                capabilities = ReaderCapabilities.forFormat(target.format),
                 currentPage = readerState.currentPage ?: it.currentPage,
                 progressLocation = readerState.progressLocation,
                 progressPercent = readerState.progressPercent ?: it.progressPercent,

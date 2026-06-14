@@ -79,6 +79,22 @@ class OfflineMediaResolverTest {
         assertEquals("Right.epub", media?.displayName)
     }
 
+    @Test
+    fun `listLocalMedia returns every completed local candidate for content`() {
+        val storage = newStorage()
+        storage.prepareWrite("srv1", "profA", 7, fileName = "Book.mobi").writeTargetBytes(ByteArray(10))
+        storage.writeSidecar("srv1", "profA", sidecar(7, contentId = "book-1", fileName = "Book.mobi"))
+        storage.prepareWrite("srv1", "profA", 8, fileName = "Book.epub").writeTargetBytes(ByteArray(10))
+        storage.writeSidecar("srv1", "profA", sidecar(8, contentId = "book-1", fileName = "Book.epub"))
+        storage.prepareWrite("srv1", "profA", 9, fileName = "Other.epub").writeTargetBytes(ByteArray(10))
+        storage.writeSidecar("srv1", "profA", sidecar(9, contentId = "book-2", fileName = "Other.epub"))
+
+        val media = OfflineMediaResolver(storage).listLocalMedia("srv1", "profA", "book-1")
+
+        assertEquals(listOf(7, 8), media.map { it.fileId })
+        assertEquals(listOf("Book.mobi", "Book.epub"), media.map { it.displayName })
+    }
+
     private fun sidecar(
         fileId: Int,
         contentId: String,

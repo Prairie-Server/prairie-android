@@ -20,6 +20,33 @@ data class OfflineMedia(
 
 class OfflineMediaResolver(private val storage: DownloadStorage) {
 
+    fun listLocalMedia(
+        serverId: String,
+        profileId: String,
+        contentId: String,
+    ): List<OfflineMedia> =
+        storage.listSidecars(serverId, profileId)
+            .filter { sidecar ->
+                sidecar.record.contentId == contentId &&
+                    sidecar.record.statusEnum() == DownloadStatus.Completed
+            }
+            .mapNotNull { sidecar ->
+                val fileId = sidecar.record.mediaFileId
+                val located = storage.locateSidecarByFileId(serverId, profileId, fileId) ?: return@mapNotNull null
+                val (_, _, locatedSidecar) = located
+                if (locatedSidecar.record.contentId != contentId) return@mapNotNull null
+                val media = storage.locateLocalMedia(serverId, profileId, fileId) ?: return@mapNotNull null
+                OfflineMedia(
+                    serverId = serverId,
+                    profileId = profileId,
+                    fileId = fileId,
+                    uriString = media.uriString,
+                    displayName = media.displayName,
+                    sizeBytes = media.sizeBytes,
+                    sidecar = sidecar,
+                )
+            }
+
     fun findLocalMedia(
         serverId: String,
         profileId: String,
@@ -27,36 +54,16 @@ class OfflineMediaResolver(private val storage: DownloadStorage) {
         requestedFileId: Int?,
         allowFallback: Boolean = true,
     ): OfflineMedia? {
-        val candidates = storage.listSidecars(serverId, profileId)
-            .filter { sidecar ->
-                sidecar.record.contentId == contentId &&
-                    sidecar.record.statusEnum() == DownloadStatus.Completed
-            }
+        val candidates = listLocalMedia(serverId, profileId, contentId)
             .let { matches ->
                 if (requestedFileId == null) {
                     matches
                 } else {
-                    val requested = matches.filter { it.record.mediaFileId == requestedFileId }
+                    val requested = matches.filter { it.fileId == requestedFileId }
                     if (requested.isNotEmpty() || !allowFallback) requested else matches
                 }
             }
 
-        for (sidecar in candidates) {
-            val fileId = sidecar.record.mediaFileId
-            val located = storage.locateSidecarByFileId(serverId, profileId, fileId) ?: continue
-            val (_, _, locatedSidecar) = located
-            if (locatedSidecar.record.contentId != contentId) continue
-            val media = storage.locateLocalMedia(serverId, profileId, fileId) ?: continue
-            return OfflineMedia(
-                serverId = serverId,
-                profileId = profileId,
-                fileId = fileId,
-                uriString = media.uriString,
-                displayName = media.displayName,
-                sizeBytes = media.sizeBytes,
-                sidecar = sidecar,
-            )
-        }
-        return null
+        return candidates.firstOrNull()
     }
 }
