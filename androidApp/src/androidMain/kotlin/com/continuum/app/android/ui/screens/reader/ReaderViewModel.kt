@@ -169,7 +169,12 @@ class ReaderViewModel(
         val version = media.toFileVersion()
         val format = version.bookFormatFromEbookVersion()
         if (!version.isInAppReadableEbookVersion() || format == BookFormat.Unknown) {
-            _uiState.update { it.copy(isLoading = false, error = "Downloaded ebook format is not supported.") }
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = "This downloaded ebook format opens with another reader from Downloads.",
+                )
+            }
             return
         }
         val readerState = loadLocalReaderState(media.fileId)

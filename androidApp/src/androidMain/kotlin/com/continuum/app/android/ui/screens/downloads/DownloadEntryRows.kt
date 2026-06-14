@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.download.DownloadMediaType
 import com.continuum.app.model.download.DownloadStatus
+import com.continuum.app.model.ebook.ebookFormatKey
 import com.continuum.app.model.ebook.isInAppReadableEbookFormat
 
 internal enum class DownloadRowAction {
@@ -53,7 +54,7 @@ internal enum class DownloadRowAction {
 internal fun downloadRowAction(item: DownloadItem): DownloadRowAction {
     if (!item.isComplete || item.localUri.isNullOrBlank()) return DownloadRowAction.None
     if (item.mediaType == DownloadMediaType.Ebook) {
-        val formatKey = item.ebookFormatKey()
+        val formatKey = ebookFormatKey(container = item.container, fileName = item.displayName)
         return if (formatKey.orEmpty().isInAppReadableEbookFormat()) {
             DownloadRowAction.ReadInApp
         } else {
@@ -308,9 +309,6 @@ private fun SingleRow(
     }
 }
 
-private fun DownloadItem.ebookFormatKey(): String? =
-    container ?: displayName?.substringAfterLast('.', missingDelimiterValue = "")
-
 /**
  * Expandable aggregate row shared by Series and Season entries: an
  * [AggregateRow] header with a remembered expand state, plus the
@@ -432,7 +430,11 @@ private fun AggregateRow(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                imageVector = if (expanded) {
+                    Icons.Default.KeyboardArrowDown
+                } else {
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight
+                },
                 contentDescription = if (expanded) "Collapse" else "Expand",
                 tint = MaterialTheme.colorScheme.onSurface,
             )

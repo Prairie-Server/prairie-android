@@ -36,7 +36,7 @@ data class EbookFormatSupport(
     val canDownloadOriginal: Boolean get() = readMode != EbookReadMode.Unsupported
 }
 
-fun FileVersion.ebookFormatKey(): String? {
+fun ebookFormatKey(container: String?, fileName: String?): String? {
     val containerKey = container
         ?.trim()
         ?.lowercase()
@@ -51,6 +51,9 @@ fun FileVersion.ebookFormatKey(): String? {
         .takeIf { it in supportedEbookExtensions }
         ?.normalizedEbookFormatKey()
 }
+
+fun FileVersion.ebookFormatKey(): String? =
+    ebookFormatKey(container = container, fileName = fileName)
 
 fun FileVersion.isSupportedEbookVersion(): Boolean = ebookFormatKey() != null
 

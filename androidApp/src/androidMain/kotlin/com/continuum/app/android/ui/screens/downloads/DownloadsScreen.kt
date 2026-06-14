@@ -276,12 +276,12 @@ private fun DownloadsEmptyState(
     if (isOnline) {
         icon = Icons.Outlined.DownloadForOffline
         title = "No downloads yet"
-        subtitle = "Tap the download icon on any movie to save it here for offline playback."
+        subtitle = "Tap Download on a movie, show, audiobook, or book to save the original file here for offline use."
         accent = MaterialTheme.colorScheme.primary
     } else {
         icon = Icons.Outlined.CloudOff
         title = "You're offline"
-        subtitle = "Nothing's downloaded on this device yet — once you've grabbed something while online, it'll play here without a connection."
+        subtitle = "Nothing is downloaded on this device yet. Save media while online and it will be available here without a connection."
         accent = Color(0xFFFFB86B)  // warm amber for offline state
     }
 

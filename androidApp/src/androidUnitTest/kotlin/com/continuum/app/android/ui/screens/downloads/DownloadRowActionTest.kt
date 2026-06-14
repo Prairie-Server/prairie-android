@@ -24,6 +24,28 @@ class DownloadRowActionTest {
     }
 
     @Test
+    fun `completed fictionbook zip ebook opens the reader from original filename`() {
+        assertEquals(
+            DownloadRowAction.ReadInApp,
+            downloadRowAction(item(mediaType = DownloadMediaType.Ebook, displayName = "book.fb2.zip")),
+        )
+    }
+
+    @Test
+    fun `completed ebook with blank container falls back to original filename`() {
+        assertEquals(
+            DownloadRowAction.ReadInApp,
+            downloadRowAction(
+                item(
+                    mediaType = DownloadMediaType.Ebook,
+                    container = " ",
+                    displayName = "book.epub",
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `completed video opens internal player`() {
         assertEquals(
             DownloadRowAction.OpenInAppPlayer,

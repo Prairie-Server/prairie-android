@@ -177,7 +177,7 @@ fun ReaderScreen(
                     )
                     else -> CenteredText(
                         "Format not supported yet: ${state.format.displayName}\n" +
-                            "Open the file on a desktop reader for now.",
+                            "Open the downloaded original with another reader from Downloads.",
                     )
                 }
             }
