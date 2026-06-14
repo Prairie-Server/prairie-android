@@ -56,5 +56,7 @@ class VideoBackendCapabilitiesTest {
         assertEquals(null, request.playMethod)
         assertEquals(VideoPlaybackFormFactor.Unknown, request.formFactor)
         assertEquals(VideoPlaybackBackendPreference.Auto, request.preference)
+        assertEquals(false, request.hasHardContainer)
+        assertEquals(false, request.hasStyledSubtitles)
     }
 }

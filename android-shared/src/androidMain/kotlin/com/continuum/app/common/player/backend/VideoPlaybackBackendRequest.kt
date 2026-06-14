@@ -8,4 +8,6 @@ data class VideoPlaybackBackendRequest(
     val playMethod: PlayMethod? = null,
     val formFactor: VideoPlaybackFormFactor = VideoPlaybackFormFactor.Unknown,
     val preference: VideoPlaybackBackendPreference = VideoPlaybackBackendPreference.Auto,
+    val hasHardContainer: Boolean = false,
+    val hasStyledSubtitles: Boolean = false,
 )
