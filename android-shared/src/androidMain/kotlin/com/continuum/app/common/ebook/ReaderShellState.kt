@@ -45,8 +45,12 @@ fun reduceReaderShellState(
         state
     }
     ReaderShellEvent.DismissSheet -> state.copy(activeSheet = ReaderSheet.None)
-    is ReaderShellEvent.OpenSheet -> state.copy(
-        chromeVisible = true,
-        activeSheet = event.sheet,
-    )
+    is ReaderShellEvent.OpenSheet -> if (event.sheet == ReaderSheet.None) {
+        state
+    } else {
+        state.copy(
+            chromeVisible = true,
+            activeSheet = event.sheet,
+        )
+    }
 }
