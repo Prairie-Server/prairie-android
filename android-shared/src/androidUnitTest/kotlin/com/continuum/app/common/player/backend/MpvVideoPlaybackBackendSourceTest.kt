@@ -20,4 +20,13 @@ class MpvVideoPlaybackBackendSourceTest {
         assertTrue(text.contains("trackSelectionCoordinator.selectSubtitle("))
         assertTrue(text.contains("trackSelectionCoordinator.selectAudioTrack("))
     }
+
+    @Test
+    fun mpvBackendDoesNotEagerOpenRemoteSubtitlesOnMount() {
+        val text = source.readText()
+
+        assertTrue(text.contains("private fun withoutEagerSubtitles"))
+        assertTrue(text.contains("spec.copy(subtitles = emptyList())"))
+        assertTrue(text.contains("spec = withoutEagerSubtitles(spec),"))
+    }
 }

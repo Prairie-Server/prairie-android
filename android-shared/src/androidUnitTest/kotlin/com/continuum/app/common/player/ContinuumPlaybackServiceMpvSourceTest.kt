@@ -15,6 +15,10 @@ class ContinuumPlaybackServiceMpvSourceTest {
     fun serviceCanOwnMpvOrMedia3Player() {
         assertTrue(factorySource.contains("fun createMpvPlayer("))
         assertTrue(factorySource.contains("MpvPlayer.Builder(context)"))
+        assertTrue(factorySource.contains("setHttpHeaderFieldsProvider"))
+        assertTrue(factorySource.contains("Authorization\" to \"Bearer $"))
+        assertTrue(factorySource.contains("\"X-Profile-Id\""))
+        assertTrue(factorySource.contains("\"X-Profile-Token\""))
         assertTrue(serviceSource.contains("private fun createPlaybackPlayer(): Player"))
         assertTrue(serviceSource.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.O"))
         assertTrue(serviceSource.contains("playerFactory.createMpvPlayer()"))

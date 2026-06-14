@@ -57,6 +57,7 @@ class MpvPlayer(
     private val audioOutput: String = "aaudio",
     private val hwDec: String = "mediacodec",
     private val bufferSizeMb: Int = 64,
+    private val httpHeaderFieldsProvider: () -> List<Pair<String, String>> = { emptyList() },
 ) : BasePlayer(), MPVLib.EventObserver, AudioManager.OnAudioFocusChangeListener {
 
     val mpv: MPVLib
@@ -64,6 +65,8 @@ class MpvPlayer(
     private var audioFocusCallback: () -> Unit = {}
     private lateinit var audioFocusRequest: AudioFocusRequestCompat
     private val handler = Handler(context.mainLooper)
+    private var currentSurface: Surface? = null
+    private var currentSurfaceHolder: SurfaceHolder? = null
 
     private constructor(
         builder: Builder
@@ -79,6 +82,7 @@ class MpvPlayer(
         audioOutput = builder.audioOutput,
         hwDec = builder.hwDec,
         bufferSizeMb = builder.bufferSizeMb,
+        httpHeaderFieldsProvider = builder.httpHeaderFieldsProvider,
     )
 
     class Builder(val context: Context) {
@@ -112,6 +116,9 @@ class MpvPlayer(
         var bufferSizeMb: Int = 64
             private set
 
+        var httpHeaderFieldsProvider: () -> List<Pair<String, String>> = { emptyList() }
+            private set
+
         fun setAudioAttributes(audioAttributes: AudioAttributes, handleAudioFocus: Boolean) =
             apply {
                 this.audioAttributes = audioAttributes
@@ -143,6 +150,12 @@ class MpvPlayer(
 
         fun setBufferSizeMb(sizeMb: Int) = apply { this.bufferSizeMb = sizeMb }
 
+        fun setHttpHeaderFieldsProvider(
+            httpHeaderFieldsProvider: () -> List<Pair<String, String>>,
+        ) = apply {
+            this.httpHeaderFieldsProvider = httpHeaderFieldsProvider
+        }
+
         fun build() = MpvPlayer(this)
     }
 
@@ -168,6 +181,9 @@ class MpvPlayer(
         mpv.setOptionString("gpu-context", "android")
         mpv.setOptionString("opengl-es", "yes")
         mpv.setOptionString("vid", "no")
+        mpv.setOptionString("osc", "no")
+        mpv.setOptionString("osd-level", "0")
+        mpv.setOptionString("osd-bar", "no")
 
         mpv.setOptionString("target-colorspace-hint", "yes")
 
@@ -507,7 +523,8 @@ class MpvPlayer(
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
                     if (!isPlayerReady) {
                         isPlayerReady = true
-                        seekTo(C.TIME_UNSET)
+                        applyPendingInitialSeek()
+                        setPlayerStateAndNotifyIfChanged(playbackState = STATE_READY)
                         if (playWhenReady) {
                             Log.d(TAG, "Starting playback...")
                             mpv.setPropertyBoolean("pause", false)
@@ -614,6 +631,10 @@ class MpvPlayer(
         mpv.command(arrayOf("playlist-clear"))
         mpv.command(arrayOf("playlist-remove", "current"))
         internalMediaItems = mediaItems
+        if (resetPosition) {
+            initialSeekTo = 0L
+            currentPositionMs = 0L
+        }
     }
 
     override fun setMediaItems(
@@ -625,11 +646,13 @@ class MpvPlayer(
         mpv.command(arrayOf("playlist-remove", "current"))
         internalMediaItems = mediaItems
         initialIndex = startIndex
-        initialSeekTo = startPositionMs
+        initialSeekTo = startPositionMs.coerceAtLeast(0L)
+        currentPositionMs = initialSeekTo
     }
 
     override fun addMediaItems(index: Int, mediaItems: MutableList<MediaItem>) {
         internalMediaItems.addAll(index, mediaItems)
+        applyHttpHeaderFields()
         mediaItems.forEach { mediaItem ->
             mpv.command(
                 arrayOf(
@@ -653,6 +676,7 @@ class MpvPlayer(
     override fun removeMediaItems(fromIndex: Int, toIndex: Int) {}
 
     override fun prepare() {
+        applyHttpHeaderFields()
         internalMediaItems.forEachIndexed { index, mediaItem ->
             mpv.command(
                 arrayOf(
@@ -680,6 +704,13 @@ class MpvPlayer(
             }
             setPlayerStateAndNotifyIfChanged(playbackState = STATE_BUFFERING)
         }
+    }
+
+    private fun applyHttpHeaderFields() {
+        val headerString = httpHeaderFieldsProvider()
+            .filter { (name, value) -> name.isNotBlank() && value.isNotBlank() }
+            .joinToString("\r\n") { (name, value) -> "$name: $value" }
+        mpv.setPropertyString("http-header-fields", headerString)
     }
 
     private fun prepareMediaItem(index: Int) {
@@ -748,34 +779,47 @@ class MpvPlayer(
         isRepeatingCurrentItem: Boolean,
     ) {
         if (mediaItemIndex == currentMediaItemIndex) {
-
-            val seekTo = if (positionMs != C.TIME_UNSET) positionMs else initialSeekTo
-
             val targetMs =
                 if (positionMs != C.TIME_UNSET) {
-                    positionMs
-                } else {
+                    positionMs.coerceAtLeast(0L)
+                } else if (initialSeekTo > 0L) {
                     initialSeekTo
+                } else {
+                    currentPositionMs ?: 0L
                 }
 
             initialSeekTo =
                 if (isPlayerReady) {
-                    mpv.command(
-                        arrayOf("seek", "${seekTo.toDouble().div(C.MILLIS_PER_SECOND)}", "absolute")
-                    )
-
+                    if (positionMs == C.TIME_UNSET && initialSeekTo <= 0L) {
+                        currentPositionMs = targetMs
+                        return
+                    }
+                    performSeek(targetMs)
                     currentPositionMs = targetMs
-
-                    Log.d(TAG, "MPV seeking to $seekTo seconds")
                     0L
                 } else {
-                    Log.d(TAG, "MPV not ready, storing initial seek: $seekTo seconds")
-                    seekTo
+                    currentPositionMs = targetMs
+                    Log.d(TAG, "MPV not ready, storing initial seek: $targetMs ms")
+                    targetMs
                 }
         } else {
             prepareMediaItem(mediaItemIndex)
             play()
         }
+    }
+
+    private fun applyPendingInitialSeek() {
+        if (initialSeekTo <= 0L) return
+
+        val targetMs = initialSeekTo
+        performSeek(targetMs)
+        currentPositionMs = targetMs
+        initialSeekTo = 0L
+    }
+
+    private fun performSeek(targetMs: Long) {
+        mpv.command(arrayOf("seek", "${targetMs.toDouble().div(C.MILLIS_PER_SECOND)}", "absolute"))
+        Log.d(TAG, "MPV seeking to $targetMs ms")
     }
 
     override fun getSeekBackIncrement(): Long = seekBackIncrement
@@ -855,7 +899,8 @@ class MpvPlayer(
 
     override fun getDuration(): Long = currentDurationMs ?: C.TIME_UNSET
 
-    override fun getCurrentPosition(): Long = currentPositionMs ?: C.TIME_UNSET
+    override fun getCurrentPosition(): Long =
+        (currentPositionMs ?: initialSeekTo).coerceAtLeast(0L)
 
     override fun getBufferedPosition(): Long =
         (currentCacheDurationMs ?: getCurrentPosition()).coerceAtMost(duration)
@@ -881,22 +926,54 @@ class MpvPlayer(
 
     override fun getVolume(): Float = (mpv.getPropertyInt("volume") ?: 0) / 100F
 
-    override fun clearVideoSurface() {}
+    override fun clearVideoSurface() {
+        detachVideoSurface(currentSurface)
+    }
 
-    override fun clearVideoSurface(surface: Surface?) {}
+    override fun clearVideoSurface(surface: Surface?) {
+        detachVideoSurface(surface)
+    }
 
-    override fun setVideoSurface(surface: Surface?) {}
+    override fun setVideoSurface(surface: Surface?) {
+        attachVideoSurface(surface)
+    }
 
-    override fun setVideoSurfaceHolder(surfaceHolder: SurfaceHolder?) {}
+    override fun setVideoSurfaceHolder(surfaceHolder: SurfaceHolder?) {
+        if (currentSurfaceHolder == surfaceHolder) {
+            surfaceHolder?.surface?.takeIf { it.isValid }?.let { surface ->
+                attachVideoSurface(surface)
+                updateVideoSurfaceSize(surfaceHolder.surfaceFrame.width(), surfaceHolder.surfaceFrame.height())
+            }
+            return
+        }
 
-    override fun clearVideoSurfaceHolder(surfaceHolder: SurfaceHolder?) {}
+        currentSurfaceHolder?.removeCallback(surfaceCallback)
+        currentSurfaceHolder = surfaceHolder
+        surfaceHolder?.addCallback(surfaceCallback)
+
+        val surface = surfaceHolder?.surface
+        if (surface != null && surface.isValid) {
+            attachVideoSurface(surface)
+            updateVideoSurfaceSize(surfaceHolder.surfaceFrame.width(), surfaceHolder.surfaceFrame.height())
+        } else if (surfaceHolder == null) {
+            detachVideoSurface(currentSurface)
+        }
+    }
+
+    override fun clearVideoSurfaceHolder(surfaceHolder: SurfaceHolder?) {
+        if (surfaceHolder != null && currentSurfaceHolder != surfaceHolder) return
+
+        currentSurfaceHolder?.removeCallback(surfaceCallback)
+        currentSurfaceHolder = null
+        detachVideoSurface(currentSurface)
+    }
 
     override fun setVideoSurfaceView(surfaceView: SurfaceView?) {
-        surfaceView?.holder?.addCallback(surfaceHolder)
+        setVideoSurfaceHolder(surfaceView?.holder)
     }
 
     override fun clearVideoSurfaceView(surfaceView: SurfaceView?) {
-        surfaceView?.holder?.removeCallback(surfaceHolder)
+        clearVideoSurfaceHolder(surfaceView?.holder)
     }
 
     override fun setVideoTextureView(textureView: TextureView?) {}
@@ -1006,7 +1083,6 @@ class MpvPlayer(
         isPlayerReady = false
         isSeekable = false
         playbackState = STATE_IDLE
-        currentPlayWhenReady = false
         currentPositionMs = null
         currentDurationMs = null
         currentCacheDurationMs = null
@@ -1042,13 +1118,39 @@ class MpvPlayer(
         }
     }
 
-    private val surfaceHolder =
+    private fun attachVideoSurface(surface: Surface?) {
+        if (surface == null || !surface.isValid) {
+            detachVideoSurface(currentSurface)
+            return
+        }
+
+        if (currentSurface != null && currentSurface != surface) {
+            mpv.detachSurface()
+        }
+
+        currentSurface = surface
+        mpv.attachSurface(surface)
+        mpv.setOptionString("force-window", "yes")
+        mpv.setOptionString("vid", "auto")
+    }
+
+    private fun detachVideoSurface(surface: Surface?) {
+        if (surface != null && currentSurface != null && currentSurface != surface) return
+
+        mpv.detachSurface()
+        currentSurface = null
+    }
+
+    private fun updateVideoSurfaceSize(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        mpv.setPropertyString("android-surface-size", "${width}x$height")
+    }
+
+    private val surfaceCallback =
         object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
-                mpv.attachSurface(holder.surface)
-                mpv.setOptionString("force-window", "yes")
-                mpv.setOptionString("vo", videoOutput)
-                mpv.setOptionString("vid", "auto")
+                attachVideoSurface(holder.surface)
+                updateVideoSurfaceSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
             }
 
             override fun surfaceChanged(
@@ -1057,14 +1159,12 @@ class MpvPlayer(
                 width: Int,
                 height: Int,
             ) {
-                mpv.setPropertyString("android-surface-size", "${width}x$height")
+                attachVideoSurface(holder.surface)
+                updateVideoSurfaceSize(width, height)
             }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                mpv.setOptionString("vid", "no")
-                mpv.setOptionString("vo", "null")
-                mpv.setOptionString("force-window", "no")
-                mpv.detachSurface()
+                detachVideoSurface(holder.surface)
             }
         }
 
@@ -1085,6 +1185,9 @@ class MpvPlayer(
             Player.Commands.Builder()
                 .addAll(
                     COMMAND_PLAY_PAUSE,
+                    COMMAND_PREPARE,
+                    COMMAND_SET_MEDIA_ITEM,
+                    COMMAND_SET_PLAYLIST_METADATA,
                     COMMAND_SET_SPEED_AND_PITCH,
                     COMMAND_GET_CURRENT_MEDIA_ITEM,
                     COMMAND_GET_METADATA,

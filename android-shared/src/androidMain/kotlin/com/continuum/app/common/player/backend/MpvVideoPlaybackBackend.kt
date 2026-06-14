@@ -34,7 +34,7 @@ class MpvVideoPlaybackBackend(
         mountVideoMedia(
             player = player,
             playerFactory = playerFactory,
-            spec = spec,
+            spec = withoutEagerSubtitles(spec),
             startPositionMs = startPositionMs,
             playWhenReady = playWhenReady,
         )
@@ -107,4 +107,7 @@ class MpvVideoPlaybackBackend(
         }
         error("Cannot select an external subtitle before video media has been mounted.")
     }
+
+    private fun withoutEagerSubtitles(spec: VideoPlayerMediaSpec): VideoPlayerMediaSpec =
+        if (spec.subtitles.isEmpty()) spec else spec.copy(subtitles = emptyList())
 }

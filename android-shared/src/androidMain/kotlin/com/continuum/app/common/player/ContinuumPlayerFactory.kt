@@ -26,6 +26,7 @@ import com.continuum.app.model.playback.HdrCapabilities
 import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlayerSubtitleInfo
 import com.continuum.app.network.TokenManager
+import kotlinx.coroutines.runBlocking
 
 /**
  * Factory for ExoPlayer instances. Each factory owns exactly one
@@ -167,9 +168,24 @@ class ContinuumPlayerFactory(
 
     fun createMpvPlayer(): Player =
         MpvPlayer.Builder(context)
+            .setHttpHeaderFieldsProvider(::buildMpvHttpHeaderFields)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(30_000)
             .build()
+
+    private fun buildMpvHttpHeaderFields(): List<Pair<String, String>> = runBlocking {
+        buildList {
+            tokenManager.getAccessToken()?.takeIf { it.isNotBlank() }?.let { accessToken ->
+                add("Authorization" to "Bearer $accessToken")
+            }
+            tokenManager.getProfileId()?.takeIf { it.isNotBlank() }?.let { profileId ->
+                add("X-Profile-Id" to profileId)
+            }
+            tokenManager.getProfileToken()?.takeIf { it.isNotBlank() }?.let { profileToken ->
+                add("X-Profile-Token" to profileToken)
+            }
+        }
+    }
 
     /**
      * Apply capability-aware track selection presets to [player]. Call at
