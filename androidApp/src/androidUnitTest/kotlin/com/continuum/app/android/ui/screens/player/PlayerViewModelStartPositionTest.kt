@@ -50,4 +50,24 @@ class PlayerViewModelStartPositionTest {
             "MediaSession can report C.TIME_UNSET/-1; that must not overwrite progress or trigger resume reports",
         )
     }
+
+    @Test
+    fun onExitClearsPlayableStateBeforeNavigationCompletes() {
+        val onExitBody = source
+            .substringAfter("fun onExit()")
+            .substringBefore("private fun scheduleControlsHide()")
+
+        assertTrue(
+            onExitBody.contains("sessionId = null"),
+            "mobile exit must clear the active playback session id",
+        )
+        assertTrue(
+            onExitBody.contains("streamUrl = null"),
+            "mobile exit must clear the stale stream URL so Compose cannot remount it",
+        )
+        assertTrue(
+            onExitBody.contains("playMethod = null"),
+            "mobile exit must clear play method along with the stale stream URL",
+        )
+    }
 }

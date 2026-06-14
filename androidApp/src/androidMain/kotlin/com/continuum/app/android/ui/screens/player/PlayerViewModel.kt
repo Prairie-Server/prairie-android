@@ -1046,6 +1046,17 @@ class PlayerViewModel(
             searchJob?.cancel()
             aiJobHandle?.cancel()
             introAutoSkipController.reset()
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    sessionId = null,
+                    playMethod = null,
+                    streamUrl = null,
+                    subtitleTracks = emptyList(),
+                    isPaused = true,
+                    isPlaying = false,
+                )
+            }
         }
     }
 

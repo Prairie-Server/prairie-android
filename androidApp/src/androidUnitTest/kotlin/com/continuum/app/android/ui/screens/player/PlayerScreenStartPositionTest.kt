@@ -92,4 +92,23 @@ class PlayerScreenStartPositionTest {
             "seek requests must be the path that drives MediaController.seekTo",
         )
     }
+
+    @Test
+    fun playerScreenDoesNotMountOrRefreshMediaWhileExiting() {
+        val mountEffect = source
+            .substringAfter("// Set up the media item when stream URL becomes available")
+            .substringBefore("// Mid-playback subtitle refresh")
+        val refreshEffect = source
+            .substringAfter("// Mid-playback subtitle refresh")
+            .substringBefore("// Handle subtitle selection")
+
+        assertTrue(
+            mountEffect.contains("if (exitRequested) return@LaunchedEffect"),
+            "mobile player must not mount media after exit has been requested",
+        )
+        assertTrue(
+            refreshEffect.contains("if (exitRequested) return@LaunchedEffect"),
+            "mobile player must not refresh media after exit has been requested",
+        )
+    }
 }

@@ -106,6 +106,7 @@ fun PlayerScreen(
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
+    var exitRequested by remember { mutableStateOf(false) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -143,6 +144,7 @@ fun PlayerScreen(
     // room_closed (or server error) → leave the player back to detail.
     LaunchedEffect(roomClosedReason) {
         if (roomClosedReason != null && roomController != null) {
+            exitRequested = true
             viewModel.onExit()
             navController.popBackStack()
         }
@@ -301,6 +303,7 @@ fun PlayerScreen(
 
     // Set up the media item when stream URL becomes available
     LaunchedEffect(videoBackend, uiState.streamUrl, uiState.playMethod, uiState.startPosition) {
+        if (exitRequested) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
@@ -350,6 +353,7 @@ fun PlayerScreen(
     // enlarged subtitle list while preserving position/playWhenReady.
     // The session is NOT restarted (web parity).
     LaunchedEffect(videoBackend, uiState.subtitleRefreshNonce) {
+        if (exitRequested) return@LaunchedEffect
         if (uiState.subtitleRefreshNonce == 0) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
@@ -582,6 +586,7 @@ fun PlayerScreen(
                     // In-room exit: leave the room (host close confirm is handled
                     // by the overlay before this fires). The controller resets the
                     // repo + engine; solo playback just pops.
+                    exitRequested = true
                     roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
                     viewModel.onExit()
                     navController.popBackStack()
