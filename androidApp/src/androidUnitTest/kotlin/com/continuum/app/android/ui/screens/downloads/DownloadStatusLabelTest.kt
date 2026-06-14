@@ -63,6 +63,38 @@ class DownloadStatusLabelTest {
     }
 
     @Test
+    fun completedMissingLocalMediaDoesNotContributeCompletedProgress() {
+        assertEquals(
+            0f,
+            downloadItemDisplayProgress(
+                status = DownloadStatus.Completed,
+                rawProgress = 1f,
+                hasLocalMedia = false,
+            ),
+        )
+    }
+
+    @Test
+    fun activeAndReadyDownloadsKeepTheirProgress() {
+        assertEquals(
+            0.42f,
+            downloadItemDisplayProgress(
+                status = DownloadStatus.Downloading,
+                rawProgress = 0.42f,
+                hasLocalMedia = false,
+            ),
+        )
+        assertEquals(
+            1f,
+            downloadItemDisplayProgress(
+                status = DownloadStatus.Completed,
+                rawProgress = 1f,
+                hasLocalMedia = true,
+            ),
+        )
+    }
+
+    @Test
     fun failedShowsFailed() {
         assertEquals("Failed", downloadStatusLabel(DownloadStatus.Failed, progress = 0.18f))
     }

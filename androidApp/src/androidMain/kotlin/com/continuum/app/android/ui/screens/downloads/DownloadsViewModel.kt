@@ -75,6 +75,15 @@ internal fun downloadItemFileState(
     )
 }
 
+internal fun downloadItemDisplayProgress(
+    status: DownloadStatus,
+    rawProgress: Float,
+    hasLocalMedia: Boolean,
+): Float {
+    if (status == DownloadStatus.Completed && !hasLocalMedia) return 0f
+    return rawProgress.coerceIn(0f, 1f)
+}
+
 /**
  * Recursive hierarchy of downloaded content for the Downloads tab.
  *
@@ -392,6 +401,11 @@ class DownloadsViewModel(
             status = status,
             hasLocalMedia = located != null,
         )
+        val displayProgress = downloadItemDisplayProgress(
+            status = status,
+            rawProgress = progress,
+            hasLocalMedia = located != null,
+        )
         return DownloadItem(
             id = id,
             contentId = contentId,
@@ -400,7 +414,7 @@ class DownloadsViewModel(
             posterUrl = meta?.posterUrl,
             posterThumbhash = meta?.posterThumbhash,
             fileSizeBytes = fileSize,
-            progress = progress,
+            progress = displayProgress,
             isComplete = fileState.isComplete,
             status = status,
             isFailed = fileState.isFailed,
