@@ -178,9 +178,7 @@ fun chooseReaderVersion(
     requestedFileId: Int?,
 ): ReaderVersionTarget? {
     if (requestedFileId != null) {
-        versions.firstOrNull { it.fileId == requestedFileId }?.let { requestedVersion ->
-            return requestedVersion.readerTargetOrNull()
-        }
+        return versions.firstOrNull { it.fileId == requestedFileId }?.readerTargetOrNull()
     }
 
     val targets = versions.mapNotNull { version ->

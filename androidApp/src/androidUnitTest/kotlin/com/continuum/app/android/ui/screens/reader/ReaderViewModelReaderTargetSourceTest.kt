@@ -132,9 +132,30 @@ class ReaderViewModelReaderTargetSourceTest {
         assertNull(state.error)
     }
 
+    @Test
+    fun onlineMissingRequestedFileIdDoesNotFallbackToAnotherReaderTarget() = runTest(dispatcher) {
+        val vm = viewModel(
+            catalogRepository = catalogRepository(
+                responseBody = itemDetailJson(fileId = 8, fileName = "other.epub", container = "epub"),
+            ),
+            downloadStorage = DownloadStorage(tmp.newFolder("downloads")),
+            requestedFileId = FILE_ID,
+        )
+
+        advanceUntilIdle()
+        val state = vm.awaitLoaded()
+
+        assertEquals("Book", state.title)
+        assertEquals("Ada Author", state.author)
+        assertNull(state.fileId)
+        assertNull(state.fileUrl)
+        assertEquals("No supported ebook file is available.", state.error)
+    }
+
     private fun viewModel(
         catalogRepository: CatalogRepository,
         downloadStorage: DownloadStorage,
+        requestedFileId: Int = FILE_ID,
     ): ReaderViewModel =
         ReaderViewModel(
             catalogRepository = catalogRepository,
@@ -143,7 +164,7 @@ class ReaderViewModelReaderTargetSourceTest {
             localStateStore = EbookLocalStateStore(tmp.newFolder("reader-state")),
             serverRegistry = FakeServerRegistry(),
             profileRepository = FakeProfileRepository(),
-            savedStateHandle = SavedStateHandle(mapOf("contentId" to CONTENT_ID, "fileId" to FILE_ID.toString())),
+            savedStateHandle = SavedStateHandle(mapOf("contentId" to CONTENT_ID, "fileId" to requestedFileId.toString())),
         )
 
     private suspend fun ReaderViewModel.awaitLoaded(): ReaderUiState {
@@ -203,15 +224,22 @@ class ReaderViewModelReaderTargetSourceTest {
             ),
         )
 
-    private fun itemDetailJson(fileName: String, container: String): String =
+    private fun itemDetailJson(fileId: Int = FILE_ID, fileName: String, container: String): String =
         """
         {
           "content_id": "$CONTENT_ID",
           "type": "ebook",
           "title": "Book",
+          "ebook": {
+            "authors": [
+              {
+                "name": "Ada Author"
+              }
+            ]
+          },
           "versions": [
             {
-              "file_id": $FILE_ID,
+              "file_id": $fileId,
               "file_name": "$fileName",
               "container": "$container"
             }
