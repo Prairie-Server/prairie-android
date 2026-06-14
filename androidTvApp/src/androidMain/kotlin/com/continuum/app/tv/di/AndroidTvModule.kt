@@ -196,7 +196,7 @@ val androidTvModule = module {
     // Auth ViewModels
     viewModel { TvServerSetupViewModel(get()) }
     viewModel { TvLoginViewModel(get(), get(), get()) }
-    viewModel { TvProfileSelectionViewModel(get(), get()) }
+    viewModel { TvProfileSelectionViewModel(get()) }
     viewModel { TvServerListViewModel(get(), get()) }
 
     // Admin ViewModels

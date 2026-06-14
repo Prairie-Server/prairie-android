@@ -40,7 +40,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -76,7 +75,6 @@ fun TvLoginScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val deviceState by viewModel.deviceLoginState.collectAsState()
-    val context = LocalContext.current
     val usernameFocus = remember { FocusRequester() }
     val usernameBringIntoView = remember { BringIntoViewRequester() }
     val passwordBringIntoView = remember { BringIntoViewRequester() }
@@ -85,7 +83,7 @@ fun TvLoginScreen(
 
     LaunchedEffect(state.loginSuccess) {
         if (state.loginSuccess) {
-            viewModel.onLoginSuccessConsumed(context)
+            viewModel.onLoginSuccessConsumed()
             onLoginSuccess()
         }
     }
@@ -123,7 +121,7 @@ fun TvLoginScreen(
                     signInBringIntoView = signInBringIntoView,
                     onUsernameChanged = viewModel::onUsernameChanged,
                     onPasswordChanged = viewModel::onPasswordChanged,
-                    onLoginClick = { viewModel.onLoginClick(context) },
+                    onLoginClick = viewModel::onLoginClick,
                     scope = scope,
                     modifier = Modifier.width(620.dp),
                 )

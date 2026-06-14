@@ -1,6 +1,5 @@
 package com.continuum.app.tv.ui.screens.auth
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.auth.DeviceLoginPollResponse
@@ -44,9 +43,7 @@ data class TvLoginUiState(
  *    before flipping `loginSuccess`, so a late-arriving device-login
  *    `Approved` can't clobber the freshly-saved credential tokens.
  *
- * The screen-side `LaunchedEffect(loginSuccess)` then runs
- * [persistAuth] once (legacy SharedPreferences mirror) and routes
- * forward.
+ * The screen-side `LaunchedEffect(loginSuccess)` then routes forward.
  */
 class TvLoginViewModel(
     private val authRepository: AuthRepository,
@@ -69,7 +66,7 @@ class TvLoginViewModel(
     fun onUsernameChanged(v: String) = _uiState.update { it.copy(username = v, error = null) }
     fun onPasswordChanged(v: String) = _uiState.update { it.copy(password = v, error = null) }
 
-    fun onLoginClick(context: Context) {
+    fun onLoginClick() {
         val s = _uiState.value
         if (s.username.isBlank()) {
             _uiState.update { it.copy(error = "Username is required") }
@@ -87,7 +84,6 @@ class TvLoginViewModel(
                     // Cancel the parallel device-login poller so a late-arriving
                     // Approved can't overwrite the credential tokens we just saved.
                     deviceLoginJob?.cancel()
-                    persistAuth(context)
                     _uiState.update { it.copy(isLoading = false, loginSuccess = true) }
                 }
                 is ApiResult.Error -> {
@@ -111,8 +107,8 @@ class TvLoginViewModel(
      * Starts (or restarts) the device-login state machine. Cancels any prior
      * job so a retry doesn't race two pollers against the same UI. On the
      * terminal [DeviceLoginRepository.DeviceLoginState.Approved] state we
-     * persist tokens and flip `loginSuccess` — the screen then runs the
-     * shared post-success persist + navigation in its `LaunchedEffect`.
+     * persist tokens and flip `loginSuccess` — the screen then routes forward
+     * from its `LaunchedEffect`.
      */
     private fun startDeviceLogin() {
         deviceLoginJob?.cancel()
@@ -156,30 +152,9 @@ class TvLoginViewModel(
         _uiState.update { it.copy(isLoading = false, loginSuccess = true) }
     }
 
-    private suspend fun persistAuth(context: Context) {
-        val serverUrl = tokenManager.getServerUrl()
-        val accessToken = tokenManager.getAccessToken()
-        val refreshToken = tokenManager.getRefreshToken()
-        val prefs = context.getSharedPreferences("continuum_auth", Context.MODE_PRIVATE)
-        prefs.edit()
-            .putString("serverUrl", serverUrl)
-            .putString("accessToken", accessToken)
-            .putString("refreshToken", refreshToken)
-            .apply()
-    }
-
-    /**
-     * Called by the screen from `LaunchedEffect(loginSuccess)`. Persists the
-     * legacy SharedPreferences mirror for whichever flow (credential or
-     * device-login) flipped the flag. The credential path already calls
-     * [persistAuth] itself before flipping the flag, so this is a no-op
-     * second write in that case — idempotent.
-     */
-    fun onLoginSuccessConsumed(context: Context) {
-        viewModelScope.launch {
-            persistAuth(context)
-            _uiState.update { it.copy(loginSuccess = false) }
-        }
+    /** Called by the screen from `LaunchedEffect(loginSuccess)` after routing. */
+    fun onLoginSuccessConsumed() {
+        _uiState.update { it.copy(loginSuccess = false) }
     }
 
     override fun onCleared() {

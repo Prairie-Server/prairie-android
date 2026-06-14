@@ -1,11 +1,9 @@
 package com.continuum.app.tv.ui.screens.profiles
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.profile.Profile
 import com.continuum.app.network.ApiResult
-import com.continuum.app.network.TokenManager
 import com.continuum.app.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +29,6 @@ data class TvProfileSelectionUiState(
  */
 class TvProfileSelectionViewModel(
     private val profileRepository: ProfileRepository,
-    private val tokenManager: TokenManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvProfileSelectionUiState())
@@ -67,7 +64,7 @@ class TvProfileSelectionViewModel(
         }
     }
 
-    fun onProfileSelected(profile: Profile, context: Context) {
+    fun onProfileSelected(profile: Profile) {
         if (profile.hasPin) {
             // Open the PIN dialog; actual selection happens in onPinEntered.
             _uiState.update {
@@ -75,7 +72,7 @@ class TvProfileSelectionViewModel(
             }
             return
         }
-        commitSelection(profile, context)
+        commitSelection(profile)
     }
 
     fun onPinDialogDismissed() {
@@ -84,15 +81,14 @@ class TvProfileSelectionViewModel(
         }
     }
 
-    fun onPinEntered(pin: String, context: Context) {
+    fun onPinEntered(pin: String) {
         val profile = _uiState.value.pinProfile ?: return
         _uiState.update { it.copy(isVerifyingPin = true, pinError = null) }
         viewModelScope.launch {
             when (val r = profileRepository.verifyPin(profile.id, pin)) {
                 is ApiResult.Success -> {
-                    // Repository stores the profile token internally. Still persist
-                    // the profileId to prefs so the next launch jumps to Main.
-                    commitSelection(profile, context)
+                    // Repository stores the profile token and active profile.
+                    commitSelection(profile)
                     _uiState.update { it.copy(pinProfile = null, isVerifyingPin = false) }
                 }
                 is ApiResult.Error -> _uiState.update {
@@ -111,13 +107,9 @@ class TvProfileSelectionViewModel(
         }
     }
 
-    private fun commitSelection(profile: Profile, context: Context) {
+    private fun commitSelection(profile: Profile) {
         viewModelScope.launch {
             profileRepository.selectProfile(profile.id)
-            context.getSharedPreferences("continuum_auth", Context.MODE_PRIVATE)
-                .edit()
-                .putString("profileId", profile.id)
-                .apply()
             _uiState.update { it.copy(selectedProfileId = profile.id) }
         }
     }

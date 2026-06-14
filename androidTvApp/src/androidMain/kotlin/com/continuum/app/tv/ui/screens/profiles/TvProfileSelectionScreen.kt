@@ -28,7 +28,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,7 +57,6 @@ fun TvProfileSelectionScreen(
     viewModel: TvProfileSelectionViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
 
     LaunchedEffect(state.selectedProfileId) {
         if (state.selectedProfileId != null) {
@@ -117,7 +115,7 @@ fun TvProfileSelectionScreen(
                         itemsIndexed(state.profiles, key = { _, p -> p.id }) { index, profile ->
                             TvProfileCard(
                                 profile = profile,
-                                onClick = { viewModel.onProfileSelected(profile, context) },
+                                onClick = { viewModel.onProfileSelected(profile) },
                                 modifier = if (index == 0) {
                                     Modifier.focusRequester(firstCardFocus)
                                 } else {
@@ -147,7 +145,7 @@ fun TvProfileSelectionScreen(
             profileName = pinProfile.name,
             errorMessage = state.pinError,
             isVerifying = state.isVerifyingPin,
-            onPinEntered = { pin -> viewModel.onPinEntered(pin, context) },
+            onPinEntered = viewModel::onPinEntered,
             onDismiss = { viewModel.onPinDialogDismissed() },
         )
     }
