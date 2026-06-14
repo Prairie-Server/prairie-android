@@ -4,6 +4,8 @@
 
 **Goal:** Add a real MPV/libmpv video backend behind Silo's shared playback boundary while keeping Media3 as the fallback engine.
 
+**Status:** Implemented on `feature/production-playback-architecture` through `8637d65`. The current MPV path is runtime-gated to Android 8/API 26+ because the published `dev.jdtech.mpv:libmpv` artifacts declare `minSdk 26`; Android 7/API 24-25 remains on Media3 so the app still installs there.
+
 **Architecture:** MPV must be an actual Media3 `Player` owned by `ContinuumPlaybackService`; otherwise the screens would still drive the existing Media3 player through `MediaController`. Add a Media3-compatible MPV player adapter in `android-shared`, teach the service to create the selected engine, and update `VideoPlaybackBackendFactory` so diagnostics and future selection policy report the engine truthfully.
 
 **Tech Stack:** Kotlin 2.1, Android minSdk 24, Media3 1.10.0, `dev.jdtech.mpv:libmpv:1.0.0`, Koin, Compose phone/TV player screens, existing Silo playback service.
