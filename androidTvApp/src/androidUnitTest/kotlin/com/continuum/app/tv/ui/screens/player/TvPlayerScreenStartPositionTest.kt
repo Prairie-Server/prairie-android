@@ -9,14 +9,18 @@ class TvPlayerScreenStartPositionTest {
     ).readText()
 
     @Test
-    fun tvPlayerDelegatesInitialMountToSharedHelper() {
+    fun tvPlayerDelegatesInitialMountToVideoBackend() {
         assertTrue(
             source.contains("VideoPlayerMediaSpec("),
             "TV player must build the shared video media spec",
         )
         assertTrue(
-            source.contains("mountVideoMedia("),
-            "TV player must use the shared mount helper",
+            source.contains("VideoPlaybackBackendFactory"),
+            "TV player must inject the shared backend factory",
+        )
+        assertTrue(
+            source.contains("backend.mount(mediaSpec"),
+            "TV player must mount through the backend",
         )
         assertTrue(
             !source.contains("controller.setMediaItem(mediaItem)"),
@@ -26,13 +30,41 @@ class TvPlayerScreenStartPositionTest {
             !source.contains("controller.seekTo(startMs)"),
             "TV player must not use post-mount seekTo for initial resume",
         )
+        assertTrue(
+            !source.contains("mountVideoMedia("),
+            "TV player must not call the raw Media3 mounter directly",
+        )
     }
 
     @Test
-    fun tvPlayerDelegatesSubtitleRefreshToSharedHelper() {
+    fun tvPlayerDelegatesSubtitleRefreshToVideoBackend() {
         assertTrue(
-            source.contains("refreshMountedVideoMedia("),
-            "TV subtitle refresh must use the shared refresh helper",
+            source.contains("backend.refresh(mediaSpec"),
+            "TV subtitle refresh must use the backend refresh path",
+        )
+        assertTrue(
+            !source.contains("refreshMountedVideoMedia("),
+            "TV subtitle refresh must not call the raw Media3 refresh helper directly",
+        )
+    }
+
+    @Test
+    fun tvPlayerRoutesTrackSelectionThroughBackend() {
+        assertTrue(
+            source.contains("videoBackend?.selectSubtitle("),
+            "TV subtitle selection must go through the mounted backend",
+        )
+        assertTrue(
+            source.contains("videoBackend?.selectAudioTrack("),
+            "TV audio selection must go through the mounted backend",
+        )
+        assertTrue(
+            !source.contains("trackSelectionCoordinator.selectSubtitle("),
+            "TV player must not call the subtitle coordinator directly",
+        )
+        assertTrue(
+            !source.contains("trackSelectionCoordinator.selectAudioTrack("),
+            "TV player must not call the audio coordinator directly",
         )
     }
 }

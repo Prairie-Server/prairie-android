@@ -60,9 +60,7 @@ import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.continuum.app.common.player.AudioCapabilityManager
-import com.continuum.app.common.player.AudioTrackManager
 import com.continuum.app.common.player.ContinuumPlaybackService
-import com.continuum.app.common.player.ContinuumPlayerFactory
 import com.continuum.app.common.player.DisplayHdrProbe
 import com.continuum.app.common.player.HdrDisplayController
 import com.continuum.app.common.player.PlaybackCapabilityDetector
@@ -70,10 +68,10 @@ import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.common.player.VideoPlayerMediaSpec
+import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
+import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
+import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
-import com.continuum.app.common.player.video.VideoTrackSelectionCoordinator
-import com.continuum.app.common.player.mountVideoMedia
-import com.continuum.app.common.player.refreshMountedVideoMedia
 import com.continuum.app.model.watchtogether.RoomPlaybackState
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
@@ -120,9 +118,8 @@ fun TvPlayerScreen(
             )
         },
     ),
-    playerFactory: ContinuumPlayerFactory = koinInject(),
+    backendFactory: VideoPlaybackBackendFactory = koinInject(),
     subtitleManager: SubtitleManager = koinInject(),
-    audioTrackManager: AudioTrackManager = koinInject(),
     audioCapabilityManager: AudioCapabilityManager = koinInject(),
     capabilityDetector: PlaybackCapabilityDetector = koinInject(),
 ) {
@@ -130,9 +127,6 @@ fun TvPlayerScreen(
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val introSkipState by viewModel.introSkipState.collectAsState()
-    val trackSelectionCoordinator = remember(subtitleManager) {
-        VideoTrackSelectionCoordinator(subtitleManager)
-    }
     val subtitleAppearance by viewModel.subtitleAppearance.collectAsState()
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val audioDelayMs by viewModel.audioDelayMs.collectAsState()
@@ -185,6 +179,18 @@ fun TvPlayerScreen(
     // Connect a MediaController to the ContinuumPlaybackService. Async —
     // downstream effects gate on a non-null controller.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
+    val videoBackend = remember(mediaController, backendFactory, contentId, preferredFileId) {
+        mediaController?.let { controller ->
+            backendFactory.create(
+                player = controller,
+                request = VideoPlaybackBackendRequest(
+                    contentId = contentId,
+                    fileId = preferredFileId,
+                    formFactor = VideoPlaybackFormFactor.Tv,
+                ),
+            )
+        }
+    }
     val stopPlaybackAndExit = {
         if (!exitRequested) {
             exitRequested = true
@@ -204,21 +210,12 @@ fun TvPlayerScreen(
         }
     }
     val applyTvSubtitleSelection: (Int, Boolean) -> Unit = { idx, dismiss ->
-        mediaController?.let { controller ->
-            val mediaSpec = tvTrackSelectionMediaSpec(state) ?: return@let
-            val selectedTrack = state.subtitleTracks
-                .firstOrNull { it.index == idx }
-                ?.toVideoTrackEntry()
-            if (trackSelectionCoordinator.selectSubtitle(
-                    player = controller,
-                    playerFactory = playerFactory,
-                    mediaSpec = mediaSpec,
-                    selectedTrack = selectedTrack,
-                )
-            ) {
-                viewModel.onSubtitleSelectionApplied(idx)
-                if (dismiss) viewModel.closeSubtitleMenu()
-            }
+        val selectedTrack = state.subtitleTracks
+            .firstOrNull { it.index == idx }
+            ?.toVideoTrackEntry()
+        if (videoBackend?.selectSubtitle(selectedTrack) == true) {
+            viewModel.onSubtitleSelectionApplied(idx)
+            if (dismiss) viewModel.closeSubtitleMenu()
         }
     }
 
@@ -292,14 +289,14 @@ fun TvPlayerScreen(
     // (A.3d-hdr).
     LaunchedEffect(
         mediaController,
+        videoBackend,
         audioCaps,
         state.preferredAudioLanguage,
         state.preferredTextLanguage,
         hdrEnabled,
     ) {
-        val controller = mediaController ?: return@LaunchedEffect
-        playerFactory.applyTrackSelectionPresets(
-            player = controller,
+        val backend = videoBackend ?: return@LaunchedEffect
+        backend.applyTrackSelection(
             audioCaps = audioCaps,
             displayHdr = displayHdr,
             preferredAudioLanguage = state.preferredAudioLanguage,
@@ -430,8 +427,8 @@ fun TvPlayerScreen(
     }
 
     // Prepare the player when a stream URL becomes available.
-    LaunchedEffect(mediaController, state.streamUrl, state.sessionId) {
-        val controller = mediaController ?: return@LaunchedEffect
+    LaunchedEffect(videoBackend, state.streamUrl, state.sessionId) {
+        val backend = videoBackend ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         val method = state.playMethod ?: return@LaunchedEffect
         val mediaSpec = VideoPlayerMediaSpec(
@@ -443,7 +440,7 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
         )
-        mountVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
+        backend.mount(mediaSpec)
     }
 
     // Subtitle refresh (search download / AI completion): Media3 cannot add
@@ -451,9 +448,9 @@ fun TvPlayerScreen(
     // identical stream URL + playback session — with the merged sidecar list
     // and resume at the captured position. Keyed on the refresh nonce so the
     // initial prepare effect above remains the only session-start path.
-    LaunchedEffect(mediaController, state.subtitleRefreshNonce) {
+    LaunchedEffect(videoBackend, state.subtitleRefreshNonce) {
         if (state.subtitleRefreshNonce == 0) return@LaunchedEffect
-        val controller = mediaController ?: return@LaunchedEffect
+        val backend = videoBackend ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         val method = state.playMethod ?: return@LaunchedEffect
         val mediaSpec = VideoPlayerMediaSpec(
@@ -465,26 +462,19 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
         )
-        refreshMountedVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
+        backend.refresh(mediaSpec)
     }
 
     // Auto-select a freshly downloaded/translated subtitle track once the
     // rebuilt item's tracks land (the VM matches by label in onTracksChanged
     // and emits the ordinal text-group index). Mirrors the seekRequests idiom.
-    LaunchedEffect(mediaController) {
-        val controller = mediaController ?: return@LaunchedEffect
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
         viewModel.subtitleSelectRequests.collect { idx ->
-            val mediaSpec = tvTrackSelectionMediaSpec(viewModel.uiState.value) ?: return@collect
             val selectedTrack = viewModel.uiState.value.subtitleTracks
                 .firstOrNull { it.index == idx }
                 ?.toVideoTrackEntry()
-            if (trackSelectionCoordinator.selectSubtitle(
-                    player = controller,
-                    playerFactory = playerFactory,
-                    mediaSpec = mediaSpec,
-                    selectedTrack = selectedTrack,
-                )
-            ) {
+            if (backend.selectSubtitle(selectedTrack)) {
                 viewModel.onSubtitleSelectionApplied(idx)
             }
         }
@@ -694,13 +684,7 @@ fun TvPlayerScreen(
                                     .firstOrNull { it.index == idx }
                                     ?.toVideoTrackEntry()
                                 if (selectedTrack != null) {
-                                    mediaController?.let {
-                                        trackSelectionCoordinator.selectAudioTrack(
-                                            player = it,
-                                            audioTrackManager = audioTrackManager,
-                                            selectedTrack = selectedTrack,
-                                        )
-                                    }
+                                    videoBackend?.selectAudioTrack(selectedTrack)
                                 }
                             },
                             onSelectVideo = { _ ->
@@ -1156,20 +1140,6 @@ private fun formatPlayerTime(seconds: Double): String {
     val m = (total % 3600) / 60
     val s = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
-
-private fun tvTrackSelectionMediaSpec(state: TvPlayerViewModel.UiState): VideoPlayerMediaSpec? {
-    val streamUrl = state.streamUrl ?: return null
-    val playMethod = state.playMethod ?: return null
-    return VideoPlayerMediaSpec(
-        streamUrl = streamUrl,
-        playMethod = playMethod,
-        serverUrl = state.serverUrl,
-        subtitles = state.subtitleUrls,
-        title = state.title.ifBlank { null },
-        artworkUrl = state.artworkUrl,
-        startPositionSeconds = state.startPosition,
-    )
 }
 
 private fun PlayerTrackEntry.toVideoTrackEntry(): VideoPlayerTrackEntry =
