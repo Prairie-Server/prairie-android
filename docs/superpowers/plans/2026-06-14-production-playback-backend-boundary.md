@@ -823,10 +823,9 @@ with:
     val backendFactory: VideoPlaybackBackendFactory = koinInject()
 ```
 
-Remove:
+Keep the existing local `SubtitleManager` because the screen still uses it for `applyAppearance`. Remove only the local track-selection coordinator:
 
 ```kotlin
-    val subtitleManager = remember { SubtitleManager() }
     val trackSelectionCoordinator = remember(subtitleManager) {
         VideoTrackSelectionCoordinator(subtitleManager)
     }
@@ -1063,7 +1062,7 @@ with:
     backendFactory: VideoPlaybackBackendFactory = koinInject(),
 ```
 
-Remove the remembered `VideoTrackSelectionCoordinator` block. Add near `var mediaController by remember { mutableStateOf<MediaController?>(null) }`:
+Keep the existing `subtitleManager: SubtitleManager = koinInject()` parameter because the screen still uses it for `applyAppearance`. Remove only the remembered `VideoTrackSelectionCoordinator` block. Add near `var mediaController by remember { mutableStateOf<MediaController?>(null) }`:
 
 ```kotlin
     var playbackBackend by remember { mutableStateOf<VideoPlaybackBackend?>(null) }
