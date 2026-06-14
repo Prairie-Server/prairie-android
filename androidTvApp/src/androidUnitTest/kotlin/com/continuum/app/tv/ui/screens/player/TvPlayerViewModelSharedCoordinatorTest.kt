@@ -84,16 +84,32 @@ class TvPlayerViewModelSharedCoordinatorTest {
             "TV starter must preserve explicit Start Over request semantics",
         )
         assertTrue(
+            starterSource.contains("import com.continuum.app.model.playback.resolvePlaybackStartPosition"),
+            "TV starter must use the shared resume resolver that mobile and audiobooks use",
+        )
+        assertTrue(
+            starterSource.contains("import com.continuum.app.model.playback.resolvePlaybackStartRequestPosition"),
+            "TV starter must use the shared start-request resolver that mobile and audiobooks use",
+        )
+        assertFalse(
+            starterSource.contains("private fun resolvePlaybackStartPosition("),
+            "TV starter must not keep a private copy of shared resume semantics",
+        )
+        assertFalse(
+            starterSource.contains("private fun resolvePlaybackStartRequestPosition("),
+            "TV starter must not keep a private copy of shared start-request semantics",
+        )
+        assertTrue(
             starterSource.contains("adoptActiveSession("),
             "TV starter must adopt the initial session into PlaybackSessionLifecycle",
         )
-        assertTrue(
+        assertFalse(
             starterSource.contains("manageProgress = false"),
-            "TV starter must leave progress and 404 recovery with the TV ViewModel until recovery is fully shared",
+            "TV starter must let PlaybackSessionLifecycle own progress reporting and resume persistence",
         )
-        assertTrue(
+        assertFalse(
             starterSource.contains("stopSessionOnStop = false"),
-            "TV starter must not make lifecycle stop the same session the TV ViewModel stops",
+            "TV starter must let PlaybackSessionLifecycle stop the adopted session on exit",
         )
     }
 

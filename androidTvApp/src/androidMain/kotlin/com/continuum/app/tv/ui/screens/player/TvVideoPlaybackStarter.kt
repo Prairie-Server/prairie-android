@@ -12,6 +12,8 @@ import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlaybackSessionResponse
+import com.continuum.app.model.playback.resolvePlaybackStartPosition
+import com.continuum.app.model.playback.resolvePlaybackStartRequestPosition
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.ProfileRepository
@@ -126,8 +128,6 @@ class TvVideoPlaybackStarter(
                     startPosition = startPos,
                 ),
                 session = resolved,
-                manageProgress = false,
-                stopSessionOnStop = false,
             )
 
             VideoPlaybackStartResult.Ready(
@@ -201,23 +201,6 @@ class TvVideoPlaybackStarter(
             else -> 0
         }
     }
-
-    private fun resolvePlaybackStartRequestPosition(
-        overridePosition: Double?,
-        detailPosition: Double?,
-    ): Double? =
-        overridePosition?.takeIf { it.isFinite() && it >= 0.0 }
-            ?: detailPosition?.takeIf { it.isFinite() && it > 0.0 }
-
-    private fun resolvePlaybackStartPosition(
-        overridePosition: Double?,
-        sessionPosition: Double,
-        detailPosition: Double?,
-    ): Double =
-        overridePosition?.takeIf { it.isFinite() && it >= 0.0 }
-            ?: sessionPosition.takeIf { it.isFinite() && it > 0.0 }
-            ?: detailPosition?.takeIf { it.isFinite() && it > 0.0 }
-            ?: 0.0
 
     private companion object {
         const val TAG = "TvVideoPlaybackStarter"
