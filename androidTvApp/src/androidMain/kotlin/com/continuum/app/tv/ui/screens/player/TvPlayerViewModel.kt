@@ -627,6 +627,8 @@ class TvPlayerViewModel(
     }
 
     fun onPositionChanged(positionMs: Long, durationMs: Long) {
+        if (positionMs < 0) return
+
         val positionSec = positionMs / 1000.0
         val durationSec = durationMs / 1000.0
         _uiState.update {

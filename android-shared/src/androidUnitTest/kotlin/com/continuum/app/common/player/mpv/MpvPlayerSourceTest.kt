@@ -98,6 +98,60 @@ class MpvPlayerSourceTest {
     }
 
     @Test
+    fun mpvPlayerObservesPlaybackPositionAndDurationAsDoubles() {
+        val text = source.readText()
+        val longPropertyBody = text.substringAfter("override fun eventProperty(property: String, value: Long)")
+            .substringBefore("private fun notifyVideoSizeChangedIfReady")
+        val doublePropertyBody = text.substringAfter("override fun eventProperty(property: String, value: Double)")
+            .substringBefore("override fun event(eventId: Int)")
+
+        assertTrue(text.contains("Property(\"time-pos\", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)"))
+        assertTrue(text.contains("Property(\"duration\", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)"))
+        assertTrue(doublePropertyBody.contains("\"time-pos\" ->"))
+        assertTrue(doublePropertyBody.contains("currentPositionMs = secondsToMillis(value)"))
+        assertTrue(doublePropertyBody.contains("\"duration\" ->"))
+        assertTrue(doublePropertyBody.contains("val durationMs = secondsToMillis(value)"))
+        assertTrue(doublePropertyBody.contains("currentDurationMs = durationMs"))
+        assertTrue(!longPropertyBody.contains("\"time-pos\" ->"))
+        assertTrue(!longPropertyBody.contains("\"duration\" ->"))
+    }
+
+    @Test
+    fun mpvPlayerPublishesVodTimelineWithKnownDefaultPosition() {
+        val text = source.readText()
+        val windowBody = text.substringAfter("override fun getWindow(")
+            .substringBefore("override fun getPeriodCount()")
+        val periodBody = text.substringAfter("override fun getPeriod(periodIndex: Int, period: Period, setIds: Boolean): Period")
+            .substringBefore("override fun getIndexOfPeriod")
+
+        assertTrue(windowBody.contains("val durationUs = Util.msToUs(currentDurationMs ?: C.TIME_UNSET)"))
+        assertTrue(windowBody.contains("0L,\n                    durationUs"))
+        assertTrue(windowBody.contains("0L,\n                )"))
+        assertTrue(periodBody.contains("val durationUs = Util.msToUs(currentDurationMs ?: C.TIME_UNSET)"))
+        assertTrue(periodBody.contains("period.set(null, null, periodIndex, durationUs, 0L)"))
+    }
+
+    @Test
+    fun mpvPlayerPublishesVodTimelineAsNonLiveAndNonDynamic() {
+        val text = source.readText()
+        val windowBody = text.substringAfter("override fun getWindow(")
+            .substringBefore("override fun getPeriodCount()")
+
+        assertTrue(
+            windowBody.contains("isSeekable,\n                    false,\n                    null,"),
+            "MPV movie streams are VOD; exporting a liveConfiguration makes MediaSession report position=-1",
+        )
+        assertTrue(
+            !windowBody.contains("currentMediaItem.liveConfiguration"),
+            "VOD timeline must not inherit MediaItem.liveConfiguration defaults",
+        )
+        assertTrue(
+            !windowBody.contains("!isSeekable,\n                    currentMediaItem.liveConfiguration"),
+            "lack of seekability must not make the window dynamic/live-like",
+        )
+    }
+
+    @Test
     fun mpvPlayerAppliesInitialSeekWithoutDefaultSeekLoop() {
         val text = source.readText()
 

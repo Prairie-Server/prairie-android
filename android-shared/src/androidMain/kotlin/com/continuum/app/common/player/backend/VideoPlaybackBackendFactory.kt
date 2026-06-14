@@ -1,11 +1,11 @@
 package com.continuum.app.common.player.backend
 
-import android.os.Build
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.continuum.app.common.player.AudioTrackManager
 import com.continuum.app.common.player.ContinuumPlayerFactory
+import com.continuum.app.common.player.mpv.MpvPlayer
 import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.common.player.video.VideoTrackSelectionCoordinator
 
@@ -22,7 +22,7 @@ class VideoPlaybackBackendFactory(
         val selected = VideoPlaybackBackendSelector.select(request)
         val actual = if (
             selected == VideoPlaybackBackendKind.Mpv &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+            player is MpvPlayer
         ) {
             VideoPlaybackBackendKind.Mpv
         } else {

@@ -1,7 +1,6 @@
 package com.continuum.app.common.player
 
 import android.content.Intent
-import android.os.Build
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -140,11 +139,7 @@ class ContinuumPlaybackService : MediaSessionService() {
     }
 
     private fun createPlaybackPlayer(): Player =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            playerFactory.createMpvPlayer()
-        } else {
-            playerFactory.createPlayer()
-        }
+        playerFactory.createPlayer()
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession

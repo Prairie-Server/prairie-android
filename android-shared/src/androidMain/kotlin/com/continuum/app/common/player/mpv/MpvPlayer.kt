@@ -231,8 +231,8 @@ class MpvPlayer(
                 Property("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
                 Property("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
                 Property("seekable", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
-                Property("time-pos", MPVLib.MpvFormat.MPV_FORMAT_INT64),
-                Property("duration", MPVLib.MpvFormat.MPV_FORMAT_INT64),
+                Property("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
+                Property("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
                 Property("demuxer-cache-time", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
                 Property("speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
                 Property("playlist-count", MPVLib.MpvFormat.MPV_FORMAT_INT64),
@@ -428,16 +428,6 @@ class MpvPlayer(
         handler.post {
             if (isReleased) return@post
             when (property) {
-                "time-pos" -> {
-                    if (playbackState != STATE_BUFFERING) {
-                        currentPositionMs = value * 1000
-                    }
-                }
-
-                "duration" -> {
-                    currentDurationMs = value * 1000
-                }
-
                 "playlist-count" -> {
                     if (!isPlayerReady && value > 0) {
                         listeners.sendEvent(EVENT_TIMELINE_CHANGED) { listener ->
@@ -490,6 +480,25 @@ class MpvPlayer(
         handler.post {
             if (isReleased) return@post
             when (property) {
+                "time-pos" -> {
+                    if (playbackState != STATE_BUFFERING) {
+                        currentPositionMs = secondsToMillis(value)
+                    }
+                }
+
+                "duration" -> {
+                    val durationMs = secondsToMillis(value)
+                    if (durationMs > 0) {
+                        currentDurationMs = durationMs
+                        listeners.sendEvent(EVENT_TIMELINE_CHANGED) { listener ->
+                            listener.onTimelineChanged(
+                                currentTimeline,
+                                TIMELINE_CHANGE_REASON_SOURCE_UPDATE,
+                            )
+                        }
+                    }
+                }
+
                 "demuxer-cache-time" -> {
                     currentCacheDurationMs = (value * 1000).toLong()
                 }
@@ -503,6 +512,13 @@ class MpvPlayer(
             }
         }
     }
+
+    private fun secondsToMillis(seconds: Double): Long =
+        if (seconds.isFinite() && seconds >= 0.0) {
+            (seconds * C.MILLIS_PER_SECOND).toLong()
+        } else {
+            0L
+        }
 
     override fun event(eventId: Int) {
         handler.post {
@@ -586,6 +602,7 @@ class MpvPlayer(
             ): Window {
                 val currentMediaItem =
                     internalMediaItems.getOrNull(windowIndex) ?: MediaItem.Builder().build()
+                val durationUs = Util.msToUs(currentDurationMs ?: C.TIME_UNSET)
                 return window.set(
                     windowIndex,
                     currentMediaItem,
@@ -594,20 +611,21 @@ class MpvPlayer(
                     C.TIME_UNSET,
                     C.TIME_UNSET,
                     isSeekable,
-                    !isSeekable,
-                    currentMediaItem.liveConfiguration,
-                    C.TIME_UNSET,
-                    Util.msToUs(currentDurationMs ?: C.TIME_UNSET),
+                    false,
+                    null,
+                    0L,
+                    durationUs,
                     windowIndex,
                     windowIndex,
-                    C.TIME_UNSET,
+                    0L,
                 )
             }
 
             override fun getPeriodCount(): Int = internalMediaItems.size
 
             override fun getPeriod(periodIndex: Int, period: Period, setIds: Boolean): Period {
-                return period.set(null, null, periodIndex, C.TIME_UNSET, 0)
+                val durationUs = Util.msToUs(currentDurationMs ?: C.TIME_UNSET)
+                return period.set(null, null, periodIndex, durationUs, 0L)
             }
 
             override fun getIndexOfPeriod(uid: Any): Int = C.INDEX_UNSET

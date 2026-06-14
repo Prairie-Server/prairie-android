@@ -76,4 +76,20 @@ class PlayerScreenStartPositionTest {
             "track changes must not rebuild the media spec or remount media",
         )
     }
+
+    @Test
+    fun playerScreenDoesNotTurnPositionMirrorUpdatesIntoSeeks() {
+        assertFalse(
+            source.contains("LaunchedEffect(mediaController, uiState.position)"),
+            "progress mirroring must not be keyed as a seek side effect",
+        )
+        assertTrue(
+            source.contains("viewModel.seekRequests.collect"),
+            "explicit user seeks must flow through a dedicated seek request channel",
+        )
+        assertTrue(
+            source.contains("controller.seekTo((posSec * 1000).toLong())"),
+            "seek requests must be the path that drives MediaController.seekTo",
+        )
+    }
 }

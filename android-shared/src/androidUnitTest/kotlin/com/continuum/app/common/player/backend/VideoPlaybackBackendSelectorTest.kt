@@ -43,15 +43,15 @@ class VideoPlaybackBackendSelectorTest {
     }
 
     @Test
-    fun autoUsesMpvForKnownVideoFormFactors() {
+    fun autoUsesMedia3ForKnownVideoFormFactors() {
         assertEquals(
-            VideoPlaybackBackendKind.Mpv,
+            VideoPlaybackBackendKind.Media3,
             VideoPlaybackBackendSelector.select(
                 VideoPlaybackBackendRequest(formFactor = VideoPlaybackFormFactor.Mobile),
             ),
         )
         assertEquals(
-            VideoPlaybackBackendKind.Mpv,
+            VideoPlaybackBackendKind.Media3,
             VideoPlaybackBackendSelector.select(
                 VideoPlaybackBackendRequest(formFactor = VideoPlaybackFormFactor.Tv),
             ),

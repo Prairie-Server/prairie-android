@@ -474,19 +474,18 @@ fun PlayerScreen(
         }
     }
 
-    // Handle seek commands from ViewModel
-    LaunchedEffect(mediaController, uiState.position) {
+    // User/app seeks are explicit commands from the ViewModel. Progress
+    // samples update uiState.position for display only and must never feed
+    // back into MediaController.seekTo.
+    LaunchedEffect(mediaController) {
         val controller = mediaController ?: return@LaunchedEffect
-        val playerPosSec = controller.currentPosition / 1000.0
-        val requestedPos = uiState.position
-        if (kotlin.math.abs(playerPosSec - requestedPos) > 2.0) {
-            controller.seekTo((requestedPos * 1000).toLong())
+        viewModel.seekRequests.collect { posSec ->
+            controller.seekTo((posSec * 1000).toLong())
         }
     }
 
-    // Room-driven corrective seeks bypass the 2.0s deadband above: a Watch
-    // Together sync correction can be as small as 0.35s and must always reach
-    // the player, otherwise sync never tightens.
+    // Room-driven corrective seeks remain on a separate channel so sync
+    // corrections can stay unconditional and easy to reason about.
     LaunchedEffect(mediaController) {
         val controller = mediaController ?: return@LaunchedEffect
         viewModel.immediateSeeks.collect { posSec ->

@@ -44,8 +44,11 @@ import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.repository.SubtitlesRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -157,6 +160,18 @@ class PlayerViewModel(
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+    /**
+     * Explicit user/app seek commands. PlayerScreen collects this flow and
+     * calls MediaController.seekTo. Keeping it separate from uiState.position
+     * prevents routine progress samples from becoming seek commands.
+     */
+    private val _seekRequests = MutableSharedFlow<Double>(
+        replay = 0,
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val seekRequests: SharedFlow<Double> = _seekRequests.asSharedFlow()
 
     /**
      * Unconditional seek channel for room-driven corrective seeks. The normal
@@ -496,6 +511,8 @@ class PlayerViewModel(
 
     /** Called by the player when the current position changes. */
     fun onPositionChanged(positionMs: Long, durationMs: Long) {
+        if (positionMs < 0) return
+
         val positionSec = positionMs / 1000.0
         val durationSec = durationMs / 1000.0
 
@@ -557,6 +574,7 @@ class PlayerViewModel(
 
     fun onSeek(position: Double) {
         _uiState.update { it.copy(position = position) }
+        _seekRequests.tryEmit(position)
     }
 
     /**
