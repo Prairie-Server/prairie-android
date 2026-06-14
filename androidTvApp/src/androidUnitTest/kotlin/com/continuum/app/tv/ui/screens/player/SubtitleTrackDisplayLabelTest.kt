@@ -1,5 +1,6 @@
 package com.continuum.app.tv.ui.screens.player
 
+import com.continuum.app.player.formatSubtitleTrackDisplayLabel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -84,5 +85,18 @@ class SubtitleTrackDisplayLabelTest {
         )
 
         assertEquals("Subtitle 5", label)
+    }
+
+    @Test
+    fun formatOnlyLabelsDoNotEchoCodecNames() {
+        val label = formatSubtitleTrackDisplayLabel(
+            rawLabel = "SUBRIP",
+            language = "eng",
+            codecOrMime = null,
+            isForced = false,
+            index = 0,
+        )
+
+        assertEquals("English • SRT", label)
     }
 }

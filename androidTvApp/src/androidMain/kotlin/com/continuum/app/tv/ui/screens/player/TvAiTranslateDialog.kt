@@ -33,6 +33,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.model.playback.PlayerSubtitleInfo
+import com.continuum.app.player.formatSubtitleTrackDisplayLabel
 import com.continuum.app.tv.ui.theme.DarkBackground
 
 /** Which capture mode the dialog is in — availability comes from AiStatus. */

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.continuum.app.model.catalog.AudioTrack
 import com.continuum.app.model.playback.PlayerSubtitleInfo
+import com.continuum.app.player.formatSubtitleTrackDisplayLabel
 import kotlinx.coroutines.launch
 
 /**
@@ -132,7 +133,7 @@ fun TracksSheet(
             )
             subtitles.forEachIndexed { index, sub ->
                 TrackRow(
-                    label = subtitleLabel(sub, index),
+                    label = subtitleTrackLabel(sub, index),
                     isSelected = index == selectedSubtitleIndex,
                     onClick = {
                         onSelectSubtitle(index)
@@ -231,13 +232,14 @@ private fun audioTrackLabel(track: AudioTrack, index: Int): String {
     return if (codecBits.isNotBlank()) "$name — $codecBits" else name
 }
 
-private fun subtitleLabel(sub: PlayerSubtitleInfo, index: Int): String {
-    val parts = listOfNotNull(
-        sub.label?.takeIf { it.isNotBlank() },
-        sub.language?.takeIf { it.isNotBlank() }?.uppercase(),
+internal fun subtitleTrackLabel(sub: PlayerSubtitleInfo, index: Int): String =
+    formatSubtitleTrackDisplayLabel(
+        rawLabel = sub.label,
+        language = sub.language,
+        codecOrMime = sub.codec,
+        isForced = sub.forced == true,
+        index = index,
     )
-    return parts.joinToString(" · ").ifBlank { "Subtitle ${index + 1}" }
-}
 
 @Composable
 private fun ActionRow(

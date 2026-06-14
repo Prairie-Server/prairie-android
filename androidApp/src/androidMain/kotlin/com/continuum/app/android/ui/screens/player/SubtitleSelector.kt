@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.continuum.app.model.playback.PlayerSubtitleInfo
+import com.continuum.app.player.formatSubtitleTrackDisplayLabel
 
 /**
  * Bottom sheet for selecting a subtitle track.
@@ -74,7 +75,13 @@ fun SubtitleSelector(
 
                 // Subtitle tracks
                 itemsIndexed(subtitles) { index, subtitle ->
-                    val label = subtitle.label ?: subtitle.language?.uppercase() ?: "Track ${index + 1}"
+                    val label = formatSubtitleTrackDisplayLabel(
+                        rawLabel = subtitle.label,
+                        language = subtitle.language,
+                        codecOrMime = subtitle.codec,
+                        isForced = subtitle.forced == true,
+                        index = index,
+                    )
                     val detail = buildString {
                         subtitle.source?.let { append(it.replaceFirstChar { c -> c.uppercase() }) }
                         subtitle.codec?.let {

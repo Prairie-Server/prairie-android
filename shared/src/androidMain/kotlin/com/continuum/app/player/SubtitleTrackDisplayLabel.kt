@@ -1,4 +1,4 @@
-package com.continuum.app.tv.ui.screens.player
+package com.continuum.app.player
 
 import java.util.Locale
 
@@ -37,7 +37,7 @@ private val commonSubtitleLanguageCodes = (
     Locale.getISOLanguages().toSet() + iso3ToIso2.keys
 ).map { it.lowercase(Locale.US) }.toSet()
 
-internal fun formatSubtitleTrackDisplayLabel(
+fun formatSubtitleTrackDisplayLabel(
     rawLabel: String?,
     language: String?,
     codecOrMime: String?,
@@ -116,6 +116,7 @@ private fun meaningfulDescriptor(
         ?: return null
 
     if (isFileLikeSubtitleLabel(rawLabel)) return null
+    if (subtitleFormatLabel(normalized) != null) return null
 
     val lower = normalized.lowercase(Locale.US)
     val semanticLower = lower

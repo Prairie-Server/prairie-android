@@ -75,6 +75,7 @@ import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
 import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
 import com.continuum.app.model.watchtogether.RoomPlaybackState
+import com.continuum.app.player.formatSubtitleTrackDisplayLabel
 import com.continuum.app.tv.R
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
