@@ -41,11 +41,32 @@ class EpubBookTest {
         assertEquals("<html><body>New</body></html>", reopened.readChapterHtml("chapter.xhtml"))
     }
 
+    @Test
+    fun `open parses non self closing manifest items`() {
+        val epub = tmp.newFile("non-self-closing.epub")
+        writeEpub(
+            epub,
+            chapters = mapOf("OEBPS/chapter.xhtml" to "<html><body>Chapter</body></html>"),
+            selfClosingManifestItem = false,
+        )
+
+        val book = EpubBook.open(epub, tmp.root)
+
+        assertEquals(listOf("chapter.xhtml"), book.spine)
+        assertEquals("<html><body>Chapter</body></html>", book.readChapterHtml("chapter.xhtml"))
+    }
+
     private fun writeEpub(
         target: File,
         chapters: Map<String, String>,
         extraEntries: Map<String, String> = emptyMap(),
+        selfClosingManifestItem: Boolean = true,
     ) {
+        val manifestItem = if (selfClosingManifestItem) {
+            """<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>"""
+        } else {
+            """<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"></item>"""
+        }
         ZipOutputStream(target.outputStream()).use { zip ->
             zip.writeTextEntry(
                 "META-INF/container.xml",
@@ -56,7 +77,7 @@ class EpubBookTest {
                 """
                 <package>
                   <manifest>
-                    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+                    $manifestItem
                   </manifest>
                   <spine>
                     <itemref idref="chapter"/>

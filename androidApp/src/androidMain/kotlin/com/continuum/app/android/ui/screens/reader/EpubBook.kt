@@ -111,7 +111,7 @@ internal class EpubBook private constructor(
         // we hit a malformed EPUB in the wild.
         private val OPF_HREF_REGEX = Regex("""<rootfile[^>]*full-path="([^"]+)"""")
         private val MANIFEST_ITEM_REGEX =
-            Regex("""<item\s+(?=[^>]*\bid="([^"]+)")(?=[^>]*\bhref="([^"]+)")[^>]*/>""")
+            Regex("""<item\s+(?=[^>]*\bid="([^"]+)")(?=[^>]*\bhref="([^"]+)")[^>]*>""")
         private val SPINE_ITEMREF_REGEX = Regex("""<itemref[^>]*idref="([^"]+)"""")
 
     }
