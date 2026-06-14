@@ -124,8 +124,11 @@ private fun meaningfulDescriptor(
         .replace(Regex("""\s+"""), " ")
         .trim()
     val languageLower = languageName?.lowercase(Locale.US)
+    val semanticLanguageLower = languageDisplayName(semanticLower)
+        ?.lowercase(Locale.US)
     val redundant = lower == languageLower ||
         semanticLower == languageLower ||
+        semanticLanguageLower == languageLower ||
         semanticLower == "subtitle" ||
         semanticLower == "subtitles" ||
         (forced && semanticLower == "forced") ||

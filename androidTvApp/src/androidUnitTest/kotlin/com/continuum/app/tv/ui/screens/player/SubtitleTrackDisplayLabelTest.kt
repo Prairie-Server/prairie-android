@@ -99,4 +99,17 @@ class SubtitleTrackDisplayLabelTest {
 
         assertEquals("English • SRT", label)
     }
+
+    @Test
+    fun languageCodeLabelsDoNotRepeatLanguage() {
+        val label = formatSubtitleTrackDisplayLabel(
+            rawLabel = "EN",
+            language = "en",
+            codecOrMime = null,
+            isForced = false,
+            index = 0,
+        )
+
+        assertEquals("English", label)
+    }
 }
