@@ -54,7 +54,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
-import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -442,25 +441,7 @@ fun TvPlayerScreen(
                     val audio = extractTrackEntries(tracks, C.TRACK_TYPE_AUDIO)
                     val subtitle = extractTrackEntries(tracks, C.TRACK_TYPE_TEXT)
                     val video = extractTrackEntries(tracks, C.TRACK_TYPE_VIDEO)
-                    Log.i(
-                        TAG,
-                        "onTracksChanged subtitles=" + subtitle.joinToString(
-                            prefix = "[",
-                            postfix = "]",
-                        ) { "${it.index}:${it.displayLabel}:selected=${it.isSelected}:lang=${it.language}" },
-                    )
                     viewModel.onTracksChanged(audio, subtitle, video)
-                }
-                override fun onCues(cueGroup: CueGroup) {
-                    val sample = cueGroup.cues
-                        .take(2)
-                        .joinToString(" | ") { cue ->
-                            cue.text?.toString()?.take(80).orEmpty()
-                        }
-                    Log.i(
-                        TAG,
-                        "onCues count=${cueGroup.cues.size} positionMs=${controller.currentPosition} sample=$sample",
-                    )
                 }
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
                     // MediaController doesn't expose ExoPlayer's `videoFormat`

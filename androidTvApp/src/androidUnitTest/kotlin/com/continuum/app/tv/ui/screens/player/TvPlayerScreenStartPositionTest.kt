@@ -1,6 +1,7 @@
 package com.continuum.app.tv.ui.screens.player
 
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TvPlayerScreenStartPositionTest {
@@ -65,6 +66,22 @@ class TvPlayerScreenStartPositionTest {
         assertTrue(
             !source.contains("trackSelectionCoordinator.selectAudioTrack("),
             "TV player must not call the audio coordinator directly",
+        )
+    }
+
+    @Test
+    fun tvPlayerDoesNotLogSubtitleCueTextSamples() {
+        assertFalse(
+            source.contains("override fun onCues"),
+            "TV player must not intercept subtitle cues for diagnostics",
+        )
+        assertFalse(
+            source.contains("sample="),
+            "TV player must not log subtitle cue text samples",
+        )
+        assertFalse(
+            source.contains("cue.text"),
+            "TV player must not read subtitle cue text for diagnostics",
         )
     }
 }
