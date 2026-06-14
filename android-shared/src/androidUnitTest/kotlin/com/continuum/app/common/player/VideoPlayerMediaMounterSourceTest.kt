@@ -26,8 +26,8 @@ class VideoPlayerMediaMounterSourceTest {
             "subtitle refresh must use a shared helper",
         )
         assertTrue(
-            source.contains("val resumePositionMs = player.currentPosition"),
-            "refresh must preserve current player position",
+            source.contains("val resumePositionMs = player.currentPosition.coerceAtLeast(0L)"),
+            "refresh must preserve current player position without remounting at C.TIME_UNSET/-1",
         )
         assertTrue(
             source.contains("val wasPlaying = player.playWhenReady"),

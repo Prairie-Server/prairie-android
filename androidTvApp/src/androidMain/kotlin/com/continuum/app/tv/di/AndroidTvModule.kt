@@ -261,7 +261,6 @@ val androidTvModule = module {
         TvPlayerViewModel(
             videoPlaybackCoordinator = get(),
             playbackSessionManager = get(),
-            personalDataRepository = get(),
             playbackAnalytics = get(),
             // Phase 3 TV uplift dependencies (per-profile settings, intro
             // auto-skip controller, lifecycle, sleep timer).

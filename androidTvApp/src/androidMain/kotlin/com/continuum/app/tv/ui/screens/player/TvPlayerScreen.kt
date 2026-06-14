@@ -218,9 +218,10 @@ fun TvPlayerScreen(
         val selectedTrack = state.subtitleTracks
             .firstOrNull { it.index == idx }
             ?.toVideoTrackEntry()
-        if (videoBackend?.selectSubtitle(selectedTrack) == true) {
-            viewModel.onSubtitleSelectionApplied(idx)
-            if (dismiss) viewModel.closeSubtitleMenu()
+        viewModel.onSubtitleSelectionApplied(idx)
+        if (dismiss) viewModel.closeSubtitleMenu()
+        if (videoBackend?.selectSubtitle(selectedTrack) != true) {
+            Log.w(TAG, "Subtitle selection deferred or failed for index=$idx")
         }
     }
 

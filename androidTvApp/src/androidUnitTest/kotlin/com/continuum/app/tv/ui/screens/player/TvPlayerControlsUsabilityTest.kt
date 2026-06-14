@@ -87,6 +87,28 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
+    fun subtitleSelectionUpdatesUiBeforeBackendTrackApply() {
+        val selectionBlock = screenSource
+            .substringAfter("val applyTvSubtitleSelection")
+            .substringBefore("DisposableEffect(context)")
+        val uiUpdateIndex = selectionBlock.indexOf("viewModel.onSubtitleSelectionApplied(idx)")
+        val closeIndex = selectionBlock.indexOf("if (dismiss) viewModel.closeSubtitleMenu()")
+        val backendIndex = selectionBlock.indexOf("videoBackend?.selectSubtitle(selectedTrack)")
+
+        assertTrue(uiUpdateIndex >= 0, "selection should optimistically update the checkmark")
+        assertTrue(closeIndex >= 0, "selection should dismiss the dedicated subtitle menu")
+        assertTrue(backendIndex >= 0, "selection should still apply the Media3 subtitle track")
+        assertTrue(
+            uiUpdateIndex < backendIndex,
+            "UI state must not wait for Media3 track selection to succeed",
+        )
+        assertTrue(
+            closeIndex < backendIndex,
+            "the subtitle menu must close immediately after a remote select",
+        )
+    }
+
+    @Test
     fun dedicatedSubtitleMenuTakesInitialRemoteFocus() {
         assertTrue(subtitleMenuSource.contains("FocusRequester"))
         assertTrue(subtitleMenuSource.contains("optionFocusRequesters[initiallyFocusedId]?.requestFocus()"))

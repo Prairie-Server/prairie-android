@@ -32,7 +32,7 @@ fun refreshMountedVideoMedia(
     playerFactory: ContinuumPlayerFactory,
     spec: VideoPlayerMediaSpec,
 ) {
-    val resumePositionMs = player.currentPosition
+    val resumePositionMs = player.currentPosition.coerceAtLeast(0L)
     val wasPlaying = player.playWhenReady
     val mediaItem = playerFactory.buildMediaItem(
         streamUrl = spec.streamUrl,

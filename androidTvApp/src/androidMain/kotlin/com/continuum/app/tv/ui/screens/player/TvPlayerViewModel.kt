@@ -19,7 +19,6 @@ import com.continuum.app.domain.player.IntroAutoSkipController
 import com.continuum.app.domain.player.IntroAutoSkipState
 import com.continuum.app.model.catalog.TimeRange
 import com.continuum.app.model.catalog.VersionChapter
-import com.continuum.app.model.personal.SyncProgressItem
 import com.continuum.app.model.settings.SubtitleAppearance
 import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlaybackSessionResponse
@@ -33,7 +32,6 @@ import com.continuum.app.model.subtitles.SubtitleSearchRequest
 import com.continuum.app.model.subtitles.SubtitleTranslateRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.errorMessage
-import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.SubtitlesRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,7 +45,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -218,10 +215,9 @@ data class AiTranslateUiState(
  *
  * Phase 3 TV uplift mirrors the phone PlayerViewModel: injects
  * [PlayerSettingsStore], [IntroAutoSkipController], [PlaybackSessionLifecycle],
- * and [SleepTimerController]. The lifecycle is wired alongside the existing
- * recovery flow (dual-call workaround documented in phone VM) — full migration
- * is a later pass. Intro auto-skip and player notices are exposed as separate
- * flows for the screen to consume.
+ * and [SleepTimerController]. The lifecycle owns progress reporting, recovery,
+ * final progress flushing, and session stop. Intro auto-skip and player notices
+ * are exposed as separate flows for the screen to consume.
  *
  * Playback itself still goes through [com.continuum.app.common.player.ContinuumPlayerFactory] +
  * [PlaybackSessionManager]. The ViewModel receives track info from the
@@ -231,7 +227,6 @@ data class AiTranslateUiState(
 class TvPlayerViewModel(
     private val videoPlaybackCoordinator: VideoPlaybackSessionCoordinator,
     private val playbackSessionManager: PlaybackSessionManager,
-    private val personalDataRepository: PersonalDataRepository,
     private val playbackAnalytics: PlaybackAnalyticsListener,
     // Phase 3 TV uplift dependencies.
     private val playerSettingsStore: PlayerSettingsStore,
@@ -245,7 +240,6 @@ class TvPlayerViewModel(
 
     companion object {
         private const val TAG = "TvPlayerViewModel"
-        private const val PROGRESS_REPORT_INTERVAL_MS = 10_000L
     }
 
     private val contentId: String = launchArgs.contentId
@@ -424,11 +418,8 @@ class TvPlayerViewModel(
     val sleepTimerDefaultMinutes: StateFlow<Int> = playerSettingsStore.sleepTimerDefaultMinutesFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, 30)
 
-    private var progressJob: Job? = null
-    private var recoveryJob: Job? = null
     private var introObserveJob: Job? = null
     private var lifecycleObserveJob: Job? = null
-    private var recoveringSessionId: String? = null
 
     // Subtitle suite bookkeeping.
     private var aiStatusRequested = false
@@ -525,8 +516,6 @@ class TvPlayerViewModel(
                                 chapters = result.chapters,
                             )
                         }
-                        recoveringSessionId = null
-                        result.sessionId?.let { startProgressReporting(it) }
                         startIntroAutoSkipObserver()
                     }
                     is VideoPlayerUiState.Error -> fail(result.message)
@@ -638,8 +627,6 @@ class TvPlayerViewModel(
             )
         }
         // Forward to the lifecycle so its 10s reporter has a fresh sample.
-        // The legacy progressJob stays in place for now — see the dual-call
-        // note in loadContent.
         sessionLifecycle.reportPosition(
             positionSec = positionSec,
             durationSec = if (durationSec > 0) durationSec else _uiState.value.duration,
@@ -1122,23 +1109,7 @@ class TvPlayerViewModel(
     }
 
     suspend fun stopSessionForExit() {
-        val state = _uiState.value
-        state.sessionId?.let { id ->
-            val progressResult = playbackSessionManager.reportProgress(
-                sessionId = id,
-                position = state.position,
-                isPaused = true,
-            )
-            val stopResult = playbackSessionManager.stopSession(id)
-            if (isPlaybackSessionMissing(progressResult) || isPlaybackSessionMissing(stopResult)) {
-                syncProgressSnapshot(state)
-            }
-        }
-        // Also stop the lifecycle so its reporter shuts down cleanly and a
-        // final snapshot lands via the shared progress flush.
         sessionLifecycle.stop()
-        progressJob?.cancel()
-        recoveryJob?.cancel()
         introObserveJob?.cancel()
         introAutoSkipController.reset()
         _uiState.update { it.copy(sessionId = null) }
@@ -1150,84 +1121,14 @@ class TvPlayerViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        progressJob?.cancel()
-        recoveryJob?.cancel()
         introObserveJob?.cancel()
         lifecycleObserveJob?.cancel()
         introAutoSkipController.reset()
         val sessionId = _uiState.value.sessionId
         if (sessionId != null) {
             // Fire-and-forget stop; VM is already being cleared so we can't await.
-            viewModelScope.launch { playbackSessionManager.stopSession(sessionId) }
+            viewModelScope.launch { sessionLifecycle.stop() }
         }
-    }
-
-    private fun startProgressReporting(sessionId: String) {
-        progressJob?.cancel()
-        progressJob = viewModelScope.launch {
-            while (isActive) {
-                delay(PROGRESS_REPORT_INTERVAL_MS)
-                val state = _uiState.value
-                if (state.sessionId == sessionId) {
-                    val result = playbackSessionManager.reportProgress(
-                        sessionId = sessionId,
-                        position = state.position,
-                        isPaused = state.isPaused,
-                    )
-                    if (isPlaybackSessionMissing(result)) {
-                        recoverMissingPlaybackSession(sessionId)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun recoverMissingPlaybackSession(staleSessionId: String) {
-        if (recoveringSessionId == staleSessionId) return
-
-        val snapshot = _uiState.value
-        Log.w(
-            TAG,
-            "Playback session $staleSessionId missing; renewing at ${snapshot.position}s",
-        )
-        recoveringSessionId = staleSessionId
-        recoveryJob?.cancel()
-        recoveryJob = viewModelScope.launch {
-            syncProgressSnapshot(snapshot)
-            progressJob?.cancel()
-            loadContent(
-                startPositionOverride = snapshot.position,
-                preferredFileIdOverride = snapshot.selectedFileId,
-            )
-        }
-    }
-
-    private suspend fun syncProgressSnapshot(state: UiState) {
-        if (contentId.isBlank() || !state.position.isFinite() || state.position < 0) {
-            return
-        }
-
-        val result = personalDataRepository.syncProgress(
-            listOf(
-                SyncProgressItem(
-                    mediaItemId = contentId,
-                    position = state.position,
-                    duration = if (state.duration.isFinite() && state.duration > 0) state.duration else 0.0,
-                    forceOverwrite = true,
-                ),
-            ),
-        )
-        when (result) {
-            is ApiResult.Success -> Unit
-            is ApiResult.Error -> Log.w(TAG, "syncProgress failed: ${result.code} ${result.message}")
-            is ApiResult.NetworkError -> Log.w(TAG, "syncProgress network error", result.exception)
-        }
-    }
-
-    private fun isPlaybackSessionMissing(result: ApiResult<*>): Boolean {
-        val error = result as? ApiResult.Error ?: return false
-        return error.code == 404 &&
-            (error.error == "playback_session_not_found" || error.message == "Playback session not found")
     }
 
 }

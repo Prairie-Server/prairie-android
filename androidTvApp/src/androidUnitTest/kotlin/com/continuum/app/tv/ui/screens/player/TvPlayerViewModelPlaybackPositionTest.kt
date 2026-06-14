@@ -1,6 +1,7 @@
 package com.continuum.app.tv.ui.screens.player
 
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TvPlayerViewModelPlaybackPositionTest {
@@ -17,6 +18,30 @@ class TvPlayerViewModelPlaybackPositionTest {
         assertTrue(
             onPositionChangedBody.contains("if (positionMs < 0) return"),
             "MediaSession can report C.TIME_UNSET/-1; TV must not persist that as progress",
+        )
+    }
+
+    @Test
+    fun playbackSessionLifecycleOwnsProgressReporting() {
+        assertFalse(
+            source.contains("private var progressJob"),
+            "TV must not run a second progress reporter beside PlaybackSessionLifecycle",
+        )
+        assertFalse(
+            source.contains("playbackSessionManager.reportProgress("),
+            "TV must not report progress directly; lifecycle owns report/recovery/final flush",
+        )
+        assertFalse(
+            source.contains("private fun startProgressReporting("),
+            "TV must not keep the legacy progress-reporting loop",
+        )
+        assertFalse(
+            source.contains("private fun recoverMissingPlaybackSession("),
+            "TV must not keep duplicate 404 recovery outside PlaybackSessionLifecycle",
+        )
+        assertFalse(
+            source.contains("private suspend fun syncProgressSnapshot("),
+            "TV must not keep duplicate progress snapshot flushing outside PlaybackSessionLifecycle",
         )
     }
 }
