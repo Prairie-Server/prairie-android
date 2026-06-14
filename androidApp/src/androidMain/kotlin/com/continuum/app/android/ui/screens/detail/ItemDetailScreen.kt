@@ -42,7 +42,6 @@ import com.continuum.app.model.catalog.isBookLikeItemType
 import com.continuum.app.model.ebook.chooseEbookVersion
 import com.continuum.app.model.ebook.isInAppReadableEbookVersion
 import com.continuum.app.model.ebook.isSupportedEbookVersion
-import com.continuum.app.model.download.statusEnum
 import com.continuum.app.network.ServerRegistry
 import org.koin.compose.koinInject
 
@@ -167,7 +166,14 @@ fun ItemDetailScreen(
                         val audiobookVersion = effectiveAudiobookFileId
                             ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
                             ?: detail.versions.firstOrNull()
-                        val downloadState = downloadStateFor(audiobookVersion, downloadRecords)
+                        val audiobookLocalDownload = audiobookVersion?.let { version ->
+                            localDownloadFor(version.fileId)
+                        }
+                        val downloadState = detailDownloadStateFor(
+                            version = audiobookVersion,
+                            records = downloadRecords,
+                            hasLocalMedia = audiobookVersion?.let { audiobookLocalDownload != null },
+                        )
 
                         com.continuum.app.android.ui.screens.audiobook.AudiobookDetailContent(
                             detail = detail,
@@ -192,7 +198,11 @@ fun ItemDetailScreen(
                                     runDownloadAction(
                                         requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
                                     ) {
-                                        viewModel.onDownloadTapped(version, detail.title)
+                                        viewModel.onDownloadTapped(
+                                            version,
+                                            detail.title,
+                                            forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                        )
                                     }
                                 }
                             },
@@ -215,7 +225,11 @@ fun ItemDetailScreen(
                             localDownloadFor(version.fileId)
                         }
                         val downloadRecords by viewModel.downloads.collectAsState()
-                        val downloadState = downloadStateFor(selectedBookVersion, downloadRecords)
+                        val downloadState = detailDownloadStateFor(
+                            version = selectedBookVersion,
+                            records = downloadRecords,
+                            hasLocalMedia = selectedBookVersion?.let { selectedBookLocalDownload != null },
+                        )
 
                         com.continuum.app.android.ui.screens.book.BookDetailContent(
                             detail = detail,
@@ -234,7 +248,11 @@ fun ItemDetailScreen(
                                     runDownloadAction(
                                         requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
                                     ) {
-                                        viewModel.onDownloadTapped(version, detail.title)
+                                        viewModel.onDownloadTapped(
+                                            version,
+                                            detail.title,
+                                            forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                        )
                                     }
                                 }
                             },
@@ -312,7 +330,14 @@ fun ItemDetailScreen(
                         // flow through to the DownloadButton.
                         val downloadRecords by viewModel.downloads.collectAsState()
                         val selectedVersion = detail.versions.getOrNull(effectiveSelectedVersionIndex)
-                        val downloadState = downloadStateFor(selectedVersion, downloadRecords)
+                        val selectedLocalDownload = selectedVersion?.let { version ->
+                            localDownloadFor(version.fileId)
+                        }
+                        val downloadState = detailDownloadStateFor(
+                            version = selectedVersion,
+                            records = downloadRecords,
+                            hasLocalMedia = selectedVersion?.let { selectedLocalDownload != null },
+                        )
 
                         MovieDetailContent(
                             detail = detail,
@@ -355,7 +380,11 @@ fun ItemDetailScreen(
                                     runDownloadAction(
                                         requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
                                     ) {
-                                        viewModel.onDownloadTapped(v, detail.title)
+                                        viewModel.onDownloadTapped(
+                                            v,
+                                            detail.title,
+                                            forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                        )
                                     }
                                 }
                             },
@@ -385,33 +414,4 @@ fun ItemDetailScreen(
             )
         }
     }
-}
-
-private data class DetailDownloadState(
-    val isDownloaded: Boolean = false,
-    val progress: Float? = null,
-)
-
-private fun downloadStateFor(
-    version: FileVersion?,
-    records: List<com.continuum.app.model.download.DownloadRecord>,
-): DetailDownloadState {
-    val record = version?.let { v -> records.firstOrNull { it.mediaFileId == v.fileId } }
-    val status = record?.statusEnum()
-    val progress = record
-        ?.takeIf {
-            status == com.continuum.app.model.download.DownloadStatus.Downloading ||
-                status == com.continuum.app.model.download.DownloadStatus.Queued
-        }
-        ?.let { rec ->
-            if (rec.fileSize > 0) {
-                (rec.bytesSent.toFloat() / rec.fileSize.toFloat()).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-        }
-    return DetailDownloadState(
-        isDownloaded = status == com.continuum.app.model.download.DownloadStatus.Completed,
-        progress = progress,
-    )
 }

@@ -10,7 +10,6 @@ import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.catalog.Season
 import com.continuum.app.model.catalog.sortedForDisplay
 import com.continuum.app.model.download.DownloadRecord
-import com.continuum.app.model.download.DownloadStatus
 import com.continuum.app.model.download.statusEnum
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
@@ -92,25 +91,47 @@ class ItemDetailViewModel(
      *  - None / failed / cancelled → start a new download
      *  - Queued / downloading → cancel via WorkManager + delete the record
      *  - Completed → no-op (user deletes from the Downloads tab)
+     *  - Completed but local file missing → delete stale server row, then start again
      */
-    fun onDownloadTapped(version: FileVersion, displayTitle: String) {
+    fun onDownloadTapped(
+        version: FileVersion,
+        displayTitle: String,
+        forceRedownloadMissingLocal: Boolean = false,
+    ) {
         val existing = downloadRecordFor(version)
-        when (existing?.statusEnum()) {
-            DownloadStatus.Queued, DownloadStatus.Downloading -> {
-                downloadEnqueuer.cancel(existing.id)
-                viewModelScope.launch { downloadsRepository.delete(existing.id) }
+        when (
+            detailDownloadTapAction(
+                status = existing?.statusEnum(),
+                forceRedownloadMissingLocal = forceRedownloadMissingLocal,
+            )
+        ) {
+            DetailDownloadTapAction.Cancel -> {
+                existing?.let { record ->
+                    downloadEnqueuer.cancel(record.id)
+                    viewModelScope.launch { downloadsRepository.delete(record.id) }
+                }
             }
-            DownloadStatus.Completed -> Unit  // Manage via Downloads tab.
-            else -> viewModelScope.launch {
-                // wifiOnly read from per-profile PlayerSettingsStore inside
-                // DownloadEnqueuer.start; default true.
-                downloadEnqueuer.start(
-                    contentId = contentId,
-                    fileId = version.fileId,
-                    displayTitle = displayTitle,
-                )
+            DetailDownloadTapAction.Ignore -> Unit  // Manage via Downloads tab.
+            DetailDownloadTapAction.ReplaceAndStart -> viewModelScope.launch {
+                val staleRecord = existing
+                if (staleRecord == null || downloadsRepository.delete(staleRecord.id) is ApiResult.Success) {
+                    startDownload(version, displayTitle)
+                }
+            }
+            DetailDownloadTapAction.Start -> viewModelScope.launch {
+                startDownload(version, displayTitle)
             }
         }
+    }
+
+    private suspend fun startDownload(version: FileVersion, displayTitle: String) {
+        // wifiOnly read from per-profile PlayerSettingsStore inside
+        // DownloadEnqueuer.start; default true.
+        downloadEnqueuer.start(
+            contentId = contentId,
+            fileId = version.fileId,
+            displayTitle = displayTitle,
+        )
     }
 
     /**
