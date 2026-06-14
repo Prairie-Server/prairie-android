@@ -10,6 +10,7 @@ import com.continuum.app.common.player.ContinuumPlayerFactory
 import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackSessionManager
 import com.continuum.app.common.player.SubtitleManager
+import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
 import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
 import com.continuum.app.common.player.video.VideoPlaybackStarter
 import com.continuum.app.common.network.AndroidDeviceMetadataProvider
@@ -100,6 +101,13 @@ val androidModule = module {
     // Player infrastructure
     single { SubtitleManager() }
     single { AudioTrackManager() }
+    single {
+        VideoPlaybackBackendFactory(
+            playerFactory = get(),
+            audioTrackManager = get(),
+            subtitleManager = get(),
+        )
+    }
     single { AudioCapabilityManager(androidContext()) }
     single { PlaybackCapabilityDetector(androidContext(), get()) }
     single {

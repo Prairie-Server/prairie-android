@@ -16,6 +16,7 @@ import com.continuum.app.tv.ui.screens.servers.TvServerListViewModel
 import com.continuum.app.common.player.AudioCapabilityManager
 import com.continuum.app.common.player.AudioTrackManager
 import com.continuum.app.common.player.PlaybackCapabilityDetector
+import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
 import com.continuum.app.tv.ui.screens.settings.TvSettingsViewModel
 import com.continuum.app.common.player.ContinuumPlayerFactory
 import com.continuum.app.common.player.PlaybackSessionManager
@@ -84,6 +85,13 @@ val androidTvModule = module {
     // Player infrastructure (duplicate-for-now; extract to :android-player later).
     single { SubtitleManager() }
     single { AudioTrackManager() }
+    single {
+        VideoPlaybackBackendFactory(
+            playerFactory = get(),
+            audioTrackManager = get(),
+            subtitleManager = get(),
+        )
+    }
     single { AudioCapabilityManager(androidContext()) }
     single { PlaybackCapabilityDetector(androidContext(), get()) }
     single {
