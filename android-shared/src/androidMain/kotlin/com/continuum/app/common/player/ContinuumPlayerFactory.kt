@@ -18,6 +18,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import com.continuum.app.common.BuildConfig
 import com.continuum.app.common.player.audio.DelayAudioProcessor
+import com.continuum.app.common.player.mpv.MpvPlayer
 import com.continuum.app.common.player.subtitle.OffsetSubtitleParserFactory
 import com.continuum.app.common.player.subtitle.SubtitleOffsetHolder
 import com.continuum.app.model.playback.AudioPassthroughCapabilities
@@ -163,6 +164,12 @@ class ContinuumPlayerFactory(
 
         return builder.build()
     }
+
+    fun createMpvPlayer(): Player =
+        MpvPlayer.Builder(context)
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(30_000)
+            .build()
 
     /**
      * Apply capability-aware track selection presets to [player]. Call at

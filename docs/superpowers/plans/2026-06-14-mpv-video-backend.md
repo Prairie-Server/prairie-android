@@ -12,7 +12,7 @@
 
 ## Scope Check
 
-This plan implements the MPV backend path for video playback. It does not rewrite the player controls, add a user-facing backend picker, rebuild subtitle search, or remove Media3. Media3 remains available because the shared service is also used by audiobook playback and because MPV rollout needs a fallback.
+This plan implements the MPV backend path for video playback. It does not rewrite the player controls, add a user-facing backend picker, rebuild subtitle search, or remove Media3. Media3 remains available because the shared service is also used by audiobook playback, because MPV rollout needs a fallback, and because every published `dev.jdtech.mpv:libmpv` artifact declares `minSdk 26` while Silo must continue to install on Android 7/API 24.
 
 ## File Structure
 
@@ -52,7 +52,11 @@ Modify:
 - `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`  
   Add `createMpvPlayer()` and change shared player creation helpers to return Media3 `Player` where appropriate.
 - `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt`  
-  Own the selected `Player`, attach analytics only for ExoPlayer, and log MPV vs Media3 truthfully.
+  Own the selected `Player`, attach analytics only for ExoPlayer, gate MPV to API 26+, and log MPV vs Media3 truthfully.
+- `androidApp/src/androidMain/AndroidManifest.xml`
+  Override the MPV AAR's minSdk 26 manifest because the service runtime-gates MPV and uses Media3 on Android 7/API 24-25.
+- `androidTvApp/src/androidMain/AndroidManifest.xml`
+  Override the MPV AAR's minSdk 26 manifest because the service runtime-gates MPV and uses Media3 on Android 7/API 24-25.
 - `androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`  
   Include capability booleans and display labels in stats.
 - `androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`  
@@ -424,7 +428,11 @@ git commit -m "Add MPV Media3 player adapter"
 **Files:**
 - Modify: `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`
 - Modify: `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt`
+- Modify: `androidApp/src/androidMain/AndroidManifest.xml`
+- Modify: `androidTvApp/src/androidMain/AndroidManifest.xml`
 - Create: `android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/ContinuumPlaybackServiceMpvSourceTest.kt`
+- Create: `androidApp/src/androidUnitTest/kotlin/com/continuum/app/android/player/AndroidMpvManifestSourceTest.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/player/AndroidTvMpvManifestSourceTest.kt`
 
 - [ ] **Step 1: Write failing service source guard**
 
@@ -448,9 +456,50 @@ class ContinuumPlaybackServiceMpvSourceTest {
     fun serviceCanOwnMpvOrMedia3Player() {
         assertTrue(factorySource.contains("fun createMpvPlayer("))
         assertTrue(factorySource.contains("MpvPlayer.Builder(context)"))
-        assertTrue(serviceSource.contains("val player = playerFactory.createMpvPlayer()"))
+        assertTrue(serviceSource.contains("private fun createPlaybackPlayer(): Player"))
+        assertTrue(serviceSource.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.O"))
+        assertTrue(serviceSource.contains("playerFactory.createMpvPlayer()"))
+        assertTrue(serviceSource.contains("playerFactory.createPlayer()"))
         assertTrue(serviceSource.contains("if (player is ExoPlayer)"))
         assertTrue(serviceSource.contains("MediaSession.Builder(this, player).build()"))
+    }
+}
+```
+
+Create `androidApp/src/androidUnitTest/kotlin/com/continuum/app/android/player/AndroidMpvManifestSourceTest.kt`:
+
+```kotlin
+package com.continuum.app.android.player
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class AndroidMpvManifestSourceTest {
+    @Test
+    fun mobileManifestOverridesMpvMinSdkBecauseServiceRuntimeGatesMpv() {
+        val manifest = java.io.File("src/androidMain/AndroidManifest.xml").readText()
+
+        assertTrue(manifest.contains("xmlns:tools=\"http://schemas.android.com/tools\""))
+        assertTrue(manifest.contains("tools:overrideLibrary=\"dev.jdtech.mpv\""))
+    }
+}
+```
+
+Create `androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/player/AndroidTvMpvManifestSourceTest.kt`:
+
+```kotlin
+package com.continuum.app.tv.player
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class AndroidTvMpvManifestSourceTest {
+    @Test
+    fun tvManifestOverridesMpvMinSdkBecauseServiceRuntimeGatesMpv() {
+        val manifest = java.io.File("src/androidMain/AndroidManifest.xml").readText()
+
+        assertTrue(manifest.contains("xmlns:tools=\"http://schemas.android.com/tools\""))
+        assertTrue(manifest.contains("tools:overrideLibrary=\"dev.jdtech.mpv\""))
     }
 }
 ```
@@ -461,9 +510,11 @@ Run:
 
 ```bash
 ./gradlew :android-shared:testDebugUnitTest --tests 'com.continuum.app.common.player.ContinuumPlaybackServiceMpvSourceTest'
+./gradlew :androidApp:testDebugUnitTest --tests 'com.continuum.app.android.player.AndroidMpvManifestSourceTest'
+./gradlew :androidTvApp:testDebugUnitTest --tests 'com.continuum.app.tv.player.AndroidTvMpvManifestSourceTest'
 ```
 
-Expected: FAIL because `createMpvPlayer()` does not exist and the service always creates ExoPlayer.
+Expected: FAIL because `createMpvPlayer()` does not exist, the service always creates ExoPlayer, and the manifests do not yet override the MPV AAR minSdk.
 
 - [ ] **Step 3: Add `createMpvPlayer()`**
 
@@ -477,12 +528,22 @@ fun createMpvPlayer(): Player =
         .build()
 ```
 
-- [ ] **Step 4: Let the service own MPV**
+- [ ] **Step 4: Let the service own MPV on API 26+**
 
-For the first MPV slice, create MPV in `ContinuumPlaybackService` and keep analytics attachment ExoPlayer-only:
+For the first MPV slice, create MPV in `ContinuumPlaybackService` on API 26+ and keep Media3 on Android 7/API 24-25:
 
 ```kotlin
-val player = playerFactory.createMpvPlayer()
+private fun createPlaybackPlayer(): Player =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        playerFactory.createMpvPlayer()
+    } else {
+        playerFactory.createPlayer()
+    }
+```
+
+Keep analytics attachment ExoPlayer-only:
+
+```kotlin
 if (player is ExoPlayer) {
     player.addAnalyticsListener(analyticsListener)
 }
@@ -490,21 +551,33 @@ if (player is ExoPlayer) {
 
 Update logs from "ExoPlayer" to "Playback player" and include `player::class.java.simpleName`.
 
-- [ ] **Step 5: Run service test and compile apps**
+- [ ] **Step 5: Override MPV minSdk in app manifests**
+
+Add this to both app manifests immediately under `<manifest ...>`:
+
+```xml
+<!-- libmpv declares minSdk 26. ContinuumPlaybackService gates MPV creation
+     to API 26+ and uses Media3 on Android 7/API 24-25. -->
+<uses-sdk tools:overrideLibrary="dev.jdtech.mpv" />
+```
+
+- [ ] **Step 6: Run service test and compile apps**
 
 Run:
 
 ```bash
 ./gradlew :android-shared:testDebugUnitTest --tests 'com.continuum.app.common.player.ContinuumPlaybackServiceMpvSourceTest'
+./gradlew :androidApp:testDebugUnitTest --tests 'com.continuum.app.android.player.AndroidMpvManifestSourceTest'
+./gradlew :androidTvApp:testDebugUnitTest --tests 'com.continuum.app.tv.player.AndroidTvMpvManifestSourceTest'
 ./gradlew :androidApp:compileDebugKotlinAndroid :androidTvApp:compileDebugKotlinAndroid
 ```
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/ContinuumPlaybackServiceMpvSourceTest.kt
+git add android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/ContinuumPlaybackServiceMpvSourceTest.kt androidApp/src/androidMain/AndroidManifest.xml androidTvApp/src/androidMain/AndroidManifest.xml androidApp/src/androidUnitTest/kotlin/com/continuum/app/android/player/AndroidMpvManifestSourceTest.kt androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/player/AndroidTvMpvManifestSourceTest.kt
 git commit -m "Route playback service through MPV player"
 ```
 

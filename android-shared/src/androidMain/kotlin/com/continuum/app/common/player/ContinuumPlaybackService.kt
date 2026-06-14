@@ -1,6 +1,8 @@
 package com.continuum.app.common.player
 
 import android.content.Intent
+import android.os.Build
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -25,7 +27,7 @@ import org.koin.android.ext.android.inject
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Unified playback service for phone + TV. Owns the single [ExoPlayer] for the
+ * Unified playback service for phone + TV. Owns the single [Player] for the
  * process and exposes it through a [MediaSession] so both UIs can drive the
  * player via a `MediaController` — which is what gives us lock-screen controls,
  * Assistant "pause"/"play", headset buttons, and (on TV) a session entry in
@@ -39,7 +41,7 @@ class ContinuumPlaybackService : MediaSessionService() {
 
     companion object {
         /**
-         * Debug-only counter so we can assert "exactly one ExoPlayer per
+         * Debug-only counter so we can assert "exactly one playback player per
          * process" in tests / logcat. Read via adb logcat on tag [TAG].
          */
         private val playerInstanceCount = AtomicInteger(0)
@@ -74,10 +76,15 @@ class ContinuumPlaybackService : MediaSessionService() {
         super.onCreate()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-        val player = playerFactory.createPlayer()
-        player.addAnalyticsListener(analyticsListener)
+        val player = createPlaybackPlayer()
+        if (player is ExoPlayer) {
+            player.addAnalyticsListener(analyticsListener)
+        }
         val count = playerInstanceCount.incrementAndGet()
-        android.util.Log.i(TAG, "ExoPlayer created; live instance count = $count")
+        android.util.Log.i(
+            TAG,
+            "Playback player created (${player::class.java.simpleName}); live instance count = $count",
+        )
         // Triage aid: when diagnosing TRANSCODE vs DIRECT decisions we want
         // the logcat to show the player's FFmpeg-audio mode alongside the
         // analytics listener's `onAudioDecoderInitialized` callback, which
@@ -132,6 +139,13 @@ class ContinuumPlaybackService : MediaSessionService() {
         }
     }
 
+    private fun createPlaybackPlayer(): Player =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            playerFactory.createMpvPlayer()
+        } else {
+            playerFactory.createPlayer()
+        }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
 
@@ -160,7 +174,7 @@ class ContinuumPlaybackService : MediaSessionService() {
         }
         mediaSession = null
         val count = playerInstanceCount.decrementAndGet()
-        android.util.Log.i(TAG, "ExoPlayer released; live instance count = $count")
+        android.util.Log.i(TAG, "Playback player released; live instance count = $count")
         super.onDestroy()
     }
 }
