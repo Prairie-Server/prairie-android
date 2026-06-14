@@ -55,6 +55,9 @@ kotlin {
             // constructing it in unit tests needs the json artifact on the test
             // classpath (the :shared dep is `implementation`, so it isn't transitive).
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.json)
             // AdminEntryViewModelTest drives a viewModelScope coroutine, so it
             // needs the test dispatcher / runTest helpers on the test classpath.
             implementation(libs.kotlinx.coroutines.test)
