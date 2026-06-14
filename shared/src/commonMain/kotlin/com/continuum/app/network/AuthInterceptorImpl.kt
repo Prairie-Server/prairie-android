@@ -5,7 +5,6 @@ import io.ktor.client.call.*
 import io.ktor.client.plugins.api.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -125,8 +124,6 @@ val ContinuumAuthPlugin = createClientPlugin("ContinuumAuthPlugin", ::ContinuumA
             // server anyway, and we'd risk persisting cross-server tokens.
             val serverIdNow = tokenManager.getCurrentServerId()
             if (serverIdNow != serverIdBeforeRequest) {
-                println("[SiloAuth] Refresh skipped: server switched mid-request " +
-                    "(was=$serverIdBeforeRequest now=$serverIdNow)")
                 return@withLock false
             }
 
@@ -139,14 +136,12 @@ val ContinuumAuthPlugin = createClientPlugin("ContinuumAuthPlugin", ::ContinuumA
 
             val refreshToken = tokenManager.getRefreshToken()
             if (refreshToken.isNullOrBlank()) {
-                println("[SiloAuth] Refresh skipped: no refresh token stored")
                 return@withLock false
             }
 
             try {
                 val serverUrl = tokenManager.getServerUrl()
                 if (serverUrl.isBlank()) {
-                    println("[SiloAuth] Refresh skipped: no server URL configured")
                     return@withLock false
                 }
 
@@ -162,8 +157,6 @@ val ContinuumAuthPlugin = createClientPlugin("ContinuumAuthPlugin", ::ContinuumA
                 // slot.
                 val serverIdAfterCall = tokenManager.getCurrentServerId()
                 if (serverIdAfterCall != serverIdBeforeRequest) {
-                    println("[SiloAuth] Refresh response discarded: server switched " +
-                        "during network call (was=$serverIdBeforeRequest now=$serverIdAfterCall)")
                     return@withLock false
                 }
 
@@ -176,24 +169,15 @@ val ContinuumAuthPlugin = createClientPlugin("ContinuumAuthPlugin", ::ContinuumA
                     )
                     true
                 } else {
-                    // Refresh failed — log the status so we can see session-expired
-                    // vs server errors, then invalidate the session. The
-                    // [TokenManager.sessionExpired] event emitted by this call is
-                    // what the root NavHost observer uses to route the user back
-                    // to the login screen; without it, the UI would stay on Home
-                    // and keep rendering "Failed to load…" for every subsequent
-                    // API call that now has no credentials.
-                    val body = runCatching { refreshResponse.bodyAsText() }.getOrNull().orEmpty()
-                    println(
-                        "[SiloAuth] Refresh failed: " +
-                            "status=${refreshResponse.status} body=$body"
-                    )
+                    // The [TokenManager.sessionExpired] event emitted by this
+                    // call is what the root NavHost observer uses to route the
+                    // user back to the login screen; without it, the UI would
+                    // stay on Home and keep rendering "Failed to load..." for
+                    // every subsequent API call that now has no credentials.
                     tokenManager.invalidateSession()
                     false
                 }
             } catch (e: Throwable) {
-                // Surface the real cause — silent catches make auth bugs impossible to debug.
-                println("[SiloAuth] Refresh threw: ${e::class.simpleName}: ${e.message}")
                 false
             }
         }
