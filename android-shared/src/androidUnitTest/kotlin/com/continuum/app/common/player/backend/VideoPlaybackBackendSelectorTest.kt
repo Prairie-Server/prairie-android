@@ -41,4 +41,28 @@ class VideoPlaybackBackendSelectorTest {
             VideoPlaybackBackendSelector.select(VideoPlaybackBackendRequest(hasStyledSubtitles = true)),
         )
     }
+
+    @Test
+    fun autoUsesMpvForKnownVideoFormFactors() {
+        assertEquals(
+            VideoPlaybackBackendKind.Mpv,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(formFactor = VideoPlaybackFormFactor.Mobile),
+            ),
+        )
+        assertEquals(
+            VideoPlaybackBackendKind.Mpv,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(formFactor = VideoPlaybackFormFactor.Tv),
+            ),
+        )
+    }
+
+    @Test
+    fun autoKeepsMedia3ForUnknownFormFactor() {
+        assertEquals(
+            VideoPlaybackBackendKind.Media3,
+            VideoPlaybackBackendSelector.select(VideoPlaybackBackendRequest()),
+        )
+    }
 }
