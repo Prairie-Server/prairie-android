@@ -323,6 +323,7 @@ class TvPlayerViewModel(
         // Overlay visibility (Phase E — driven by the screen but stored here
         // so the overlay can react to play/pause state changes).
         val showControls: Boolean = true,
+        val controlsVisibilityNonce: Int = 0,
         val hudOpen: Boolean = false,
         val showSubtitleMenu: Boolean = false,
         val preferredAudioLanguage: String? = null,
@@ -733,7 +734,16 @@ class TvPlayerViewModel(
     }
 
     fun setControlsVisible(visible: Boolean) {
-        _uiState.update { it.copy(showControls = visible) }
+        _uiState.update {
+            it.copy(
+                showControls = visible,
+                controlsVisibilityNonce = if (visible) {
+                    it.controlsVisibilityNonce + 1
+                } else {
+                    it.controlsVisibilityNonce
+                },
+            )
+        }
     }
 
     fun openHUD() {

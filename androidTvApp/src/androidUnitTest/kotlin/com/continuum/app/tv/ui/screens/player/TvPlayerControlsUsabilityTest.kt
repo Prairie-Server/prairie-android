@@ -18,10 +18,19 @@ class TvPlayerControlsUsabilityTest {
     private val subtitleMenuSource = File(
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvSubtitleMenu.kt",
     ).takeIf { it.exists() }?.readText().orEmpty()
+    private val viewModelSource = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt",
+    ).readText()
+    private val activitySource = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/MainTvActivity.kt",
+    ).readText()
+    private val remoteKeyBridgeSource = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerRemoteKeyBridge.kt",
+    ).takeIf { it.exists() }?.readText().orEmpty()
 
     @Test
     fun idleOverlayDefaultsToPlayPauseInACenteredDock() {
-        assertTrue(screenSource.contains("LaunchedEffect(Unit) { runCatching { playPauseFocus.requestFocus() } }"))
+        assertTrue(screenSource.contains("LaunchedEffect(transportFocusRequest) { runCatching { playPauseFocus.requestFocus() } }"))
         assertTrue(clusterSource.contains("Arrangement.Center"))
         assertTrue(clusterSource.contains("Icons.AutoMirrored.Filled.ArrowBack"))
         assertTrue(clusterSource.contains("Icons.Filled.Subtitles"))
@@ -131,5 +140,28 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(subtitleMenuSource.contains(".focusProperties"))
         assertTrue(subtitleMenuSource.contains("upFocusRequester"))
         assertTrue(subtitleMenuSource.contains("downFocusRequester"))
+    }
+
+    @Test
+    fun activityDispatchesRemoteKeysToMountedPlayerWhenComposeFocusIsLost() {
+        assertTrue(activitySource.contains("override fun dispatchKeyEvent(event: KeyEvent): Boolean"))
+        assertTrue(activitySource.contains("TvPlayerRemoteKeyBridge.dispatch(event)"))
+        assertTrue(remoteKeyBridgeSource.contains("fun install(handler: (KeyEvent) -> Boolean)"))
+        assertTrue(remoteKeyBridgeSource.contains("fun dispatch(event: KeyEvent): Boolean"))
+    }
+
+    @Test
+    fun mountedPlayerRegistersRemoteKeyBridgeAndRefocusesTransport() {
+        assertTrue(screenSource.contains("TvPlayerRemoteKeyBridge.install(handler)"))
+        assertTrue(screenSource.contains("TvPlayerRemoteKeyBridge.clear(handler)"))
+        assertTrue(screenSource.contains("transportFocusRequest++"))
+        assertTrue(screenSource.contains("LaunchedEffect(transportFocusRequest)"))
+    }
+
+    @Test
+    fun showingAlreadyVisibleControlsRefreshesAutoHideTimer() {
+        assertTrue(viewModelSource.contains("controlsVisibilityNonce"))
+        assertTrue(viewModelSource.contains("controlsVisibilityNonce = if (visible)"))
+        assertTrue(screenSource.contains("state.controlsVisibilityNonce"))
     }
 }

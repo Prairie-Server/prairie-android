@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ComponentName
 import android.util.Log
 import android.view.KeyEvent
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -73,6 +74,7 @@ import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
 import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
 import com.continuum.app.model.watchtogether.RoomPlaybackState
+import com.continuum.app.tv.R
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
 import com.google.common.util.concurrent.MoreExecutors
@@ -148,6 +150,7 @@ fun TvPlayerScreen(
     // the inflated subtitleView after the AndroidView factory runs. Mirrors
     // the phone PlayerScreen's `playerViewRef` pattern.
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+    var transportFocusRequest by remember { mutableStateOf(0) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -264,6 +267,72 @@ fun TvPlayerScreen(
                 stopPlaybackAndExit()
             }
         }
+    }
+
+    val latestPlayerState by rememberUpdatedState(state)
+    val latestRoomSnapshot by rememberUpdatedState(roomSnapshot)
+    val latestShowLeaveDialog by rememberUpdatedState(showLeaveDialog)
+    DisposableEffect(viewModel, roomController) {
+        val handler: (KeyEvent) -> Boolean = handler@{ event ->
+            val playerState = latestPlayerState
+            if (playerState.streamUrl == null || playerState.isLoading || playerState.error != null) {
+                return@handler false
+            }
+            if (playerState.hudOpen || playerState.showSubtitleMenu || latestShowLeaveDialog) {
+                return@handler false
+            }
+
+            val action = tvPlayerRemoteKeyAction(
+                keyCode = event.keyCode,
+                action = event.action,
+                repeatCount = event.repeatCount,
+            )
+            when (action) {
+                TvPlayerRemoteKeyAction.PlayPause -> {
+                    val canPlayPauseInRoom = roomController == null ||
+                        tvRoomTransportGate(
+                            latestRoomSnapshot,
+                            TvTransportIntent.PlayPause,
+                        ) == TransportGate.Send
+                    if (canPlayPauseInRoom) {
+                        if (roomController != null) {
+                            roomController.onUserPlayPause()
+                        } else {
+                            viewModel.onPlayPause()
+                        }
+                    }
+                    viewModel.setControlsVisible(true)
+                    transportFocusRequest++
+                    true
+                }
+                TvPlayerRemoteKeyAction.FocusTransport -> {
+                    viewModel.setControlsVisible(true)
+                    transportFocusRequest++
+                    true
+                }
+                TvPlayerRemoteKeyAction.OpenHud -> {
+                    requestedHudTab = HudTab.Info
+                    viewModel.openHUD()
+                    true
+                }
+                TvPlayerRemoteKeyAction.ConsumeOnly -> true
+                null -> {
+                    if (
+                        event.action == KeyEvent.ACTION_DOWN &&
+                        event.keyCode != KeyEvent.KEYCODE_BACK &&
+                        !playerState.showControls
+                    ) {
+                        viewModel.setControlsVisible(true)
+                        transportFocusRequest++
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+        TvPlayerRemoteKeyBridge.install(handler)
+        onDispose { TvPlayerRemoteKeyBridge.clear(handler) }
     }
 
     // room_closed (TERMINAL only — host left / explicit close) → stop + exit
@@ -522,10 +591,15 @@ fun TvPlayerScreen(
             runCatching { rootFocus.requestFocus() }
         }
     }
-
     // Auto-hide the Compose overlay after CONTROLS_AUTO_HIDE_MS.
-    LaunchedEffect(state.showControls, state.isPaused, state.hudOpen) {
-        if (state.showControls && !state.isPaused && !state.hudOpen) {
+    LaunchedEffect(
+        state.showControls,
+        state.controlsVisibilityNonce,
+        state.isPaused,
+        state.hudOpen,
+        state.showSubtitleMenu,
+    ) {
+        if (state.showControls && !state.isPaused && !state.hudOpen && !state.showSubtitleMenu) {
             delay(CONTROLS_AUTO_HIDE_MS)
             viewModel.setControlsVisible(false)
         }
@@ -559,7 +633,11 @@ fun TvPlayerScreen(
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
-                            PlayerView(ctx).apply {
+                            (LayoutInflater.from(ctx).inflate(
+                                R.layout.tv_player_view,
+                                null,
+                                false,
+                            ) as PlayerView).apply {
                                 useController = false
                                 isFocusable = false
                                 isFocusableInTouchMode = false
@@ -645,6 +723,7 @@ fun TvPlayerScreen(
                             viewModel.setControlsVisible(true)
                         },
                         onCancelScrub = { viewModel.cancelScrub() },
+                        transportFocusRequest = transportFocusRequest,
                         onPlayPause = {
                             if (!canPlayPauseInRoom) return@TvPlayerIdleOverlay
                             if (roomController != null) {
@@ -900,6 +979,7 @@ private fun TvPlayerIdleOverlay(
     onUpdateScrub: (Double) -> Unit,
     onCommitScrub: () -> Unit,
     onCancelScrub: () -> Unit,
+    transportFocusRequest: Int,
     onOpenHUD: () -> Unit,
     onOpenTracks: () -> Unit,
     onClose: () -> Unit,
@@ -912,7 +992,7 @@ private fun TvPlayerIdleOverlay(
     val scrubberFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
     var currentRate by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) { runCatching { playPauseFocus.requestFocus() } }
+    LaunchedEffect(transportFocusRequest) { runCatching { playPauseFocus.requestFocus() } }
 
     Box(
         modifier = Modifier

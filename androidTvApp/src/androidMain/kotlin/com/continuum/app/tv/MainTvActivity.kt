@@ -3,6 +3,7 @@ package com.continuum.app.tv
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +20,7 @@ import com.continuum.app.network.ServerRegistry
 import com.continuum.app.network.TokenManager
 import com.continuum.app.tv.ui.navigation.TvAppNavigation
 import com.continuum.app.tv.ui.navigation.TvRoute
+import com.continuum.app.tv.ui.screens.player.TvPlayerRemoteKeyBridge
 import com.continuum.app.tv.ui.theme.ContinuumTvTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,7 +30,6 @@ import org.koin.core.qualifier.named
 import org.koin.java.KoinJavaComponent.get
 
 private const val STARTUP_SPLASH_MINIMUM_MILLIS = 1_000L
-
 class MainTvActivity : ComponentActivity() {
 
     // Shared flow with [TvAppNavigation]. We publish the launching Uri here so
@@ -78,6 +79,11 @@ class MainTvActivity : ComponentActivity() {
         super.onNewIntent(intent)
         handleIntent(intent)
         setIntent(intent)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (TvPlayerRemoteKeyBridge.dispatch(event)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     /**
