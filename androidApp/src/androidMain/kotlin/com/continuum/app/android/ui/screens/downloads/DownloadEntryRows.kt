@@ -70,6 +70,17 @@ internal fun downloadRowAction(item: DownloadItem): DownloadRowAction {
     }
 }
 
+internal fun downloadExternalOpenAvailable(item: DownloadItem): Boolean =
+    item.isComplete && !item.localUri.isNullOrBlank()
+
+private fun downloadRowActionLabel(action: DownloadRowAction): String =
+    when (action) {
+        DownloadRowAction.ReadInApp -> "Read"
+        DownloadRowAction.OpenInAppPlayer -> "Play"
+        DownloadRowAction.OpenExternally -> "Open"
+        DownloadRowAction.None -> ""
+    }
+
 /**
  * Renders one full media-type section (Movies / TV / Audiobooks /
  * eBooks / Other) into a LazyColumn. Header row carries the section
@@ -217,6 +228,9 @@ private fun SingleRow(
         item.subtitle
     }
     val rowAction = downloadRowAction(item)
+    val canOpenExternally = downloadExternalOpenAvailable(item)
+    val showPrimaryAction = rowAction != DownloadRowAction.None
+    val showExternalAction = canOpenExternally && rowAction != DownloadRowAction.OpenExternally
 
     Row(
         modifier = modifier
@@ -284,18 +298,28 @@ private fun SingleRow(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            if (rowAction == DownloadRowAction.ReadInApp || rowAction == DownloadRowAction.OpenExternally) {
+            if (showPrimaryAction || showExternalAction) {
                 Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    onClick = {
-                        if (rowAction == DownloadRowAction.ReadInApp) {
-                            onReadEbook()
-                        } else {
-                            onOpenExternalDownload()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showPrimaryAction) {
+                        TextButton(
+                            onClick = {
+                                when (rowAction) {
+                                    DownloadRowAction.ReadInApp -> onReadEbook()
+                                    DownloadRowAction.OpenExternally -> onOpenExternalDownload()
+                                    DownloadRowAction.OpenInAppPlayer -> onItemClick()
+                                    DownloadRowAction.None -> Unit
+                                }
+                            },
+                        ) {
+                            Text(downloadRowActionLabel(rowAction))
                         }
-                    },
-                ) {
-                    Text(if (rowAction == DownloadRowAction.ReadInApp) "Read" else "Open")
+                    }
+                    if (showExternalAction) {
+                        TextButton(onClick = onOpenExternalDownload) {
+                            Text("Open")
+                        }
+                    }
                 }
             }
         }
