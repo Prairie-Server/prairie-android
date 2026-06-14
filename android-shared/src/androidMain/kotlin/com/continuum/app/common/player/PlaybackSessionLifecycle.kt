@@ -255,7 +255,7 @@ class PlaybackSessionLifecycle(
         recoveryJob?.cancel()
         recoveryJob = scope.launch {
             mutex.withLock {
-                Log.w(TAG, "Playback session $staleSessionId missing; renewing")
+                Log.w(TAG, "Playback session missing; renewing")
                 val resumePos = lastReportedPosition ?: params.startPosition
                 syncProgressSnapshot(
                     contentId = params.contentId,
@@ -301,7 +301,7 @@ class PlaybackSessionLifecycle(
                     // Success or HTTP error (incl. 401/403) both mean the
                     // server is reachable — match iOS comment "treating
                     // server as ready". Resume normal reporting.
-                    Log.i(TAG, "Health probe succeeded; resuming session ${currentSession.sessionId}")
+                    Log.i(TAG, "Health probe succeeded; resuming playback session")
                     _state.value = SessionState.Active(currentSession)
                     _notice.value = null
                     return@launch
@@ -310,7 +310,7 @@ class PlaybackSessionLifecycle(
                 delayMs = (delayMs * 2).coerceAtMost(OUTAGE_MAX_DELAY_MS)
             }
             // Timed out before the server came back.
-            Log.w(TAG, "Outage recovery exhausted for session ${currentSession.sessionId}")
+            Log.w(TAG, "Outage recovery exhausted for playback session")
             _state.value = SessionState.Failed(OUTAGE_TIMEOUT_MESSAGE)
             _notice.value = PlayerNotice(
                 message = OUTAGE_TIMEOUT_MESSAGE,
