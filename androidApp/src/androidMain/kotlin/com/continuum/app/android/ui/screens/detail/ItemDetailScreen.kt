@@ -31,7 +31,11 @@ import com.continuum.app.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import com.continuum.app.android.downloads.hasLegacyPublicDownloadPermission
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
+import com.continuum.app.android.ui.screens.downloads.openDownloadTargetInExternalApp
 import com.continuum.app.android.ui.util.playbackResumePosition
+import com.continuum.app.common.downloads.DownloadEnqueuer
+import com.continuum.app.common.downloads.DownloadOpenTarget
+import com.continuum.app.common.downloads.DownloadStorage
 import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.isAudiobookItemType
 import com.continuum.app.model.catalog.isBookLikeItemType
@@ -39,6 +43,8 @@ import com.continuum.app.model.ebook.chooseEbookVersion
 import com.continuum.app.model.ebook.isInAppReadableEbookVersion
 import com.continuum.app.model.ebook.isSupportedEbookVersion
 import com.continuum.app.model.download.statusEnum
+import com.continuum.app.network.ServerRegistry
+import org.koin.compose.koinInject
 
 /**
  * Item detail dispatcher. Routes to [MovieDetailContent] or
@@ -66,6 +72,8 @@ fun ItemDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val downloadStorage: DownloadStorage = koinInject()
+    val serverRegistry: ServerRegistry = koinInject()
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -90,6 +98,26 @@ fun ItemDetailScreen(
         }
         pendingDownloadAction = action
         legacyStoragePermissionLauncher.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
+    }
+
+    fun localDownloadFor(fileId: Int) =
+        downloadStorage.locateLocalMedia(
+            serverId = serverRegistry.activeServerId.value ?: DownloadEnqueuer.DEFAULT_SERVER_ID,
+            profileId = serverRegistry.activeEntry.value?.profileId ?: DownloadEnqueuer.DEFAULT_PROFILE_ID,
+            fileId = fileId,
+        )
+
+    fun openExternalDownload(version: FileVersion, displayTitle: String) {
+        val local = localDownloadFor(version.fileId)
+        val target = DownloadOpenTarget.from(
+            isComplete = local != null,
+            localUri = local?.uriString,
+            displayName = local?.displayName ?: version.fileName ?: displayTitle,
+            container = version.container,
+        )
+        if (target == null || !openDownloadTargetInExternalApp(context, target)) {
+            Toast.makeText(context, "No app found to open this file.", Toast.LENGTH_LONG).show()
+        }
     }
 
     Box(
@@ -183,6 +211,9 @@ fun ItemDetailScreen(
                             ?.let { version -> detail.versions.indexOfFirst { it.fileId == version.fileId } }
                             ?.takeIf { it >= 0 }
                             ?: 0
+                        val selectedBookLocalDownload = selectedBookVersion?.let { version ->
+                            localDownloadFor(version.fileId)
+                        }
                         val downloadRecords by viewModel.downloads.collectAsState()
                         val downloadState = downloadStateFor(selectedBookVersion, downloadRecords)
 
@@ -207,6 +238,15 @@ fun ItemDetailScreen(
                                     }
                                 }
                             },
+                            onOpenExternalClick = selectedBookVersion
+                                ?.takeIf {
+                                    !it.isInAppReadableEbookVersion() &&
+                                        downloadState.isDownloaded &&
+                                        selectedBookLocalDownload != null
+                                }
+                                ?.let { version ->
+                                    { openExternalDownload(version, detail.title) }
+                                },
                         )
                     }
 

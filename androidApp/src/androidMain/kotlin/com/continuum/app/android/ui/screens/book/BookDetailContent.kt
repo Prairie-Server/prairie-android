@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.book.BookFormat
+import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.ebook.bookFormatFromEbookVersion
 import com.continuum.app.model.ebook.ebookFormatDisplayName
@@ -50,6 +51,48 @@ import com.continuum.app.model.ebook.isSupportedEbookVersion
  * since print covers share that ratio), author + format + page count
  * on the right, then a Read button + overview.
  */
+internal enum class BookDetailPrimaryAction {
+    None,
+    ReadInApp,
+    OpenExternally,
+}
+
+internal fun bookDetailPrimaryAction(
+    selectedVersion: FileVersion?,
+    canReadSelectedVersion: Boolean,
+    isDownloaded: Boolean,
+    canOpenExternal: Boolean,
+): BookDetailPrimaryAction = when {
+    selectedVersion == null -> BookDetailPrimaryAction.None
+    canReadSelectedVersion -> BookDetailPrimaryAction.ReadInApp
+    isDownloaded &&
+        canOpenExternal &&
+        selectedVersion.isSupportedEbookVersion() -> BookDetailPrimaryAction.OpenExternally
+    else -> BookDetailPrimaryAction.None
+}
+
+private fun bookDetailPrimaryActionLabel(
+    selectedVersion: FileVersion?,
+    canReadSelectedVersion: Boolean,
+    isDownloaded: Boolean,
+    canOpenExternal: Boolean,
+): String = when (
+    bookDetailPrimaryAction(
+        selectedVersion = selectedVersion,
+        canReadSelectedVersion = canReadSelectedVersion,
+        isDownloaded = isDownloaded,
+        canOpenExternal = canOpenExternal,
+    )
+) {
+    BookDetailPrimaryAction.ReadInApp -> "Read"
+    BookDetailPrimaryAction.OpenExternally -> "Open in Reader"
+    BookDetailPrimaryAction.None -> when {
+        selectedVersion == null -> "Unavailable"
+        !canReadSelectedVersion && !isDownloaded -> "Download to Open"
+        else -> "Open from Downloads"
+    }
+}
+
 @Composable
 fun BookDetailContent(
     detail: ItemDetail,
@@ -64,6 +107,7 @@ fun BookDetailContent(
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
     onDownloadClick: (() -> Unit)? = null,
+    onOpenExternalClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val meta = detail.book
@@ -71,6 +115,12 @@ fun BookDetailContent(
     val selectedVersion = detail.versions.getOrNull(selectedVersionIndex)
     val canDownloadSelectedVersion = selectedVersion?.isSupportedEbookVersion() == true && onDownloadClick != null
     val selectedFormatSupport = selectedVersion?.ebookFormatSupport()
+    val primaryAction = bookDetailPrimaryAction(
+        selectedVersion = selectedVersion,
+        canReadSelectedVersion = canReadSelectedVersion,
+        isDownloaded = isDownloaded,
+        canOpenExternal = onOpenExternalClick != null,
+    )
     val format = selectedVersion?.bookFormatFromEbookVersion()
         ?: meta?.formatEnum()
         ?: BookFormat.Unknown
@@ -146,18 +196,25 @@ fun BookDetailContent(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { selectedVersion?.let { onReadClick(it.fileId) } },
-                    enabled = selectedVersion != null && canReadSelectedVersion,
+                    onClick = {
+                        when (primaryAction) {
+                            BookDetailPrimaryAction.ReadInApp -> selectedVersion?.let { onReadClick(it.fileId) }
+                            BookDetailPrimaryAction.OpenExternally -> onOpenExternalClick?.invoke()
+                            BookDetailPrimaryAction.None -> Unit
+                        }
+                    },
+                    enabled = primaryAction != BookDetailPrimaryAction.None,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        when {
-                            selectedVersion == null -> "Unavailable"
-                            canReadSelectedVersion -> "Read"
-                            else -> "Open from Downloads"
-                        },
+                        bookDetailPrimaryActionLabel(
+                            selectedVersion = selectedVersion,
+                            canReadSelectedVersion = canReadSelectedVersion,
+                            isDownloaded = isDownloaded,
+                            canOpenExternal = onOpenExternalClick != null,
+                        ),
                     )
                 }
                 OutlinedButton(

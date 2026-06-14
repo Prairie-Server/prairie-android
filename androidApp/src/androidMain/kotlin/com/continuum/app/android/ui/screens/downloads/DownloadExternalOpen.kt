@@ -14,6 +14,10 @@ internal fun openDownloadInExternalApp(context: Context, item: DownloadItem): Bo
         displayName = item.displayName,
         container = item.container,
     ) ?: return false
+    return openDownloadTargetInExternalApp(context, target)
+}
+
+internal fun openDownloadTargetInExternalApp(context: Context, target: DownloadOpenTarget): Boolean {
     val intent = externalDownloadOpenIntent(context, target)
     return runCatching {
         context.startActivity(Intent.createChooser(intent, "Open with"))
