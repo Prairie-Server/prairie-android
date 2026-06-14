@@ -2,6 +2,7 @@ package com.continuum.app.common.player.subtitle
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class SubripPayloadNormalizerTest {
     @Test
@@ -96,5 +97,18 @@ class SubripPayloadNormalizerTest {
             """.trimIndent(),
             normalizeSubripTextIfNeeded(loose),
         )
+    }
+
+    @Test
+    fun normalizerDoesNotLogEverySubtitlePayloadAtInfo() {
+        val source = java.io.File(
+            "src/androidMain/kotlin/com/continuum/app/common/player/subtitle/SubripPayloadNormalizer.kt",
+        ).readText()
+
+        assertFalse(
+            source.contains("Log.i("),
+            "subtitle normalization runs per payload during playback and must not flood normal logcat",
+        )
+        assertFalse(source.contains("SubRip payload len="))
     }
 }

@@ -1,7 +1,5 @@
 package com.continuum.app.common.player.subtitle
 
-import android.util.Log
-
 private val subripTimingLine = Regex(
     """^\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}.*$""",
 )
@@ -15,14 +13,6 @@ internal fun normalizeSubripPayloadIfNeeded(
 ): ByteArray? {
     val text = data.decodeToString(offset, offset + length)
     val normalized = normalizeSubripTextIfNeeded(text)
-    val before = summarizeSubripTiming(text)
-    val after = summarizeSubripTiming(normalized)
-    Log.i(
-        TAG,
-        "SubRip payload len=$length normalized=${normalized != text} " +
-            "timings=${before.count} first=${before.firstStart} last=${before.lastStart} " +
-            "afterTimings=${after.count}",
-    )
     return if (normalized == text) null else normalized.encodeToByteArray()
 }
 
@@ -108,31 +98,6 @@ private data class SubripCueBlock(
     val textLines: List<String>,
 )
 
-internal data class SubripTimingSummary(
-    val count: Int,
-    val firstStart: String?,
-    val lastStart: String?,
-)
-
-internal fun summarizeSubripTiming(text: String): SubripTimingSummary {
-    var count = 0
-    var first: String? = null
-    var last: String? = null
-    text
-        .removePrefix("\uFEFF")
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
-        .lineSequence()
-        .forEach { line ->
-            if (!line.isSubripTimingLine()) return@forEach
-            val start = line.substringBefore("-->").trim()
-            if (first == null) first = start
-            last = start
-            count++
-        }
-    return SubripTimingSummary(count, first, last)
-}
-
 private fun String.isSubripTimingLine(): Boolean = subripTimingLine.matches(this)
 
 private fun String.isSubripCueIndexLine(): Boolean = subripCueIndexLine.matches(this)
@@ -162,5 +127,3 @@ private fun nextNonBlankIndex(lines: List<String>, startIndex: Int): Int? {
     }
     return null
 }
-
-private const val TAG = "SiloSubtitles"
