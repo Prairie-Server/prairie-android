@@ -44,16 +44,26 @@
                 <data
                     android:host="device"
                     android:scheme="silo" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
                 <data
                     android:host="device"
                     android:scheme="continuum" />
             </intent-filter>
         </activity>
 
+        <!-- Media3 documents this as an exported service so system media
+             controllers can discover and bind to the app session. -->
         <service
             android:name="com.continuum.app.common.player.ContinuumPlaybackService"
             android:exported="true"
-            android:foregroundServiceType="mediaPlayback">
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="ExportedService">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>

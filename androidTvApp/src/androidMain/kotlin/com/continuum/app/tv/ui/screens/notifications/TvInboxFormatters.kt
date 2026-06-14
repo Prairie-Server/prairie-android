@@ -99,7 +99,7 @@ private fun parseInstantOrNull(iso: String): Instant? = try {
     null
 }
 
-private val ABSOLUTE_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
-
 private fun formatAbsoluteDate(instant: Instant): String =
-    instant.atZone(ZoneId.systemDefault()).format(ABSOLUTE_DATE_FORMAT)
+    instant.atZone(ZoneId.systemDefault()).format(
+        DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()),
+    )

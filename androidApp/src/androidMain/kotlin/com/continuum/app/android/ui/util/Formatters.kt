@@ -1,5 +1,7 @@
 package com.continuum.app.android.ui.util
 
+import java.util.Locale
+
 /**
  * Shared user-facing formatters. Single source of truth so the
  * downloads, player, and detail surfaces can't drift apart.
@@ -11,7 +13,7 @@ internal fun formatBytes(bytes: Long): String {
     val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
     val index = digitGroups.coerceAtMost(units.size - 1)
     val value = bytes / Math.pow(1024.0, index.toDouble())
-    return String.format("%.1f %s", value, units[index])
+    return String.format(Locale.US, "%.1f %s", value, units[index])
 }
 
 /**

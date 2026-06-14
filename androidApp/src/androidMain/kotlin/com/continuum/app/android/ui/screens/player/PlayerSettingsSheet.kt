@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.continuum.app.common.player.SleepTimerState
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 /**
@@ -459,7 +460,7 @@ private fun formatSleepTimerSubtitle(state: SleepTimerState): String {
  */
 private fun formatPlaybackSpeed(speed: Double): String {
     if (speed % 1.0 == 0.0) return speed.toInt().toString()
-    val formatted = String.format("%.2f", speed)
+    val formatted = String.format(Locale.US, "%.2f", speed)
     return formatted.trimEnd('0').trimEnd('.')
 }
 

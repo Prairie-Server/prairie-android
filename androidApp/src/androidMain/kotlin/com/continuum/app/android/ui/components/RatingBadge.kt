@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import java.util.Locale
 
 /**
  * The source of a rating value, which determines the badge's visual style.
@@ -44,7 +45,7 @@ fun RatingBadge(
 ) {
     val displayValue = when (source) {
         RatingSource.RT_CRITIC, RatingSource.RT_AUDIENCE -> "${value.toInt()}%"
-        else -> String.format("%.1f", value)
+        else -> String.format(Locale.US, "%.1f", value)
     }
 
     Row(
