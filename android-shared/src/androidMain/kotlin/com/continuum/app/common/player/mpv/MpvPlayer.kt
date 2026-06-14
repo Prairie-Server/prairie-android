@@ -853,10 +853,21 @@ class MpvPlayer(
     override fun getPlaybackParameters(): PlaybackParameters = playbackParameters
 
     override fun stop() {
-        release()
+        if (isReleased) return
+        mpv.command(arrayOf("stop"))
+        isPlayerReady = false
+        isSeekable = false
+        initialSeekTo = 0L
+        currentPositionMs = 0L
+        currentDurationMs = null
+        currentCacheDurationMs = null
+        currentTracks = Tracks.EMPTY
+        initialCommands.clear()
+        setPlayerStateAndNotifyIfChanged(playbackState = STATE_IDLE)
     }
 
     override fun release() {
+        if (isReleased) return
         isReleased = true
         handler.removeCallbacksAndMessages(null)
         if (handleAudioFocus) {
@@ -1044,28 +1055,31 @@ class MpvPlayer(
         mpv.setPropertyInt("volume", volume)
     }
 
+    @Deprecated("Deprecated in Java")
     override fun increaseDeviceVolume() {
-        deviceVolume = (getDeviceVolume() + 1).coerceAtMost(100)
+        setDeviceVolume((getDeviceVolume() + 1).coerceAtMost(100), 0)
     }
 
     override fun increaseDeviceVolume(flags: Int) {
-        increaseDeviceVolume()
+        setDeviceVolume((getDeviceVolume() + 1).coerceAtMost(100), flags)
     }
 
+    @Deprecated("Deprecated in Java")
     override fun decreaseDeviceVolume() {
-        deviceVolume = (getDeviceVolume() - 1).coerceAtLeast(0)
+        setDeviceVolume((getDeviceVolume() - 1).coerceAtLeast(0), 0)
     }
 
     override fun decreaseDeviceVolume(flags: Int) {
-        decreaseDeviceVolume()
+        setDeviceVolume((getDeviceVolume() - 1).coerceAtLeast(0), flags)
     }
 
+    @Deprecated("Deprecated in Java")
     override fun setDeviceMuted(muted: Boolean) {
         mpv.setPropertyBoolean("mute", muted)
     }
 
     override fun setDeviceMuted(muted: Boolean, flags: Int) {
-        isDeviceMuted = muted
+        mpv.setPropertyBoolean("mute", muted)
     }
 
     override fun setAudioAttributes(audioAttributes: AudioAttributes, handleAudioFocus: Boolean) {}

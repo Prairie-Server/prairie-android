@@ -1,6 +1,7 @@
 package com.continuum.app.common.player.mpv
 
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MpvPlayerSourceTest {
@@ -169,5 +170,21 @@ class MpvPlayerSourceTest {
 
         assertTrue(!resetBody.contains("currentPlayWhenReady = false"))
         assertTrue(text.contains("setPlayerStateAndNotifyIfChanged(playbackState = STATE_READY)"))
+    }
+
+    @Test
+    fun mpvPlayerStopDoesNotDestroyMediaSessionPlayer() {
+        val text = source.readText()
+        val stopBody = text.substringAfter("override fun stop()")
+            .substringBefore("override fun release()")
+        val releaseBody = text.substringAfter("override fun release()")
+            .substringBefore("override fun getCurrentTracks()")
+
+        assertFalse(
+            stopBody.contains("release()") || stopBody.contains("destroy()"),
+            "Player.stop() must leave the MediaSession player reusable; only release() may destroy libmpv",
+        )
+        assertTrue(stopBody.contains("arrayOf(\"stop\")"))
+        assertTrue(releaseBody.contains("mpv.destroy()"))
     }
 }
