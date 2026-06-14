@@ -740,16 +740,18 @@ class AudiobookPlayerViewModel(
 
     fun stopPlaybackSession() {
         val state = _uiState.value
-        val sessionId = state.sessionId ?: return
-        if (stoppingSessionId == sessionId) return
-        stoppingSessionId = sessionId
+        val sessionId = state.sessionId
         _uiState.update {
             it.copy(
                 streamUrl = null,
+                sessionId = null,
                 isPlaying = false,
                 isPaused = true,
             )
         }
+        if (sessionId == null) return
+        if (stoppingSessionId == sessionId) return
+        stoppingSessionId = sessionId
         viewModelScope.launch {
             try {
                 withContext(NonCancellable + Dispatchers.IO) {
@@ -760,9 +762,6 @@ class AudiobookPlayerViewModel(
                     )
                 }
             } finally {
-                if (_uiState.value.sessionId == sessionId) {
-                    _uiState.update { it.copy(sessionId = null) }
-                }
                 if (stoppingSessionId == sessionId) {
                     stoppingSessionId = null
                 }

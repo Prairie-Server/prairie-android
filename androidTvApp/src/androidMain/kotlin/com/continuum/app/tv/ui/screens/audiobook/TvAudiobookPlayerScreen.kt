@@ -80,6 +80,7 @@ fun TvAudiobookPlayerScreen(
 
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var activePanel by remember { mutableStateOf(AudiobookPanel.None) }
+    var exitRequested by remember { mutableStateOf(false) }
     val playPauseFocus = remember { FocusRequester() }
     val speedChipFocus = remember { FocusRequester() }
 
@@ -110,6 +111,7 @@ fun TvAudiobookPlayerScreen(
     // on URL change. Resume-on-open seeks to the saved position before play.
     var preparedUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(controller, state.streamUrl) {
+        if (exitRequested) return@LaunchedEffect
         val c = controller ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         // Prepare each distinct stream once; a re-run with the same url (e.g.
@@ -196,7 +198,14 @@ fun TvAudiobookPlayerScreen(
     }
 
     BackHandler(enabled = true) {
-        if (activePanel != AudiobookPanel.None) activePanel = AudiobookPanel.None else onExit()
+        if (activePanel != AudiobookPanel.None) {
+            activePanel = AudiobookPanel.None
+        } else {
+            exitRequested = true
+            viewModel.flushPosition()
+            viewModel.stopPlaybackSession()
+            onExit()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -380,4 +389,3 @@ private fun TvAudiobookChip(
         Text(label, style = MaterialTheme.typography.labelLarge, color = fg)
     }
 }
-

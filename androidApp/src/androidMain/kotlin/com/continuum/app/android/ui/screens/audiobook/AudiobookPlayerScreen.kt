@@ -64,6 +64,7 @@ fun AudiobookPlayerScreen(
     val currentChapterIndex by viewModel.currentChapterIndex.collectAsState()
     val chapterCountLabel by viewModel.chapterCountLabel.collectAsState()
     val context = LocalContext.current
+    var exitRequested by remember { mutableStateOf(false) }
 
     // MediaController binds asynchronously to the shared playback service;
     // the same one the video player uses, so a single MediaSession owns
@@ -99,6 +100,7 @@ fun AudiobookPlayerScreen(
     // it before play.
     var preparedUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(controller, state.streamUrl) {
+        if (exitRequested) return@LaunchedEffect
         val c = controller ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         // Prepare each distinct stream exactly once. The effect can re-run with
@@ -210,7 +212,14 @@ fun AudiobookPlayerScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBackClick) {
+            IconButton(
+                onClick = {
+                    exitRequested = true
+                    viewModel.flushPosition()
+                    viewModel.stopPlaybackSession()
+                    onBackClick()
+                },
+            ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Spacer(modifier = Modifier.weight(1f))

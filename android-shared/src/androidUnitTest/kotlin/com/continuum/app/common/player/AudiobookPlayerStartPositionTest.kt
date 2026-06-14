@@ -5,15 +5,41 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AudiobookPlayerStartPositionTest {
+    private val source = java.io.File(
+        "src/androidMain/kotlin/com/continuum/app/common/player/AudiobookPlayerViewModel.kt",
+    ).readText()
+
     @Test
     fun audiobookServerPlaybackUsesSharedStartPositionResolver() {
-        val source = java.io.File(
-            "src/androidMain/kotlin/com/continuum/app/common/player/AudiobookPlayerViewModel.kt",
-        ).readText()
-
         assertTrue(source.contains("resolvePlaybackStartRequestPosition("))
         assertTrue(source.contains("resolvePlaybackStartPosition("))
         assertFalse(source.contains("startPosition = resumePosition ?: 0.0"))
         assertFalse(source.contains("seekSeconds = resumePosition ?: 0.0"))
+    }
+
+    @Test
+    fun stopPlaybackSessionClearsPlayableStateEvenWithoutRemoteSession() {
+        val stopBody = source
+            .substringAfter("fun stopPlaybackSession()")
+            .substringBefore("private suspend fun reportSessionProgress")
+        val clearStateIndex = stopBody.indexOf("_uiState.update")
+        val sessionReturnIndex = stopBody.indexOf("sessionId ?: return")
+
+        assertTrue(
+            clearStateIndex >= 0,
+            "audiobook stop must clear UI playable state",
+        )
+        assertTrue(
+            sessionReturnIndex < 0 || clearStateIndex < sessionReturnIndex,
+            "audiobook stop must clear local/offline playback state before any session-id return",
+        )
+        assertTrue(
+            stopBody.contains("streamUrl = null"),
+            "audiobook stop must clear stale stream URL",
+        )
+        assertTrue(
+            stopBody.contains("sessionId = null"),
+            "audiobook stop must clear active session id from UI state",
+        )
     }
 }
