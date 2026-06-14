@@ -209,9 +209,13 @@ class AndroidServerRegistry(
         loaded: RegistryState,
         context: Context,
     ): RegistryState {
-        if (prefs.getBoolean(KEY_MIGRATED, false)) return loaded
+        if (prefs.getBoolean(KEY_MIGRATED, false)) {
+            clearLegacyAuthPrefs(context)
+            return loaded
+        }
         if (loaded.entries.isNotEmpty()) {
             prefs.edit().putBoolean(KEY_MIGRATED, true).apply()
+            clearLegacyAuthPrefs(context)
             return loaded
         }
 
@@ -238,6 +242,7 @@ class AndroidServerRegistry(
         if (urlForMigration == null || urlForMigration == DEFAULT_SERVER_URL_PLACEHOLDER) {
             // Nothing to migrate — first install, or only the placeholder default.
             prefs.edit().putBoolean(KEY_MIGRATED, true).apply()
+            clearLegacyAuthPrefs(context)
             return loaded
         }
 
@@ -279,8 +284,16 @@ class AndroidServerRegistry(
         val migrated = RegistryState(entries = listOf(entry), activeServerId = id)
         editor.putString(KEY_REGISTRY_STATE, json.encodeToString(migrated))
         editor.apply()
+        clearLegacyAuthPrefs(context)
 
         return migrated
+    }
+
+    private fun clearLegacyAuthPrefs(context: Context) {
+        context.getSharedPreferences(LEGACY_AUTH_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
     }
 
     companion object {

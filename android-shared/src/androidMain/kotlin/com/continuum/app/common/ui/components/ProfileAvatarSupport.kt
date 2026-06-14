@@ -1,10 +1,12 @@
 package com.continuum.app.common.ui.components
 
 import android.net.Uri
-import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
+import com.continuum.app.network.ServerRegistry
+import org.koin.core.context.GlobalContext
 
 private const val diceBearPresetPrefix = "preset:dicebear:"
 private const val diceBearBaseUrl = "https://api.dicebear.com/9.x"
@@ -77,15 +79,10 @@ fun profileAvatarDisplayText(avatar: String?, name: String): String {
 
 @Composable
 fun rememberProfileServerUrl(): String {
-    val context = LocalContext.current
-    return remember(context) {
-        context
-            .getSharedPreferences("continuum_auth", Context.MODE_PRIVATE)
-            .getString("serverUrl", "")
-            .orEmpty()
-            .trim()
-            .trimEnd('/')
-    }
+    val serverRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
+    val activeEntry by serverRegistry.activeEntry.collectAsState()
+    val serverUrl = activeEntry?.url.orEmpty()
+    return remember(serverUrl) { serverUrl.trim().trimEnd('/') }
 }
 
 fun String.profileInitials(): String {
