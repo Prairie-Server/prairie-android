@@ -64,6 +64,25 @@ class MpvPlayerSourceTest {
     }
 
     @Test
+    fun mpvPlayerAttachesTextureViewSurfacesForTvPlayerView() {
+        val text = source.readText()
+        val setTextureBody = text.substringAfter("override fun setVideoTextureView(textureView: TextureView?)")
+            .substringBefore("override fun clearVideoTextureView")
+        val clearTextureBody = text.substringAfter("override fun clearVideoTextureView(textureView: TextureView?)")
+            .substringBefore("override fun getVideoSize()")
+
+        assertFalse(
+            setTextureBody.trim().startsWith("{}"),
+            "TV PlayerView uses surface_type=texture_view; MPV must attach that surface path",
+        )
+        assertFalse(clearTextureBody.trim().startsWith("{}"))
+        assertTrue(text.contains("TextureView.SurfaceTextureListener"))
+        assertTrue(setTextureBody.contains("attachTextureSurface("))
+        assertTrue(clearTextureBody.contains("releaseTextureSurface("))
+        assertTrue(text.contains("Surface(surfaceTexture)"))
+    }
+
+    @Test
     fun mpvPlayerKeepsVideoOutputAliveAcrossSurfaceTransitions() {
         val text = source.readText()
         val attachBody = text.substringAfter("private fun attachVideoSurface(surface: Surface?)")

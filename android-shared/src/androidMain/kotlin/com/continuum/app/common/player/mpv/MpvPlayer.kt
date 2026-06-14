@@ -2,6 +2,7 @@ package com.continuum.app.common.player.mpv
 
 import android.content.Context
 import android.content.res.AssetManager
+import android.graphics.SurfaceTexture
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
@@ -67,6 +68,9 @@ class MpvPlayer(
     private val handler = Handler(context.mainLooper)
     private var currentSurface: Surface? = null
     private var currentSurfaceHolder: SurfaceHolder? = null
+    private var currentTextureView: TextureView? = null
+    private var currentSurfaceTexture: SurfaceTexture? = null
+    private var currentTextureSurface: Surface? = null
 
     private constructor(
         builder: Builder
@@ -1030,9 +1034,29 @@ class MpvPlayer(
         clearVideoSurfaceHolder(surfaceView?.holder)
     }
 
-    override fun setVideoTextureView(textureView: TextureView?) {}
+    override fun setVideoTextureView(textureView: TextureView?) {
+        if (currentTextureView == textureView) {
+            if (textureView?.isAvailable == true) {
+                attachTextureSurface(textureView.surfaceTexture, textureView.width, textureView.height)
+            }
+            return
+        }
 
-    override fun clearVideoTextureView(textureView: TextureView?) {}
+        clearVideoTextureView(currentTextureView)
+        currentTextureView = textureView
+        textureView?.surfaceTextureListener = textureSurfaceListener
+        if (textureView?.isAvailable == true) {
+            attachTextureSurface(textureView.surfaceTexture, textureView.width, textureView.height)
+        }
+    }
+
+    override fun clearVideoTextureView(textureView: TextureView?) {
+        if (textureView != null && currentTextureView != textureView) return
+
+        currentTextureView?.surfaceTextureListener = null
+        currentTextureView = null
+        releaseTextureSurface(currentTextureSurface)
+    }
 
     override fun getVideoSize(): VideoSize {
         val width = mpv.getPropertyInt("width")
@@ -1203,6 +1227,37 @@ class MpvPlayer(
         mpv.setPropertyString("android-surface-size", "${width}x$height")
     }
 
+    private fun attachTextureSurface(
+        surfaceTexture: SurfaceTexture?,
+        width: Int,
+        height: Int,
+    ) {
+        if (surfaceTexture == null) {
+            releaseTextureSurface(currentTextureSurface)
+            return
+        }
+
+        if (currentSurfaceTexture != surfaceTexture) {
+            releaseTextureSurface(currentTextureSurface)
+            currentSurfaceTexture = surfaceTexture
+            currentTextureSurface = Surface(surfaceTexture)
+        }
+
+        attachVideoSurface(currentTextureSurface)
+        updateVideoSurfaceSize(width, height)
+    }
+
+    private fun releaseTextureSurface(surface: Surface?) {
+        if (surface == null) return
+
+        detachVideoSurface(surface)
+        surface.release()
+        if (surface == currentTextureSurface) {
+            currentTextureSurface = null
+            currentSurfaceTexture = null
+        }
+    }
+
     private val surfaceCallback =
         object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -1223,6 +1278,32 @@ class MpvPlayer(
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 detachVideoSurface(holder.surface)
             }
+        }
+
+    private val textureSurfaceListener =
+        object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(
+                surfaceTexture: SurfaceTexture,
+                width: Int,
+                height: Int,
+            ) {
+                attachTextureSurface(surfaceTexture, width, height)
+            }
+
+            override fun onSurfaceTextureSizeChanged(
+                surfaceTexture: SurfaceTexture,
+                width: Int,
+                height: Int,
+            ) {
+                attachTextureSurface(surfaceTexture, width, height)
+            }
+
+            override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                releaseTextureSurface(currentTextureSurface)
+                return true
+            }
+
+            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
         }
 
     fun setOption(name: String, value: String) {
