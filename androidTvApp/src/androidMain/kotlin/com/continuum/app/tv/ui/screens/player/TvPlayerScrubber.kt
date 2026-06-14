@@ -46,6 +46,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -54,6 +55,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Glass-capsule scrubber matching `iosApp/.../tvOS/TVPlayerScrubber.swift`.
@@ -338,6 +340,7 @@ fun TvPlayerScrubber(
             val barWidthDp = maxWidth
             val density = LocalDensity.current
             val barWidthPx = with(density) { barWidthDp.toPx() }
+            val puckSizePx = with(density) { puckSize.toPx() }
 
             // Track (unfocused 0.24, focused 0.35, scrubbing 0.48 — spec).
             Box(
@@ -408,11 +411,12 @@ fun TvPlayerScrubber(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .offset(
-                            x = with(density) {
-                                (barWidthPx * totalProgress - puckSize.toPx() / 2f).toDp()
-                            },
-                        )
+                        .offset {
+                            IntOffset(
+                                x = (barWidthPx * totalProgress - puckSizePx / 2f).roundToInt(),
+                                y = 0,
+                            )
+                        }
                         .size(puckSize)
                         .shadow(8.dp, CircleShape, clip = false)
                         .clip(CircleShape)
