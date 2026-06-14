@@ -10,46 +10,50 @@ class PlayerScreenStartPositionTest {
     ).readText()
 
     @Test
-    fun playerScreenDelegatesInitialMountToSharedHelper() {
+    fun playerScreenDelegatesInitialMountToVideoBackend() {
         assertTrue(
             source.contains("VideoPlayerMediaSpec("),
             "mobile player must build the shared video media spec",
         )
         assertTrue(
-            source.contains("mountVideoMedia("),
-            "mobile player must use the shared mount helper",
+            source.contains("VideoPlaybackBackendFactory"),
+            "mobile player must inject the shared backend factory",
+        )
+        assertTrue(
+            source.contains("backend.mount(mediaSpec"),
+            "mobile player must mount through the backend",
         )
         assertTrue(
             !source.contains("controller.setMediaItem(mediaItem, startMs)"),
             "mobile player must not duplicate initial Media3 mount ordering",
         )
+        assertFalse(
+            source.contains("mountVideoMedia("),
+            "mobile player must not call the raw Media3 mounter directly",
+        )
     }
 
     @Test
-    fun playerScreenDelegatesSubtitleRefreshToSharedHelper() {
+    fun playerScreenDelegatesSubtitleRefreshToVideoBackend() {
         assertTrue(
+            source.contains("backend.refresh(mediaSpec"),
+            "mobile subtitle refresh must use the backend refresh path",
+        )
+        assertFalse(
             source.contains("refreshMountedVideoMedia("),
-            "mobile subtitle refresh must use the shared refresh helper",
+            "mobile subtitle refresh must not call the raw Media3 refresh helper directly",
         )
     }
 
     @Test
-    fun playerScreenTrackSelectionPreservesEffectiveMountedMediaSpec() {
+    fun playerScreenTrackSelectionUsesMountedBackendState() {
         assertTrue(
-            source.contains("var mountedVideoMediaSpec by remember { mutableStateOf<VideoPlayerMediaSpec?>(null) }"),
-            "mobile player must remember the effective mounted spec, including local/offline media",
+            source.contains("backend.selectSubtitle("),
+            "mobile subtitle selection must go through the mounted backend",
         )
-        assertTrue(
-            source.contains("mountedVideoMediaSpec?.let { mountedSpec ->"),
-            "track selection must reuse the mounted spec instead of rebuilding from the remote stream only",
-        )
-        assertTrue(
-            source.contains("mountedVideoMediaSpec = mediaSpec"),
-            "initial mount and subtitle refresh must update the remembered mounted spec",
-        )
-        assertTrue(
-            source.contains("mountedVideoMediaSpec = null"),
-            "new content loads must clear the remembered mounted spec",
+        assertFalse(
+            source.contains("trackSelectionMediaSpec("),
+            "mobile player must not rebuild media specs for track selection once the backend owns mounted state",
         )
     }
 
@@ -60,15 +64,15 @@ class PlayerScreenStartPositionTest {
             .substringBefore("controller.addListener(listener)")
 
         assertTrue(
-            trackChangeBody.contains("trackSelectionCoordinator.selectMountedSubtitle("),
-            "track changes must reselect the already-mounted subtitle through the shared coordinator",
+            trackChangeBody.contains("videoBackend?.selectMountedSubtitle("),
+            "track changes must reselect the already-mounted subtitle through the backend",
         )
         assertFalse(
-            trackChangeBody.contains("trackSelectionCoordinator.selectSubtitle("),
+            trackChangeBody.contains("selectSubtitle("),
             "track changes must not use the remounting subtitle selection path",
         )
         assertFalse(
-            trackChangeBody.contains("trackSelectionMediaSpec("),
+            trackChangeBody.contains("VideoPlayerMediaSpec("),
             "track changes must not rebuild the media spec or remount media",
         )
     }

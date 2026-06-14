@@ -46,17 +46,16 @@ import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
 import com.continuum.app.common.player.AudioCapabilityManager
 import com.continuum.app.common.player.ContinuumPlaybackService
-import com.continuum.app.common.player.ContinuumPlayerFactory
 import com.continuum.app.common.player.DisplayHdrProbe
 import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.RefreshRateMatcher
 import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.common.player.VideoPlayerMediaSpec
+import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
+import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
+import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
-import com.continuum.app.common.player.video.VideoTrackSelectionCoordinator
-import com.continuum.app.common.player.mountVideoMedia
-import com.continuum.app.common.player.refreshMountedVideoMedia
 import com.continuum.app.model.playback.PlayerSubtitleInfo
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
@@ -97,17 +96,13 @@ fun PlayerScreen(
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
-    val playerFactory: ContinuumPlayerFactory = koinInject()
+    val backendFactory: VideoPlaybackBackendFactory = koinInject()
     val audioCapabilityManager: AudioCapabilityManager = koinInject()
     val capabilityDetector: PlaybackCapabilityDetector = koinInject()
     val downloadStorage: com.continuum.app.common.downloads.DownloadStorage = koinInject()
     val serverRegistry: com.continuum.app.network.ServerRegistry = koinInject()
     val profileRepository: com.continuum.app.repository.ProfileRepository = koinInject()
     val subtitleManager = remember { SubtitleManager() }
-    val trackSelectionCoordinator = remember(subtitleManager) {
-        VideoTrackSelectionCoordinator(subtitleManager)
-    }
-    var mountedVideoMediaSpec by remember { mutableStateOf<VideoPlayerMediaSpec?>(null) }
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
@@ -127,30 +122,6 @@ fun PlayerScreen(
             )
         }
     }
-    fun trackSelectionMediaSpec(state: PlayerViewModel.PlayerUiState): VideoPlayerMediaSpec? {
-        mountedVideoMediaSpec?.let { mountedSpec ->
-            return mountedSpec.copy(
-                subtitles = state.subtitleTracks,
-                title = state.title.ifBlank { null },
-                subtitle = state.subtitle.ifBlank { null },
-                artworkUrl = state.artworkUrl,
-                startPositionSeconds = state.startPosition,
-            )
-        }
-        val streamUrl = state.streamUrl ?: return null
-        val playMethod = state.playMethod ?: return null
-        return VideoPlayerMediaSpec(
-            streamUrl = streamUrl,
-            playMethod = playMethod,
-            serverUrl = state.serverUrl,
-            subtitles = state.subtitleTracks,
-            title = state.title.ifBlank { null },
-            subtitle = state.subtitle.ifBlank { null },
-            artworkUrl = state.artworkUrl,
-            startPositionSeconds = state.startPosition,
-        )
-    }
-
     fun subtitleTrackEntry(subtitles: List<PlayerSubtitleInfo>, selectedIndex: Int): VideoPlayerTrackEntry? {
         if (selectedIndex < 0) return null
         val subtitle = subtitles.getOrNull(selectedIndex) ?: return null
@@ -195,6 +166,18 @@ fun PlayerScreen(
     // resolves when the service binds. We hold the controller in a compose
     // state so downstream effects can re-run once it's ready.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
+    val videoBackend = remember(mediaController, backendFactory, contentId, initialFileId) {
+        mediaController?.let { controller ->
+            backendFactory.create(
+                player = controller,
+                request = VideoPlaybackBackendRequest(
+                    contentId = contentId,
+                    fileId = initialFileId,
+                    formFactor = VideoPlaybackFormFactor.Mobile,
+                ),
+            )
+        }
+    }
 
     DisposableEffect(context) {
         val sessionToken = SessionToken(
@@ -238,18 +221,19 @@ fun PlayerScreen(
     // tracks (and the refresh-rate matcher's HDR branches stay quiet).
     LaunchedEffect(
         mediaController,
+        videoBackend,
         audioCaps,
         uiState.preferredAudioLanguage,
         uiState.preferredTextLanguage,
         hdrEnabled,
     ) {
-        val controller = mediaController ?: return@LaunchedEffect
-        playerFactory.applyTrackSelectionPresets(
-            player = controller,
+        val backend = videoBackend ?: return@LaunchedEffect
+        backend.applyTrackSelection(
             audioCaps = audioCaps,
             displayHdr = if (hdrEnabled) displayHdr else com.continuum.app.model.playback.HdrCapabilities(),
             preferredAudioLanguage = uiState.preferredAudioLanguage,
             preferredTextLanguage = uiState.preferredTextLanguage,
+            hdrEnabled = hdrEnabled,
         )
     }
 
@@ -265,7 +249,6 @@ fun PlayerScreen(
 
     // Load content on first composition
     LaunchedEffect(contentId, initialFileId, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
-        mountedVideoMediaSpec = null
         viewModel.loadContent(
             contentId = contentId,
             preferredFileId = initialFileId,
@@ -317,8 +300,8 @@ fun PlayerScreen(
     }
 
     // Set up the media item when stream URL becomes available
-    LaunchedEffect(mediaController, uiState.streamUrl, uiState.playMethod, uiState.startPosition) {
-        val controller = mediaController ?: return@LaunchedEffect
+    LaunchedEffect(videoBackend, uiState.streamUrl, uiState.playMethod, uiState.startPosition) {
+        val backend = videoBackend ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
         val serverUrl = uiState.serverUrl
@@ -357,8 +340,7 @@ fun PlayerScreen(
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
         )
-        mountedVideoMediaSpec = mediaSpec
-        mountVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
+        backend.mount(mediaSpec)
     }
 
     // Mid-playback subtitle refresh (downloaded / AI-generated tracks).
@@ -367,9 +349,9 @@ fun PlayerScreen(
     // ask the shared mounter to refresh the SAME stream's MediaItem with the
     // enlarged subtitle list while preserving position/playWhenReady.
     // The session is NOT restarted (web parity).
-    LaunchedEffect(mediaController, uiState.subtitleRefreshNonce) {
+    LaunchedEffect(videoBackend, uiState.subtitleRefreshNonce) {
         if (uiState.subtitleRefreshNonce == 0) return@LaunchedEffect
-        val controller = mediaController ?: return@LaunchedEffect
+        val backend = videoBackend ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
 
@@ -397,8 +379,7 @@ fun PlayerScreen(
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
         )
-        mountedVideoMediaSpec = mediaSpec
-        refreshMountedVideoMedia(player = controller, playerFactory = playerFactory, spec = mediaSpec)
+        backend.refresh(mediaSpec)
     }
 
     // Sync play/pause from ViewModel to player
@@ -468,8 +449,7 @@ fun PlayerScreen(
                     // auto-selected downloaded/AI track never engages. Reads the
                     // live VM state — `uiState` here can be a stale closure capture.
                     val liveState = viewModel.uiState.value
-                    trackSelectionCoordinator.selectMountedSubtitle(
-                        player = controller,
+                    videoBackend?.selectMountedSubtitle(
                         subtitles = liveState.subtitleTracks,
                         selectedIndex = liveState.selectedSubtitleIndex,
                     )
@@ -515,14 +495,10 @@ fun PlayerScreen(
     }
 
     // Handle subtitle selection
-    LaunchedEffect(mediaController, uiState.subtitleTracks, uiState.selectedSubtitleIndex) {
-        val controller = mediaController ?: return@LaunchedEffect
-        val mediaSpec = trackSelectionMediaSpec(uiState) ?: return@LaunchedEffect
-        trackSelectionCoordinator.selectSubtitle(
-            player = controller,
-            playerFactory = playerFactory,
-            mediaSpec = mediaSpec,
-            selectedTrack = subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex),
+    LaunchedEffect(videoBackend, uiState.subtitleTracks, uiState.selectedSubtitleIndex) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        backend.selectSubtitle(
+            subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex),
         )
     }
 
