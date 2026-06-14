@@ -74,11 +74,15 @@ internal suspend fun resolveReaderFile(
     serverUrl: String,
     extension: String,
 ): File = withContext(Dispatchers.IO) {
-    if (url.startsWith("file://")) return@withContext File(url.removePrefix("file://"))
-    val cacheDir = File(context.cacheDir, "readers")
     val requestUrl = resolveReaderRequestUrl(url, serverUrl)
+    when (readerRequestKind(url, serverUrl)) {
+        ReaderRequestKind.File -> return@withContext File(requestUrl.removePrefix("file://"))
+        ReaderRequestKind.Content,
+        ReaderRequestKind.Remote -> Unit
+    }
+    val cacheDir = File(context.cacheDir, "readers")
     val fileName = readerCacheFileName(url, serverUrl, extension)
-    if (url.startsWith("content://")) {
+    if (requestUrl.startsWith("content://")) {
         return@withContext cacheReaderFile(cacheDir, fileName) { out ->
             context.contentResolver.openInputStream(Uri.parse(requestUrl))?.use { input ->
                 input.copyTo(out)

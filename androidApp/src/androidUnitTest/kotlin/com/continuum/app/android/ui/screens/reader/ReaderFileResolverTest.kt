@@ -38,6 +38,22 @@ class ReaderFileResolverTest {
     }
 
     @Test
+    fun `classifies local reader urls after normalization`() {
+        assertEquals(
+            ReaderRequestKind.File,
+            readerRequestKind(" file:///storage/emulated/0/Download/Silo/book.epub ", "https://lib.strm.cafe"),
+        )
+        assertEquals(
+            ReaderRequestKind.Content,
+            readerRequestKind(" content://media/external/downloads/12 ", "https://lib.strm.cafe"),
+        )
+        assertEquals(
+            ReaderRequestKind.Remote,
+            readerRequestKind(" /api/v1/ebooks/book-1/files/7/read ", "https://lib.strm.cafe"),
+        )
+    }
+
+    @Test
     fun `cache filename includes resolved server url for relative reader paths`() {
         val path = "/api/v1/ebooks/book-1/files/7/read"
 
