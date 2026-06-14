@@ -52,7 +52,6 @@ open class PlaybackSessionManager(
             is ApiResult.Success -> Log.i(
                 TAG,
                 "startSession -> playMethod=${result.data.playMethod} " +
-                    "streamUrl=${result.data.streamUrl} " +
                     "playbackInfo=${result.data.playbackInfo}",
             )
             is ApiResult.Error -> Log.w(TAG, "startSession error: ${result.code} ${result.message}")
