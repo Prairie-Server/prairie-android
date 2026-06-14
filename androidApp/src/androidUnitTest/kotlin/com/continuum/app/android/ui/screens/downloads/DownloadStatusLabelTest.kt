@@ -27,6 +27,42 @@ class DownloadStatusLabelTest {
     }
 
     @Test
+    fun completedWithMissingLocalMediaShowsMissingFile() {
+        assertEquals(
+            "Missing file",
+            downloadStatusLabel(
+                status = DownloadStatus.Completed,
+                progress = 1f,
+                isMissingLocal = true,
+            ),
+        )
+    }
+
+    @Test
+    fun completedWithoutLocalMediaIsNotCompleteAndNeedsAttention() {
+        val state = downloadItemFileState(
+            status = DownloadStatus.Completed,
+            hasLocalMedia = false,
+        )
+
+        assertEquals(false, state.isComplete)
+        assertEquals(true, state.isMissingLocal)
+        assertEquals(true, state.isFailed)
+    }
+
+    @Test
+    fun activeDownloadWithoutLocalMediaIsStillInProgress() {
+        val state = downloadItemFileState(
+            status = DownloadStatus.Downloading,
+            hasLocalMedia = false,
+        )
+
+        assertEquals(false, state.isComplete)
+        assertEquals(false, state.isMissingLocal)
+        assertEquals(false, state.isFailed)
+    }
+
+    @Test
     fun failedShowsFailed() {
         assertEquals("Failed", downloadStatusLabel(DownloadStatus.Failed, progress = 0.18f))
     }

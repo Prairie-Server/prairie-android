@@ -280,15 +280,20 @@ private fun SingleRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
+                val isProblemStatus = item.status.isProblemStatus(item.isMissingLocal)
                 Text(
-                    text = downloadStatusLabel(item.status, item.progress),
+                    text = downloadStatusLabel(
+                        status = item.status,
+                        progress = item.progress,
+                        isMissingLocal = item.isMissingLocal,
+                    ),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (item.status.isProblemStatus()) {
+                    color = if (isProblemStatus) {
                         MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    fontWeight = if (item.status.isProblemStatus()) FontWeight.SemiBold else FontWeight.Normal,
+                    fontWeight = if (isProblemStatus) FontWeight.SemiBold else FontWeight.Normal,
                 )
             }
             if (!item.isComplete && !item.isFailed && item.progress > 0f) {
@@ -473,8 +478,14 @@ private fun AggregateRow(
     }
 }
 
-internal fun downloadStatusLabel(status: DownloadStatus, progress: Float): String =
-    when (status) {
+internal fun downloadStatusLabel(
+    status: DownloadStatus,
+    progress: Float,
+    isMissingLocal: Boolean = false,
+): String =
+    if (isMissingLocal) {
+        "Missing file"
+    } else when (status) {
         DownloadStatus.Queued -> "Queued"
         DownloadStatus.Downloading -> {
             val percent = (progress.coerceIn(0f, 1f) * 100).toInt()
@@ -486,7 +497,8 @@ internal fun downloadStatusLabel(status: DownloadStatus, progress: Float): Strin
         DownloadStatus.Unknown -> "Needs attention"
     }
 
-private fun DownloadStatus.isProblemStatus(): Boolean =
-    this == DownloadStatus.Failed ||
+private fun DownloadStatus.isProblemStatus(isMissingLocal: Boolean = false): Boolean =
+    isMissingLocal ||
+        this == DownloadStatus.Failed ||
         this == DownloadStatus.Cancelled ||
         this == DownloadStatus.Unknown

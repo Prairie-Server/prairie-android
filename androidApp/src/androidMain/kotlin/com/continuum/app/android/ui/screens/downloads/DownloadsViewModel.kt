@@ -27,8 +27,8 @@ import kotlinx.coroutines.withContext
  * Leaf row in the Downloads tab. Movies / ebooks / audiobooks / single
  * episodes all render as a single [DownloadItem]. Progress is
  * `bytesSent / fileSize` clamped to [0, 1]; `isComplete` derives from
- * server status (so a 100%-bytes-sent record still reports incomplete
- * until the server flips status → completed).
+ * server status plus local file presence (so stale completed records whose
+ * public file was removed by another app do not render as ready).
  */
 data class DownloadItem(
     val id: String,
@@ -44,12 +44,36 @@ data class DownloadItem(
     /** True when the record finished in a non-success terminal state
      *  (failed / cancelled / unknown). The UI shows a red badge. */
     val isFailed: Boolean = false,
+    val isMissingLocal: Boolean = false,
     val mediaType: DownloadMediaType = DownloadMediaType.Unknown,
     val fileId: Int? = null,
     val localUri: String? = null,
     val displayName: String? = null,
     val container: String? = null,
 )
+
+internal data class DownloadItemFileState(
+    val isComplete: Boolean,
+    val isMissingLocal: Boolean,
+    val isFailed: Boolean,
+)
+
+internal fun downloadItemFileState(
+    status: DownloadStatus,
+    hasLocalMedia: Boolean,
+): DownloadItemFileState {
+    val isMissingLocal = status == DownloadStatus.Completed && !hasLocalMedia
+    return DownloadItemFileState(
+        isComplete = status == DownloadStatus.Completed && hasLocalMedia,
+        isMissingLocal = isMissingLocal,
+        isFailed = isMissingLocal ||
+            status in setOf(
+                DownloadStatus.Failed,
+                DownloadStatus.Cancelled,
+                DownloadStatus.Unknown,
+            ),
+    )
+}
 
 /**
  * Recursive hierarchy of downloaded content for the Downloads tab.
@@ -364,6 +388,10 @@ class DownloadsViewModel(
             (bytesSent.toFloat() / fileSize.toFloat()).coerceIn(0f, 1f)
         } else 0f
         val status = statusEnum()
+        val fileState = downloadItemFileState(
+            status = status,
+            hasLocalMedia = located != null,
+        )
         return DownloadItem(
             id = id,
             contentId = contentId,
@@ -373,9 +401,10 @@ class DownloadsViewModel(
             posterThumbhash = meta?.posterThumbhash,
             fileSizeBytes = fileSize,
             progress = progress,
-            isComplete = status == DownloadStatus.Completed,
+            isComplete = fileState.isComplete,
             status = status,
-            isFailed = status in setOf(DownloadStatus.Failed, DownloadStatus.Cancelled, DownloadStatus.Unknown),
+            isFailed = fileState.isFailed,
+            isMissingLocal = fileState.isMissingLocal,
             mediaType = mediaType,
             fileId = mediaFileId,
             localUri = located?.uriString,
