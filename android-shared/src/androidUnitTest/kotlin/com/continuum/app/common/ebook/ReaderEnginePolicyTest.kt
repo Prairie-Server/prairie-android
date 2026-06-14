@@ -49,6 +49,26 @@ class ReaderEnginePolicyTest {
     }
 
     @Test
+    fun `in app external only formats still use external engine`() {
+        listOf(BookFormat.Cbr, BookFormat.Mobi, BookFormat.Azw, BookFormat.Azw3, BookFormat.Unknown).forEach { format ->
+            val policy = readerEnginePolicyFor(format, EbookReadMode.InApp)
+
+            assertEquals(ReaderEngineKind.External, policy.engineKind)
+            assertEquals(ReaderContentClass.ExternalOriginal, policy.contentClass)
+            assertFalse(policy.supportsInAppReading)
+        }
+    }
+
+    @Test
+    fun `unsupported read mode uses external engine`() {
+        val policy = readerEnginePolicyFor(BookFormat.Epub, EbookReadMode.Unsupported)
+
+        assertEquals(ReaderEngineKind.External, policy.engineKind)
+        assertEquals(ReaderContentClass.ExternalOriginal, policy.contentClass)
+        assertFalse(policy.supportsInAppReading)
+    }
+
+    @Test
     fun `reader capabilities expose engine kind`() {
         assertEquals(ReaderEngineKind.Reflowable, ReaderCapabilities.forFormat(BookFormat.Epub).engineKind)
         assertEquals(ReaderEngineKind.FixedDocument, ReaderCapabilities.forFormat(BookFormat.Pdf).engineKind)

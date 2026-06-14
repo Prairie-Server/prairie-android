@@ -177,25 +177,29 @@ fun chooseReaderVersion(
     versions: List<FileVersion>,
     requestedFileId: Int?,
 ): ReaderVersionTarget? {
-    val targets = versions.mapNotNull { version ->
-        val support = version.ebookFormatSupport()
-        if (support.readMode == EbookReadMode.Unsupported) {
-            null
-        } else {
-            ReaderVersionTarget(
-                version = version,
-                support = support,
-                format = version.bookFormatFromEbookVersion(),
-            )
+    if (requestedFileId != null) {
+        versions.firstOrNull { it.fileId == requestedFileId }?.let { requestedVersion ->
+            return requestedVersion.readerTargetOrNull()
         }
     }
 
-    if (requestedFileId != null) {
-        targets.firstOrNull { it.version.fileId == requestedFileId }?.let { return it }
+    val targets = versions.mapNotNull { version ->
+        version.readerTargetOrNull()
     }
 
     return targets.preferredReaderTarget(EbookReadMode.InApp)
         ?: targets.preferredReaderTarget(EbookReadMode.ExternalOnly)
+}
+
+private fun FileVersion.readerTargetOrNull(): ReaderVersionTarget? {
+    val support = ebookFormatSupport()
+    if (support.readMode == EbookReadMode.Unsupported) return null
+
+    return ReaderVersionTarget(
+        version = this,
+        support = support,
+        format = bookFormatFromEbookVersion(),
+    )
 }
 
 private fun List<ReaderVersionTarget>.preferredReaderTarget(readMode: EbookReadMode): ReaderVersionTarget? =
