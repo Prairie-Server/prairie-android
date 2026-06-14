@@ -471,6 +471,7 @@ class PlayerViewModel(
         Log.i(TAG, "Preflight fallback: $notice")
 
         viewModelScope.launch {
+            val capabilities = capabilityDetector.detect()
             val sessionResponse = PlaybackSessionResponse(
                 sessionId = sessionId,
                 userId = 0,
@@ -491,13 +492,27 @@ class PlayerViewModel(
                 resolution = version.resolution.orEmpty(),
                 mode = com.continuum.app.common.player.PlaybackSessionManager.TranscodeMode.FULL,
             )) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(
-                        sessionId = r.data.sessionId,
-                        playMethod = r.data.playMethod,
-                        streamUrl = r.data.streamUrl,
-                        startPosition = r.data.position,
+                is ApiResult.Success -> {
+                    val fallback = r.data
+                    sessionLifecycle.adoptActiveSession(
+                        params = StartParams(
+                            contentId = state.contentId,
+                            fileId = version.fileId,
+                            capabilities = capabilities,
+                            audioTrackIndex = fallback.audioTrackIndex,
+                            qualityPreference = null,
+                            startPosition = fallback.position,
+                        ),
+                        session = fallback,
                     )
+                    _uiState.update {
+                        it.copy(
+                            sessionId = fallback.sessionId,
+                            playMethod = fallback.playMethod,
+                            streamUrl = fallback.streamUrl,
+                            startPosition = fallback.position,
+                        )
+                    }
                 }
                 is ApiResult.Error -> _uiState.update {
                     it.copy(error = "$notice (start failed: ${r.message})")

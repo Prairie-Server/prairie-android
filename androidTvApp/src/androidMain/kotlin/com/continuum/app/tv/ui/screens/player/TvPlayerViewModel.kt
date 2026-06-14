@@ -4,12 +4,14 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.common.player.PlaybackAnalyticsListener
+import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackSessionLifecycle
 import com.continuum.app.common.player.PlaybackSessionManager
 import com.continuum.app.common.player.PlayerNotice
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SleepTimerController
 import com.continuum.app.common.player.SleepTimerState
+import com.continuum.app.common.player.StartParams
 import com.continuum.app.common.player.backend.VideoBackendCapabilities
 import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
 import com.continuum.app.common.player.video.VideoPlaybackStartRequest
@@ -228,6 +230,7 @@ class TvPlayerViewModel(
     private val videoPlaybackCoordinator: VideoPlaybackSessionCoordinator,
     private val playbackSessionManager: PlaybackSessionManager,
     private val playbackAnalytics: PlaybackAnalyticsListener,
+    private val capabilityDetector: PlaybackCapabilityDetector,
     // Phase 3 TV uplift dependencies.
     private val playerSettingsStore: PlayerSettingsStore,
     private val introAutoSkipController: IntroAutoSkipController,
@@ -578,16 +581,19 @@ class TvPlayerViewModel(
         Log.i(TAG, "Preflight fallback: $notice")
 
         viewModelScope.launch {
+            val activeFileId = state.selectedFileId ?: state.mediaFileId ?: return@launch
+            val capabilities = capabilityDetector.detect()
+            val selectedAudioIndex = state.audioTracks.firstOrNull { it.isSelected }?.index ?: 0
             val sessionResponse = PlaybackSessionResponse(
                 sessionId = sessionId,
                 userId = 0,
                 profileId = null,
-                mediaFileId = 0,
+                mediaFileId = activeFileId,
                 playMethod = state.playMethod ?: PlayMethod.DIRECT,
                 position = state.position,
                 isPaused = state.isPaused,
                 streamUrl = state.streamUrl.orEmpty(),
-                audioTrackIndex = 0,
+                audioTrackIndex = selectedAudioIndex,
                 durationSeconds = state.duration,
                 subtitleUrls = state.subtitleUrls,
                 playbackInfo = null,
@@ -598,13 +604,27 @@ class TvPlayerViewModel(
                 resolution = "",
                 mode = PlaybackSessionManager.TranscodeMode.FULL,
             )) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(
-                        sessionId = r.data.sessionId,
-                        playMethod = r.data.playMethod,
-                        streamUrl = r.data.streamUrl,
-                        startPosition = r.data.position,
+                is ApiResult.Success -> {
+                    val fallback = r.data
+                    sessionLifecycle.adoptActiveSession(
+                        params = StartParams(
+                            contentId = contentId,
+                            fileId = activeFileId,
+                            capabilities = capabilities,
+                            audioTrackIndex = fallback.audioTrackIndex,
+                            qualityPreference = null,
+                            startPosition = fallback.position,
+                        ),
+                        session = fallback,
                     )
+                    _uiState.update {
+                        it.copy(
+                            sessionId = fallback.sessionId,
+                            playMethod = fallback.playMethod,
+                            streamUrl = fallback.streamUrl,
+                            startPosition = fallback.position,
+                        )
+                    }
                 }
                 is ApiResult.Error -> _uiState.update {
                     it.copy(error = "$notice (start failed: ${r.message})")

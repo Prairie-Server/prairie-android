@@ -114,6 +114,30 @@ class TvPlayerViewModelSharedCoordinatorTest {
     }
 
     @Test
+    fun tvUnsupportedFallbackAdoptsReturnedSessionIntoLifecycle() {
+        val unsupportedBody = viewModelSource
+            .substringAfter("fun onUnsupportedPlayback(")
+            .substringBefore("fun onPositionChanged(positionMs: Long, durationMs: Long)")
+
+        assertTrue(
+            unsupportedBody.contains("startTranscodeFallback("),
+            "unsupported direct play must request a fallback stream",
+        )
+        assertTrue(
+            unsupportedBody.contains("sessionLifecycle.adoptActiveSession("),
+            "fallback success must re-home lifecycle progress/stop ownership to the returned session",
+        )
+        assertTrue(
+            unsupportedBody.contains("StartParams("),
+            "fallback lifecycle adoption must preserve restart parameters for 404 recovery",
+        )
+        assertTrue(
+            viewModelSource.contains("private val capabilityDetector: PlaybackCapabilityDetector"),
+            "TV fallback lifecycle adoption needs real device capabilities for recovery restarts",
+        )
+    }
+
+    @Test
     fun androidTvModuleWiresStarterAndCoordinator() {
         assertTrue(
             moduleSource.contains("TvVideoPlaybackStarter"),
@@ -122,6 +146,10 @@ class TvPlayerViewModelSharedCoordinatorTest {
         assertTrue(
             moduleSource.contains("VideoPlaybackSessionCoordinator"),
             "TV Koin module must provide the shared video playback coordinator",
+        )
+        assertTrue(
+            moduleSource.contains("capabilityDetector = get()"),
+            "TV Koin module must inject PlaybackCapabilityDetector into TvPlayerViewModel",
         )
     }
 }

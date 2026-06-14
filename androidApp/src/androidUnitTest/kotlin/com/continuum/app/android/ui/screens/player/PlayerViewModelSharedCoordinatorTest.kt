@@ -91,6 +91,26 @@ class PlayerViewModelSharedCoordinatorTest {
     }
 
     @Test
+    fun mobileUnsupportedFallbackAdoptsReturnedSessionIntoLifecycle() {
+        val unsupportedBody = viewModelSource
+            .substringAfter("fun onUnsupportedPlayback(")
+            .substringBefore("/** Called by the player when the current position changes. */")
+
+        assertTrue(
+            unsupportedBody.contains("startTranscodeFallback("),
+            "unsupported direct play must request a fallback stream",
+        )
+        assertTrue(
+            unsupportedBody.contains("sessionLifecycle.adoptActiveSession("),
+            "fallback success must re-home lifecycle progress/stop ownership to the returned session",
+        )
+        assertTrue(
+            unsupportedBody.contains("StartParams("),
+            "fallback lifecycle adoption must preserve restart parameters for 404 recovery",
+        )
+    }
+
+    @Test
     fun mobilePlaybackStarterOwnsRemoteStartupAlgorithm() {
         val starterFile = java.io.File(
             "src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/MobileVideoPlaybackStarter.kt",

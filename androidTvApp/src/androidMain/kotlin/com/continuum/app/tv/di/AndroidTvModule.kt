@@ -262,6 +262,7 @@ val androidTvModule = module {
             videoPlaybackCoordinator = get(),
             playbackSessionManager = get(),
             playbackAnalytics = get(),
+            capabilityDetector = get(),
             // Phase 3 TV uplift dependencies (per-profile settings, intro
             // auto-skip controller, lifecycle, sleep timer).
             playerSettingsStore = get(),
