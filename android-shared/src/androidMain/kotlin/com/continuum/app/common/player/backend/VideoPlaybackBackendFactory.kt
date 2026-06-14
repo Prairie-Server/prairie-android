@@ -1,5 +1,6 @@
 package com.continuum.app.common.player.backend
 
+import android.os.Build
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -17,15 +18,30 @@ class VideoPlaybackBackendFactory(
     fun create(
         player: Player,
         request: VideoPlaybackBackendRequest = VideoPlaybackBackendRequest(),
-    ): VideoPlaybackBackend = when (request.preference) {
-        VideoPlaybackBackendPreference.Auto,
-        VideoPlaybackBackendPreference.Media3,
-        VideoPlaybackBackendPreference.Mpv,
-        -> Media3VideoPlaybackBackend(
-            playerFactory = playerFactory,
-            audioTrackManager = audioTrackManager,
-            trackSelectionCoordinator = VideoTrackSelectionCoordinator(subtitleManager),
-            player = player,
-        )
+    ): VideoPlaybackBackend {
+        val selected = VideoPlaybackBackendSelector.select(request)
+        val actual = if (
+            selected == VideoPlaybackBackendKind.Mpv &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        ) {
+            VideoPlaybackBackendKind.Mpv
+        } else {
+            VideoPlaybackBackendKind.Media3
+        }
+
+        return when (actual) {
+            VideoPlaybackBackendKind.Media3 -> Media3VideoPlaybackBackend(
+                playerFactory = playerFactory,
+                audioTrackManager = audioTrackManager,
+                trackSelectionCoordinator = VideoTrackSelectionCoordinator(subtitleManager),
+                player = player,
+            )
+            VideoPlaybackBackendKind.Mpv -> MpvVideoPlaybackBackend(
+                playerFactory = playerFactory,
+                audioTrackManager = audioTrackManager,
+                trackSelectionCoordinator = VideoTrackSelectionCoordinator(subtitleManager),
+                player = player,
+            )
+        }
     }
 }

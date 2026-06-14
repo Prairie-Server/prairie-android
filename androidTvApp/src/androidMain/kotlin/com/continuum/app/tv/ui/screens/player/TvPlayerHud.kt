@@ -613,9 +613,10 @@ private fun DelayStepperButton(
 private fun PlayerStatsSnapshot.hasHudRows(): Boolean = hudRows().isNotEmpty()
 
 private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildList {
-    backendKind?.let { add("Backend" to it) }
+    backendDisplayName?.let { add("Backend" to it) }
     backendRoute?.let { add("Route" to it) }
     subtitleRendering?.let { add("Subtitles" to it) }
+    hardContainers?.let { add("Hard containers" to it) }
     videoCodec?.let { add("Video codec" to it) }
     resolution?.let { add("Resolution" to it) }
     frameRate?.let { add("Frame rate" to "%.3f fps".format(it)) }

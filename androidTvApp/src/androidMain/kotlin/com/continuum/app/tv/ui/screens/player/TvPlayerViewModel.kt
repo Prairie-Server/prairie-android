@@ -103,8 +103,10 @@ data class TvPlayerLaunchArgs(
  */
 data class PlayerStatsSnapshot(
     val backendKind: String? = null,
+    val backendDisplayName: String? = null,
     val backendRoute: String? = null,
     val subtitleRendering: String? = null,
+    val hardContainers: String? = null,
     val videoDecoderName: String? = null,
     val audioDecoderName: String? = null,
     val videoCodec: String? = null,
@@ -471,8 +473,10 @@ class TvPlayerViewModel(
             state.copy(
                 stats = state.stats.copy(
                     backendKind = capabilities.backendKind.name,
-                    backendRoute = capabilities.route.name,
+                    backendDisplayName = capabilities.displayName,
+                    backendRoute = capabilities.route.displayName,
                     subtitleRendering = capabilities.subtitleRendering.name,
+                    hardContainers = if (capabilities.supportsHardContainers) "Yes" else "No",
                 ),
             )
         }
