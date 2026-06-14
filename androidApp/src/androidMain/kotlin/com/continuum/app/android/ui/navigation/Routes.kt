@@ -1,6 +1,7 @@
 package com.continuum.app.android.ui.navigation
 
 import android.net.Uri
+import com.continuum.app.common.player.video.VideoPlayerRouteArgs
 
 /**
  * All navigation routes for the Continuum app.
@@ -137,9 +138,8 @@ sealed class Route(val route: String) {
                 fileId?.let { "fileId=$it" },
                 audioTrackIndex?.let { "audioTrackIndex=$it" },
                 subtitleTrackIndex?.let { "subtitleTrackIndex=$it" },
-                resumePositionSeconds
-                    ?.takeIf { it.isFinite() && it >= 0.0 }
-                    ?.let { "resumePosition=$it" },
+                VideoPlayerRouteArgs.encodeResumePosition(resumePositionSeconds)
+                    ?.let { "${VideoPlayerRouteArgs.RESUME_POSITION}=$it" },
                 roomId?.takeIf { it.isNotBlank() }?.let { "roomId=${Uri.encode(it)}" },
             )
             if (queryParams.isNotEmpty()) {

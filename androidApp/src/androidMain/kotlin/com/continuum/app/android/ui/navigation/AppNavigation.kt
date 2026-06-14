@@ -51,6 +51,7 @@ import com.continuum.app.android.ui.screens.search.SearchViewModel
 import com.continuum.app.android.ui.screens.servers.ServerListScreen
 import com.continuum.app.android.ui.screens.servers.ServerSwitchDestination
 import com.continuum.app.android.ui.screens.settings.SettingsScreen
+import com.continuum.app.common.player.video.VideoPlayerRouteArgs
 import com.continuum.app.network.TokenManager
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -570,7 +571,9 @@ fun AppNavigation(
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
                 initialAudioTrackIndex = backStackEntry.arguments?.getString("audioTrackIndex")?.toIntOrNull(),
                 initialSubtitleTrackIndex = backStackEntry.arguments?.getString("subtitleTrackIndex")?.toIntOrNull(),
-                resumePositionOverride = backStackEntry.arguments?.getString("resumePosition")?.toDoubleOrNull(),
+                resumePositionOverride = VideoPlayerRouteArgs.parseResumePosition(
+                    backStackEntry.arguments?.getString("resumePosition"),
+                ),
                 roomId = backStackEntry.arguments?.getString("roomId"),
                 navController = navController,
             )

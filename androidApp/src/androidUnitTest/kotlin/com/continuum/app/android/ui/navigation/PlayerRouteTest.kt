@@ -1,9 +1,18 @@
 package com.continuum.app.android.ui.navigation
 
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlayerRouteTest {
+    private val appNavigationSource = java.io.File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/navigation/AppNavigation.kt",
+    ).readText()
+    private val routesSource = java.io.File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/navigation/Routes.kt",
+    ).readText()
 
     @Test
     fun playerRouteIncludesResumePositionWhenProvided() {
@@ -27,6 +36,34 @@ class PlayerRouteTest {
                 subtitleTrackIndex = 2,
                 resumePositionSeconds = 42.0,
             ).route,
+        )
+    }
+
+    @Test
+    fun playerRouteOmitsInvalidResumePosition() {
+        val route = Route.Player(
+            contentId = "movie-1",
+            resumePositionSeconds = Double.NaN,
+        ).route
+
+        assertFalse(route.contains("resumePosition="))
+    }
+
+    @Test
+    fun playerRouteUsesSharedResumeArgumentCodec() {
+        val route = Route.Player(
+            contentId = "movie-1",
+            resumePositionSeconds = 0.0,
+        ).route
+
+        assertContains(route, "resumePosition=0.0")
+        assertTrue(
+            routesSource.contains("VideoPlayerRouteArgs.encodeResumePosition(resumePositionSeconds)"),
+            "mobile navigation must use the shared resumePosition encoder when launching PlayerScreen",
+        )
+        assertTrue(
+            appNavigationSource.contains("VideoPlayerRouteArgs.parseResumePosition("),
+            "mobile navigation must reject non-finite resumePosition args before PlayerScreen sees them",
         )
     }
 }
