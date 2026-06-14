@@ -19,7 +19,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -57,9 +56,11 @@ import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
 import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
 import com.continuum.app.model.playback.PlayerSubtitleInfo
+import com.continuum.app.model.watchtogether.RoomSnapshot
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.compose.koinInject
 
 /**
@@ -627,18 +628,15 @@ fun PlayerScreen(
 @Composable
 private fun produceRoomSnapshotState(
     controller: RoomSyncController?,
-): State<com.continuum.app.model.watchtogether.RoomSnapshot?> =
-    produceState<com.continuum.app.model.watchtogether.RoomSnapshot?>(
-        initialValue = controller?.room?.value,
-        key1 = controller,
-    ) {
-        controller?.room?.collect { value = it }
-    }
+): State<RoomSnapshot?> {
+    val soloRoom = remember { MutableStateFlow<RoomSnapshot?>(null) }
+    return (controller?.room ?: soloRoom).collectAsState()
+}
 
 @Composable
 private fun produceRoomClosedState(
     controller: RoomSyncController?,
-): State<String?> =
-    produceState<String?>(initialValue = controller?.closedReason?.value, key1 = controller) {
-        controller?.closedReason?.collect { value = it }
-    }
+): State<String?> {
+    val soloClosedReason = remember { MutableStateFlow<String?>(null) }
+    return (controller?.closedReason ?: soloClosedReason).collectAsState()
+}

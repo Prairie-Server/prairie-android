@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.continuum.app.android.di
 
 import com.continuum.app.common.downloads.DownloadEnqueuer

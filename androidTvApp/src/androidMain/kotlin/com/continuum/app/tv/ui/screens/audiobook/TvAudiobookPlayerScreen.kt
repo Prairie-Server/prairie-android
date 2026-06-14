@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.continuum.app.tv.ui.screens.audiobook
 
 import android.content.ComponentName

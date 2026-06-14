@@ -1,5 +1,6 @@
 package com.continuum.app.tv.watchnext
 
+import android.annotation.SuppressLint
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
@@ -7,6 +8,7 @@ import android.net.Uri
 import androidx.tvprovider.media.tv.TvContractCompat
 import androidx.tvprovider.media.tv.WatchNextProgram
 
+@SuppressLint("RestrictedApi")
 class WatchNextRepository(private val context: Context) {
 
     fun diffAndApply(remoteFields: List<WatchNextProgramFields>): DiffResult {

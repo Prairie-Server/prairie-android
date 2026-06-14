@@ -144,6 +144,7 @@ class TvPlayerControlsUsabilityTest {
 
     @Test
     fun activityDispatchesRemoteKeysToMountedPlayerWhenComposeFocusIsLost() {
+        assertTrue(activitySource.contains("@SuppressLint(\"RestrictedApi\")"))
         assertTrue(activitySource.contains("override fun dispatchKeyEvent(event: KeyEvent): Boolean"))
         assertTrue(activitySource.contains("TvPlayerRemoteKeyBridge.dispatch(event)"))
         assertTrue(remoteKeyBridgeSource.contains("fun install(handler: (KeyEvent) -> Boolean)"))

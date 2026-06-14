@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.continuum.app.tv.ui.screens.player
 
 import android.util.Log
@@ -123,7 +125,6 @@ data class PlayerStatsSnapshot(
  * Does NOT clear state on unrelated events (e.g. a DroppedFrames event leaves
  * format/decoder fields untouched).
  */
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal fun reducePlayerStats(
     current: PlayerStatsSnapshot,
     event: PlaybackAnalyticsListener.Event,

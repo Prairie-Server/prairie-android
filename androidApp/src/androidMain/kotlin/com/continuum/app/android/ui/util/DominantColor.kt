@@ -1,5 +1,7 @@
 package com.continuum.app.android.ui.util
 
+import android.graphics.Bitmap
+import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -67,8 +69,10 @@ fun rememberDominantColor(imageUrl: String?, fallback: Color): State<Color> {
                 val result = loader.execute(request)
                 if (result is SuccessResult) {
                     val raw = result.image.toBitmap()
-                    if (raw.config == android.graphics.Bitmap.Config.HARDWARE) {
-                        raw.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                        raw.config == Bitmap.Config.HARDWARE
+                    ) {
+                        raw.copy(Bitmap.Config.ARGB_8888, false)
                     } else {
                         raw
                     }

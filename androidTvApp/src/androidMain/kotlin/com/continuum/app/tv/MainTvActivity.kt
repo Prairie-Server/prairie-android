@@ -1,5 +1,6 @@
 package com.continuum.app.tv
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -81,6 +82,7 @@ class MainTvActivity : ComponentActivity() {
         setIntent(intent)
     }
 
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (TvPlayerRemoteKeyBridge.dispatch(event)) return true
         return super.dispatchKeyEvent(event)

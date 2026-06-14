@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.continuum.app.tv.ui.screens.player
 
 import android.app.Activity
@@ -6,6 +8,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -54,7 +57,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -93,7 +95,6 @@ private const val SKIP_SECONDS_MS = 10_000L
  * replaces the default [PlayerView] controller so we own focus, skip buttons,
  * and the subtitle / audio menus.
  */
-@OptIn(UnstableApi::class)
 @Composable
 fun TvPlayerScreen(
     contentId: String,
@@ -618,9 +619,10 @@ fun TvPlayerScreen(
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
+                            val parent = FrameLayout(ctx)
                             (LayoutInflater.from(ctx).inflate(
                                 R.layout.tv_player_view,
-                                null,
+                                parent,
                                 false,
                             ) as PlayerView).apply {
                                 useController = false
