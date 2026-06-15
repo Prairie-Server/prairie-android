@@ -141,6 +141,66 @@ class AdminModelsSerializationTest {
         assertTrue("download_allowed" !in encoded)
     }
 
+    // --- permissions null-omission tests (TDD: RED until model is fixed) ---
+
+    @Test
+    fun `create user request with null permissions omits the permissions key entirely`() {
+        // Bug: when permissions=null the server applies auth.DefaultUserPermissions().
+        // When permissions=[] the server treats the field as authoritative → zero perms.
+        // With explicitNulls=false the field must be List<String>? = null so it is omitted.
+        val req = CreateUserRequest(
+            username = "dave",
+            email = "dave@x.io",
+            password = "secret1",
+            role = "user",
+            permissions = null,
+        )
+
+        val encoded = json.encodeToString(CreateUserRequest.serializer(), req)
+
+        assertTrue(
+            "permissions" !in encoded,
+            "Expected 'permissions' key to be absent when null (server must apply defaults), but got: $encoded",
+        )
+    }
+
+    @Test
+    fun `create user request with explicit permissions list encodes the field`() {
+        val req = CreateUserRequest(
+            username = "eve",
+            email = "eve@x.io",
+            password = "secret1",
+            role = "user",
+            permissions = listOf("request", "download"),
+        )
+
+        val encoded = json.encodeToString(CreateUserRequest.serializer(), req)
+
+        assertTrue(
+            "\"permissions\":[\"request\",\"download\"]" in encoded,
+            "Expected explicit permissions to be serialised, but got: $encoded",
+        )
+    }
+
+    @Test
+    fun `create user request built without explicit permissions defaults to null and omits key`() {
+        // This mirrors the AdminUserEditViewModel.create() path which does NOT pass permissions.
+        // The default must be null, not emptyList(), to avoid overriding server defaults.
+        val req = CreateUserRequest(
+            username = "frank",
+            email = "frank@x.io",
+            password = "secret1",
+            role = "user",
+        )
+
+        val encoded = json.encodeToString(CreateUserRequest.serializer(), req)
+
+        assertTrue(
+            "permissions" !in encoded,
+            "Expected 'permissions' to be absent when using default value, but got: $encoded",
+        )
+    }
+
     @Test
     fun `update user request encodes only set fields (partial PUT)`() {
         val req = UpdateUserRequest(enabled = false, maxStreams = 4)

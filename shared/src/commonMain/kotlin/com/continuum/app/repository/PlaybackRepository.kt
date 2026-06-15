@@ -65,6 +65,7 @@ class PlaybackRepository(
     suspend fun changeAudio(
         sessionId: String,
         audioTrackIndex: Int,
+        position: Double? = null,
     ): ApiResult<ChangeAudioResponse> =
-        playbackApi.changeAudio(sessionId, audioTrackIndex)
+        playbackApi.changeAudio(sessionId, audioTrackIndex, position)
 }

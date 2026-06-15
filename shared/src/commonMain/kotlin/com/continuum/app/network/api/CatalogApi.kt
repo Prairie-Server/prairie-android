@@ -38,7 +38,7 @@ class CatalogApi(private val client: HttpClient) {
             namePrefix?.let { parameter("name_prefix", it) }
             yearMin?.let { parameter("year_min", it) }
             yearMax?.let { parameter("year_max", it) }
-            snapshotAt?.let { parameter("snapshot_at", it) }
+            snapshotAt?.let { parameter("snapshot", it) }
         }
     }
 

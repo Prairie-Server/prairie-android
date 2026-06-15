@@ -621,7 +621,7 @@ class PlayerViewModel(
         _uiState.update { it.copy(selectedAudioIndex = index) }
 
         viewModelScope.launch {
-            val result = playbackSessionManager.changeAudio(sessionId, index)
+            val result = playbackSessionManager.changeAudio(sessionId, index, currentState.position)
             when (result) {
                 is ApiResult.Success -> {
                     val response = result.data

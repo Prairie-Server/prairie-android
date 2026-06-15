@@ -80,7 +80,7 @@ data class CreateUserRequest(
     val email: String,
     val password: String,
     val role: String,
-    val permissions: List<String> = emptyList(),
+    val permissions: List<String>? = null,
     @SerialName("create_default_profile") val createDefaultProfile: Boolean = false,
     @SerialName("default_profile_name") val defaultProfileName: String? = null,
     @SerialName("library_ids") val libraryIds: List<Int> = emptyList(),

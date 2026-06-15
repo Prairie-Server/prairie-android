@@ -45,11 +45,12 @@ class PlaybackApi(private val client: HttpClient) {
 
     suspend fun changeAudio(
         sessionId: String,
-        audioTrackIndex: Int
+        audioTrackIndex: Int,
+        position: Double? = null,
     ): ApiResult<ChangeAudioResponse> = safeApiCall {
         client.patch("/api/v1/playback/$sessionId/audio") {
             contentType(ContentType.Application.Json)
-            setBody(ChangeAudioRequest(audioTrackIndex))
+            setBody(ChangeAudioRequest(audioTrackIndex = audioTrackIndex, position = position))
         }
     }
 }
@@ -57,5 +58,7 @@ class PlaybackApi(private val client: HttpClient) {
 @Serializable
 internal data class ChangeAudioRequest(
     @SerialName("audio_track_index")
-    val audioTrackIndex: Int
+    val audioTrackIndex: Int,
+    @SerialName("position")
+    val position: Double? = null,
 )
