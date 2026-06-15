@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -353,7 +355,7 @@ private fun SectionsSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ReaderSettingsSheet(
     settings: ReaderDisplaySettings,
@@ -372,7 +374,7 @@ private fun ReaderSettingsSheet(
             if (capabilities.supportsTheme) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Theme", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(ReaderTheme.System, ReaderTheme.Light, ReaderTheme.Sepia, ReaderTheme.Dark).forEach { theme ->
                             FilterChip(
                                 selected = settings.theme == theme,
@@ -404,12 +406,12 @@ private fun ReaderSettingsSheet(
             if (capabilities.supportsTextSize) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Font", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ReaderFontFamily.entries.forEach { family ->
                             FilterChip(
                                 selected = settings.fontFamily == family,
                                 onClick = { onSettingsChange(settings.copy(fontFamily = family).normalized()) },
-                                label = { Text(family.name) },
+                                label = { Text(family.displayLabel()) },
                             )
                         }
                     }
@@ -449,6 +451,13 @@ private fun ReaderSettingSlider(
             valueRange = valueRange,
         )
     }
+}
+
+private fun ReaderFontFamily.displayLabel(): String = when (this) {
+    ReaderFontFamily.Serif -> "Serif"
+    ReaderFontFamily.SansSerif -> "Sans Serif"
+    ReaderFontFamily.Slab -> "Slab"
+    ReaderFontFamily.Dyslexic -> "Dyslexic"
 }
 
 private fun Float.readerPercentLabel(): String {

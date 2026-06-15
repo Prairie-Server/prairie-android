@@ -84,8 +84,8 @@ class ReaderScreenStructureTest {
 
     @Test
     fun `settings sheet wires font family and line height controls`() {
-        assertTrue(shell.contains("fontFamily ="), "settings sheet must let the user change fontFamily")
-        assertTrue(shell.contains("lineHeight ="), "settings sheet must let the user change lineHeight")
+        assertTrue(shell.contains("copy(fontFamily = "), "settings sheet must wire fontFamily into a settings copy()")
+        assertTrue(shell.contains("copy(lineHeight = "), "settings sheet must wire lineHeight into a settings copy()")
     }
 
     @Test
