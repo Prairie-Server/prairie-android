@@ -17,7 +17,8 @@ data class ReflowStyle(
 ) {
     fun toCss(): String =
         "color:${theme.color};background:${theme.background};" +
-            "font-size: $fontScalePercent%;margin:${marginEm}em;line-height:$lineHeight;"
+            "font-size: $fontScalePercent%;padding:${marginEm}em;" +
+            "box-sizing:border-box;line-height:$lineHeight;"
 }
 
 fun ReaderDisplaySettings.toReflowStyle(systemDark: Boolean): ReflowStyle {
