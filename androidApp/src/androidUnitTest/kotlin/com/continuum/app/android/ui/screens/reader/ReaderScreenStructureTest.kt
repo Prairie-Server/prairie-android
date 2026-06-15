@@ -83,6 +83,12 @@ class ReaderScreenStructureTest {
     }
 
     @Test
+    fun `settings sheet wires font family and line height controls`() {
+        assertTrue(shell.contains("fontFamily ="), "settings sheet must let the user change fontFamily")
+        assertTrue(shell.contains("lineHeight ="), "settings sheet must let the user change lineHeight")
+    }
+
+    @Test
     fun shellOverlaysReaderChromeWithoutResizingReaderSurface() {
         assertTrue(shell.contains("ReaderSystemBarEffect("))
         assertTrue(shell.contains("WindowCompat.getInsetsController"))

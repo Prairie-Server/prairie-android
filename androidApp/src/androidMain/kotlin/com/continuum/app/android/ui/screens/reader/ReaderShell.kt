@@ -54,6 +54,7 @@ import androidx.core.view.WindowCompat
 import com.continuum.app.common.ebook.ReaderCapabilities
 import com.continuum.app.common.ebook.ReaderDisplaySettings
 import com.continuum.app.common.ebook.ReaderEngineKind
+import com.continuum.app.common.ebook.ReaderFontFamily
 import com.continuum.app.common.ebook.ReaderSection
 import com.continuum.app.common.ebook.ReaderShellEvent
 import com.continuum.app.common.ebook.ReaderShellUiState
@@ -398,6 +399,27 @@ private fun ReaderSettingsSheet(
                     value = settings.marginScale,
                     valueRange = 0.75f..1.5f,
                     onValueChange = { onSettingsChange(settings.copy(marginScale = it).normalized()) },
+                )
+            }
+            if (capabilities.supportsTextSize) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Font", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ReaderFontFamily.entries.forEach { family ->
+                            FilterChip(
+                                selected = settings.fontFamily == family,
+                                onClick = { onSettingsChange(settings.copy(fontFamily = family).normalized()) },
+                                label = { Text(family.name) },
+                            )
+                        }
+                    }
+                }
+                ReaderSettingSlider(
+                    label = "Line spacing",
+                    valueLabel = "%.2f".format(settings.lineHeight),
+                    value = settings.lineHeight,
+                    valueRange = 1.1f..2.2f,
+                    onValueChange = { onSettingsChange(settings.copy(lineHeight = it).normalized()) },
                 )
             }
         }
