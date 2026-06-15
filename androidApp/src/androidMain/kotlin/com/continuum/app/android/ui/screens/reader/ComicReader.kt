@@ -337,15 +337,17 @@ private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit): Modifier =
         detectTapGestures(onTap = { onToggleChrome() })
     }
 
-/** Image entries inside a CBZ, sorted lexicographically. We accept the
- *  common comic formats (.jpg/.jpeg/.png/.webp). Folder-style archives
- *  (Vol1/page01.png) just work since the sort handles them. */
+/** Image entries inside a CBZ, sorted in natural/numeric order (so
+ *  page2.png sorts before page10.png). We accept the common comic
+ *  formats (.jpg/.jpeg/.png/.webp/.gif). Folder-style archives
+ *  (Vol1/page01.png) just work since the sort handles path separators
+ *  as non-digit chunks. */
 internal fun listComicArchivePages(zip: ZipFile): ComicArchiveLoadResult {
     val exts = setOf("jpg", "jpeg", "png", "webp", "gif")
     val entries = zip.entries().toList()
         .filter { !it.isDirectory && it.name.substringAfterLast('.', "").lowercase() in exts }
         .map { it.name }
-        .sorted()
+        .sortedWith(naturalPageComparator)
     return if (entries.isEmpty()) {
         ComicArchiveLoadResult.Empty
     } else {
@@ -356,3 +358,22 @@ internal fun listComicArchivePages(zip: ZipFile): ComicArchiveLoadResult {
         )
     }
 }
+
+/** Comparator that sorts strings by alternating non-digit / digit chunks so
+ *  that embedded numbers are compared numerically rather than lexicographically.
+ *  "page2.png" < "page10.png" < "page20.png". */
+internal val naturalPageComparator: Comparator<String> = Comparator { a, b ->
+    val pa = naturalChunks(a); val pb = naturalChunks(b)
+    var i = 0
+    while (i < pa.size && i < pb.size) {
+        val ca = pa[i]; val cb = pb[i]
+        val both = ca.toLongOrNull() != null && cb.toLongOrNull() != null
+        val cmp = if (both) ca.toLong().compareTo(cb.toLong()) else ca.compareTo(cb)
+        if (cmp != 0) return@Comparator cmp
+        i++
+    }
+    pa.size.compareTo(pb.size)
+}
+
+private fun naturalChunks(s: String): List<String> =
+    Regex("\\d+|\\D+").findAll(s.lowercase()).map { it.value }.toList()

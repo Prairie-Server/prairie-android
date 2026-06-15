@@ -47,6 +47,20 @@ class ComicArchiveLoaderTest {
     }
 
     @Test
+    fun `numeric page names sort in natural numeric order`() {
+        val file = createZip(
+            "page2.png" to byteArrayOf(2),
+            "page10.png" to byteArrayOf(10),
+            "page1.png" to byteArrayOf(1),
+        )
+
+        val result = loadComicArchivePages(file)
+
+        val loaded = assertIs<ComicArchiveLoadResult.Loaded>(result)
+        assertEquals(listOf("page1.png", "page2.png", "page10.png"), loaded.pages.map { it.entryName })
+    }
+
+    @Test
     fun `invalid archive returns error result`() {
         val file = File.createTempFile("invalid-comic", ".cbz").apply {
             writeText("not a zip")
