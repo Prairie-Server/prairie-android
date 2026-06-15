@@ -22,4 +22,11 @@ class SectionWeightsTest {
         val w = SectionWeights(emptyList())
         assertEquals(0.5, w.bookProgression(0, 0.5), 1e-9)
     }
+
+    @Test fun `single zero-length section degrades to page progression`() {
+        val w = SectionWeights(listOf(0))
+        assertEquals(0.0, w.bookProgression(0, 0.0), 1e-9)
+        assertEquals(0.5, w.bookProgression(0, 0.5), 1e-9)
+        assertEquals(1.0, w.bookProgression(0, 1.0), 1e-9)
+    }
 }
