@@ -76,6 +76,13 @@ class ReaderScreenStructureTest {
     }
 
     @Test
+    fun settingsThemeUsesSelectableChips() {
+        assertTrue(shell.contains("FilterChip("))
+        assertTrue(shell.contains("selected = settings.theme == theme"))
+        assertFalse(shell.contains("TextButton("))
+    }
+
+    @Test
     fun shellOwnsReaderSystemBarContrastAndContentInsets() {
         assertTrue(shell.contains("ReaderSystemBarEffect("))
         assertTrue(shell.contains("WindowCompat.getInsetsController"))

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -36,7 +37,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -374,13 +374,13 @@ private fun ReaderSettingsSheet(
             if (capabilities.supportsTheme) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Theme", style = MaterialTheme.typography.titleMedium)
-                    Row {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(ReaderTheme.System, ReaderTheme.Light, ReaderTheme.Sepia, ReaderTheme.Dark).forEach { theme ->
-                            TextButton(
+                            FilterChip(
+                                selected = settings.theme == theme,
                                 onClick = { onSettingsChange(settings.copy(theme = theme).normalized()) },
-                            ) {
-                                Text(theme.name)
-                            }
+                                label = { Text(theme.name) },
+                            )
                         }
                     }
                 }
