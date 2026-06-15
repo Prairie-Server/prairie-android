@@ -134,7 +134,7 @@ class AdminUserEditViewModel(
                 role = role,
                 enabled = enabled,
                 password = password.ifBlank { null },
-                libraryIds = parseLibraryIds(libraryIdsText),
+                libraryIds = parseLibraryIdsOrNull(libraryIdsText),
                 maxStreams = parseQuota(maxStreamsText),
                 maxTranscodes = parseQuota(maxTranscodesText),
                 maxProfiles = parseQuota(maxProfilesText),

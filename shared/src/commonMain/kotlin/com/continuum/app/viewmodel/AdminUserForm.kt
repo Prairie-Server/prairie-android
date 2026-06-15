@@ -48,3 +48,11 @@ fun parseQuota(raw: String): Int? = raw.trim().toIntOrNull()?.takeIf { it >= 0 }
 fun parseLibraryIds(raw: String): List<Int> =
     raw.split(',')
         .mapNotNull { it.trim().toIntOrNull()?.takeIf { id -> id >= 0 } }
+
+/**
+ * Like [parseLibraryIds] but returns null when the raw string is blank,
+ * signalling "keep current value" (omit from the request) rather than
+ * "revoke all libraries" (send an empty list).
+ */
+fun parseLibraryIdsOrNull(raw: String): List<Int>? =
+    if (raw.isBlank()) null else parseLibraryIds(raw)

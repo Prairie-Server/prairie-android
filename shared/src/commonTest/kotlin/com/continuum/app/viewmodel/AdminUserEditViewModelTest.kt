@@ -97,6 +97,20 @@ class AdminUserEditViewModelTest {
         assertEquals("Password must be at least 6 characters", vm.uiState.value.error)
         assertNull(api.lastUpdate)
     }
+
+    @Test fun `edit omits libraryIds when the library field is blank`() = runTest(dispatcher) {
+        val existing = AdminUser(
+            id = 5, username = "carol", email = "carol@x.io", role = "user",
+            enabled = true, libraryIds = listOf(3, 4),
+        )
+        val api = FakeEditApi(user = existing)
+        val vm = AdminUserEditViewModel(AdminRepository(api))
+        vm.load(5)
+        vm.onLibraryIdsChange("")
+        vm.submit()
+        assertTrue(vm.uiState.value.saveSuccess)
+        assertNull(api.lastUpdate?.libraryIds, "libraryIds must be null (omitted) when the field is blank")
+    }
 }
 
 private class FakeEditApi(
