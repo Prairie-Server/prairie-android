@@ -189,7 +189,13 @@ fun PdfReader(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface),
     ) { page ->
-        PdfPage(handle = handle, pageIndex = page, memoryClassMb = memoryClassMb, onPageTap = onPageTap)
+        PdfPage(
+            handle = handle,
+            pageIndex = page,
+            memoryClassMb = memoryClassMb,
+            onPageTap = onPageTap,
+            onToggleChrome = onToggleChrome,
+        )
     }
 }
 
@@ -199,6 +205,7 @@ private fun PdfPage(
     pageIndex: Int,
     memoryClassMb: Int,
     onPageTap: (Float) -> Unit,
+    onToggleChrome: () -> Unit,
 ) {
     var bitmapResult by remember(pageIndex) { mutableStateOf<Result<Bitmap>?>(null) }
     var scale by remember(pageIndex) { mutableStateOf(1f) }
@@ -213,11 +220,27 @@ private fun PdfPage(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .transformable(transformState)
-            .pointerInput(onPageTap, scale) {
+            // Fix C: only consume pan gestures while zoomed so HorizontalPager
+            // still receives horizontal swipes at scale == 1f.
+            .transformable(state = transformState, canPan = { scale > 1f })
+            // Fix B: key on stable references only (not `scale`) to avoid
+            // restarting the gesture detector — and dropping in-flight taps —
+            // on every pinch frame. `scale` is a snapshot-state var so its
+            // current value is always visible inside the lambda without keying.
+            //
+            // Fix D: detectTapGestures with a non-null onDoubleTap adds a
+            // ~300ms single-tap disambiguation delay. We keep double-tap-to-zoom
+            // as a standard reader gesture; the primary page-turn is the pager
+            // swipe (instant), so the tap-thirds affordance can absorb the delay.
+            .pointerInput(onPageTap, onToggleChrome) {
                 detectTapGestures(
                     onTap = { tapOffset ->
-                        if (scale == 1f) {
+                        // Fix A: when zoomed, a center tap still toggles chrome
+                        // but we skip the thirds page-turn logic (panning is the
+                        // correct navigation gesture at scale > 1f).
+                        if (scale > 1f) {
+                            onToggleChrome()
+                        } else {
                             val width = size.width
                             val xFraction = if (width > 0) {
                                 (tapOffset.x / width).coerceIn(0f, 1f)
