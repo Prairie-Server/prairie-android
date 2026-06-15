@@ -26,7 +26,6 @@ import com.continuum.app.model.playback.HdrCapabilities
 import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlayerSubtitleInfo
 import com.continuum.app.network.TokenManager
-import kotlinx.coroutines.runBlocking
 
 /**
  * Factory for ExoPlayer instances. Each factory owns exactly one
@@ -169,14 +168,23 @@ class ContinuumPlayerFactory(
         return builder.build()
     }
 
-    fun createMpvPlayer(): Player =
-        MpvPlayer.Builder(context)
-            .setHttpHeaderFieldsProvider(::buildMpvHttpHeaderFields)
+    /**
+     * Builds an [MpvPlayer] with auth headers pre-fetched on the calling
+     * coroutine. The suspend call resolves credentials before player
+     * construction begins, so the synchronous [MpvPlayer.Builder.build] path
+     * never blocks a thread waiting for I/O — eliminating the ANR risk that
+     * a blocking call would introduce on slow Android-7 CPUs.
+     */
+    suspend fun createMpvPlayer(): Player {
+        val headers = buildMpvHttpHeaderFields()
+        return MpvPlayer.Builder(context)
+            .setHttpHeaderFieldsProvider { headers }
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(30_000)
             .build()
+    }
 
-    private fun buildMpvHttpHeaderFields(): List<Pair<String, String>> = runBlocking {
+    private suspend fun buildMpvHttpHeaderFields(): List<Pair<String, String>> =
         buildList {
             tokenManager.getAccessToken()?.takeIf { it.isNotBlank() }?.let { accessToken ->
                 add("Authorization" to "Bearer $accessToken")
@@ -188,7 +196,6 @@ class ContinuumPlayerFactory(
                 add("X-Profile-Token" to profileToken)
             }
         }
-    }
 
     /**
      * Apply capability-aware track selection presets to [player]. Call at
