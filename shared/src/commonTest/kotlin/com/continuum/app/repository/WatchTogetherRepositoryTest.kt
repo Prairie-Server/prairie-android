@@ -79,9 +79,21 @@ class WatchTogetherRepositoryTest {
         var connectCount = 0
         /** When true, the returned flow throws immediately on collection. */
         var failConnect = false
+        /**
+         * When non-null, each connect attempt emits this one event and then throws.
+         * Models a flapping server: healthy traffic is observed but the connection
+         * always drops — the classic scenario that could bypass the failure cap if
+         * failures were reset per-event rather than per-clean-completion.
+         */
+        var flappingEvent: RoomRealtimeEvent? = null
         override fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent> {
             connectCount++
             if (failConnect) return flow { throw IllegalStateException("boom") }
+            val flapEvent = flappingEvent
+            if (flapEvent != null) return flow {
+                emit(flapEvent)
+                throw IllegalStateException("connection dropped after event")
+            }
             return events.asSharedFlow()
         }
         override suspend fun attachSession(sessionId: String) {}
@@ -291,5 +303,37 @@ class WatchTogetherRepositoryTest {
         assertTrue(job.isCompleted || job.isCancelled)
         // And the closed reason must signal connection_lost.
         assertEquals("connection_lost", r.roomClosedReason.value)
+        // Verify the exact number of attempts so an off-by-one or wrong-constant
+        // regression is caught immediately. Expected: MAX_RECONNECT_ATTEMPTS = 6.
+        assertEquals(WatchTogetherRepository.MAX_RECONNECT_ATTEMPTS, realtime.connectCount)
+        // Stale room state must not be observable after giving up.
+        assertNull(r.roomSnapshot.value)
+    }
+
+    // ---- flapping server hits the cap (regression for Issue 1) -----------------
+
+    @Test
+    fun `flapping server that emits then drops still hits the reconnect cap`() = runTest {
+        // Each connect attempt emits one healthy SnapshotEvent, then throws.
+        // Under the buggy code (failures reset per healthy event), this would loop
+        // forever because failures never accumulates to MAX_RECONNECT_ATTEMPTS.
+        // Under the correct code (failures reset only on clean completion), each
+        // throwing attempt still increments failures and the loop terminates.
+        val realtime = FakeRealtime().apply {
+            flappingEvent = RoomRealtimeEvent.SnapshotEvent(
+                RoomSnapshot(roomId = "room-1", code = "ABCD1234"),
+            )
+        }
+        val r = repo(realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val job = launch { r.connect("room-1") }
+        advanceUntilIdle()
+
+        assertTrue(job.isCompleted || job.isCancelled)
+        assertEquals("connection_lost", r.roomClosedReason.value)
+        // Must have stopped after exactly MAX_RECONNECT_ATTEMPTS attempts.
+        assertEquals(WatchTogetherRepository.MAX_RECONNECT_ATTEMPTS, realtime.connectCount)
+        // Stale room state must not be observable after the cap is hit.
+        assertNull(r.roomSnapshot.value)
     }
 }

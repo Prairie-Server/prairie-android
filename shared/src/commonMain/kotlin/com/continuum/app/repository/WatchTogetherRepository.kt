@@ -273,7 +273,6 @@ class WatchTogetherRepository(
         var failures = 0
         while (true) {
             var closedByServer = false
-            var healthy = false
             try {
                 client.connect(roomId, roomToken).collect { event ->
                     if (event is RoomRealtimeEvent.Closed) {
@@ -285,24 +284,29 @@ class WatchTogetherRepository(
                         _roomSnapshot.value = null
                         throw ServerClosed
                     } else {
-                        healthy = true
-                        backoffIndex = 0 // healthy traffic resets backoff
-                        failures = 0
+                        backoffIndex = 0 // healthy traffic resets backoff to short delays
                     }
                     fold(event)
                 }
+                // Flow completed without throwing — this was a clean connection end.
+                // Only reset the failure counter on a genuinely clean completion so a
+                // server that emits one event then drops every attempt cannot reset
+                // failures to 0 and bypass the cap.
+                failures = 0
             } catch (e: CancellationException) {
                 realtime = null
                 throw e
             } catch (_: ServerClosed) {
                 // terminal — handled below via closedByServer
             } catch (_: Throwable) {
-                // fall through to backoff-reconnect; count failure if no healthy event arrived
-                if (!healthy) failures++
+                // Any throw (including from a flapping server) counts as a failure,
+                // regardless of whether a healthy event arrived in the same attempt.
+                failures++
             }
             if (closedByServer) break
             if (failures >= MAX_RECONNECT_ATTEMPTS) {
                 _roomClosedReason.value = "connection_lost"
+                _roomSnapshot.value = null
                 break
             }
             delay(BACKOFF_MS[backoffIndex])
