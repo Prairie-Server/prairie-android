@@ -30,4 +30,11 @@ class ReaderLoadResultTest {
 
         assertEquals("loaded", result.getOrThrow())
     }
+
+    @Test
+    fun `reader result captures OutOfMemoryError as failure`() {
+        val result = readerLoadResult<String> { throw OutOfMemoryError("page too big") }
+        assertTrue(result.isFailure)
+        assertIs<OutOfMemoryError>(result.exceptionOrNull())
+    }
 }
