@@ -274,15 +274,15 @@ class WatchTogetherRepository(
             var closedByServer = false
             try {
                 client.connect(roomId, roomToken).collect { event ->
-                    if (event is RoomRealtimeEvent.Closed && event.reason != null) {
-                        // Server-initiated close (host_left / explicit) — terminal.
+                    if (event is RoomRealtimeEvent.Closed) {
+                        // Any server-initiated close (with or without a reason) is terminal.
                         // The event flow (a hot SharedFlow) never completes on its
                         // own, so we stop collecting by throwing a private sentinel.
                         closedByServer = true
                         _roomClosedReason.value = event.reason // surface "host left" etc.
                         _roomSnapshot.value = null
                         throw ServerClosed
-                    } else if (event !is RoomRealtimeEvent.Closed) {
+                    } else {
                         backoffIndex = 0 // healthy traffic resets backoff
                     }
                     fold(event)

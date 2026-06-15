@@ -259,17 +259,18 @@ class WatchTogetherRepositoryTest {
     }
 
     @Test
-    fun `socket closed without room_closed reconnects with backoff`() = runTest {
-        // A bare Closed(null) (transport drop) reconnects; a Closed(reason) does not.
+    fun `reconnect loop stops after room_closed with no reason`() = runTest {
         val realtime = FakeRealtime()
         val r = repo(realtime = realtime)
         r.createRoom(CreateRoomRequest())
         val job = launch { r.connect("room-1") }
         advanceUntilIdle()
         assertEquals(1, realtime.connectCount)
-        // The fake flow never completes on its own; simulate a transport drop by
-        // emitting a null-reason Closed which the repo treats as reconnectable.
-        // (Drives the backoff branch; connectCount increments after the delay.)
-        job.cancel()
+
+        // Server-initiated close with no reason: repository must NOT reconnect.
+        realtime.events.emit(RoomRealtimeEvent.Closed(null))
+        advanceUntilIdle()
+        assertEquals(1, realtime.connectCount)
+        assertTrue(job.isCompleted || job.isCancelled)
     }
 }
