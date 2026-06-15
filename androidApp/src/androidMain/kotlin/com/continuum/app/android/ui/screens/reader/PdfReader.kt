@@ -1,5 +1,7 @@
 package com.continuum.app.android.ui.screens.reader
 
+import android.app.ActivityManager
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -72,6 +74,9 @@ fun PdfReader(
     val context = LocalContext.current
     val okHttp = koinInject<OkHttpClient>()
     val tokenManager = koinInject<TokenManager>()
+    val memoryClassMb = remember(context) {
+        (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass
+    }
 
     // Resolve the file AND open the renderer in one IO step so the
     // ParcelFileDescriptor + PdfRenderer construction never runs in
@@ -180,7 +185,7 @@ fun PdfReader(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface),
     ) { page ->
-        PdfPage(handle = handle, pageIndex = page, onPageTap = onPageTap)
+        PdfPage(handle = handle, pageIndex = page, memoryClassMb = memoryClassMb, onPageTap = onPageTap)
     }
 }
 
@@ -188,11 +193,12 @@ fun PdfReader(
 private fun PdfPage(
     handle: PdfDocumentHandle,
     pageIndex: Int,
+    memoryClassMb: Int,
     onPageTap: (Float) -> Unit,
 ) {
     var bitmapResult by remember(pageIndex) { mutableStateOf<Result<Bitmap>?>(null) }
     LaunchedEffect(pageIndex) {
-        bitmapResult = withContext(Dispatchers.IO) { renderPdfPageBitmap(handle, pageIndex) }
+        bitmapResult = withContext(Dispatchers.IO) { renderPdfPageBitmap(handle, pageIndex, memoryClassMb) }
     }
     Box(
         modifier = Modifier
@@ -284,17 +290,15 @@ private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit): Modifier =
 private suspend fun renderPdfPageBitmap(
     handle: PdfDocumentHandle,
     pageIndex: Int,
+    memoryClassMb: Int,
 ): Result<Bitmap> =
     readerLoadResult {
         handle.renderer.withResource { renderer ->
             renderer.openPage(pageIndex).use { page ->
-                // Render at 2x for sharper text on high-DPI; cap at
-                // 2000px width to keep memory in check.
-                val targetWidth = page.width * 2
-                val widthCap = targetWidth.coerceAtMost(2000)
-                val scale = widthCap.toFloat() / page.width
-                val targetHeight = (page.height * scale).toInt()
-                val bmp = Bitmap.createBitmap(widthCap, targetHeight, Bitmap.Config.ARGB_8888)
+                val budget = pdfRenderBudget(page.width, page.height, memoryClassMb)
+                val scale = budget.targetWidth.toFloat() / page.width
+                val targetHeight = (page.height * scale).toInt().coerceAtLeast(1)
+                val bmp = Bitmap.createBitmap(budget.targetWidth, targetHeight, budget.config)
                 bmp.eraseColor(Color.WHITE)
                 page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 bmp
