@@ -96,4 +96,46 @@ class ReaderEngineHostSourceTest {
         assertTrue(comicSource.contains("onToggleChrome: () -> Unit"))
         assertTrue(comicSource.contains("detectTapGestures(onTap = { onToggleChrome() })"))
     }
+
+    @Test
+    fun reflowLoadingAndErrorSurfacesToggleShellChrome() {
+        val source = reflowSourceFile.readText()
+
+        assertTrue(source.contains("private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit)"))
+        assertReaderBranchUsesToggle(source, "if (result == null)")
+        assertReaderBranchUsesToggle(source, "result.exceptionOrNull()?.let { throwable ->")
+    }
+
+    @Test
+    fun pdfLoadingErrorAndEmptySurfacesToggleShellChrome() {
+        val source = pdfSourceFile.readText()
+
+        assertTrue(source.contains("private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit)"))
+        assertReaderBranchUsesToggle(source, "if (result == null)")
+        assertReaderBranchUsesToggle(source, "result.exceptionOrNull()?.let { throwable ->")
+        assertReaderBranchUsesToggle(source, "if (handle.pageCount == 0)")
+    }
+
+    @Test
+    fun comicLoadingErrorAndEmptySurfacesToggleShellChrome() {
+        val source = comicSourceFile.readText()
+
+        assertTrue(source.contains("private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit)"))
+        assertReaderBranchUsesToggle(source, "if (fileResult == null)")
+        assertReaderBranchUsesToggle(source, "fileResult.exceptionOrNull()?.let { throwable ->")
+        assertReaderBranchUsesToggle(source, "null -> {")
+        assertReaderBranchUsesToggle(source, "is ComicArchiveLoadResult.Error ->")
+        assertReaderBranchUsesToggle(source, "ComicArchiveLoadResult.Empty ->")
+    }
+
+    private fun assertReaderBranchUsesToggle(source: String, branchStart: String) {
+        val startIndex = source.indexOf(branchStart)
+        assertTrue(startIndex >= 0, "Missing reader branch: $branchStart")
+
+        val branchSource = source.substring(startIndex, (startIndex + 500).coerceAtMost(source.length))
+        assertTrue(
+            branchSource.contains(".toggleChromeOnTap(onToggleChrome)"),
+            "Reader branch must toggle chrome: $branchStart",
+        )
+    }
 }

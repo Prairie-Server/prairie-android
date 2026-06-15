@@ -97,13 +97,23 @@ fun PdfReader(
 
     val result = handleResult
     if (result == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .toggleChromeOnTap(onToggleChrome),
+            contentAlignment = Alignment.Center,
+        ) {
             CircularProgressIndicator()
         }
         return
     }
     result.exceptionOrNull()?.let { throwable ->
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .toggleChromeOnTap(onToggleChrome),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(readerLoadErrorMessage(throwable), modifier = Modifier.padding(32.dp))
         }
         return
@@ -111,7 +121,12 @@ fun PdfReader(
     val handle = result.getOrThrow()
 
     if (handle.pageCount == 0) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .toggleChromeOnTap(onToggleChrome),
+            contentAlignment = Alignment.Center,
+        ) {
             Text("Empty PDF")
         }
         return
@@ -229,6 +244,11 @@ private fun openRenderer(file: File): PdfRenderer {
         throw throwable
     }
 }
+
+private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit): Modifier =
+    pointerInput(onToggleChrome) {
+        detectTapGestures(onTap = { onToggleChrome() })
+    }
 
 private suspend fun renderPdfPageBitmap(
     handle: PdfDocumentHandle,

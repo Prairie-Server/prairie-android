@@ -77,13 +77,23 @@ fun ReflowableReader(
 
     val result = sourceResult
     if (result == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .toggleChromeOnTap(onToggleChrome),
+            contentAlignment = Alignment.Center,
+        ) {
             CircularProgressIndicator()
         }
         return
     }
     result.exceptionOrNull()?.let { throwable ->
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .toggleChromeOnTap(onToggleChrome),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(throwable.message ?: "Could not open this book.", modifier = Modifier.padding(32.dp))
         }
         return
@@ -222,3 +232,8 @@ fun ReflowableReader(
         )
     }
 }
+
+private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit): Modifier =
+    pointerInput(onToggleChrome) {
+        detectTapGestures(onTap = { onToggleChrome() })
+    }

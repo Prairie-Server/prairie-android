@@ -75,13 +75,23 @@ fun ComicReader(
     }
     val fileResult = localFileResult
     if (fileResult == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .toggleChromeOnTap(onToggleChrome),
+            contentAlignment = Alignment.Center,
+        ) {
             CircularProgressIndicator()
         }
         return
     }
     fileResult.exceptionOrNull()?.let { throwable ->
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .toggleChromeOnTap(onToggleChrome),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(readerLoadErrorMessage(throwable), modifier = Modifier.padding(32.dp))
         }
         return
@@ -123,19 +133,34 @@ fun ComicReader(
     val archive = archiveState
     val pages = when (val result = archive?.result) {
         null -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .toggleChromeOnTap(onToggleChrome),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator()
             }
             return
         }
         is ComicArchiveLoadResult.Error -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .toggleChromeOnTap(onToggleChrome),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text("Could not open this comic archive.")
             }
             return
         }
         ComicArchiveLoadResult.Empty -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .toggleChromeOnTap(onToggleChrome),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text("No readable images found in this comic archive.")
             }
             return
@@ -275,6 +300,11 @@ internal fun loadComicArchivePages(file: File): ComicArchiveLoadResult =
                 throwable.message?.takeIf { it.isNotBlank() } ?: "Could not open comic archive.",
             )
         }
+
+private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit): Modifier =
+    pointerInput(onToggleChrome) {
+        detectTapGestures(onTap = { onToggleChrome() })
+    }
 
 /** Image entries inside a CBZ, sorted lexicographically. We accept the
  *  common comic formats (.jpg/.jpeg/.png/.webp). Folder-style archives
