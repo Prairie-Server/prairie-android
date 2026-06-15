@@ -45,6 +45,15 @@ private fun List<NotificationRow>.dedupeById(): List<NotificationRow> {
 }
 
 /**
+ * Sentinel written to [com.continuum.app.model.notifications.NotificationRow.readAt] when the
+ * row's [com.continuum.app.model.notifications.NotificationRow.createdAt] is blank.
+ * [com.continuum.app.model.notifications.NotificationRow.isRead] checks `!readAt.isNullOrBlank()`,
+ * so any non-blank value satisfies the predicate. Without this, rows with a blank createdAt could
+ * never be marked read because copying blank into readAt leaves it blank.
+ */
+private const val READ_SENTINEL = "1970-01-01T00:00:00Z"
+
+/**
  * Pure fold of one realtime event into [state]. The repository applies the
  * result to its StateFlows; keeping this pure makes the fold fully unit
  * testable without coroutines.
@@ -67,13 +76,13 @@ fun applyEvent(state: NotificationsState, event: NotificationRealtimeEvent): Not
                 state
             } else {
                 val rows = state.rows.map {
-                    if (it.id == event.id && !it.isRead) it.copy(readAt = it.createdAt) else it
+                    if (it.id == event.id && !it.isRead) it.copy(readAt = it.createdAt.ifBlank { READ_SENTINEL }) else it
                 }
                 state.copy(rows = rows, unreadCount = recomputeUnread(rows))
             }
         }
         NotificationRealtimeEvent.ReadAll -> {
-            val rows = state.rows.map { if (it.isRead) it else it.copy(readAt = it.createdAt) }
+            val rows = state.rows.map { if (it.isRead) it else it.copy(readAt = it.createdAt.ifBlank { READ_SENTINEL }) }
             state.copy(rows = rows, unreadCount = 0)
         }
         is NotificationRealtimeEvent.Snapshot -> {
@@ -83,6 +92,17 @@ fun applyEvent(state: NotificationsState, event: NotificationRealtimeEvent): Not
         }
         is NotificationRealtimeEvent.Closed -> state
     }
+
+/**
+ * Returns true when this [NotificationRealtimeEvent.Closed] event carries an auth-class
+ * reason (HTTP 401, 403, or a reason string containing "auth"). Non-[Closed] events
+ * always return false. Marked [internal] so tests in the same module can exercise it
+ * directly.
+ */
+internal fun NotificationRealtimeEvent.isAuthClose(): Boolean =
+    this is NotificationRealtimeEvent.Closed &&
+        (reason?.contains("401") == true || reason?.contains("403") == true ||
+            reason?.contains("auth", ignoreCase = true) == true)
 
 /**
  * Singleton owner of notification inbox state. REST is the source of truth;
@@ -104,11 +124,21 @@ class NotificationsRepository(
     private val _preferences = MutableStateFlow<NotificationPreferences?>(null)
     private val _capability = MutableStateFlow<NotificationCapability?>(null)
 
+    /** True once [connectRealtime] gives up permanently due to an auth-class [NotificationRealtimeEvent.Closed]. */
+    private val _realtimeFatal = MutableStateFlow(false)
+
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
     val rows: StateFlow<List<NotificationRow>> = _rows.asStateFlow()
     val nextCursor: StateFlow<String?> = _nextCursor.asStateFlow()
     val preferences: StateFlow<NotificationPreferences?> = _preferences.asStateFlow()
     val capability: StateFlow<NotificationCapability?> = _capability.asStateFlow()
+
+    /**
+     * Becomes true if [connectRealtime] receives an auth-class [NotificationRealtimeEvent.Closed]
+     * (401/403/auth reason). When true the realtime loop has permanently stopped; callers should
+     * surface an appropriate error state rather than attempting to reconnect.
+     */
+    val realtimeFatal: StateFlow<Boolean> = _realtimeFatal.asStateFlow()
 
     // Buffered + drop-oldest so [reset] can emit synchronously (tryEmit never
     // suspends and never fails). Foreground starters collect this WHILE
@@ -244,10 +274,21 @@ class NotificationsRepository(
         val client = realtimeFactory() ?: return@launch
         var backoffMs = INITIAL_BACKOFF_MS
         while (true) {
+            var established = false // true once the first non-Closed event of this connection arrives
+            var authFailed = false  // set inside collect, checked after to break the loop
             try {
                 client.connect().collect { event ->
-                    if (event !is NotificationRealtimeEvent.Closed) {
-                        backoffMs = INITIAL_BACKOFF_MS // healthy traffic resets backoff
+                    // Auth-class closes are terminal — stop reconnecting.
+                    if (event.isAuthClose()) {
+                        _realtimeFatal.value = true
+                        authFailed = true
+                        return@collect
+                    }
+                    if (!established && event !is NotificationRealtimeEvent.Closed) {
+                        // First healthy event: the connection is up — reset backoff so a
+                        // healthy-then-clean-close cycle does not escalate the delay.
+                        backoffMs = INITIAL_BACKOFF_MS
+                        established = true
                     }
                     mutate { applyEvent(it, event) }
                 }
@@ -256,6 +297,7 @@ class NotificationsRepository(
             } catch (_: Throwable) {
                 // fall through to backoff-reconnect
             }
+            if (authFailed) return@launch
             delay(backoffMs)
             backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
         }

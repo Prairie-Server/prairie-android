@@ -11,6 +11,7 @@ import com.continuum.app.model.notifications.WsTicketResponse
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.NotificationRealtimeEvent
 import com.continuum.app.network.api.NotificationsApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -325,6 +326,151 @@ class NotificationsRepositoryTest {
         repo.reset()
         assertTrue(repo.rows.value.isEmpty())
     }
+
+    // ---- blank createdAt sentinel (Part 1) -----------------------------------
+
+    @Test
+    fun `read event on blank-createdAt row marks it read and decrements unread`() {
+        // A row whose createdAt is blank previously could never become isRead
+        // because isRead = !readAt.isNullOrBlank() and the old code set
+        // readAt = createdAt (i.e. blank -> blank -> still isNullOrBlank).
+        // After the fix the READ_SENTINEL "1970-01-01T00:00:00Z" is used instead.
+        val state = NotificationsState(
+            rows = listOf(
+                row("a", ""),        // blank createdAt
+                row("b", "2026-06-12T09:00:00Z"),
+            ),
+            unreadCount = 2,
+        )
+        val next = applyEvent(state, NotificationRealtimeEvent.Read("a"))
+        assertTrue(next.rows.first { it.id == "a" }.isRead,
+            "Row with blank createdAt must become isRead after a Read event")
+        assertEquals(1, next.unreadCount,
+            "unreadCount must decrement when the blank-createdAt row is marked read")
+    }
+
+    @Test
+    fun `readAll on blank-createdAt rows marks all read and zeroes unread`() {
+        val state = NotificationsState(
+            rows = listOf(
+                row("a", ""),
+                row("b", ""),
+            ),
+            unreadCount = 2,
+        )
+        val next = applyEvent(state, NotificationRealtimeEvent.ReadAll)
+        assertTrue(next.rows.all { it.isRead },
+            "All blank-createdAt rows must be marked read after ReadAll")
+        assertEquals(0, next.unreadCount)
+    }
+
+    // ---- isAuthClose (Part 2 pure helper) ------------------------------------
+
+    @Test
+    fun `isAuthClose returns true for 401 reason`() {
+        assertTrue(NotificationRealtimeEvent.Closed("401 Unauthorized").isAuthClose())
+    }
+
+    @Test
+    fun `isAuthClose returns true for 403 reason`() {
+        assertTrue(NotificationRealtimeEvent.Closed("403 Forbidden").isAuthClose())
+    }
+
+    @Test
+    fun `isAuthClose returns true for auth-keyword reason`() {
+        assertTrue(NotificationRealtimeEvent.Closed("auth_failure").isAuthClose())
+    }
+
+    @Test
+    fun `isAuthClose returns false for non-auth Closed`() {
+        assertFalse(NotificationRealtimeEvent.Closed("network_error").isAuthClose())
+    }
+
+    @Test
+    fun `isAuthClose returns false for null reason`() {
+        assertFalse(NotificationRealtimeEvent.Closed(null).isAuthClose())
+    }
+
+    @Test
+    fun `isAuthClose returns false for non-Closed events`() {
+        assertFalse(NotificationRealtimeEvent.ReadAll.isAuthClose())
+        assertFalse(NotificationRealtimeEvent.Read("x").isAuthClose())
+    }
+
+    // ---- connectRealtime: auth close stops loop and sets realtimeFatal -------
+
+    @Test
+    fun `connectRealtime stops reconnecting and sets realtimeFatal on auth Closed`() =
+        kotlinx.coroutines.test.runTest {
+            val api = FakeNotificationsApi()
+            var connectCount = 0
+            // Each call to connect() returns a flow that immediately emits a
+            // Closed event with an auth reason, then completes.
+            val realtime = object : com.continuum.app.network.NotificationsRealtimeClient {
+                override fun connect(): kotlinx.coroutines.flow.Flow<NotificationRealtimeEvent> {
+                    connectCount++
+                    return kotlinx.coroutines.flow.flowOf(
+                        NotificationRealtimeEvent.Closed("401 Unauthorized"),
+                    )
+                }
+            }
+            val repo = NotificationsRepository(api, realtimeFactory = { realtime })
+            val job = repo.connectRealtime(this)
+            // Give the loop a chance to run. Because reconnect uses delay, and
+            // testScheduler advances time, we advance past the initial backoff.
+            testScheduler.advanceTimeBy(2_000L)
+            kotlinx.coroutines.yield()
+            job.cancel()
+
+            // connect() must have been called exactly once — the loop must not
+            // have retried after an auth-class Closed.
+            assertEquals(1, connectCount,
+                "Auth-close must stop the reconnect loop (connectCount=$connectCount)")
+            assertTrue(repo.realtimeFatal.value,
+                "realtimeFatal must be true after an auth-class Closed")
+        }
+
+    // ---- connectRealtime: backoff resets on first event of each connect ------
+
+    @Test
+    fun `connectRealtime resets backoff when first event of a connection arrives`() =
+        kotlinx.coroutines.test.runTest {
+            val api = FakeNotificationsApi()
+            // Simulate a pattern: first connect yields a Created event then a
+            // clean Closed; the second connect also closes cleanly; the third
+            // connect we cancel. The backoff must NOT have escalated after the
+            // first healthy-then-closed cycle.
+            var connectCount = 0
+            // We use a channel to control what each connection returns.
+            val realtime = object : com.continuum.app.network.NotificationsRealtimeClient {
+                override fun connect(): kotlinx.coroutines.flow.Flow<NotificationRealtimeEvent> {
+                    connectCount++
+                    return when (connectCount) {
+                        1 -> kotlinx.coroutines.flow.flowOf(
+                            NotificationRealtimeEvent.Created(row("live", "2026-06-12T10:00:00Z")),
+                            NotificationRealtimeEvent.Closed(), // clean close after healthy traffic
+                        )
+                        else -> kotlinx.coroutines.flow.flow {
+                            // Suspend indefinitely so the test can cancel.
+                            kotlinx.coroutines.awaitCancellation()
+                        }
+                    }
+                }
+            }
+            val repo = NotificationsRepository(api, realtimeFactory = { realtime })
+            val job = repo.connectRealtime(this)
+            // Advance past the initial backoff (1 s) — because backoff should have
+            // been RESET by the healthy Created event, the second connect fires
+            // after 1 s (not 2 s).
+            testScheduler.advanceTimeBy(1_100L)
+            kotlinx.coroutines.yield()
+
+            assertTrue(connectCount >= 2,
+                "Second connect must have fired after reset-to-initial backoff (connectCount=$connectCount)")
+            assertFalse(repo.realtimeFatal.value,
+                "realtimeFatal must remain false after a clean close")
+            job.cancel()
+        }
 
     // ---- atomic mutate consistency -------------------------------------------
 
