@@ -18,4 +18,22 @@ class ReflowLocatorCodecTest {
         assertNull(ReflowLocatorCodec.decode(""))
         assertNull(ReflowLocatorCodec.decode("{not json"))
     }
+
+    @Test fun `locator clamps stale section and invalid progress values`() {
+        val locator = ReflowLocator(sectionIndex = 9, pageProgression = 2.0, bookProgression = -1.0)
+
+        assertEquals(
+            ReflowLocator(sectionIndex = 2, pageProgression = 1.0, bookProgression = 0.0),
+            locator.coerceForSectionCount(3),
+        )
+    }
+
+    @Test fun `locator clamps to section zero when source has no sections`() {
+        val locator = ReflowLocator(sectionIndex = -4, pageProgression = -0.5, bookProgression = 3.0)
+
+        assertEquals(
+            ReflowLocator(sectionIndex = 0, pageProgression = 0.0, bookProgression = 1.0),
+            locator.coerceForSectionCount(0),
+        )
+    }
 }

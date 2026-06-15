@@ -96,7 +96,7 @@ fun ReaderShell(
             .fillMaxSize()
             .background(readerBackground),
     ) {
-        ReaderContentFrame(chromeVisible = shellState.chromeVisible) {
+        ReaderContentFrame {
             content(onToggleChrome)
         }
 
@@ -181,20 +181,17 @@ private fun ReaderSystemBarEffect(
 
 @Composable
 private fun ReaderContentFrame(
-    chromeVisible: Boolean,
     content: @Composable () -> Unit,
 ) {
     val statusPadding = WindowInsets.statusBars.asPaddingValues()
     val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
-    val topChromePadding = if (chromeVisible) READER_TOP_CHROME_HEIGHT else 0.dp
-    val bottomChromePadding = if (chromeVisible) READER_BOTTOM_CHROME_HEIGHT else 0.dp
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(
-                top = statusPadding.calculateTopPadding() + topChromePadding,
-                bottom = navigationPadding.calculateBottomPadding() + bottomChromePadding,
+                top = statusPadding.calculateTopPadding(),
+                bottom = navigationPadding.calculateBottomPadding(),
             ),
     ) {
         content()
@@ -456,5 +453,3 @@ private fun ReaderDisplaySettings.readerSystemBarsUseDarkIcons(systemDark: Boole
 private val READER_LIGHT_BACKGROUND = Color(0xFFFFFBFE)
 private val READER_SEPIA_BACKGROUND = Color(0xFFF4ECD8)
 private val READER_DARK_BACKGROUND = Color(0xFF1C1B1F)
-private val READER_TOP_CHROME_HEIGHT = 72.dp
-private val READER_BOTTOM_CHROME_HEIGHT = 64.dp

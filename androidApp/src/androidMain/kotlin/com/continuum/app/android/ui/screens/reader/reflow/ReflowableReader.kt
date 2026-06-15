@@ -69,7 +69,7 @@ fun ReflowableReader(
                     tokenManager.getServerUrl(),
                     extension = format.wire,
                 )
-                buildReflowableSource(format, file)
+                buildReflowableSource(format, file, context.cacheDir)
             }
         }
     }
@@ -119,11 +119,14 @@ fun ReflowableReader(
         )
     }
 
+    val initialReflowLocator = remember(source) {
+        ReflowLocatorCodec.decode(initialLocator)?.coerceForSectionCount(source.sections.size)
+    }
     var sectionIndex by remember(source) {
-        mutableStateOf(ReflowLocatorCodec.decode(initialLocator)?.sectionIndex ?: 0)
+        mutableStateOf(initialReflowLocator?.sectionIndex ?: 0)
     }
     var pendingPageProgression by remember(source) {
-        mutableStateOf(ReflowLocatorCodec.decode(initialLocator)?.pageProgression ?: 0.0)
+        mutableStateOf(initialReflowLocator?.pageProgression ?: 0.0)
     }
     var relocationGate by remember(source) {
         mutableStateOf(ReflowInitialRelocationGate(pendingPageProgression))
@@ -151,7 +154,7 @@ fun ReflowableReader(
     // is applied on the next `paginated` event.
     LaunchedEffect(jumpToLocation) {
         if (jumpToLocation != null) {
-            ReflowLocatorCodec.decode(jumpToLocation)?.let {
+            ReflowLocatorCodec.decode(jumpToLocation)?.coerceForSectionCount(source.sections.size)?.let {
                 sectionIndex = it.sectionIndex
                 pendingPageProgression = it.pageProgression
                 relocationGate = ReflowInitialRelocationGate(it.pageProgression)
@@ -203,8 +206,9 @@ fun ReflowableReader(
                 when (ev) {
                     is ReflowEvent.Paginated -> {
                         pageCount = ev.pageCount.coerceAtLeast(1)
-                        val target = relocationGate.onPaginated(pageCount)
-                        controller?.goToPage(target)
+                        relocationGate.consumeInitialPageTarget(pageCount)?.let { target ->
+                            controller?.goToPage(target)
+                        }
                         pendingPageProgression = 0.0
                     }
                     is ReflowEvent.Relocated -> {

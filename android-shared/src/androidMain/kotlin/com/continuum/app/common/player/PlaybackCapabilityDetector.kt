@@ -89,7 +89,10 @@ class PlaybackCapabilityDetector(
             val passthroughCodecs = audioCapabilityManager.capabilities.value.passthroughCodecs.toSet()
             val maxChannels = audioCapabilityManager.capabilities.value.maxChannels
 
-            val rendererCanDecode = mime in softwareDecodableAudioMimes
+            val rendererCanDecode = isSoftwareDecodableAudioMime(
+                mime = mime,
+                ffmpegAvailable = FfmpegAudioSupport.isAvailable(),
+            )
             val sinkCanPassthrough = when (mime) {
                 MimeTypes.AUDIO_TRUEHD -> "truehd" in passthroughCodecs
                 MimeTypes.AUDIO_DTS_HD -> "dts_hd" in passthroughCodecs
@@ -109,16 +112,6 @@ class PlaybackCapabilityDetector(
         return Playability.Supported
     }
 
-    private val softwareDecodableAudioMimes = setOf(
-        MimeTypes.AUDIO_AAC,
-        MimeTypes.AUDIO_AC3,
-        MimeTypes.AUDIO_E_AC3,
-        MimeTypes.AUDIO_E_AC3_JOC,
-        MimeTypes.AUDIO_FLAC,
-        MimeTypes.AUDIO_OPUS,
-        MimeTypes.AUDIO_VORBIS,
-        MimeTypes.AUDIO_MPEG,
-    )
     /**
      * @param ffmpegAvailable overridable for tests; production callers omit
      * this to let [FfmpegAudioSupport.isAvailable] probe the real classpath.
@@ -193,3 +186,21 @@ class PlaybackCapabilityDetector(
         return result.toList()
     }
 }
+
+internal fun isSoftwareDecodableAudioMime(
+    mime: String,
+    ffmpegAvailable: Boolean,
+): Boolean =
+    mime in platformSoftwareDecodableAudioMimes ||
+        (ffmpegAvailable && mime in FfmpegAudioSupport.mimeTypes)
+
+private val platformSoftwareDecodableAudioMimes = setOf(
+    MimeTypes.AUDIO_AAC,
+    MimeTypes.AUDIO_AC3,
+    MimeTypes.AUDIO_E_AC3,
+    MimeTypes.AUDIO_E_AC3_JOC,
+    MimeTypes.AUDIO_FLAC,
+    MimeTypes.AUDIO_OPUS,
+    MimeTypes.AUDIO_VORBIS,
+    MimeTypes.AUDIO_MPEG,
+)

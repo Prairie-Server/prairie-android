@@ -43,6 +43,14 @@ class VideoPlayerMediaSpecTest {
         assertEquals(null, baseSpec(startPositionSeconds = 0.0, durationSeconds = Double.POSITIVE_INFINITY).durationMs)
     }
 
+    @Test
+    fun videoContainerMimeTypeNormalizesDirectPlaybackContainers() {
+        assertEquals("video/x-matroska", videoContainerMimeType(" .MKV "))
+        assertEquals("video/mp4", videoContainerMimeType("m4v"))
+        assertEquals("video/webm", videoContainerMimeType("webm"))
+        assertEquals(null, videoContainerMimeType(null))
+    }
+
     private fun baseSpec(
         startPositionSeconds: Double,
         durationSeconds: Double = 0.0,
@@ -50,6 +58,7 @@ class VideoPlayerMediaSpecTest {
         streamUrl = "https://lib.strm.cafe/api/stream/movie",
         playMethod = PlayMethod.DIRECT,
         serverUrl = "https://lib.strm.cafe",
+        container = "mkv",
         title = "Michael",
         subtitle = "Movie",
         artworkUrl = "https://lib.strm.cafe/poster.jpg",

@@ -151,6 +151,10 @@ internal fun reducePlayerStats(
         current.copy(bitrateBps = event.bitrateBps)
     is PlaybackAnalyticsListener.Event.LoadError ->
         current // load errors don't mutate the stats snapshot
+    is PlaybackAnalyticsListener.Event.PlayerError ->
+        current // player errors are logged separately and don't mutate the stats snapshot
+    is PlaybackAnalyticsListener.Event.TrackSnapshot ->
+        current // diagnostic-only; keep on-screen stats stable
 }
 
 /**
@@ -277,6 +281,7 @@ class TvPlayerViewModel(
         val sessionId: String? = null,
         val playMethod: PlayMethod? = null,
         val streamUrl: String? = null,
+        val container: String? = null,
         val serverUrl: String = "",
         val accessToken: String = "",
         val selectedFileId: Int? = null,
@@ -505,6 +510,7 @@ class TvPlayerViewModel(
                                 sessionId = result.sessionId,
                                 playMethod = result.playMethod,
                                 streamUrl = result.streamUrl,
+                                container = result.container,
                                 serverUrl = result.serverUrl,
                                 accessToken = result.accessToken,
                                 selectedFileId = result.fileId,
@@ -577,6 +583,8 @@ class TvPlayerViewModel(
                 "Lossless audio not supported on this output. Falling back to transcoded stream."
             is com.continuum.app.common.player.Playability.UnsupportedChannelCount ->
                 "Audio channel count not supported. Falling back to transcoded stream."
+            is com.continuum.app.common.player.Playability.StartupStalled ->
+                "Playback did not start cleanly on this device. Falling back to transcoded stream."
             com.continuum.app.common.player.Playability.Supported -> return
         }
         Log.i(TAG, "Preflight fallback: $notice")
@@ -1149,6 +1157,7 @@ class TvPlayerViewModel(
                 sessionId = null,
                 playMethod = null,
                 streamUrl = null,
+                container = null,
                 subtitleUrls = emptyList(),
                 isPaused = true,
                 isPlaying = false,

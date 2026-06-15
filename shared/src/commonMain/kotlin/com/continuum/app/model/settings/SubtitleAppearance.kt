@@ -16,11 +16,11 @@ enum class SubtitleFontSizePreset {
 
 val SubtitleFontSizePreset.pointSize: Double
     get() = when (this) {
-        SubtitleFontSizePreset.Small -> 44.0
-        SubtitleFontSizePreset.Medium -> 56.0
-        SubtitleFontSizePreset.Large -> 68.0
-        SubtitleFontSizePreset.XLarge -> 82.0
-        SubtitleFontSizePreset.XXLarge -> 96.0
+        SubtitleFontSizePreset.Small -> 36.0
+        SubtitleFontSizePreset.Medium -> 44.0
+        SubtitleFontSizePreset.Large -> 56.0
+        SubtitleFontSizePreset.XLarge -> 68.0
+        SubtitleFontSizePreset.XXLarge -> 82.0
     }
 
 @Serializable

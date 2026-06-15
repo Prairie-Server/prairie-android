@@ -13,12 +13,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,6 +39,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -44,6 +49,8 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.tv.ui.theme.Spacing
 import kotlinx.coroutines.delay
+
+private const val SUBTITLE_SYNC_STEP_MS = 100
 
 @Composable
 fun TvSubtitleMenu(
@@ -103,7 +110,7 @@ fun TvSubtitleMenu(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 28.dp, vertical = 34.dp),
-            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             Text(
                 text = "Subtitles",
@@ -111,9 +118,21 @@ fun TvSubtitleMenu(
                 color = MaterialTheme.colorScheme.onSurface,
             )
 
+            SubtitleSyncStrip(
+                valueMs = subtitleDelayMs,
+                onChange = onSubtitleDelayChanged,
+            )
+
+            Text(
+                text = "Tracks",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
+            )
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f)
                     .focusGroup(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -139,15 +158,6 @@ fun TvSubtitleMenu(
                 }
             }
 
-            Text(
-                text = "Delay: ${subtitleDelayMs} ms",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            SubtitleDelayStepperRow(
-                valueMs = subtitleDelayMs,
-                onChange = onSubtitleDelayChanged,
-            )
         }
     }
 }
@@ -263,26 +273,94 @@ private fun SubtitleActionRow(
 }
 
 @Composable
+private fun SubtitleSyncStrip(
+    valueMs: Int,
+    onChange: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Subtitle Sync",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = subtitleSyncLabel(valueMs),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        SubtitleDelayStepperRow(
+            valueMs = valueMs,
+            onChange = onChange,
+        )
+    }
+}
+
+@Composable
 private fun SubtitleDelayStepperRow(
     valueMs: Int,
     onChange: (Int) -> Unit,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        SubtitleStepperButton(label = "-50", onClick = { onChange(valueMs - 50) })
-        SubtitleStepperButton(label = "-10", onClick = { onChange(valueMs - 10) })
-        SubtitleStepperButton(label = "Reset", onClick = { onChange(0) })
-        SubtitleStepperButton(label = "+10", onClick = { onChange(valueMs + 10) })
-        SubtitleStepperButton(label = "+50", onClick = { onChange(valueMs + 50) })
+        SubtitleDelayStepButton(
+            icon = Icons.Filled.Remove,
+            contentDescription = "Advance subtitles",
+            onClick = { onChange(valueMs - SUBTITLE_SYNC_STEP_MS) },
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.07f))
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = subtitleSyncCompactValue(valueMs),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+            )
+        }
+        SubtitleDelayStepButton(
+            icon = Icons.Filled.Add,
+            contentDescription = "Delay subtitles",
+            onClick = { onChange(valueMs + SUBTITLE_SYNC_STEP_MS) },
+        )
+    }
+}
+
+private fun subtitleSyncLabel(valueMs: Int): String {
+    return when {
+        valueMs < 0 -> "Advance subtitles by ${-valueMs} ms"
+        valueMs > 0 -> "Delay subtitles by $valueMs ms"
+        else -> "In sync"
     }
 }
 
 @Composable
-private fun SubtitleStepperButton(
-    label: String,
+private fun SubtitleDelayStepButton(
+    icon: ImageVector,
+    contentDescription: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -303,17 +381,29 @@ private fun SubtitleStepperButton(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
         modifier = Modifier
+            .width(64.dp)
+            .then(modifier)
             .clip(shape),
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = label,
-                color = fg,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = fg,
+                modifier = Modifier.size(24.dp),
             )
         }
     }
 }
+
+private fun subtitleSyncCompactValue(valueMs: Int): String =
+    when {
+        valueMs > 0 -> "+$valueMs ms"
+        valueMs < 0 -> "$valueMs ms"
+        else -> "0 ms"
+    }

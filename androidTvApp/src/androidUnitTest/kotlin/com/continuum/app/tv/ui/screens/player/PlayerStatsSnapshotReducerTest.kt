@@ -4,6 +4,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.ColorInfo
 import androidx.media3.common.Format
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import com.continuum.app.common.player.PlaybackAnalyticsListener
 import org.junit.Assert.assertEquals
@@ -60,6 +61,28 @@ class PlayerStatsSnapshotReducerTest {
         val result = reducePlayerStats(
             initial,
             PlaybackAnalyticsListener.Event.LoadError(IllegalStateException("test")),
+        )
+        assertEquals(initial, result)
+    }
+
+    @Test
+    fun `PlayerError leaves snapshot unchanged`() {
+        val initial = PlayerStatsSnapshot(droppedFrames = 7, bitrateBps = 1_000L)
+        val result = reducePlayerStats(
+            initial,
+            PlaybackAnalyticsListener.Event.PlayerError(
+                PlaybackException("test", null, PlaybackException.ERROR_CODE_UNSPECIFIED),
+            ),
+        )
+        assertEquals(initial, result)
+    }
+
+    @Test
+    fun `TrackSnapshot leaves snapshot unchanged`() {
+        val initial = PlayerStatsSnapshot(droppedFrames = 7, bitrateBps = 1_000L)
+        val result = reducePlayerStats(
+            initial,
+            PlaybackAnalyticsListener.Event.TrackSnapshot("tracks"),
         )
         assertEquals(initial, result)
     }

@@ -40,9 +40,12 @@ class SubtitleManager {
         subtitles: List<PlayerSubtitleInfo>,
         serverUrl: String,
     ): List<MediaItem.SubtitleConfiguration> {
-        return subtitles.map { subtitle ->
+        return subtitles.mapNotNull { subtitle ->
             val absoluteUrl = resolveSubtitleUrl(serverUrl, subtitle.url)
             val mimeType = subtitleMimeType(subtitle.codec, absoluteUrl)
+            if (!isMedia3TextSidecarMimeType(mimeType)) {
+                return@mapNotNull null
+            }
 
             MediaItem.SubtitleConfiguration.Builder(Uri.parse(absoluteUrl))
                 .setMimeType(mimeType)
@@ -202,11 +205,11 @@ class SubtitleManager {
 
     private fun fractionalSizeFor(preset: SubtitleFontSizePreset): Float {
         return when (preset) {
-            SubtitleFontSizePreset.Small -> 0.040f
-            SubtitleFontSizePreset.Medium -> 0.050f
-            SubtitleFontSizePreset.Large -> 0.060f
-            SubtitleFontSizePreset.XLarge -> 0.072f
-            SubtitleFontSizePreset.XXLarge -> 0.085f
+            SubtitleFontSizePreset.Small -> 0.032f
+            SubtitleFontSizePreset.Medium -> 0.040f
+            SubtitleFontSizePreset.Large -> 0.050f
+            SubtitleFontSizePreset.XLarge -> 0.060f
+            SubtitleFontSizePreset.XXLarge -> 0.072f
         }
     }
 
@@ -250,6 +253,16 @@ class SubtitleManager {
             else -> MimeTypes.APPLICATION_SUBRIP // default to SRT
         }
     }
+
+    private fun isMedia3TextSidecarMimeType(mimeType: String): Boolean =
+        when (mimeType) {
+            MimeTypes.TEXT_VTT,
+            MimeTypes.TEXT_SSA,
+            MimeTypes.APPLICATION_SUBRIP,
+            MimeTypes.APPLICATION_TTML,
+            -> true
+            else -> false
+        }
 
     private fun disableSubtitles(player: Player) {
         // Disable all text tracks

@@ -131,7 +131,9 @@ class ContinuumPlayerFactory(
 
         // Staged buffer: start once a modest cushion is ready, wait longer
         // after an actual stall, and let playback grow a deeper forward
-        // buffer in the background without bypassing Media3's byte caps.
+        // buffer in the background. A finite byte cap lets low-bitrate
+        // streams grow toward the time limit while preventing high-bitrate
+        // remuxes from filling the app heap on memory-constrained TVs.
         val bufferPolicy = PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -140,6 +142,7 @@ class ContinuumPlayerFactory(
                 /* bufferForPlaybackMs = */ bufferPolicy.bufferForPlaybackMs,
                 /* bufferForPlaybackAfterRebufferMs = */ bufferPolicy.bufferForPlaybackAfterRebufferMs,
             )
+            .setTargetBufferBytes(bufferPolicy.targetBufferBytes)
             .setPrioritizeTimeOverSizeThresholds(bufferPolicy.prioritizeTimeOverSizeThresholds)
             .build()
 
@@ -238,6 +241,7 @@ class ContinuumPlayerFactory(
         streamUrl: String,
         playMethod: PlayMethod,
         serverUrl: String,
+        container: String? = null,
         subtitles: List<PlayerSubtitleInfo> = emptyList(),
         title: String? = null,
         subtitle: String? = null,
@@ -273,7 +277,8 @@ class ContinuumPlayerFactory(
 
         when (playMethod) {
             PlayMethod.TRANSCODE -> builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-            PlayMethod.DIRECT, PlayMethod.REMUX -> Unit
+            PlayMethod.REMUX -> builder.setMimeType("video/mp4")
+            PlayMethod.DIRECT -> videoContainerMimeType(container)?.let { builder.setMimeType(it) }
         }
 
         return builder.build()
@@ -305,5 +310,22 @@ fun resolvePlaybackStreamUrl(serverUrl: String, streamUrl: String): String {
             streamUrl.startsWith("content://") -> streamUrl // Already absolute / local offline: nothing to prefix.
         streamUrl.startsWith("/api/") -> "$base$streamUrl"
         else -> "$base/api/v1$streamUrl"
+    }
+}
+
+internal fun videoContainerMimeType(container: String?): String? {
+    val normalized = container
+        ?.trim()
+        ?.trimStart('.')
+        ?.lowercase()
+        .orEmpty()
+    return when (normalized) {
+        "mkv", "matroska" -> "video/x-matroska"
+        "mp4", "m4v" -> "video/mp4"
+        "webm" -> "video/webm"
+        "mov", "qt" -> "video/quicktime"
+        "ts", "mpegts", "mpeg-ts", "m2ts" -> "video/mp2t"
+        "avi" -> "video/x-msvideo"
+        else -> null
     }
 }

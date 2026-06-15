@@ -1,6 +1,7 @@
 package com.continuum.app.android.ui.screens.reader.reflow
 
 import com.continuum.app.android.ui.screens.reader.EpubBook
+import com.continuum.app.android.ui.screens.reader.readerDirectoryBaseUrl
 
 /**
  * Adapts an unpacked [EpubBook] into reflow sections. Each spine entry is
@@ -26,7 +27,7 @@ internal class EpubReflowSource(private val book: EpubBook) : ReflowableSource {
         book.spine.getOrNull(index)?.let { book.readChapterHtml(it) }
 
     override fun baseUrl(index: Int): String =
-        "file://${book.unpackedRoot.absolutePath}/"
+        readerDirectoryBaseUrl(book.unpackedRoot)
 }
 
 private fun String.epubSectionTitle(): String? {

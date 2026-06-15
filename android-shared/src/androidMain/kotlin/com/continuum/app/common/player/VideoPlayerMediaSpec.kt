@@ -7,6 +7,7 @@ data class VideoPlayerMediaSpec(
     val streamUrl: String,
     val playMethod: PlayMethod,
     val serverUrl: String,
+    val container: String? = null,
     val subtitles: List<PlayerSubtitleInfo> = emptyList(),
     val title: String? = null,
     val subtitle: String? = null,

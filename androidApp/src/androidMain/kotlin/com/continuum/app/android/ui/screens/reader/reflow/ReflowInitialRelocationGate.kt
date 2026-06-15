@@ -5,11 +5,17 @@ import kotlin.math.roundToInt
 internal class ReflowInitialRelocationGate(initialPageProgression: Double) {
     private val initialProgression = initialPageProgression.coerceIn(0.0, 1.0)
     private var suppressUntilPage: Int? = null
+    private var initialTargetConsumed = false
 
-    fun onPaginated(pageCount: Int): Int {
+    fun consumeInitialPageTarget(pageCount: Int): Int? {
+        if (initialTargetConsumed || initialProgression <= 0.0) {
+            initialTargetConsumed = true
+            return null
+        }
+        initialTargetConsumed = true
         val count = pageCount.coerceAtLeast(1)
         val target = (initialProgression * (count - 1)).roundToInt()
-        suppressUntilPage = target.takeIf { initialProgression > 0.0 }
+        suppressUntilPage = target
         return target
     }
 

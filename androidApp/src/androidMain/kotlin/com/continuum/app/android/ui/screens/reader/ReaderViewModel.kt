@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -91,6 +93,7 @@ class ReaderViewModel(
     private val requestedFileId: Int? = savedStateHandle.get<String>("fileId")?.toIntOrNull()
     private var shouldSuppressInitialPageChange = false
     private var progressSaveJob: Job? = null
+    private val progressPersistMutex = Mutex()
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
@@ -311,7 +314,7 @@ class ReaderViewModel(
     fun onPageChanged(page: Int) {
         val state = _uiState.value
         val fileId = state.fileId ?: return
-        val normalizedPage = page.coerceAtLeast(0)
+        val normalizedPage = page.coerceToKnownPageCount(state.pageCount)
         if (shouldSuppressInitialPageChange && normalizedPage == state.currentPage) {
             shouldSuppressInitialPageChange = false
             return
@@ -335,7 +338,30 @@ class ReaderViewModel(
 
     fun onPageCountKnown(count: Int) {
         if (count <= 0) return
-        _uiState.update { it.copy(pageCount = count) }
+        val state = _uiState.value
+        val normalizedPage = state.currentPage.coerceToKnownPageCount(count)
+        val progressPercent = ebookProgressPercentForPage(
+            page = normalizedPage,
+            pageCount = count,
+            currentProgress = state.progressPercent,
+        )
+        _uiState.update {
+            it.copy(
+                pageCount = count,
+                currentPage = normalizedPage,
+                progressLocation = if (normalizedPage != state.currentPage) {
+                    "page:$normalizedPage"
+                } else {
+                    it.progressLocation
+                },
+                progressPercent = progressPercent,
+            )
+        }
+        if (normalizedPage != state.currentPage) {
+            state.fileId?.let { fileId ->
+                persistProgress(fileId = fileId, location = "page:$normalizedPage", progressPercent = progressPercent)
+            }
+        }
     }
 
     /**
@@ -366,39 +392,41 @@ class ReaderViewModel(
     private fun persistProgress(fileId: Int, location: String, progressPercent: Double) {
         progressSaveJob?.cancel()
         _uiState.update { it.copy(isSyncing = true, syncError = null) }
-        viewModelScope.launch {
+        val saveJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
             val (serverId, profileId) = resolveScope()
-            withContext(Dispatchers.IO) {
-                localStateStore.writeProgress(
-                    serverId,
-                    profileId,
+            progressPersistMutex.withLock {
+                withContext(Dispatchers.IO) {
+                    localStateStore.writeProgress(
+                        serverId,
+                        profileId,
+                        contentId,
+                        EbookLocalStateStore.ProgressSnapshot(
+                            fileId = fileId,
+                            location = location,
+                            progress = progressPercent,
+                            updatedAtMs = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+                when (ebookReaderRepository.saveProgress(
                     contentId,
-                    EbookLocalStateStore.ProgressSnapshot(
+                    SaveEbookProgressRequest(
                         fileId = fileId,
                         location = location,
                         progress = progressPercent,
-                        updatedAtMs = System.currentTimeMillis(),
                     ),
-                )
-            }
-        }
-        val saveJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
-            when (ebookReaderRepository.saveProgress(
-                contentId,
-                SaveEbookProgressRequest(
-                    fileId = fileId,
-                    location = location,
-                    progress = progressPercent,
-                ),
-            )) {
-                is ApiResult.Success -> {
-                    if (progressSaveJob === coroutineContext[Job]) {
-                        _uiState.update { it.copy(isSyncing = false) }
+                )) {
+                    is ApiResult.Success -> {
+                        if (progressSaveJob === coroutineContext[Job]) {
+                            _uiState.update { it.copy(isSyncing = false) }
+                        }
                     }
-                }
-                else -> {
-                    if (progressSaveJob === coroutineContext[Job]) {
-                        _uiState.update { it.copy(isSyncing = false, syncError = "Reading progress could not sync.") }
+                    else -> {
+                        if (progressSaveJob === coroutineContext[Job]) {
+                            _uiState.update {
+                                it.copy(isSyncing = false, syncError = "Reading progress could not sync.")
+                            }
+                        }
                     }
                 }
             }
@@ -512,4 +540,13 @@ class ReaderViewModel(
             location = location,
             createdAt = createdAtMs.toString(),
         )
+}
+
+private fun Int.coerceToKnownPageCount(pageCount: Int?): Int {
+    val positivePage = coerceAtLeast(0)
+    return if (pageCount != null && pageCount > 0) {
+        positivePage.coerceAtMost(pageCount - 1)
+    } else {
+        positivePage
+    }
 }

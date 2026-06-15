@@ -136,6 +136,7 @@ class TvVideoPlaybackStarter(
                 sessionId = resolved.sessionId,
                 streamUrl = resolved.streamUrl,
                 playMethod = resolved.playMethod,
+                container = version.container,
                 title = watchDetail.title,
                 subtitle = null,
                 artworkUrl = watchDetail.posterUrl?.takeIf { it.isNotBlank() }

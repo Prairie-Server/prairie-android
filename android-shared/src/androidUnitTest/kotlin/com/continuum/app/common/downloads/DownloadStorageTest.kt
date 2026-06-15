@@ -28,6 +28,18 @@ class DownloadStorageTest {
     }
 
     @Test
+    fun `file backed download uris encode paths with spaces and uri reserved characters`() {
+        val storage = newStorage()
+        val target = storage.prepareWrite("srv1", "profA", 42, fileName = "The #1 Book.epub")
+        target.writeTargetBytes(ByteArray(10))
+
+        assertEquals("The #1 Book.epub", storage.locateLocalMedia("srv1", "profA", 42)?.displayName)
+        assertTrue(target.uriString.startsWith("file://"))
+        assertTrue(target.uriString.contains("The%20%231%20Book.epub"))
+        assertFalse(target.uriString.contains("The #1 Book.epub"))
+    }
+
+    @Test
     fun `prepareWrite falls back to container extension when filename is unavailable`() {
         val storage = newStorage()
         val target = storage.prepareWrite("srv1", "profA", 42, container = "m4b")
@@ -83,6 +95,33 @@ class DownloadStorageTest {
         )
 
         assertTrue(target.uriString.contains("/Downloads/"))
+    }
+
+    @Test
+    fun `file backed store can route collections into distinct public roots`() {
+        val downloadsRoot = tmp.newFolder("public-downloads")
+        val moviesRoot = tmp.newFolder("public-movies")
+        val musicRoot = tmp.newFolder("public-music")
+        val storage = DownloadStorage(
+            baseDir = tmp.newFolder("filesDir"),
+            publicStore = FileBackedPublicDownloadStore(
+                collectionRoots = mapOf(
+                    PublicDownloadCollection.Downloads to downloadsRoot,
+                    PublicDownloadCollection.Video to moviesRoot,
+                    PublicDownloadCollection.Audio to musicRoot,
+                ),
+            ),
+        )
+
+        val movie = storage.prepareWrite("srv1", "profA", 10, fileName = "Movie.mkv", mediaType = DownloadMediaType.Movie.wire)
+        val audiobook = storage.prepareWrite("srv1", "profA", 11, fileName = "Book.m4b", mediaType = DownloadMediaType.Audiobook.wire)
+        val ebook = storage.prepareWrite("srv1", "profA", 12, fileName = "Book.epub", mediaType = DownloadMediaType.Ebook.wire)
+
+        assertTrue(movie.uriString.contains(moviesRoot.name))
+        assertFalse(movie.uriString.contains(downloadsRoot.name))
+        assertTrue(audiobook.uriString.contains(musicRoot.name))
+        assertFalse(audiobook.uriString.contains(downloadsRoot.name))
+        assertTrue(ebook.uriString.contains(downloadsRoot.name))
     }
 
     @Test

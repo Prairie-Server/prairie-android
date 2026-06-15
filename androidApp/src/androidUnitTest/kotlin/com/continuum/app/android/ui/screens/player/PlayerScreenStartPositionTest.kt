@@ -115,4 +115,12 @@ class PlayerScreenStartPositionTest {
             "mobile player must not refresh media after exit has been requested",
         )
     }
+
+    @Test
+    fun playerScreenDetectsDirectStartupStallsAndUsesExistingFallbackPath() {
+        assertTrue(source.contains("PlaybackStartupStallDetector"))
+        assertTrue(source.contains("startupStallDetector.onMounted("))
+        assertTrue(source.contains("startupStallDetector.sample("))
+        assertTrue(source.contains("viewModel.onUnsupportedPlayback(reason)"))
+    }
 }

@@ -11,6 +11,7 @@ sealed interface VideoPlaybackStartResult {
         val fileId: Int?,
         val streamUrl: String,
         val playMethod: PlayMethod,
+        val container: String? = null,
         val title: String,
         val subtitle: String?,
         val artworkUrl: String?,

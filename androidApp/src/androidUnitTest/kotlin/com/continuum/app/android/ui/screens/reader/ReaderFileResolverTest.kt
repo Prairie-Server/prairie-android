@@ -1,5 +1,7 @@
 package com.continuum.app.android.ui.screens.reader
 
+import java.io.File
+import java.net.URI
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -71,5 +73,13 @@ class ReaderFileResolverTest {
             readerCacheFileName(url, "https://one.example", "epub"),
             readerCacheFileName(url, "https://two.example", "epub"),
         )
+    }
+
+    @Test
+    fun `file reader urls decode encoded local filesystem paths`() {
+        val file = File("/storage/emulated/0/Download/Silo/The #1 Book.epub")
+        val encodedUrl = URI("file", "", file.path, null).toASCIIString()
+
+        assertEquals(file.path, readerFileFromFileUrl(encodedUrl).path)
     }
 }

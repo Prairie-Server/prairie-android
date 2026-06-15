@@ -9,6 +9,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.net.URI
 import java.security.MessageDigest
 
 /** SHA-1 cache key for a reader URL — the one shared copy of the helper
@@ -76,7 +77,7 @@ internal suspend fun resolveReaderFile(
 ): File = withContext(Dispatchers.IO) {
     val requestUrl = resolveReaderRequestUrl(url, serverUrl)
     when (readerRequestKind(url, serverUrl)) {
-        ReaderRequestKind.File -> return@withContext File(requestUrl.removePrefix("file://"))
+        ReaderRequestKind.File -> return@withContext readerFileFromFileUrl(requestUrl)
         ReaderRequestKind.Content,
         ReaderRequestKind.Remote -> Unit
     }
@@ -98,3 +99,8 @@ internal suspend fun resolveReaderFile(
         }
     }
 }
+
+internal fun readerFileFromFileUrl(fileUrl: String): File =
+    runCatching { File(URI(fileUrl)) }.getOrElse {
+        File(fileUrl.removePrefix("file://").removePrefix("file:"))
+    }

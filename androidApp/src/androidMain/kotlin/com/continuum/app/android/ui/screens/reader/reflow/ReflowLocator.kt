@@ -10,6 +10,15 @@ data class ReflowLocator(
     val bookProgression: Double, // 0..1 across the book
 )
 
+fun ReflowLocator.coerceForSectionCount(sectionCount: Int): ReflowLocator {
+    val lastSection = (sectionCount - 1).coerceAtLeast(0)
+    return copy(
+        sectionIndex = sectionIndex.coerceIn(0, lastSection),
+        pageProgression = pageProgression.coerceIn(0.0, 1.0),
+        bookProgression = bookProgression.coerceIn(0.0, 1.0),
+    )
+}
+
 object ReflowLocatorCodec {
     private val json = Json { ignoreUnknownKeys = true }
     fun encode(locator: ReflowLocator): String = json.encodeToString(ReflowLocator.serializer(), locator)

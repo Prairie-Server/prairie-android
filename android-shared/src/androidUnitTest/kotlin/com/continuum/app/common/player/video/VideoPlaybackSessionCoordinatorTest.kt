@@ -34,6 +34,7 @@ class VideoPlaybackSessionCoordinatorTest {
                 fileId = 44,
                 streamUrl = "https://lib.strm.cafe/api/stream/movie",
                 playMethod = PlayMethod.DIRECT,
+                container = "mkv",
                 title = "Michael",
                 subtitle = "Movie",
                 artworkUrl = "https://lib.strm.cafe/poster.jpg",
@@ -61,6 +62,7 @@ class VideoPlaybackSessionCoordinatorTest {
         assertEquals(44, ready.fileId)
         assertEquals("https://lib.strm.cafe/api/stream/movie", ready.streamUrl)
         assertEquals(PlayMethod.DIRECT, ready.playMethod)
+        assertEquals("mkv", ready.container)
         assertEquals("Michael", ready.title)
         assertEquals("Movie", ready.subtitle)
         assertEquals("https://lib.strm.cafe/poster.jpg", ready.artworkUrl)

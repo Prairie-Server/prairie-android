@@ -3,7 +3,9 @@ package com.continuum.app.android.ui.screens.player
 import android.app.Activity
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
+import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -54,6 +56,7 @@ import com.continuum.app.common.player.VideoPlayerMediaSpec
 import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
 import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
 import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
+import com.continuum.app.common.player.video.PlaybackStartupStallDetector
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
 import com.continuum.app.model.playback.PlayerSubtitleInfo
 import com.continuum.app.model.watchtogether.RoomSnapshot
@@ -62,6 +65,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.compose.koinInject
+
+private const val TAG = "PlayerScreen"
 
 /**
  * Full-screen video player screen.
@@ -108,6 +113,7 @@ fun PlayerScreen(
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
     var exitRequested by remember { mutableStateOf(false) }
+    val startupStallDetector = remember { PlaybackStartupStallDetector() }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -303,7 +309,7 @@ fun PlayerScreen(
     }
 
     // Set up the media item when stream URL becomes available
-    LaunchedEffect(videoBackend, uiState.streamUrl, uiState.playMethod, uiState.startPosition) {
+    LaunchedEffect(videoBackend, uiState.sessionId, uiState.streamUrl, uiState.playMethod, uiState.startPosition) {
         if (exitRequested) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
@@ -338,6 +344,7 @@ fun PlayerScreen(
             // the server originally provisioned the session.
             playMethod = if (localUri != null) com.continuum.app.model.playback.PlayMethod.DIRECT else playMethod,
             serverUrl = serverUrl,
+            container = uiState.container,
             subtitles = uiState.subtitleTracks,
             title = uiState.title.ifBlank { null },
             subtitle = uiState.subtitle.ifBlank { null },
@@ -345,6 +352,14 @@ fun PlayerScreen(
             startPositionSeconds = uiState.startPosition,
             durationSeconds = uiState.duration,
         )
+        if (localUri == null && uiState.sessionId != null) {
+            startupStallDetector.onMounted(
+                sessionKey = "${uiState.sessionId}:$effectiveStreamUrl",
+                playMethod = playMethod,
+                startPositionMs = mediaSpec.startPositionMs,
+                nowMs = SystemClock.elapsedRealtime(),
+            )
+        }
         backend.mount(mediaSpec)
     }
 
@@ -379,6 +394,7 @@ fun PlayerScreen(
             streamUrl = effectiveStreamUrl,
             playMethod = if (localUri != null) com.continuum.app.model.playback.PlayMethod.DIRECT else playMethod,
             serverUrl = uiState.serverUrl,
+            container = uiState.container,
             subtitles = uiState.subtitleTracks,
             title = uiState.title.ifBlank { null },
             subtitle = uiState.subtitle.ifBlank { null },
@@ -477,6 +493,32 @@ fun PlayerScreen(
                     viewModel.onPositionChanged(controller.currentPosition, controller.duration)
                 }
                 delay(500)
+            }
+        }
+    }
+
+    LaunchedEffect(mediaController, uiState.sessionId, uiState.streamUrl, uiState.playMethod) {
+        val controller = mediaController ?: return@LaunchedEffect
+        val sessionId = uiState.sessionId ?: return@LaunchedEffect
+        val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
+        val sessionKey = "$sessionId:$streamUrl"
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                val reason = startupStallDetector.sample(
+                    sessionKey = sessionKey,
+                    nowMs = SystemClock.elapsedRealtime(),
+                    playWhenReady = controller.playWhenReady,
+                    isPlaying = controller.isPlaying,
+                    isBuffering = controller.playbackState == Player.STATE_BUFFERING,
+                    currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
+                    bufferedPositionMs = controller.bufferedPosition.coerceAtLeast(0L),
+                )
+                if (reason != null) {
+                    Log.i(TAG, "Startup stall fallback: $reason")
+                    viewModel.onUnsupportedPlayback(reason)
+                    return@repeatOnLifecycle
+                }
+                delay(1_000)
             }
         }
     }

@@ -59,6 +59,9 @@ fun ReflowWebView(
     val context = LocalContext.current
     val currentOnTap by rememberUpdatedState(onTap)
     val currentOnScale by rememberUpdatedState(onScale)
+    val currentOnEvent by rememberUpdatedState(onEvent)
+    val currentOnCrash by rememberUpdatedState(onCrash)
+    val currentOnReady by rememberUpdatedState(onReady)
 
     // Create the WebView once and keep it stable across recompositions so the
     // page state survives. The bridge below posts back to the main thread.
@@ -120,10 +123,10 @@ fun ReflowWebView(
                 mainHandler.post {
                     if (event is ReflowEvent.Ready && !readyDelivered) {
                         readyDelivered = true
-                        onReady(ReflowController(webView))
+                        currentOnReady(ReflowController(webView))
                     }
                     if (event is ReflowEvent.Ready) pushViewport()
-                    onEvent(event)
+                    currentOnEvent(event)
                 }
             }
         }
@@ -141,7 +144,7 @@ fun ReflowWebView(
                 view: WebView?,
                 detail: RenderProcessGoneDetail?,
             ): Boolean {
-                onCrash()
+                currentOnCrash()
                 return true
             }
         }

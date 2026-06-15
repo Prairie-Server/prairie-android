@@ -203,6 +203,50 @@ class ReaderViewModelReaderTargetSourceTest {
         assertNull(state.error)
     }
 
+    @Test
+    fun pageJumpClampsToKnownPageCountBeforePersistingProgress() = runTest(dispatcher) {
+        val vm = viewModel(
+            catalogRepository = catalogRepository(
+                responseBody = itemDetailJson(fileId = FILE_ID, fileName = "book.pdf", container = "pdf"),
+            ),
+            downloadStorage = DownloadStorage(tmp.newFolder("downloads")),
+        )
+
+        advanceUntilIdle()
+        vm.awaitLoaded()
+        vm.onPageCountKnown(10)
+        vm.jumpToPage(999)
+        advanceUntilIdle()
+        vm.awaitSyncIdle()
+
+        val state = vm.uiState.value
+        assertEquals(9, state.currentPage)
+        assertEquals("page:9", state.progressLocation)
+        assertEquals(1.0, state.progressPercent)
+    }
+
+    @Test
+    fun latePageCountClampsPreviouslyUnknownPageProgress() = runTest(dispatcher) {
+        val vm = viewModel(
+            catalogRepository = catalogRepository(
+                responseBody = itemDetailJson(fileId = FILE_ID, fileName = "book.pdf", container = "pdf"),
+            ),
+            downloadStorage = DownloadStorage(tmp.newFolder("downloads")),
+        )
+
+        advanceUntilIdle()
+        vm.awaitLoaded()
+        vm.onPageChanged(999)
+        vm.onPageCountKnown(10)
+        advanceUntilIdle()
+        vm.awaitSyncIdle()
+
+        val state = vm.uiState.value
+        assertEquals(9, state.currentPage)
+        assertEquals("page:9", state.progressLocation)
+        assertEquals(1.0, state.progressPercent)
+    }
+
     private fun viewModel(
         catalogRepository: CatalogRepository,
         downloadStorage: DownloadStorage,
@@ -227,6 +271,17 @@ class ReaderViewModelReaderTargetSourceTest {
         withContext(Dispatchers.Default.limitedParallelism(1)) {
             withTimeout(5_000) {
                 while (uiState.value.isLoading) {
+                    delay(10)
+                }
+            }
+        }
+        return uiState.value
+    }
+
+    private suspend fun ReaderViewModel.awaitSyncIdle(): ReaderUiState {
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(5_000) {
+                while (uiState.value.isSyncing) {
                     delay(10)
                 }
             }

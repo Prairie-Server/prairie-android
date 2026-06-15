@@ -40,10 +40,14 @@ internal fun htmlEscape(s: String): String =
  * Builds a [ReflowableSource] for [file] given its [format]. Heavy I/O
  * (unzip, file reads) runs on the IO dispatcher.
  */
-suspend fun buildReflowableSource(format: BookFormat, file: File): ReflowableSource =
+suspend fun buildReflowableSource(
+    format: BookFormat,
+    file: File,
+    cacheRoot: File = file.parentFile ?: file,
+): ReflowableSource =
     withContext(Dispatchers.IO) {
         when (format) {
-            BookFormat.Epub -> EpubReflowSource(EpubBook.open(file, file.parentFile ?: file))
+            BookFormat.Epub -> EpubReflowSource(EpubBook.open(file, cacheRoot))
             BookFormat.Fb2 -> file.inputStream().use { Fb2ReflowSource.fromInputStream(it) }
             BookFormat.Fbz -> readFb2FromZip(file)
             BookFormat.Markdown -> MarkdownReflowSource(file.readText())

@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -187,6 +188,26 @@ fun ComicReader(
             onPageChanged(it)
         }
     }
+    val scope = rememberCoroutineScope()
+    val onPageTap: (Float) -> Unit = { xFraction ->
+        when {
+            xFraction < 1f / 3f -> {
+                if (pagerState.currentPage > 0) {
+                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                } else {
+                    onToggleChrome()
+                }
+            }
+            xFraction > 2f / 3f -> {
+                if (pagerState.currentPage < pages.lastIndex) {
+                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                } else {
+                    onToggleChrome()
+                }
+            }
+            else -> onToggleChrome()
+        }
+    }
 
     HorizontalPager(
         state = pagerState,
@@ -198,7 +219,7 @@ fun ComicReader(
             zip = zip,
             entryName = pages[pageIndex].entryName,
             targetMaxDimension = targetMaxDimension,
-            onToggleChrome = onToggleChrome,
+            onPageTap = onPageTap,
         )
     }
 }
@@ -208,7 +229,7 @@ private fun ComicPage(
     zip: ZipFile,
     entryName: String,
     targetMaxDimension: Int,
-    onToggleChrome: () -> Unit,
+    onPageTap: (Float) -> Unit,
 ) {
     var bitmapResult by remember(entryName) { mutableStateOf<Result<Bitmap>?>(null) }
     LaunchedEffect(entryName) {
@@ -219,8 +240,18 @@ private fun ComicPage(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(onToggleChrome) {
-                detectTapGestures(onTap = { onToggleChrome() })
+            .pointerInput(onPageTap) {
+                detectTapGestures(
+                    onTap = { offset ->
+                        val width = size.width
+                        val xFraction = if (width > 0) {
+                            (offset.x / width).coerceIn(0f, 1f)
+                        } else {
+                            0.5f
+                        }
+                        onPageTap(xFraction)
+                    },
+                )
             }
             .padding(8.dp),
         contentAlignment = Alignment.Center,

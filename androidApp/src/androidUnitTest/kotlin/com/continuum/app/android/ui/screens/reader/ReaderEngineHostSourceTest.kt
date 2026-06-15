@@ -24,6 +24,9 @@ class ReaderEngineHostSourceTest {
     private val comicSourceFile = File(
         "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ComicReader.kt",
     )
+    private val epubReaderSourceFile = File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/EpubReader.kt",
+    )
 
     @Test
     fun hostDispatchesEveryReaderEngineKind() {
@@ -95,9 +98,25 @@ class ReaderEngineHostSourceTest {
         assertTrue(reflowSource.contains("onToggleChrome: () -> Unit"))
         assertTrue(reflowSource.contains("else -> onToggleChrome()"))
         assertTrue(pdfSource.contains("onToggleChrome: () -> Unit"))
-        assertTrue(pdfSource.contains("detectTapGestures(onTap = { onToggleChrome() })"))
+        assertTrue(pdfSource.contains("else -> onToggleChrome()"))
         assertTrue(comicSource.contains("onToggleChrome: () -> Unit"))
-        assertTrue(comicSource.contains("detectTapGestures(onTap = { onToggleChrome() })"))
+        assertTrue(comicSource.contains("else -> onToggleChrome()"))
+    }
+
+    @Test
+    fun fixedLayoutReadersUseTapZonesForPageTurns() {
+        val pdfSource = pdfSourceFile.readText()
+        val comicSource = comicSourceFile.readText()
+
+        assertTrue(pdfSource.contains("xFraction < 1f / 3f"))
+        assertTrue(pdfSource.contains("xFraction > 2f / 3f"))
+        assertTrue(pdfSource.contains("animateScrollToPage(pagerState.currentPage - 1)"))
+        assertTrue(pdfSource.contains("animateScrollToPage(pagerState.currentPage + 1)"))
+
+        assertTrue(comicSource.contains("xFraction < 1f / 3f"))
+        assertTrue(comicSource.contains("xFraction > 2f / 3f"))
+        assertTrue(comicSource.contains("animateScrollToPage(pagerState.currentPage - 1)"))
+        assertTrue(comicSource.contains("animateScrollToPage(pagerState.currentPage + 1)"))
     }
 
     @Test
@@ -124,6 +143,26 @@ class ReaderEngineHostSourceTest {
         assertTrue(readerSource.contains("xFraction < 1f / 3f -> prevPage()"))
         assertTrue(readerSource.contains("xFraction > 2f / 3f -> nextPage()"))
         assertTrue(readerSource.contains("else -> onToggleChrome()"))
+    }
+
+    @Test
+    fun reflowWebViewKeepsBridgeCallbacksFreshAcrossRecomposition() {
+        val webViewSource = reflowWebViewSourceFile.readText()
+
+        assertTrue(webViewSource.contains("val currentOnEvent by rememberUpdatedState(onEvent)"))
+        assertTrue(webViewSource.contains("val currentOnCrash by rememberUpdatedState(onCrash)"))
+        assertTrue(webViewSource.contains("val currentOnReady by rememberUpdatedState(onReady)"))
+        assertTrue(webViewSource.contains("currentOnReady(ReflowController(webView))"))
+        assertTrue(webViewSource.contains("currentOnCrash()"))
+        assertTrue(webViewSource.contains("currentOnEvent(event)"))
+    }
+
+    @Test
+    fun epubReaderUsesEncodedDirectoryBaseUrlForWebViewResources() {
+        val source = epubReaderSourceFile.readText()
+
+        assertTrue(source.contains("readerDirectoryBaseUrl(book.unpackedRoot)"))
+        assertFalse(source.contains(""""file://${'$'}{book.unpackedRoot.absolutePath}/""""))
     }
 
     @Test

@@ -1,7 +1,10 @@
 package com.continuum.app.common.player
 
 import android.util.Log
+import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.LoadEventInfo
@@ -35,7 +38,9 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         data class DroppedFrames(val count: Int, val elapsedMs: Long) : Event()
         object AudioUnderrun : Event()
         data class LoadError(val throwable: Throwable) : Event()
+        data class PlayerError(val error: PlaybackException) : Event()
         data class BandwidthEstimate(val bitrateBps: Long) : Event()
+        data class TrackSnapshot(val description: String) : Event()
     }
 
     private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 32)
@@ -79,6 +84,15 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         _events.tryEmit(Event.AudioFormatChanged(format))
     }
 
+    override fun onTracksChanged(
+        eventTime: AnalyticsListener.EventTime,
+        tracks: Tracks,
+    ) {
+        val description = tracks.describeForLog()
+        Log.i(TAG, "Track snapshot: $description")
+        _events.tryEmit(Event.TrackSnapshot(description))
+    }
+
     override fun onDroppedVideoFrames(
         eventTime: AnalyticsListener.EventTime,
         droppedFrames: Int,
@@ -100,6 +114,14 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         _events.tryEmit(Event.AudioUnderrun)
     }
 
+    override fun onPlayerError(
+        eventTime: AnalyticsListener.EventTime,
+        error: PlaybackException,
+    ) {
+        Log.e(TAG, "Player error ${error.errorCodeName}: ${error.message}", error)
+        _events.tryEmit(Event.PlayerError(error))
+    }
+
     override fun onLoadError(
         eventTime: AnalyticsListener.EventTime,
         loadEventInfo: LoadEventInfo,
@@ -119,4 +141,31 @@ class PlaybackAnalyticsListener : AnalyticsListener {
     ) {
         _events.tryEmit(Event.BandwidthEstimate(bitrateEstimate))
     }
+}
+
+private fun Tracks.describeForLog(): String {
+    if (groups.isEmpty()) return "[]"
+    return groups.mapIndexed { groupIndex, group ->
+        val tracks = (0 until group.length).joinToString(prefix = "[", postfix = "]") { trackIndex ->
+            val format = group.getTrackFormat(trackIndex)
+            val selected = group.isTrackSelected(trackIndex)
+            val supported = group.isTrackSupported(trackIndex)
+            val sampleMimeType = format.sampleMimeType ?: "?"
+            val codecs = format.codecs ?: "?"
+            val language = format.language ?: "?"
+            val label = format.label ?: "?"
+            "$trackIndex{selected=$selected supported=$supported " +
+                "sampleMimeType=$sampleMimeType codecs=$codecs language=$language label=$label}"
+        }
+        "$groupIndex:${group.type.trackTypeName()}$tracks"
+    }.joinToString(prefix = "[", postfix = "]")
+}
+
+private fun Int.trackTypeName(): String = when (this) {
+    C.TRACK_TYPE_VIDEO -> "video"
+    C.TRACK_TYPE_AUDIO -> "audio"
+    C.TRACK_TYPE_TEXT -> "text"
+    C.TRACK_TYPE_METADATA -> "metadata"
+    C.TRACK_TYPE_IMAGE -> "image"
+    else -> "type-$this"
 }

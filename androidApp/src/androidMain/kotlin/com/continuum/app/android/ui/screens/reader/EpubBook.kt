@@ -2,6 +2,7 @@ package com.continuum.app.android.ui.screens.reader
 
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URI
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
@@ -35,7 +36,9 @@ internal class EpubBook private constructor(
 
             // container.xml points to the OPF package.
             val containerXml = safeChild(unpacked, "META-INF/container.xml", unpacked).readText()
-            val opfHref = OPF_HREF_REGEX.find(containerXml)?.groupValues?.get(1)
+            val opfHref = ROOTFILE_TAG_REGEX.findAll(containerXml)
+                .mapNotNull { it.value.xmlAttribute("full-path") }
+                .firstOrNull()
                 ?: error("EPUB missing OPF rootfile")
             val opfFile = safeChild(unpacked, opfHref, unpacked)
             val opfDir = opfFile.parentFile!!
@@ -44,11 +47,14 @@ internal class EpubBook private constructor(
             // Spine entries reference manifest items by idref. Manifest
             // items carry the actual href. Build the chapter list by
             // joining the two.
-            val manifest = MANIFEST_ITEM_REGEX.findAll(opfXml).associate {
-                it.groupValues[1] to it.groupValues[2]
-            }
-            val spine = SPINE_ITEMREF_REGEX.findAll(opfXml)
-                .map { it.groupValues[1] }
+            val manifest = ITEM_TAG_REGEX.findAll(opfXml).mapNotNull {
+                val tag = it.value
+                val id = tag.xmlAttribute("id")
+                val href = tag.xmlAttribute("href")
+                if (id != null && href != null) id to href else null
+            }.toMap()
+            val spine = ITEMREF_TAG_REGEX.findAll(opfXml)
+                .mapNotNull { it.value.xmlAttribute("idref") }
                 .mapNotNull { manifest[it] }
                 .toList()
 
@@ -106,13 +112,25 @@ internal class EpubBook private constructor(
             return md.digest().joinToString("") { "%02x".format(it) }
         }
 
-        // Quick-and-dirty regex parsing — full XML parser overkill for
-        // OPF's well-formed structure. Real spec compliance lands when
-        // we hit a malformed EPUB in the wild.
-        private val OPF_HREF_REGEX = Regex("""<rootfile[^>]*full-path="([^"]+)"""")
-        private val MANIFEST_ITEM_REGEX =
-            Regex("""<item\s+(?=[^>]*\bid="([^"]+)")(?=[^>]*\bhref="([^"]+)")[^>]*>""")
-        private val SPINE_ITEMREF_REGEX = Regex("""<itemref[^>]*idref="([^"]+)"""")
+        private fun String.xmlAttribute(name: String): String? {
+            val pattern = Regex("""\b${Regex.escape(name)}\s*=\s*(['"])(.*?)\1""")
+            return pattern.find(this)?.groupValues?.get(2)?.decodeXmlAttributeEntities()
+        }
 
+        private fun String.decodeXmlAttributeEntities(): String =
+            replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+
+        private val ROOTFILE_TAG_REGEX = Regex("""<rootfile\b[^>]*>""", RegexOption.IGNORE_CASE)
+        private val ITEM_TAG_REGEX = Regex("""<item\b[^>]*>""", RegexOption.IGNORE_CASE)
+        private val ITEMREF_TAG_REGEX = Regex("""<itemref\b[^>]*>""", RegexOption.IGNORE_CASE)
     }
+}
+
+internal fun readerDirectoryBaseUrl(directory: File): String {
+    val path = directory.absoluteFile.path.trimEnd(File.separatorChar) + File.separator
+    return URI("file", "", path, null).toASCIIString()
 }

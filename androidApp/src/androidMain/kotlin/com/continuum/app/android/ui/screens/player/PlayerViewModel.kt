@@ -111,6 +111,7 @@ class PlayerViewModel(
         val sessionId: String? = null,
         val playMethod: PlayMethod? = null,
         val streamUrl: String? = null,
+        val container: String? = null,
         val serverUrl: String = "",
         val accessToken: String = "",
         val startPosition: Double = 0.0,
@@ -392,6 +393,7 @@ class PlayerViewModel(
                 sessionId = playbackState.sessionId,
                 playMethod = playbackState.playMethod,
                 streamUrl = playbackState.streamUrl,
+                container = playbackState.container,
                 serverUrl = playbackState.serverUrl,
                 accessToken = playbackState.accessToken,
                 startPosition = playbackState.startPositionSeconds,
@@ -466,6 +468,8 @@ class PlayerViewModel(
                 "Lossless audio not supported on this output. Falling back to transcoded stream."
             is com.continuum.app.common.player.Playability.UnsupportedChannelCount ->
                 "Audio channel count not supported. Falling back to transcoded stream."
+            is com.continuum.app.common.player.Playability.StartupStalled ->
+                "Playback did not start cleanly on this device. Falling back to transcoded stream."
             com.continuum.app.common.player.Playability.Supported -> return
         }
         Log.i(TAG, "Preflight fallback: $notice")
@@ -980,6 +984,7 @@ class PlayerViewModel(
                             sessionId = session.sessionId,
                             playMethod = session.playMethod,
                             streamUrl = session.streamUrl,
+                            container = version.container,
                             startPosition = currentPosition,
                             position = currentPosition,
                             duration = session.durationSeconds ?: version.duration,
@@ -1052,6 +1057,7 @@ class PlayerViewModel(
                     sessionId = null,
                     playMethod = null,
                     streamUrl = null,
+                    container = null,
                     subtitleTracks = emptyList(),
                     isPaused = true,
                     isPlaying = false,

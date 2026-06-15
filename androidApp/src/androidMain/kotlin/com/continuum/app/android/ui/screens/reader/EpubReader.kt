@@ -184,7 +184,7 @@ private fun EpubChapter(book: EpubBook, chapterIndex: Int, settings: ReaderDispl
                 // baseUrl lets relative <img src> / <link rel='stylesheet'>
                 // refs inside the chapter resolve against the unpacked epub
                 // root on disk.
-                val base = "file://${book.unpackedRoot.absolutePath}/"
+                val base = readerDirectoryBaseUrl(book.unpackedRoot)
                 web.loadDataWithBaseURL(base, html, "text/html", "utf-8", null)
             }
         },
@@ -215,4 +215,3 @@ private fun String.withReaderCss(settings: ReaderDisplaySettings, systemDark: Bo
     val insertAt = headMatch.range.last + 1
     return replaceRange(insertAt, insertAt, "\n$style")
 }
-

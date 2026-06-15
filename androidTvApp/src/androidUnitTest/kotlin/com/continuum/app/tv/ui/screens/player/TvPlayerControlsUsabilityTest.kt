@@ -136,6 +136,65 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
+    fun dedicatedSubtitleMenuKeepsSyncControlsAboveScrollableTrackList() {
+        val syncIndex = subtitleMenuSource.indexOf("SubtitleSyncStrip(")
+        val listIndex = subtitleMenuSource.indexOf("LazyColumn(")
+
+        assertTrue(syncIndex >= 0, "subtitle sync controls should be a named compact strip")
+        assertTrue(listIndex >= 0, "subtitle tracks should stay in a scrollable list")
+        assertTrue(
+            syncIndex < listIndex,
+            "subtitle sync controls must not be buried below long subtitle track lists",
+        )
+        assertTrue(subtitleMenuSource.contains("Subtitle Sync"))
+        assertTrue(subtitleMenuSource.contains("Advance subtitles"))
+        assertTrue(subtitleMenuSource.contains("Delay subtitles"))
+    }
+
+    @Test
+    fun dedicatedSubtitleMenuUsesPlusMinusSubtitleSyncStepper() {
+        assertTrue(subtitleMenuSource.contains("Icons.Filled.Remove"))
+        assertTrue(subtitleMenuSource.contains("Icons.Filled.Add"))
+        assertTrue(subtitleMenuSource.contains("SubtitleDelayStepButton("))
+        assertTrue(subtitleMenuSource.contains("subtitleSyncCompactValue(valueMs)"))
+        assertFalse(subtitleMenuSource.contains("label = \"-250\""))
+        assertFalse(subtitleMenuSource.contains("label = \"-100\""))
+        assertFalse(subtitleMenuSource.contains("label = \"+100\""))
+        assertFalse(subtitleMenuSource.contains("label = \"+250\""))
+    }
+
+    @Test
+    fun dedicatedSubtitleSyncStepperUsesOnePredictableStepSize() {
+        assertTrue(subtitleMenuSource.contains("private const val SUBTITLE_SYNC_STEP_MS = 100"))
+        assertTrue(subtitleMenuSource.contains("onChange(valueMs - SUBTITLE_SYNC_STEP_MS)"))
+        assertTrue(subtitleMenuSource.contains("onChange(valueMs + SUBTITLE_SYNC_STEP_MS)"))
+    }
+
+    @Test
+    fun dedicatedSubtitleSyncButtonsUseStableIconSizing() {
+        val buttonBlock = subtitleMenuSource
+            .substringAfter("private fun SubtitleDelayStepButton")
+
+        assertTrue(buttonBlock.contains(".width(64.dp)"))
+        assertTrue(buttonBlock.contains("Icon("))
+        assertTrue(buttonBlock.contains("imageVector = icon"))
+        assertFalse(buttonBlock.contains("padding(horizontal = 14.dp"))
+    }
+
+    @Test
+    fun dedicatedSubtitleSyncUsesCompactLayoutInsteadOfLargeCard() {
+        val syncBlock = subtitleMenuSource
+            .substringAfter("private fun SubtitleSyncStrip")
+            .substringBefore("@Composable\nprivate fun SubtitleDelayStepperRow")
+
+        assertTrue(syncBlock.contains("Subtitle Sync"))
+        assertTrue(syncBlock.contains("subtitleSyncLabel(valueMs)"))
+        assertFalse(syncBlock.contains("subtitleSyncDescription"))
+        assertFalse(syncBlock.contains("RoundedCornerShape(18.dp)"))
+        assertFalse(syncBlock.contains(".padding(16.dp)"))
+    }
+
+    @Test
     fun dedicatedSubtitleMenuRowsPinVerticalFocusTraversal() {
         assertTrue(subtitleMenuSource.contains(".focusProperties"))
         assertTrue(subtitleMenuSource.contains("upFocusRequester"))
@@ -164,5 +223,14 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(viewModelSource.contains("controlsVisibilityNonce"))
         assertTrue(viewModelSource.contains("controlsVisibilityNonce = if (visible)"))
         assertTrue(screenSource.contains("state.controlsVisibilityNonce"))
+    }
+
+    @Test
+    fun tvPlayerDetectsDirectStartupStallsAndUsesExistingFallbackPath() {
+        assertTrue(screenSource.contains("PlaybackStartupStallDetector"))
+        assertTrue(screenSource.contains("startupStallDetector.onMounted("))
+        assertTrue(screenSource.contains("startupStallDetector.sample("))
+        assertTrue(screenSource.contains("viewModel.onUnsupportedPlayback(reason)"))
+        assertTrue(viewModelSource.contains("Playability.StartupStalled"))
     }
 }

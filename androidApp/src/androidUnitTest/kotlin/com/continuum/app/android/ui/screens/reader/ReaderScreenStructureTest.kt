@@ -83,7 +83,7 @@ class ReaderScreenStructureTest {
     }
 
     @Test
-    fun shellOwnsReaderSystemBarContrastAndContentInsets() {
+    fun shellOverlaysReaderChromeWithoutResizingReaderSurface() {
         assertTrue(shell.contains("ReaderSystemBarEffect("))
         assertTrue(shell.contains("WindowCompat.getInsetsController"))
         assertTrue(shell.contains("isAppearanceLightStatusBars"))
@@ -92,8 +92,10 @@ class ReaderScreenStructureTest {
         assertTrue(shell.contains("WindowInsets.statusBars"))
         assertTrue(shell.contains("WindowInsets.navigationBars"))
         assertTrue(shell.contains(".background(readerBackground)"))
-        assertTrue(shell.contains("chromeVisible: Boolean"))
-        assertTrue(shell.contains("READER_TOP_CHROME_HEIGHT"))
-        assertTrue(shell.contains("READER_BOTTOM_CHROME_HEIGHT"))
+        assertFalse(shell.contains("chromeVisible: Boolean"))
+        assertFalse(shell.contains("topChromePadding"))
+        assertFalse(shell.contains("bottomChromePadding"))
+        assertFalse(shell.contains("READER_TOP_CHROME_HEIGHT"))
+        assertFalse(shell.contains("READER_BOTTOM_CHROME_HEIGHT"))
     }
 }

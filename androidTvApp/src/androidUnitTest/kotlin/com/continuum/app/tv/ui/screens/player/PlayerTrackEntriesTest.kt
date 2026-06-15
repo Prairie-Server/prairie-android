@@ -55,6 +55,36 @@ class PlayerTrackEntriesTest {
         assertEquals(listOf(false, false), disabled.map { it.isSelected })
     }
 
+    @Test
+    fun textTracksExposeEmbeddedBitmapSubtitlesAndPreserveMedia3FlatIndex() {
+        val group = TrackGroup(
+            Format.Builder()
+                .setLabel("English SDH")
+                .setLanguage("en")
+                .setSampleMimeType("application/x-media3-cues")
+                .setCodecs(MimeTypes.APPLICATION_PGS)
+                .build(),
+            subtitle(label = "English VTT", language = "en"),
+        )
+        val tracks = Tracks(
+            listOf(
+                Tracks.Group(
+                    group,
+                    false,
+                    intArrayOf(C.FORMAT_HANDLED, C.FORMAT_HANDLED),
+                    booleanArrayOf(false, false),
+                ),
+            ),
+        )
+
+        val entries = extractTrackEntries(tracks, C.TRACK_TYPE_TEXT)
+
+        assertEquals(2, entries.size)
+        assertEquals(listOf(0, 1), entries.map { it.index })
+        assertEquals(listOf("English SDH", "English VTT"), entries.map { it.label })
+        assertTrue(entries[0].displayLabel.contains("PGS"))
+    }
+
     private fun subtitle(
         label: String,
         language: String,

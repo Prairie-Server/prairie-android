@@ -40,4 +40,16 @@ class ContinuumPlayerFactorySubtitleParserTest {
             "MediaItem metadata must carry duration to keep MediaSession queue and current metadata in sync",
         )
     }
+
+    @Test
+    fun directPlaybackMediaItemsUseContainerMimeHints() {
+        assertTrue(
+            source.contains("container: String? = null"),
+            "buildMediaItem should accept the selected file container so extensionless stream URLs do not rely on sniffing.",
+        )
+        assertTrue(
+            source.contains("videoContainerMimeType(container)"),
+            "direct/remux MediaItems should set a MIME hint from the selected file container.",
+        )
+    }
 }

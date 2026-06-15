@@ -54,4 +54,42 @@ class ReflowStyleTest {
         assertTrue(paginator.contains("styleEl.textContent = css"))
         assertFalse(paginator.contains("'#reflow-root{'+css+'}'"))
     }
+
+    @Test
+    fun `paginator advances by scrolling columns instead of translating clipped root`() {
+        val paginator = File("src/androidMain/assets/reader/reflow/paginator.js").readText()
+
+        assertTrue(paginator.contains("root.scrollLeft = page * viewW()"))
+        assertFalse(paginator.contains("root.style.transform"))
+        assertFalse(paginator.contains("translateX"))
+    }
+
+    @Test
+    fun `paginator counts partial trailing columns as readable pages`() {
+        val paginator = File("src/androidMain/assets/reader/reflow/paginator.js").readText()
+
+        assertTrue(paginator.contains("Math.ceil(root.scrollWidth / width)"))
+        assertFalse(paginator.contains("Math.round(root.scrollWidth / viewW())"))
+    }
+
+    @Test
+    fun `paginator remeasures after embedded images finish loading`() {
+        val paginator = File("src/androidMain/assets/reader/reflow/paginator.js").readText()
+
+        assertTrue(paginator.contains("root.querySelectorAll('img')"))
+        assertTrue(paginator.contains("img.addEventListener('load', onLoad)"))
+        assertTrue(paginator.contains("img.removeEventListener('load', onLoad)"))
+    }
+
+    @Test
+    fun `paginator aligns column width and gap to reader gutters`() {
+        val paginator = File("src/androidMain/assets/reader/reflow/paginator.js").readText()
+        val readerHtml = File("src/androidMain/assets/reader/reflow/reader.html").readText()
+
+        assertTrue(paginator.contains("window.getComputedStyle(root)"))
+        assertTrue(paginator.contains("horizontalPadding"))
+        assertTrue(paginator.contains("root.style.columnGap = horizontalPadding + 'px'"))
+        assertTrue(paginator.contains("root.style.columnWidth = Math.max(1, viewW() - horizontalPadding) + 'px'"))
+        assertFalse(readerHtml.contains("will-change:transform"))
+    }
 }

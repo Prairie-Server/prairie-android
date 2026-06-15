@@ -4,6 +4,7 @@ package com.continuum.app.tv.ui.screens.player
 
 import android.app.Activity
 import android.content.ComponentName
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -53,6 +54,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
@@ -73,6 +75,7 @@ import com.continuum.app.common.player.VideoPlayerMediaSpec
 import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
 import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
 import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
+import com.continuum.app.common.player.video.PlaybackStartupStallDetector
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
 import com.continuum.app.model.watchtogether.RoomPlaybackState
 import com.continuum.app.player.formatSubtitleTrackDisplayLabel
@@ -152,6 +155,7 @@ fun TvPlayerScreen(
     // the phone PlayerScreen's `playerViewRef` pattern.
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     var transportFocusRequest by remember { mutableStateOf(0) }
+    val startupStallDetector = remember { PlaybackStartupStallDetector() }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -484,8 +488,34 @@ fun TvPlayerScreen(
         }
     }
 
+    LaunchedEffect(mediaController, state.sessionId, state.streamUrl, state.playMethod) {
+        val controller = mediaController ?: return@LaunchedEffect
+        val sessionId = state.sessionId ?: return@LaunchedEffect
+        val streamUrl = state.streamUrl ?: return@LaunchedEffect
+        val sessionKey = "$sessionId:$streamUrl"
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                val reason = startupStallDetector.sample(
+                    sessionKey = sessionKey,
+                    nowMs = SystemClock.elapsedRealtime(),
+                    playWhenReady = controller.playWhenReady,
+                    isPlaying = controller.isPlaying,
+                    isBuffering = controller.playbackState == Player.STATE_BUFFERING,
+                    currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
+                    bufferedPositionMs = controller.bufferedPosition.coerceAtLeast(0L),
+                )
+                if (reason != null) {
+                    Log.i(TAG, "Startup stall fallback: $reason")
+                    viewModel.onUnsupportedPlayback(reason)
+                    return@repeatOnLifecycle
+                }
+                delay(1_000)
+            }
+        }
+    }
+
     // Prepare the player when a stream URL becomes available.
-    LaunchedEffect(videoBackend, state.streamUrl, state.sessionId) {
+    LaunchedEffect(videoBackend, state.sessionId, state.streamUrl, state.playMethod, state.startPosition) {
         if (exitRequested) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
@@ -494,12 +524,21 @@ fun TvPlayerScreen(
             streamUrl = url,
             playMethod = method,
             serverUrl = state.serverUrl,
+            container = state.container,
             subtitles = state.subtitleUrls,
             title = state.title.ifBlank { null },
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
             durationSeconds = state.duration,
         )
+        state.sessionId?.let { sessionId ->
+            startupStallDetector.onMounted(
+                sessionKey = "$sessionId:$url",
+                playMethod = method,
+                startPositionMs = mediaSpec.startPositionMs,
+                nowMs = SystemClock.elapsedRealtime(),
+            )
+        }
         backend.mount(mediaSpec)
     }
 
@@ -518,6 +557,7 @@ fun TvPlayerScreen(
             streamUrl = url,
             playMethod = method,
             serverUrl = state.serverUrl,
+            container = state.container,
             subtitles = state.subtitleUrls,
             title = state.title.ifBlank { null },
             artworkUrl = state.artworkUrl,
@@ -1242,23 +1282,24 @@ internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEnt
         if (type == C.TRACK_TYPE_TEXT) {
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
+                val media3FlatTextIndex = flatTextIndex
+                flatTextIndex++
                 val label = format.label.orEmpty().ifBlank { format.language?.uppercase() ?: "" }
                 result.add(
                     PlayerTrackEntry(
-                        index = flatTextIndex,
+                        index = media3FlatTextIndex,
                         label = label,
                         language = format.language,
                         isSelected = group.isTrackSelected(trackIndex),
                         displayLabel = formatSubtitleTrackDisplayLabel(
                             rawLabel = label,
                             language = format.language,
-                            codecOrMime = format.sampleMimeType ?: format.codecs,
+                            codecOrMime = format.subtitleCodecOrMime(),
                             isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
                             index = flatTextIndex,
                         ),
                     ),
                 )
-                flatTextIndex++
             }
             continue
         }
@@ -1279,3 +1320,10 @@ internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEnt
     }
     return result
 }
+
+private fun Format.subtitleCodecOrMime(): String? =
+    if (sampleMimeType == "application/x-media3-cues") {
+        codecs ?: sampleMimeType
+    } else {
+        sampleMimeType ?: codecs
+    }

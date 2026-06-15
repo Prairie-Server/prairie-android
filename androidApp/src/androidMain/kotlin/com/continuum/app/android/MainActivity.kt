@@ -21,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import com.continuum.app.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
+import com.continuum.app.android.downloads.hasLegacyPublicDownloadPermission
 import com.continuum.app.android.ui.navigation.AppNavigation
 import com.continuum.app.android.ui.navigation.Route
 import com.continuum.app.android.ui.navigation.deviceLoginPairRouteOrNull
@@ -48,11 +50,14 @@ class MainActivity : ComponentActivity() {
     // without it.
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* fire-and-forget */ }
+    private val requestLegacyPublicDownloadPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* fire-and-forget */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         maybeRequestNotificationPermission()
+        maybeRequestLegacyPublicDownloadPermission()
 
         val themeManager = get<ThemeManager>(ThemeManager::class.java)
 
@@ -123,6 +128,11 @@ class MainActivity : ComponentActivity() {
         val perm = Manifest.permission.POST_NOTIFICATIONS
         if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) return
         requestNotificationPermission.launch(perm)
+    }
+
+    private fun maybeRequestLegacyPublicDownloadPermission() {
+        if (hasLegacyPublicDownloadPermission(this)) return
+        requestLegacyPublicDownloadPermission.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
     }
 
     /**

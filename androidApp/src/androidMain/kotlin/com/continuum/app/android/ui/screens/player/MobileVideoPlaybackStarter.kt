@@ -138,6 +138,7 @@ class MobileVideoPlaybackStarter(
                 sessionId = resolved.sessionId,
                 streamUrl = resolved.streamUrl,
                 playMethod = resolved.playMethod,
+                container = version.container,
                 title = watchDetail.title,
                 subtitle = buildSubtitle(watchDetail).takeIf { it.isNotBlank() },
                 artworkUrl = watchDetail.posterUrl?.takeIf { it.isNotBlank() }

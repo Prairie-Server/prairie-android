@@ -15,6 +15,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.OutputStream
+import java.net.URI
 
 /**
  * Storage coordinator for downloads. Sidecars live under private [baseDir];
@@ -32,7 +33,7 @@ class DownloadStorage(
             MediaStorePublicDownloadStore(context.applicationContext)
         } else {
             FileBackedPublicDownloadStore(
-                root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Silo"),
+                collectionRoots = legacyPublicCollectionRoots(),
                 onFileCompleted = { file ->
                     MediaScannerConnection.scanFile(
                         context.applicationContext,
@@ -306,9 +307,18 @@ interface PublicDownloadStore {
 }
 
 class FileBackedPublicDownloadStore(
-    private val root: File,
+    root: File? = null,
+    collectionRoots: Map<PublicDownloadCollection, File>? = null,
     private val onFileCompleted: (File) -> Unit = {},
 ) : PublicDownloadStore {
+    private val rootsByCollection: Map<PublicDownloadCollection, File> =
+        collectionRoots ?: PublicDownloadCollection.entries.associateWith { collection ->
+            File(requireNotNull(root) { "root or collectionRoots is required" }, collection.directoryName)
+        }
+    private val roots: List<File> = rootsByCollection.values.distinctBy { file ->
+        runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+    }
+
     override fun create(
         serverId: String,
         profileId: String,
@@ -318,13 +328,13 @@ class FileBackedPublicDownloadStore(
         mediaType: String?,
     ): DownloadTarget {
         val collection = PublicDownloadCollection.forMediaType(mediaType)
-        val dir = File(root, "${collection.directoryName}/$serverId/$profileId/$fileId").apply {
+        val dir = File(collectionRoot(collection), "$serverId/$profileId/$fileId").apply {
             deleteRecursively()
             mkdirs()
         }
         val file = File(dir, displayName)
         return DownloadTarget(
-            uriString = "file://${file.absolutePath}",
+            uriString = fileUriString(file),
             displayName = displayName,
             openOutputStream = { file.outputStream() },
             sizeBytes = { file.length() },
@@ -332,18 +342,20 @@ class FileBackedPublicDownloadStore(
     }
 
     override fun locate(uriString: String): DownloadLocation? {
-        if (!uriString.startsWith("file://")) return null
-        val file = File(uriString.removePrefix("file://"))
+        if (!uriString.startsWith("file:", ignoreCase = true)) return null
+        val file = runCatching { File(URI(uriString)) }.getOrElse {
+            File(uriString.removePrefix("file://").removePrefix("file:"))
+        }
         if (!file.isFile) return null
         return FileDownloadLocation(uriString, file.name, file.length(), file)
     }
 
     override fun locateByFileId(serverId: String, profileId: String, fileId: Int): DownloadLocation? {
         PublicDownloadCollection.entries.forEach { collection ->
-            val dir = File(root, "${collection.directoryName}/$serverId/$profileId/$fileId")
+            val dir = File(collectionRoot(collection), "$serverId/$profileId/$fileId")
             val file = dir.listFiles { f -> f.isFile }?.sortedBy { it.name }?.firstOrNull()
             if (file != null) {
-                return FileDownloadLocation("file://${file.absolutePath}", file.name, file.length(), file)
+                return FileDownloadLocation(fileUriString(file), file.name, file.length(), file)
             }
         }
         return null
@@ -353,7 +365,7 @@ class FileBackedPublicDownloadStore(
         val fromUri = uriString?.let { locate(it) as? FileDownloadLocation }?.file
         if (fromUri != null) return fromUri.delete()
         return PublicDownloadCollection.entries.any { collection ->
-            val target = File(root, "${collection.directoryName}/$serverId/$profileId/$fileId")
+            val target = File(collectionRoot(collection), "$serverId/$profileId/$fileId")
             target.exists() && target.deleteRecursively()
         }
     }
@@ -366,7 +378,7 @@ class FileBackedPublicDownloadStore(
     override fun deleteAllForProfile(serverId: String, profileId: String): Boolean {
         var deleted = false
         PublicDownloadCollection.entries.forEach { collection ->
-            val target = File(root, "${collection.directoryName}/$serverId/$profileId")
+            val target = File(collectionRoot(collection), "$serverId/$profileId")
             deleted = (target.exists() && target.deleteRecursively()) || deleted
         }
         return deleted
@@ -375,28 +387,34 @@ class FileBackedPublicDownloadStore(
     override fun deleteAllForServer(serverId: String): Boolean {
         var deleted = false
         PublicDownloadCollection.entries.forEach { collection ->
-            val target = File(root, "${collection.directoryName}/$serverId")
+            val target = File(collectionRoot(collection), serverId)
             deleted = (target.exists() && target.deleteRecursively()) || deleted
         }
         return deleted
     }
 
     override fun totalBytesUsed(): Long {
-        if (!root.exists()) return 0L
         var total = 0L
-        root.walkTopDown().forEach { if (it.isFile) total += it.length() }
+        roots.forEach { root ->
+            if (root.exists()) root.walkTopDown().forEach { if (it.isFile) total += it.length() }
+        }
         return total
     }
 
     override fun totalBytesUsed(serverId: String, profileId: String): Long {
-        if (!root.exists()) return 0L
         var total = 0L
         PublicDownloadCollection.entries.forEach { collection ->
-            val dir = File(root, "${collection.directoryName}/$serverId/$profileId")
+            val dir = File(collectionRoot(collection), "$serverId/$profileId")
             if (dir.exists()) dir.walkTopDown().forEach { if (it.isFile) total += it.length() }
         }
         return total
     }
+
+    private fun collectionRoot(collection: PublicDownloadCollection): File =
+        rootsByCollection[collection] ?: error("No public download root for $collection")
+
+    private fun fileUriString(file: File): String =
+        URI("file", "", file.absolutePath, null).toASCIIString()
 }
 
 class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
@@ -545,6 +563,22 @@ fun mediaStoreRelativePath(
     profileId: String,
     fileId: Int,
 ): String = "${collection.relativeRoot}/Silo/$serverId/$profileId/$fileId/"
+
+fun legacyPublicCollectionRoots(): Map<PublicDownloadCollection, File> =
+    mapOf(
+        PublicDownloadCollection.Downloads to File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "Silo",
+        ),
+        PublicDownloadCollection.Video to File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+            "Silo",
+        ),
+        PublicDownloadCollection.Audio to File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            "Silo",
+        ),
+    )
 
 enum class PublicDownloadCollection(val directoryName: String, val relativeRoot: String) {
     Video("Movies", "Movies"),

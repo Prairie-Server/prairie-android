@@ -1,6 +1,7 @@
 package com.continuum.app.common.player
 
 import android.content.Intent
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -122,20 +123,44 @@ class ContinuumPlaybackService : MediaSessionService() {
 
         // Mirror the per-profile SubtitleSyncMs preference into the active
         // SubtitleOffsetHolder. OffsetSubtitleParserFactory reads the holder
-        // on every parse, but already-emitted cues stay in the text-renderer
-        // buffer — a seekTo(currentPosition) drops them so the new offset
-        // applies to the next batch.
+        // on every parse. Sidecar subtitles are commonly parsed up front, so
+        // changing the holder alone cannot retime already-built cue timestamps.
+        // Reprepare the current item at the same position so the parser rebuilds
+        // cues with the new offset while preserving play/pause intent.
         subtitleSyncJob = scope.launch {
             playerSettingsStore.subtitleSyncMsFlow
                 .distinctUntilChanged()
                 .collect { offsetMs ->
                     val previous = subtitleOffsetHolder.getOffsetMs()
                     subtitleOffsetHolder.setOffsetMs(offsetMs)
-                    if (previous != offsetMs && player.isPlaying) {
-                        player.seekTo(player.currentPosition)
+                    if (previous != offsetMs) {
+                        reparseCurrentMediaItemAtCurrentPosition(player, offsetMs)
                     }
                 }
         }
+    }
+
+    private fun reparseCurrentMediaItemAtCurrentPosition(player: Player, offsetMs: Int) {
+        if (player.mediaItemCount == 0) return
+        if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) return
+
+        val currentIndex = player.currentMediaItemIndex
+        if (currentIndex !in 0 until player.mediaItemCount) return
+
+        val currentItem = player.getMediaItemAt(currentIndex)
+        val hasConfiguredSubtitles =
+            currentItem.localConfiguration?.subtitleConfigurations?.isNotEmpty() == true
+        val hasTextTracks = player.currentTracks.groups.any { it.type == C.TRACK_TYPE_TEXT }
+        if (!hasConfiguredSubtitles && !hasTextTracks) return
+
+        val mediaItems = (0 until player.mediaItemCount).map { index -> player.getMediaItemAt(index) }
+        val positionMs = player.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = player.playWhenReady
+
+        player.setMediaItems(mediaItems, currentIndex, positionMs)
+        player.prepare()
+        player.playWhenReady = playWhenReady
+        android.util.Log.i(TAG, "Reprepared media item to apply subtitle sync: ${offsetMs}ms")
     }
 
     private fun createPlaybackPlayer(): Player =
