@@ -25,22 +25,28 @@ agent reading the mapped reference apps against silo's current code.
 - Correctness items overlapping the playback/reader review (2026-06-15) are flagged.
 - Constraints carried throughout: **Android 7 / API 24 hard floor** and **AGPLv3**.
 
-## License reality (read before copying any code)
+## Licensing (personal project — not a constraint)
 
-silo is **AGPLv3**. The roadmap's "copyleft is not a blocker" is true *for ideas* and
-*for AGPL/GPLv3 code*, but there is a real incompatibility to respect:
+This is a personal, non-distributed project, so copyleft obligations (AGPL/GPL/LGPL)
+do not trigger and **license is not a blocker** — any reference code can be copied freely.
+The per-row "license" notes in the tables below and the provenance ledger are kept only
+as **lineage/maintenance breadcrumbs** (knowing where a pattern came from helps future
+debugging), not as gating rules.
 
-| License of source | Copy code into silo? | Use as pattern/reimplement? |
-|---|---|---|
-| AGPL-3.0 (readest, koreader) | Yes | Yes |
-| GPL-3.0 / LGPL-3.0 (book-story, Kotatsu, seeneva, Voice, lissen, findroid, AFinity, LibreraReader, libmobi) | Yes (GPLv3-or-later → AGPLv3 OK; LGPL as separate lib) | Yes |
-| **GPL-2.0-only** (jellyfin-androidtv, jellyfin-android, Wholphin) | **No** — not AGPLv3-compatible for direct reuse | Yes — architecture reference only, reimplement |
-| Apache-2.0 (mihon, komikku, Seismic) | Yes (with attribution) | Yes |
-| MIT (JellyBook) | Avoid copying (attribution friction in AGPL tree) | Ideas only |
+The only reason to *reimplement* rather than paste, then, is **engineering fit**, and it
+still applies in specific cases:
 
-**Practical rule:** treat the Jellyfin GPLv2 clients and MIT JellyBook as *read-only
-references*; reimplement their ideas in silo's own code. Track lineage in the provenance
-ledger below per the roadmap's AGPL tracking requirement.
+- Different UI stack — silo is **Compose/KMP-first**; the Jellyfin clients, mihon, Kotatsu,
+  document-viewer, etc. are XML View + RecyclerView/ViewPager. Pasting their view holders
+  imports a parallel UI stack.
+- Parallel infrastructure — don't drag in a second DI/preferences system (mihon's Injekt,
+  others' DataStore wrappers) when silo already has its own.
+- Native packaging — MuPDF/pdfium, libmobi, MPV add NDK builds, ABI/`.so` weight, and
+  API24 risk; those are *architecture decisions*, not free copies, regardless of license.
+
+So: **copy whatever is a clean fit; reimplement only where the source's architecture
+clashes with silo's.** The "what NOT to borrow" notes below now reflect engineering fit,
+not licensing.
 
 ---
 
@@ -157,10 +163,10 @@ They de-risk everything built on top.
 
 ### What NOT to borrow / risks
 
-- Don't copy JellyBook (MIT) code; don't adopt book-story's CSS-discarding native-text parser (silo's WebView correctly preserves publisher CSS).
+- Don't adopt book-story's CSS-discarding native-text parser (silo's WebView correctly preserves publisher CSS) — borrow its shell/settings/state, not its parser. (JellyBook is thin; ideas only.)
 - Don't chase koreader's CREngine; only its Lua data tables/UX taxonomy are practical.
 - Full EPUB-CFI is heavy — a lighter element-selector + text-quote anchor gives ~90% of resume/bookmark stability for far less.
-- libmobi adds NDK build + binary size + LGPL notice obligations — justify only if MOBI/AZW is a real need; otherwise keep graceful external-open.
+- libmobi adds an NDK build + binary size + maintenance — justify only if MOBI/AZW is a real need; otherwise keep graceful external-open.
 - Variable fonts and CSS hyphenation are API-version-sensitive in System WebView — ship static weights and gate hyphenation on API24.
 - **Fix the two confirmed bugs before layering features** — both undermine any feature assuming correct asset loading / version selection.
 
@@ -325,7 +331,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 - **Don't let the streaming cache replace public downloads** — two stores: ephemeral `SimpleCache` (`externalCacheDir`, evictable) vs user-facing `DownloadStorage` (`Music/Silo`, `DownloadStorage.kt:420,596`); `OfflineMediaResolver` stays the authoritative "downloaded?" check.
 - Don't apply Voice's notification prev/next remap globally — silo's service is shared with video; gate by media type.
 - Don't adopt lissen's per-chapter `ConcatenatingMediaSource2` for the video path; keep `ContinuumPlayerFactory` buffer/processor config branched by media type.
-- License: Voice/lissen GPLv3 (AGPL-compatible) — reimplement, don't paste. Seismic Apache-2.0 (direct dep OK).
+- Voice/lissen are XML/Hilt-based audiobook apps — borrow their playback-service shape and timeline math; reimplement in silo's Compose/KMP style rather than pasting. Seismic (shake) is a clean direct dependency.
 - A7: implement the background fix with an API-level branch (`START_STICKY` + persistent `MediaSession` on API24).
 
 ## Video Player
@@ -380,7 +386,7 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 - **Don't make MPV the default / sole path on TV/A7.** Both MPV references run minSdk 28/35 — neither validates libmpv on API24/armeabi-v7a (silo packages the `.so`, but "builds" ≠ "decodes reliably on a 2017 ARMv7 box"). Keep MPV opt-in/Auto-only (as `VideoPlaybackBackendSelector` already does); keep abiFilters tight (APK size).
 - **Don't destabilize the Media3 path during the reading phase.** Highest-value, lowest-risk S items (text-disable fix, capability surfacing, FF/REW, off-thread auth) are all Media3-side — land those first; defer libass-on-Media3 (L) and MPV styling (M).
-- **Don't copy GPLv2 code** (jellyfin-androidtv/android, Wholphin) into AGPLv3 silo — reference only; reimplement. Only `dev.jdtech.mpv:libmpv` (binary dep) and a GPLv3+ libass lib are linkable.
+- The Jellyfin clients (jellyfin-androidtv/android, Wholphin) are XML View-based; reimplement their ideas in Compose rather than pasting view code — engineering fit, not license. `dev.jdtech.mpv:libmpv` is already a binary dep.
 - Keep MPV's event-driven `STATE_BUFFERING` (push) rather than poll-only buffer; use `getBufferedPosition()` only for the scrub cushion.
 - Route the `evaluateTracks` audio check through the real `MediaCodecList` probe rather than the static mime set on exotic devices.
 
@@ -433,7 +439,9 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 ## Provenance Ledger
 
-Per the roadmap's AGPL lineage-tracking requirement. Update as items land.
+Lineage breadcrumbs (maintenance aid, not a license requirement). "Mode" = whether the
+source's architecture is a clean fit (copy) or clashes with silo's stack (reimplement).
+Update as items land.
 
 | Idea borrowed | Source app | Source license | Mode |
 |---|---|---|---|
@@ -447,10 +455,10 @@ Per the roadmap's AGPL lineage-tracking requirement. Update as items land.
 | PDF memory budget, LRU/pool, OOM recovery, fit modes, thumbnails | document-viewer, LibreraReader, koreader | GPL-3.0 / AGPL-3.0 | reimplement |
 | Audiobook timeline/MediaSource, dual cache, boundary sync | lissen-android | GPL-3.0 | reimplement |
 | Sleep timer fade/shake, per-book audio, chapter cue points | Voice | GPL-3.0 | reimplement (Seismic Apache-2.0 direct dep) |
-| Video backend contract, switchBackend, buffer presets, resume cadence, track selection | jellyfin-androidtv, jellyfin-android | **GPL-2.0-only** | **reference only — reimplement** |
+| Video backend contract, switchBackend, buffer presets, resume cadence, track selection | jellyfin-androidtv, jellyfin-android | GPL-2.0 | reimplement (View-based → Compose) |
 | MPV-behind-BasePlayer, libass styling | findroid, AFinity | GPL-3.0 | reimplement (libmpv binary dep already used) |
-| libass-on-ExoPlayer, factory backend choice | Wholphin | **GPL-2.0-only** | **reference only — reimplement** |
-| SyncPlay time-sync/WAITING/drift correction | jellyfin-web | GPL-2.0-only | reference only — reimplement |
+| libass-on-ExoPlayer, factory backend choice | Wholphin | GPL-2.0 | reimplement (View-based → Compose) |
+| SyncPlay time-sync/WAITING/drift correction | jellyfin-web | GPL-2.0 | reimplement (JS → Kotlin) |
 
 ## Next Step
 
