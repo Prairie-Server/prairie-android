@@ -1,6 +1,7 @@
 package com.continuum.app.android.ui.screens.reader.reflow
 
 import com.continuum.app.common.ebook.ReaderDisplaySettings
+import com.continuum.app.common.ebook.ReaderFontFamily
 import com.continuum.app.common.ebook.ReaderTheme
 import java.io.File
 import kotlin.test.Test
@@ -91,5 +92,19 @@ class ReflowStyleTest {
         assertTrue(paginator.contains("root.style.columnGap = horizontalPadding + 'px'"))
         assertTrue(paginator.contains("root.style.columnWidth = Math.max(1, viewW() - horizontalPadding) + 'px'"))
         assertFalse(readerHtml.contains("will-change:transform"))
+    }
+
+    @Test fun `sans-serif font family maps to a sans stack`() {
+        val css = ReaderDisplaySettings(fontFamily = ReaderFontFamily.SansSerif)
+            .toReflowStyle(systemDark = false).toCss()
+        assertTrue(css.contains("font-family:"))
+        assertTrue(css.contains("sans-serif"))
+        assertFalse(css.contains("Georgia"))
+    }
+
+    @Test fun `line height flows from settings`() {
+        val css = ReaderDisplaySettings(lineHeight = 1.9f)
+            .toReflowStyle(systemDark = false).toCss()
+        assertTrue(css.contains("line-height:1.9"))
     }
 }
