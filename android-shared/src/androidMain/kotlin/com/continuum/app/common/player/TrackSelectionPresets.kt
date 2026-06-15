@@ -1,7 +1,6 @@
 package com.continuum.app.common.player
 
 import android.content.Context
-import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
@@ -66,10 +65,12 @@ object TrackSelectionPresets {
             .setViewportSizeToPhysicalDisplaySize(context, /* viewportOrientationMayChange = */ true)
             .setPreferredVideoMimeTypes(*videoMimes.toTypedArray())
             .setPreferredAudioMimeTypes(*audioMimes.toTypedArray())
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
 
         preferredAudioLanguage?.takeIf { it.isNotBlank() }
             ?.let { builder.setPreferredAudioLanguage(it) }
+
+        preferredTextLanguage?.takeIf { it.isNotBlank() }
+            ?.let { builder.setPreferredTextLanguage(it) }
 
         return builder.build()
     }
@@ -105,10 +106,12 @@ object TrackSelectionPresets {
                     .build(),
             )
             .setPreferredAudioMimeTypes(*audioMimes.toTypedArray())
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
 
         preferredAudioLanguage?.takeIf { it.isNotBlank() }
             ?.let { builder.setPreferredAudioLanguage(it) }
+
+        preferredTextLanguage?.takeIf { it.isNotBlank() }
+            ?.let { builder.setPreferredTextLanguage(it) }
 
         return builder.build()
     }
