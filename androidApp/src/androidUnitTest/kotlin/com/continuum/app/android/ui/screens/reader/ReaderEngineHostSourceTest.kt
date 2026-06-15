@@ -15,6 +15,9 @@ class ReaderEngineHostSourceTest {
     private val reflowSourceFile = File(
         "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/reflow/ReflowableReader.kt",
     )
+    private val reflowWebViewSourceFile = File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/reflow/ReflowWebView.kt",
+    )
     private val pdfSourceFile = File(
         "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/PdfReader.kt",
     )
@@ -104,6 +107,23 @@ class ReaderEngineHostSourceTest {
         assertTrue(source.contains("private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit)"))
         assertReaderBranchUsesToggle(source, "if (result == null)")
         assertReaderBranchUsesToggle(source, "result.exceptionOrNull()?.let { throwable ->")
+    }
+
+    @Test
+    fun reflowWebViewOwnsTapZonesBecauseAndroidViewConsumesComposePointers() {
+        val readerSource = reflowSourceFile.readText()
+        val webViewSource = reflowWebViewSourceFile.readText()
+
+        assertTrue(webViewSource.contains("onTap: (Float) -> Unit"))
+        assertTrue(webViewSource.contains("onScale: (Float) -> Unit"))
+        assertTrue(webViewSource.contains("GestureDetector"))
+        assertTrue(webViewSource.contains("ScaleGestureDetector"))
+        assertTrue(webViewSource.contains("setOnTouchListener"))
+        assertTrue(readerSource.contains("onTap = { xFraction ->"))
+        assertTrue(readerSource.contains("onScale = onTextScaleNudge"))
+        assertTrue(readerSource.contains("xFraction < 1f / 3f -> prevPage()"))
+        assertTrue(readerSource.contains("xFraction > 2f / 3f -> nextPage()"))
+        assertTrue(readerSource.contains("else -> onToggleChrome()"))
     }
 
     @Test

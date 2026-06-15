@@ -1,7 +1,6 @@
 package com.continuum.app.android.ui.screens.reader.reflow
 
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -186,25 +185,18 @@ fun ReflowableReader(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(source, onToggleChrome) {
-                detectTapGestures { o ->
-                    when {
-                        o.x < size.width / 3f -> prevPage()
-                        o.x > size.width * 2f / 3f -> nextPage()
-                        else -> onToggleChrome()
-                    }
-                }
-            }
-            .pointerInput(source) {
-                detectTransformGestures { _, _, zoom, _ ->
-                    if (zoom != 1f) onTextScaleNudge(zoom)
-                }
-            },
+        modifier = Modifier.fillMaxSize(),
     ) {
         ReflowWebView(
             modifier = Modifier.fillMaxSize(),
+            onTap = { xFraction ->
+                when {
+                    xFraction < 1f / 3f -> prevPage()
+                    xFraction > 2f / 3f -> nextPage()
+                    else -> onToggleChrome()
+                }
+            },
+            onScale = onTextScaleNudge,
             onReady = { c -> controller = c },
             onCrash = { controller?.let { loadSection() } },
             onEvent = { ev ->

@@ -3,6 +3,9 @@ package com.continuum.app.android.ui.screens.reader.reflow
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -10,7 +13,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -45,11 +50,15 @@ class ReflowController(private val web: WebView) {
 @Composable
 fun ReflowWebView(
     modifier: Modifier,
+    onTap: (Float) -> Unit,
+    onScale: (Float) -> Unit,
     onEvent: (ReflowEvent) -> Unit,
     onCrash: () -> Unit,
     onReady: (ReflowController) -> Unit,
 ) {
     val context = LocalContext.current
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentOnScale by rememberUpdatedState(onScale)
 
     // Create the WebView once and keep it stable across recompositions so the
     // page state survives. The bridge below posts back to the main thread.
@@ -69,6 +78,25 @@ fun ReflowWebView(
         val mainHandler = Handler(Looper.getMainLooper())
         var readyDelivered = false
         val density = context.resources.displayMetrics.density
+        val tapDetector = GestureDetector(
+            context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    val width = webView.width.takeIf { it > 0 } ?: return false
+                    currentOnTap((e.x / width).coerceIn(0f, 1f))
+                    return true
+                }
+            },
+        )
+        val scaleDetector = ScaleGestureDetector(
+            context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    currentOnScale(detector.scaleFactor)
+                    return true
+                }
+            },
+        )
 
         // Push the WebView's real, Compose-measured size into the page as CSS px.
         // This is what gives every page a non-zero height; the WebView's own
@@ -117,9 +145,17 @@ fun ReflowWebView(
                 return true
             }
         }
+        webView.setOnTouchListener { _, event ->
+            scaleDetector.onTouchEvent(event)
+            if (!scaleDetector.isInProgress) {
+                tapDetector.onTouchEvent(event)
+            }
+            true
+        }
         webView.loadUrl("file:///android_asset/reader/reflow/reader.html")
 
         onDispose {
+            webView.setOnTouchListener(null)
             webView.removeOnLayoutChangeListener(layoutListener)
             webView.removeJavascriptInterface("AndroidReflow")
             webView.destroy()
