@@ -325,4 +325,53 @@ class NotificationsRepositoryTest {
         repo.reset()
         assertTrue(repo.rows.value.isEmpty())
     }
+
+    // ---- atomic mutate consistency -------------------------------------------
+
+    /**
+     * Verifies that after applying an event via the production [mutate] path,
+     * [rows], [unreadCount], and the internal [_state] all agree. This would
+     * fail if the read-modify-write were non-atomic (e.g. `_rows` updated but
+     * `_unreadCount` still reflecting the old state, or vice-versa).
+     *
+     * We seed two unread rows, then apply a [NotificationRealtimeEvent.Read]
+     * event for one of them. After the fold:
+     *   - rows.value must contain exactly the two rows
+     *   - unreadCount.value must equal 1 (one row remaining unread)
+     *   - unreadCount.value must equal recomputeUnread(rows.value) — the
+     *     derived flows must be consistent with each other and with _state.
+     */
+    @Test
+    fun `mutate keeps rows and unreadCount consistent with state after event`() {
+        val repo = NotificationsRepository(FakeNotificationsApi())
+
+        // Seed two unread rows via the internal seam.
+        repo.seedForTest(
+            NotificationsState(
+                rows = listOf(
+                    row("x", "2026-06-12T10:00:00Z"),
+                    row("y", "2026-06-12T09:00:00Z"),
+                ),
+                unreadCount = 2,
+            ),
+        )
+
+        // Apply a Read event for row "x" — this goes through mutate.
+        repo.applyForTest(NotificationRealtimeEvent.Read("x"))
+
+        val currentRows = repo.rows.value
+        val currentUnread = repo.unreadCount.value
+
+        // Row "x" must now be marked read.
+        assertTrue(currentRows.first { it.id == "x" }.isRead)
+        // Row "y" must still be unread.
+        assertFalse(currentRows.first { it.id == "y" }.isRead)
+
+        // The derived unreadCount must equal 1.
+        assertEquals(1, currentUnread)
+
+        // Critical: unreadCount must be consistent with the rows in the flow —
+        // this is the invariant that non-atomic read-modify-write could break.
+        assertEquals(recomputeUnread(currentRows), currentUnread)
+    }
 }

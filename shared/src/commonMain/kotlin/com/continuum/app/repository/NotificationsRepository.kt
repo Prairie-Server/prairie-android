@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 
 /**
@@ -137,6 +138,18 @@ class NotificationsRepository(
         _unreadCount.value = state.unreadCount
     }
 
+    /**
+     * Atomically transforms [_state] via [MutableStateFlow.updateAndGet], then
+     * propagates the result to the derived flows. All forward folds (realtime
+     * events, loadMore, markRead/markAllRead) funnel through here so that
+     * concurrent callers cannot interleave a stale read with a subsequent write.
+     */
+    private fun mutate(transform: (NotificationsState) -> NotificationsState) {
+        val next = _state.updateAndGet(transform)
+        _rows.value = next.rows
+        _unreadCount.value = next.unreadCount
+    }
+
     /** Foreground / inbox-open refresh: unread count + first page. */
     suspend fun refresh() {
         when (val r = api.unreadCount()) {
@@ -157,8 +170,11 @@ class NotificationsRepository(
     suspend fun loadMore(cursor: String) {
         when (val r = api.list(limit = 25, unreadOnly = false, before = cursor)) {
             is ApiResult.Success -> {
-                val merged = (_rows.value + r.data.notifications).dedupeById()
-                publish(_state.value.copy(rows = merged, unreadCount = recomputeUnread(merged)))
+                val incoming = r.data.notifications
+                mutate { current ->
+                    val merged = (current.rows + incoming).dedupeById()
+                    current.copy(rows = merged, unreadCount = recomputeUnread(merged))
+                }
                 _nextCursor.value = r.data.nextCursor
             }
             else -> { /* surfaced by the caller */ }
@@ -168,7 +184,7 @@ class NotificationsRepository(
     /** Optimistic mark-read with revert on failure. */
     suspend fun markRead(id: String) {
         val before = _state.value
-        publish(applyEvent(before, NotificationRealtimeEvent.Read(id)))
+        mutate { applyEvent(it, NotificationRealtimeEvent.Read(id)) }
         val r = api.markRead(id)
         if (r !is ApiResult.Success) publish(before)
     }
@@ -176,7 +192,7 @@ class NotificationsRepository(
     /** Optimistic mark-all-read with revert on failure. */
     suspend fun markAllRead() {
         val before = _state.value
-        publish(applyEvent(before, NotificationRealtimeEvent.ReadAll))
+        mutate { applyEvent(it, NotificationRealtimeEvent.ReadAll) }
         val r = api.markAllRead()
         if (r !is ApiResult.Success) publish(before)
     }
@@ -233,7 +249,7 @@ class NotificationsRepository(
                     if (event !is NotificationRealtimeEvent.Closed) {
                         backoffMs = INITIAL_BACKOFF_MS // healthy traffic resets backoff
                     }
-                    publish(applyEvent(_state.value, event))
+                    mutate { applyEvent(it, event) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -244,6 +260,14 @@ class NotificationsRepository(
             backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
         }
     }
+
+    // ---- test seams (internal so tests can exercise mutate paths) ----------------
+
+    /** Seeds state atomically. For tests only. */
+    internal fun seedForTest(state: NotificationsState) = mutate { state }
+
+    /** Applies one realtime event via the production mutate path. For tests only. */
+    internal fun applyForTest(event: NotificationRealtimeEvent) = mutate { applyEvent(it, event) }
 
     private companion object {
         const val INITIAL_BACKOFF_MS = 1_000L
