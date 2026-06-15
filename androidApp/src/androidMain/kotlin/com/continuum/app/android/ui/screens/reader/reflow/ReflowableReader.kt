@@ -53,6 +53,7 @@ fun ReflowableReader(
     onTextScaleNudge: (Float) -> Unit,
     jumpToLocation: String?,
     onJumpConsumed: () -> Unit,
+    onToggleChrome: () -> Unit,
 ) {
     val context = LocalContext.current
     val okHttp = koinInject<OkHttpClient>()
@@ -177,12 +178,12 @@ fun ReflowableReader(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(source) {
+            .pointerInput(source, onToggleChrome) {
                 detectTapGestures { o ->
                     when {
                         o.x < size.width / 3f -> prevPage()
                         o.x > size.width * 2f / 3f -> nextPage()
-                        else -> {}
+                        else -> onToggleChrome()
                     }
                 }
             }

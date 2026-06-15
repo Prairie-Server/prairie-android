@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,7 @@ fun ComicReader(
     initialPage: Int = 0,
     onPageChanged: (Int) -> Unit,
     onPageCountKnown: (Int) -> Unit,
+    onToggleChrome: () -> Unit,
 ) {
     val context = LocalContext.current
     val okHttp = koinInject<OkHttpClient>()
@@ -162,21 +165,41 @@ fun ComicReader(
 
     HorizontalPager(
         state = pagerState,
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface),
     ) { pageIndex ->
-        ComicPage(zip = zip, entryName = pages[pageIndex].entryName, targetMaxDimension = targetMaxDimension)
+        ComicPage(
+            zip = zip,
+            entryName = pages[pageIndex].entryName,
+            targetMaxDimension = targetMaxDimension,
+            onToggleChrome = onToggleChrome,
+        )
     }
 }
 
 @Composable
-private fun ComicPage(zip: ZipFile, entryName: String, targetMaxDimension: Int) {
+private fun ComicPage(
+    zip: ZipFile,
+    entryName: String,
+    targetMaxDimension: Int,
+    onToggleChrome: () -> Unit,
+) {
     var bitmapResult by remember(entryName) { mutableStateOf<Result<Bitmap>?>(null) }
     LaunchedEffect(entryName) {
         bitmapResult = withContext(Dispatchers.IO) {
             decodeComicPageBitmap(zip, entryName, targetMaxDimension)
         }
     }
-    Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(onToggleChrome) {
+                detectTapGestures(onTap = { onToggleChrome() })
+            }
+            .padding(8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         when (val result = bitmapResult) {
             null -> CircularProgressIndicator()
             else -> result.fold(
@@ -272,4 +295,3 @@ internal fun listComicArchivePages(zip: ZipFile): ComicArchiveLoadResult {
         )
     }
 }
-

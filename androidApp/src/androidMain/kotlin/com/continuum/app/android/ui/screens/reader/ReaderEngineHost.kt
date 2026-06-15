@@ -1,6 +1,7 @@
 package com.continuum.app.android.ui.screens.reader
 
 import android.widget.Toast
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -33,16 +35,20 @@ fun ReaderEngineHost(
     onSectionsKnown: (List<ReaderSection>) -> Unit,
     onTextScaleNudge: (Float) -> Unit,
     onJumpConsumed: () -> Unit,
+    onToggleChrome: () -> Unit,
 ) {
     val engineKind = state.capabilities.engineKind
     val fileUrl = state.fileUrl
     val showExternalReadingPanel = shouldShowExternalReadingPanel(state)
 
     when {
-        state.isLoading -> CenteredReaderMessage("Loading book...")
-        showExternalReadingPanel -> ExternalReadingPanel(state = state)
-        state.error != null -> CenteredReaderMessage(state.error)
-        fileUrl.isNullOrBlank() -> CenteredReaderMessage("No file available for this book.")
+        state.isLoading -> CenteredReaderMessage("Loading book...", onToggleChrome = onToggleChrome)
+        showExternalReadingPanel -> ExternalReadingPanel(state = state, onToggleChrome = onToggleChrome)
+        state.error != null -> CenteredReaderMessage(state.error, onToggleChrome = onToggleChrome)
+        fileUrl.isNullOrBlank() -> CenteredReaderMessage(
+            "No file available for this book.",
+            onToggleChrome = onToggleChrome,
+        )
         else -> when (engineKind) {
             ReaderEngineKind.Reflowable -> ReflowableReader(
                 format = state.format,
@@ -54,6 +60,7 @@ fun ReaderEngineHost(
                 onTextScaleNudge = onTextScaleNudge,
                 jumpToLocation = state.pendingJumpLocation,
                 onJumpConsumed = onJumpConsumed,
+                onToggleChrome = onToggleChrome,
             )
             ReaderEngineKind.FixedDocument -> PdfReader(
                 fileUrl = fileUrl,
@@ -61,6 +68,7 @@ fun ReaderEngineHost(
                 initialPage = state.currentPage,
                 onPageChanged = onPageChanged,
                 onPageCountKnown = onPageCountKnown,
+                onToggleChrome = onToggleChrome,
             )
             ReaderEngineKind.ComicManga -> ComicReader(
                 fileUrl = fileUrl,
@@ -68,8 +76,9 @@ fun ReaderEngineHost(
                 initialPage = state.currentPage,
                 onPageChanged = onPageChanged,
                 onPageCountKnown = onPageCountKnown,
+                onToggleChrome = onToggleChrome,
             )
-            ReaderEngineKind.External -> CenteredReaderMessage("Reader unavailable.")
+            ReaderEngineKind.External -> CenteredReaderMessage("Reader unavailable.", onToggleChrome = onToggleChrome)
         }
     }
 }
@@ -79,7 +88,10 @@ internal fun shouldShowExternalReadingPanel(state: ReaderUiState): Boolean =
         state.readMode == EbookReadMode.ExternalOnly
 
 @Composable
-private fun ExternalReadingPanel(state: ReaderUiState) {
+private fun ExternalReadingPanel(
+    state: ReaderUiState,
+    onToggleChrome: () -> Unit,
+) {
     val context = LocalContext.current
     val target = remember(state.localUri, state.localDisplayName, state.format) {
         DownloadOpenTarget.from(
@@ -95,6 +107,7 @@ private fun ExternalReadingPanel(state: ReaderUiState) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .toggleChromeOnTap(onToggleChrome)
             .padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -134,8 +147,16 @@ private fun ExternalReadingPanel(state: ReaderUiState) {
 }
 
 @Composable
-private fun CenteredReaderMessage(message: String?) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun CenteredReaderMessage(
+    message: String?,
+    onToggleChrome: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .toggleChromeOnTap(onToggleChrome),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(
             text = message ?: "Reader unavailable.",
             textAlign = TextAlign.Center,
@@ -144,3 +165,8 @@ private fun CenteredReaderMessage(message: String?) {
         )
     }
 }
+
+private fun Modifier.toggleChromeOnTap(onToggleChrome: () -> Unit): Modifier =
+    pointerInput(onToggleChrome) {
+        detectTapGestures(onTap = { onToggleChrome() })
+    }

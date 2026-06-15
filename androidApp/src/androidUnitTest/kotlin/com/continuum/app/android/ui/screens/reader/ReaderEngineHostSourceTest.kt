@@ -12,6 +12,15 @@ class ReaderEngineHostSourceTest {
     private val sourceFile = File(
         "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ReaderEngineHost.kt",
     )
+    private val reflowSourceFile = File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/reflow/ReflowableReader.kt",
+    )
+    private val pdfSourceFile = File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/PdfReader.kt",
+    )
+    private val comicSourceFile = File(
+        "src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ComicReader.kt",
+    )
 
     @Test
     fun hostDispatchesEveryReaderEngineKind() {
@@ -62,5 +71,29 @@ class ReaderEngineHostSourceTest {
 
         assertTrue(source.contains("state.readMode == EbookReadMode.ExternalOnly"))
         assertTrue(source.contains("shouldShowExternalReadingPanel(state)"))
+    }
+
+    @Test
+    fun hostPassesShellChromeToggleToEveryReaderSurface() {
+        val source = sourceFile.readText()
+
+        assertTrue(source.contains("onToggleChrome: () -> Unit"))
+        assertTrue(source.contains("ExternalReadingPanel(state = state, onToggleChrome = onToggleChrome)"))
+        assertTrue(source.contains("CenteredReaderMessage(\"Loading book...\", onToggleChrome = onToggleChrome)"))
+        assertTrue(source.contains("onToggleChrome = onToggleChrome"))
+    }
+
+    @Test
+    fun readerEnginesExposeTapPathToToggleShellChrome() {
+        val reflowSource = reflowSourceFile.readText()
+        val pdfSource = pdfSourceFile.readText()
+        val comicSource = comicSourceFile.readText()
+
+        assertTrue(reflowSource.contains("onToggleChrome: () -> Unit"))
+        assertTrue(reflowSource.contains("else -> onToggleChrome()"))
+        assertTrue(pdfSource.contains("onToggleChrome: () -> Unit"))
+        assertTrue(pdfSource.contains("detectTapGestures(onTap = { onToggleChrome() })"))
+        assertTrue(comicSource.contains("onToggleChrome: () -> Unit"))
+        assertTrue(comicSource.contains("detectTapGestures(onTap = { onToggleChrome() })"))
     }
 }

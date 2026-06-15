@@ -2,6 +2,7 @@ package com.continuum.app.android.ui.screens.reader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.continuum.app.common.ebook.ReaderCapabilities
 import com.continuum.app.common.ebook.ReaderDisplaySettings
@@ -58,7 +60,7 @@ fun ReaderShell(
     onJumpToBookmark: (EbookAnnotation) -> Unit,
     onJumpToSection: (ReaderSection) -> Unit,
     onSettingsChange: (ReaderDisplaySettings) -> Unit,
-    content: @Composable () -> Unit,
+    content: @Composable (onToggleChrome: () -> Unit) -> Unit,
 ) {
     var shellState by remember { mutableStateOf(ReaderShellUiState()) }
     val supportsSettings = state.capabilities.supportsTextSize ||
@@ -68,14 +70,14 @@ fun ReaderShell(
     fun send(event: ReaderShellEvent) {
         shellState = reduceReaderShellState(shellState, event)
     }
+    val onToggleChrome = { send(ReaderShellEvent.ToggleChrome) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .clickable { send(ReaderShellEvent.ToggleChrome) },
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        content()
+        content(onToggleChrome)
 
         if (shellState.chromeVisible) {
             ReaderTopChrome(
@@ -135,6 +137,7 @@ private fun ReaderTopChrome(
             .fillMaxWidth()
             .statusBarsPadding()
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+            .consumeChromeTouches()
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -170,12 +173,7 @@ private fun ReaderTopChrome(
 
 @Composable
 private fun BoxScope.ReaderBottomChrome(state: ReaderUiState) {
-    val progressPercent = (state.progressPercent * 100).toInt()
-    val progressLabel = when (state.capabilities.engineKind) {
-        ReaderEngineKind.Reflowable -> "$progressPercent%"
-        else -> "$progressPercent% - Page ${state.currentPage + 1}" +
-            state.pageCount?.let { " of $it" }.orEmpty()
-    }
+    val progressLabel = readerBottomChromeLabel(state)
     val syncError = state.syncError
 
     Column(
@@ -184,13 +182,16 @@ private fun BoxScope.ReaderBottomChrome(state: ReaderUiState) {
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .navigationBarsPadding()
+            .consumeChromeTouches()
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Text(
-            text = progressLabel,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (progressLabel != null) {
+            Text(
+                text = progressLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (syncError != null) {
             Text(
                 text = syncError,
@@ -206,6 +207,22 @@ private fun BoxScope.ReaderBottomChrome(state: ReaderUiState) {
         }
     }
 }
+
+internal fun readerBottomChromeLabel(state: ReaderUiState): String? {
+    val progressPercent = (state.progressPercent * 100).toInt()
+    return when (state.capabilities.engineKind) {
+        ReaderEngineKind.Reflowable -> "$progressPercent%"
+        ReaderEngineKind.FixedDocument,
+        ReaderEngineKind.ComicManga -> "$progressPercent% - Page ${state.currentPage + 1}" +
+            state.pageCount?.let { " of $it" }.orEmpty()
+        ReaderEngineKind.External -> state.formatDisplayName.ifBlank { "External reader" }
+    }
+}
+
+private fun Modifier.consumeChromeTouches() =
+    pointerInput(Unit) {
+        detectTapGestures(onTap = {})
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

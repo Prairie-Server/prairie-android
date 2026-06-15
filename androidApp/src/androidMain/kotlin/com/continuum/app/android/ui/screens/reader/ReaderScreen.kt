@@ -35,7 +35,7 @@ fun ReaderScreen(
             }
         },
         onSettingsChange = viewModel::setDisplaySettings,
-    ) {
+    ) { onToggleChrome ->
         ReaderEngineHost(
             state = state,
             onPageChanged = viewModel::onPageChanged,
@@ -44,6 +44,7 @@ fun ReaderScreen(
             onSectionsKnown = viewModel::setSections,
             onTextScaleNudge = viewModel::nudgeTextScale,
             onJumpConsumed = viewModel::consumeJump,
+            onToggleChrome = onToggleChrome,
         )
     }
 }
