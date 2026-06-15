@@ -16,9 +16,43 @@ data class ReflowStyle(
     val lineHeight: Double = 1.55,
 ) {
     fun toCss(): String =
-        "color:${theme.color};background:${theme.background};" +
-            "font-size: $fontScalePercent%;padding:${marginEm}em;" +
-            "box-sizing:border-box;line-height:$lineHeight;"
+        """
+        #reflow-root{
+          color:${theme.color};
+          background:${theme.background};
+          font-family:Georgia,"Times New Roman",serif;
+          font-size: $fontScalePercent%;
+          padding:${marginEm}em;
+          box-sizing:border-box;
+          line-height:$lineHeight;
+          overflow-wrap:break-word;
+          word-break:normal;
+          text-rendering:optimizeLegibility;
+          -webkit-font-smoothing:antialiased;
+        }
+        #reflow-root p{
+          margin:0 0 1em 0;
+          widows:2;
+          orphans:2;
+        }
+        #reflow-root h1,#reflow-root h2,#reflow-root h3{
+          line-height:1.18;
+          margin:1.2em 0 0.65em 0;
+          font-weight:700;
+          break-after:avoid;
+        }
+        #reflow-root img,#reflow-root svg,#reflow-root table{
+          max-width:100%;
+          height:auto;
+          break-inside:avoid;
+        }
+        #reflow-root blockquote{
+          margin:1em 1.5em;
+        }
+        #reflow-root a{
+          color:inherit;
+        }
+        """.trimIndent()
 }
 
 fun ReaderDisplaySettings.toReflowStyle(systemDark: Boolean): ReflowStyle {

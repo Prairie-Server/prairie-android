@@ -38,7 +38,7 @@
       requestAnimationFrame(function(){ requestAnimationFrame(function(){ measure(); apply(); relocate(); }); });
     },
     goToPage: function(n){ page = Math.min(Math.max(0, n), pageCount-1); apply(); relocate(); },
-    applyStyle: function(css){ styleEl.textContent = '#reflow-root{'+css+'}'; applyViewport();
+    applyStyle: function(css){ styleEl.textContent = css; applyViewport();
       requestAnimationFrame(remeasureKeepingProgress); }
   };
   window.addEventListener('resize', remeasureKeepingProgress);

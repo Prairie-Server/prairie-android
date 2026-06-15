@@ -2,6 +2,7 @@ package com.continuum.app.android.ui.screens.reader.reflow
 
 import com.continuum.app.common.ebook.ReaderDisplaySettings
 import com.continuum.app.common.ebook.ReaderTheme
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -32,6 +33,25 @@ class ReflowStyleTest {
 
         assertTrue(css.contains("padding:1.2em"))
         assertTrue(css.contains("box-sizing:border-box"))
-        assertFalse(css.contains("margin:1.2em"))
+        assertFalse(Regex("""#reflow-root\{[^}]*margin:1\.2em""").containsMatchIn(css))
+    }
+
+    @Test fun `stylesheet targets book typography beyond the root container`() {
+        val css = ReaderDisplaySettings().toReflowStyle(false).toCss()
+
+        assertTrue(css.contains("#reflow-root{"))
+        assertTrue(css.contains("#reflow-root p{"))
+        assertTrue(css.contains("#reflow-root h1"))
+        assertTrue(css.contains("#reflow-root img"))
+        assertTrue(css.contains("overflow-wrap:break-word"))
+        assertTrue(css.contains("break-inside:avoid"))
+        assertFalse(css.trim().startsWith("color:"))
+    }
+
+    @Test fun `paginator applies generated stylesheet directly`() {
+        val paginator = File("src/androidMain/assets/reader/reflow/paginator.js").readText()
+
+        assertTrue(paginator.contains("styleEl.textContent = css"))
+        assertFalse(paginator.contains("'#reflow-root{'+css+'}'"))
     }
 }
