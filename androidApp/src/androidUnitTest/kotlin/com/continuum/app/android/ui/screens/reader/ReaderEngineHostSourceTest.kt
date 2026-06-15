@@ -162,7 +162,7 @@ class ReaderEngineHostSourceTest {
     fun epubReaderUsesEncodedDirectoryBaseUrlForWebViewResources() {
         val source = epubReaderSourceFile.readText()
 
-        assertTrue(source.contains("readerDirectoryBaseUrl(book.unpackedRoot)"))
+        assertTrue(source.contains("readerDirectoryBaseUrl(book.opfDir)"))
         assertFalse(source.contains(""""file://${'$'}{book.unpackedRoot.absolutePath}/""""))
     }
 
