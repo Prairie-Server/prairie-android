@@ -233,12 +233,12 @@ data class AudioTrack(
     val index: Int = 0,
     val codec: String? = null,
     val channels: Int? = null,
-    @SerialName("channel_layout") val channelLayout: String? = null,
+    @SerialName("layout") val channelLayout: String? = null,
     val bitrate: Int? = null,
     @SerialName("sample_rate") val sampleRate: Int? = null,
     val language: String? = null,
     val title: String? = null,
-    @SerialName("is_default") val isDefault: Boolean = false
+    @SerialName("default") val isDefault: Boolean = false
 )
 
 @Serializable
@@ -248,7 +248,7 @@ data class SubtitleTrack(
     val language: String? = null,
     val title: String? = null,
     val forced: Boolean = false,
-    @SerialName("is_default") val isDefault: Boolean = false,
+    @SerialName("default") val isDefault: Boolean = false,
     val external: Boolean = false,
     @SerialName("external_path") val externalPath: String? = null
 )

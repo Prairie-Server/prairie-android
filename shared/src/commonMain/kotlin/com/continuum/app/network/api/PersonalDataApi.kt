@@ -28,7 +28,7 @@ class PersonalDataApi(private val client: HttpClient) {
         }
     }
 
-    suspend fun checkFavorite(itemId: String): ApiResult<Boolean> = safeApiCall {
+    suspend fun checkFavorite(itemId: String): ApiResult<Boolean> = safeStatusCall {
         client.get("/api/v1/favorites/$itemId")
     }
 
@@ -52,7 +52,7 @@ class PersonalDataApi(private val client: HttpClient) {
         }
     }
 
-    suspend fun checkWatchlist(itemId: String): ApiResult<Boolean> = safeApiCall {
+    suspend fun checkWatchlist(itemId: String): ApiResult<Boolean> = safeStatusCall {
         client.get("/api/v1/watchlist/$itemId")
     }
 

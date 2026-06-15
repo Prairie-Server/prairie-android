@@ -20,4 +20,14 @@ class PersonalDataModelsSerializationTest {
         )
         assertEquals("""{"rating":4}""", encoded)
     }
+
+    @Test
+    fun decodesRatingEntryFromSingleRatingResponse() {
+        // Server single-rating response is {rating, rated_at} — no media_item_id.
+        val wire = """{"rating":4.5,"rated_at":"2026-06-01T00:00:00Z"}"""
+        val entry = json.decodeFromString<RatingEntry>(wire)
+        assertEquals(4.5, entry.rating)
+        assertEquals(null as String?, entry.mediaItemId)
+        assertEquals("2026-06-01T00:00:00Z", entry.updatedAt)
+    }
 }

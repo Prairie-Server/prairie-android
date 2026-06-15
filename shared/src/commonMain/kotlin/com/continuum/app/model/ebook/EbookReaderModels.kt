@@ -7,9 +7,9 @@ import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class EbookReaderProgress(
-    @SerialName("content_id") val contentId: String,
-    @SerialName("file_id") val fileId: Int,
-    val location: String,
+    @SerialName("content_id") val contentId: String? = null,
+    @SerialName("file_id") val fileId: Int? = null,
+    val location: String? = null,
     val progress: Double = 0.0,
     @SerialName("updated_at") val updatedAt: String? = null,
 )
