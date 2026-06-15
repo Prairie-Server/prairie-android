@@ -7,14 +7,20 @@ import kotlinx.serialization.Serializable
 enum class ReaderTheme { System, Light, Dark, Sepia }
 
 @Serializable
+enum class ReaderFontFamily { Serif, SansSerif, Slab, Dyslexic }
+
+@Serializable
 data class ReaderDisplaySettings(
     val theme: ReaderTheme = ReaderTheme.System,
     val textScale: Float = 1f,
     val marginScale: Float = 1f,
+    val fontFamily: ReaderFontFamily = ReaderFontFamily.Serif,
+    val lineHeight: Float = 1.5f,
 ) {
     fun normalized(): ReaderDisplaySettings = copy(
         textScale = textScale.coerceIn(0.6f, 3.0f),
         marginScale = marginScale.coerceIn(0.75f, 1.5f),
+        lineHeight = lineHeight.coerceIn(1.1f, 2.2f),
     )
 }
 
