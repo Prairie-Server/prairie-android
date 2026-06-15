@@ -199,6 +199,15 @@ class ReaderEngineHostSourceTest {
         assertReaderBranchUsesToggle(source, "ComicArchiveLoadResult.Empty ->")
     }
 
+    @Test
+    fun pdfPageHasPinchAndDoubleTapZoom() {
+        val source = pdfSourceFile.readText()
+
+        assertTrue(source.contains("clampPdfZoom("), "PdfReader must call clampPdfZoom")
+        assertTrue(source.contains("transformable("), "PdfReader must use transformable for pinch-zoom")
+        assertTrue(source.contains("onDoubleTap"), "PdfReader must wire onDoubleTap for double-tap zoom")
+    }
+
     private fun assertReaderBranchUsesToggle(source: String, branchStart: String) {
         val startIndex = source.indexOf(branchStart)
         assertTrue(startIndex >= 0, "Missing reader branch: $branchStart")

@@ -9,6 +9,8 @@ import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,7 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -197,22 +201,35 @@ private fun PdfPage(
     onPageTap: (Float) -> Unit,
 ) {
     var bitmapResult by remember(pageIndex) { mutableStateOf<Result<Bitmap>?>(null) }
+    var scale by remember(pageIndex) { mutableStateOf(1f) }
+    var offset by remember(pageIndex) { mutableStateOf(Offset.Zero) }
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        scale = clampPdfZoom(scale * zoomChange)
+        offset = if (scale > 1f) offset + panChange else Offset.Zero
+    }
     LaunchedEffect(pageIndex) {
         bitmapResult = withContext(Dispatchers.IO) { renderPdfPageBitmap(handle, pageIndex, memoryClassMb) }
     }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(onPageTap) {
+            .transformable(transformState)
+            .pointerInput(onPageTap, scale) {
                 detectTapGestures(
-                    onTap = { offset ->
-                        val width = size.width
-                        val xFraction = if (width > 0) {
-                            (offset.x / width).coerceIn(0f, 1f)
-                        } else {
-                            0.5f
+                    onTap = { tapOffset ->
+                        if (scale == 1f) {
+                            val width = size.width
+                            val xFraction = if (width > 0) {
+                                (tapOffset.x / width).coerceIn(0f, 1f)
+                            } else {
+                                0.5f
+                            }
+                            onPageTap(xFraction)
                         }
-                        onPageTap(xFraction)
+                    },
+                    onDoubleTap = {
+                        scale = nextDoubleTapZoom(scale)
+                        offset = Offset.Zero
                     },
                 )
             }
@@ -228,7 +245,13 @@ private fun PdfPage(
                         contentDescription = "Page ${pageIndex + 1}",
                         modifier = Modifier
                             .fillMaxSize()
-                            .aspectRatio(bmp.width.toFloat() / bmp.height.toFloat()),
+                            .aspectRatio(bmp.width.toFloat() / bmp.height.toFloat())
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offset.x
+                                translationY = offset.y
+                            },
                         contentScale = ContentScale.Fit,
                     )
                 },
