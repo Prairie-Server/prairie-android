@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -14,6 +16,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.lifecycle.lifecycleScope
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.common.ui.components.StartupSplashVideo
@@ -60,7 +65,22 @@ class MainTvActivity : ComponentActivity() {
             ContinuumTvTheme {
                 val resolvedRoute = startRoute
                 if (resolvedRoute == null || !minimumSplashElapsed) {
-                    StartupSplashVideo()
+                    val splashFocus = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { runCatching { splashFocus.requestFocus() } }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .focusRequester(splashFocus)
+                            .focusable()
+                            .onPreviewKeyEvent {
+                                // Consume input during the splash so it never causes an
+                                // input-dispatch-timeout ANR; let any press skip the min delay.
+                                minimumSplashElapsed = true
+                                true
+                            },
+                    ) {
+                        StartupSplashVideo()
+                    }
                 } else {
                     TvAppNavigation(
                         startDestination = resolvedRoute,
