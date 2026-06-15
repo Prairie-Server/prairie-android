@@ -184,7 +184,7 @@ private fun EpubChapter(book: EpubBook, chapterIndex: Int, settings: ReaderDispl
                 // baseUrl lets relative <img src> / <link rel='stylesheet'>
                 // refs inside the chapter resolve against the unpacked epub
                 // root on disk.
-                val base = readerDirectoryBaseUrl(book.unpackedRoot)
+                val base = readerDirectoryBaseUrl(book.opfDir)
                 web.loadDataWithBaseURL(base, html, "text/html", "utf-8", null)
             }
         },

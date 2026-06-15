@@ -13,7 +13,7 @@ import java.util.zip.ZipFile
  */
 internal class EpubBook private constructor(
     val unpackedRoot: File,
-    private val opfDir: File,
+    val opfDir: File,
     val spine: List<String>,  // chapter hrefs relative to opfDir
 ) {
     /** Read a chapter's HTML by spine href. Returns null when missing. */

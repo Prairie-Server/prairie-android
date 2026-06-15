@@ -136,6 +136,51 @@ class EpubReflowSourceTest {
     }
 
     @Test
+    fun `epub base url resolves against opf directory not unpacked root`() = runTest {
+        val epub = tmp.newFile("nested-opf.epub")
+        ZipOutputStream(epub.outputStream()).use { zip ->
+            zip.writeEntry(
+                "mimetype",
+                "application/epub+zip",
+            )
+            zip.writeEntry(
+                "META-INF/container.xml",
+                """
+                <container>
+                  <rootfiles>
+                    <rootfile full-path="OEBPS/content.opf" />
+                  </rootfiles>
+                </container>
+                """.trimIndent(),
+            )
+            zip.writeEntry(
+                "OEBPS/content.opf",
+                """
+                <package>
+                  <manifest>
+                    <item id="ch1" href="Text/ch1.xhtml" />
+                  </manifest>
+                  <spine>
+                    <itemref idref="ch1" />
+                  </spine>
+                </package>
+                """.trimIndent(),
+            )
+            zip.writeEntry(
+                "OEBPS/Text/ch1.xhtml",
+                """
+                <html><body><h1>Chapter One</h1><p>Content.</p></body></html>
+                """.trimIndent(),
+            )
+        }
+
+        val source = EpubReflowSource(EpubBook.open(epub, tmp.root))
+        val baseUrl = source.baseUrl(0)
+
+        assertTrue(baseUrl.contains("/OEBPS/"), "Expected baseUrl to contain '/OEBPS/' but was: $baseUrl")
+    }
+
+    @Test
     fun `epub reflow source unpacks into caller cache instead of original download directory`() = runTest {
         val publicDownloadDir = tmp.newFolder("public-downloads")
         val cacheRoot = tmp.newFolder("reader-cache")
