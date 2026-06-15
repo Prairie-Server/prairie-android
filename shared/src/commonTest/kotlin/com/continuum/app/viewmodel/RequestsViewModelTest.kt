@@ -275,6 +275,40 @@ class RequestsViewModelTest {
     }
 
     @Test
+    fun `my requests view model stale load does not overwrite newer result`() = runTest(dispatcher) {
+        val staleRequest = stubRequest(id = "stale-1", tmdbId = 55, title = "Stale Movie")
+        val freshRequest = stubRequest(id = "fresh-1", tmdbId = 56, title = "Fresh Movie")
+
+        var callCount = 0
+        val api = FakeRequestsApi(
+            mineHandler = { _, _, _, _ ->
+                val call = ++callCount
+                if (call == 1) {
+                    // First call is slow — simulates a stale in-flight fetch
+                    delay(1_000)
+                    ApiResult.Success(RequestsListResponse(listOf(staleRequest)))
+                } else {
+                    // Second call is fast — this is the "newer" result
+                    ApiResult.Success(RequestsListResponse(listOf(freshRequest)))
+                }
+            },
+        )
+        val viewModel = MyRequestsViewModel(RequestsRepository(api))
+
+        // At this point the init load() is in-flight (slow, call #1).
+        // Kick off a second refresh() immediately — it finishes first (call #2).
+        viewModel.refresh()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.isLoading)
+        assertFalse(state.isRefreshing)
+        // The fresh (second) result must win; the stale first call must NOT overwrite it.
+        assertEquals(listOf(freshRequest), state.requests)
+        assertNull(state.error)
+    }
+
+    @Test
     fun `my requests view model refreshes and cancels by id`() = runTest(dispatcher) {
         val pending = stubRequest(id = "request-1", tmdbId = 44, title = "Waiting")
         val cancelled = pending.copy(
@@ -327,6 +361,12 @@ private class FakeRequestsApi(
         mediaType: String?,
         page: Int,
     ) -> ApiResult<RequestMediaPage>)? = null,
+    private val mineHandler: (suspend (
+        status: String?,
+        outcome: String?,
+        limit: Int?,
+        offset: Int?,
+    ) -> ApiResult<RequestsListResponse>)? = null,
 ) : RequestsApi {
 
     val calls = mutableListOf<String>()
@@ -374,7 +414,7 @@ private class FakeRequestsApi(
         offset: Int?,
     ): ApiResult<RequestsListResponse> {
         calls += "mine"
-        return mineResult
+        return mineHandler?.invoke(status, outcome, limit, offset) ?: mineResult
     }
 
     override suspend fun get(id: String): ApiResult<MediaRequest> =

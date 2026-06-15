@@ -328,6 +328,7 @@ class MyRequestsViewModel(
     private val repository: RequestsRepository,
 ) : ViewModel() {
 
+    private var loadGeneration = 0
     private val _uiState = MutableStateFlow(MyRequestsUiState())
     val uiState: StateFlow<MyRequestsUiState> = _uiState.asStateFlow()
 
@@ -336,17 +337,21 @@ class MyRequestsViewModel(
     }
 
     fun load() {
+        val generation = ++loadGeneration
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            refreshMine()
+            refreshMine(generation)
         }
     }
 
     fun refresh() {
+        val generation = ++loadGeneration
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
-            refreshMine()
-            _uiState.update { it.copy(isRefreshing = false) }
+            refreshMine(generation)
+            if (generation == loadGeneration) {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 
@@ -375,8 +380,10 @@ class MyRequestsViewModel(
         }
     }
 
-    private suspend fun refreshMine() {
-        when (val result = repository.refreshMine()) {
+    private suspend fun refreshMine(generation: Int) {
+        val result = repository.refreshMine()
+        if (generation != loadGeneration) return
+        when (result) {
             is ApiResult.Success -> {
                 _uiState.update {
                     it.copy(
