@@ -1,17 +1,23 @@
 package com.continuum.app.android.ui.screens.reader
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,14 +38,19 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import com.continuum.app.common.ebook.ReaderCapabilities
 import com.continuum.app.common.ebook.ReaderDisplaySettings
 import com.continuum.app.common.ebook.ReaderEngineKind
@@ -68,6 +79,12 @@ fun ReaderShell(
     val supportsSettings = state.capabilities.supportsTextSize ||
         state.capabilities.supportsMargins ||
         state.capabilities.supportsTheme
+    val systemDark = isSystemInDarkTheme()
+    val readerBackground = state.displaySettings.readerSystemBarBackground(systemDark)
+    ReaderSystemBarEffect(
+        settings = state.displaySettings,
+        systemDark = systemDark,
+    )
 
     fun send(event: ReaderShellEvent) {
         shellState = reduceReaderShellState(shellState, event)
@@ -77,9 +94,11 @@ fun ReaderShell(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(readerBackground),
     ) {
-        content(onToggleChrome)
+        ReaderContentFrame(chromeVisible = shellState.chromeVisible) {
+            content(onToggleChrome)
+        }
 
         if (shellState.chromeVisible) {
             ReaderTopChrome(
@@ -121,6 +140,64 @@ fun ReaderShell(
         )
         ReaderSheet.None,
         ReaderSheet.More -> Unit
+    }
+}
+
+@Composable
+private fun ReaderSystemBarEffect(
+    settings: ReaderDisplaySettings,
+    systemDark: Boolean,
+) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val barBackground = settings.readerSystemBarBackground(systemDark).toArgb()
+    val useDarkIcons = settings.readerSystemBarsUseDarkIcons(systemDark)
+
+    DisposableEffect(activity, barBackground, useDarkIcons) {
+        if (activity == null) {
+            onDispose { }
+        } else {
+            val window = activity.window
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            val originalStatusBarColor = window.statusBarColor
+            val originalNavigationBarColor = window.navigationBarColor
+            val originalLightStatusBars = controller.isAppearanceLightStatusBars
+            val originalLightNavigationBars = controller.isAppearanceLightNavigationBars
+
+            window.statusBarColor = barBackground
+            window.navigationBarColor = barBackground
+            controller.isAppearanceLightStatusBars = useDarkIcons
+            controller.isAppearanceLightNavigationBars = useDarkIcons
+
+            onDispose {
+                window.statusBarColor = originalStatusBarColor
+                window.navigationBarColor = originalNavigationBarColor
+                controller.isAppearanceLightStatusBars = originalLightStatusBars
+                controller.isAppearanceLightNavigationBars = originalLightNavigationBars
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderContentFrame(
+    chromeVisible: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val statusPadding = WindowInsets.statusBars.asPaddingValues()
+    val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
+    val topChromePadding = if (chromeVisible) READER_TOP_CHROME_HEIGHT else 0.dp
+    val bottomChromePadding = if (chromeVisible) READER_BOTTOM_CHROME_HEIGHT else 0.dp
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(
+                top = statusPadding.calculateTopPadding() + topChromePadding,
+                bottom = navigationPadding.calculateBottomPadding() + bottomChromePadding,
+            ),
+    ) {
+        content()
     }
 }
 
@@ -359,3 +436,25 @@ private fun Float.readerPercentLabel(): String {
     val percent = (this * 100).roundToInt()
     return if (percent == 100) "Normal (100%)" else "$percent%"
 }
+
+private fun ReaderDisplaySettings.readerSystemBarBackground(systemDark: Boolean): Color =
+    when (normalized().theme) {
+        ReaderTheme.System -> if (systemDark) READER_DARK_BACKGROUND else READER_LIGHT_BACKGROUND
+        ReaderTheme.Light -> READER_LIGHT_BACKGROUND
+        ReaderTheme.Sepia -> READER_SEPIA_BACKGROUND
+        ReaderTheme.Dark -> READER_DARK_BACKGROUND
+    }
+
+private fun ReaderDisplaySettings.readerSystemBarsUseDarkIcons(systemDark: Boolean): Boolean =
+    when (normalized().theme) {
+        ReaderTheme.System -> !systemDark
+        ReaderTheme.Light,
+        ReaderTheme.Sepia -> true
+        ReaderTheme.Dark -> false
+    }
+
+private val READER_LIGHT_BACKGROUND = Color(0xFFFFFBFE)
+private val READER_SEPIA_BACKGROUND = Color(0xFFF4ECD8)
+private val READER_DARK_BACKGROUND = Color(0xFF1C1B1F)
+private val READER_TOP_CHROME_HEIGHT = 72.dp
+private val READER_BOTTOM_CHROME_HEIGHT = 64.dp

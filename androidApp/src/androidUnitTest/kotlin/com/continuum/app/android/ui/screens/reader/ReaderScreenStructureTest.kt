@@ -74,4 +74,19 @@ class ReaderScreenStructureTest {
         assertTrue(shell.contains("Normal"))
         assertTrue(shell.contains("%"))
     }
+
+    @Test
+    fun shellOwnsReaderSystemBarContrastAndContentInsets() {
+        assertTrue(shell.contains("ReaderSystemBarEffect("))
+        assertTrue(shell.contains("WindowCompat.getInsetsController"))
+        assertTrue(shell.contains("isAppearanceLightStatusBars"))
+        assertTrue(shell.contains("isAppearanceLightNavigationBars"))
+        assertTrue(shell.contains("ReaderContentFrame("))
+        assertTrue(shell.contains("WindowInsets.statusBars"))
+        assertTrue(shell.contains("WindowInsets.navigationBars"))
+        assertTrue(shell.contains(".background(readerBackground)"))
+        assertTrue(shell.contains("chromeVisible: Boolean"))
+        assertTrue(shell.contains("READER_TOP_CHROME_HEIGHT"))
+        assertTrue(shell.contains("READER_BOTTOM_CHROME_HEIGHT"))
+    }
 }
