@@ -10,10 +10,12 @@ import com.continuum.app.android.ui.screens.reader.EpubBook
 internal class EpubReflowSource(private val book: EpubBook) : ReflowableSource {
     override val sections: List<ReflowSection> =
         book.spine.mapIndexed { i, href ->
+            val html = book.readChapterHtml(href)
+            val text = html?.htmlToReadableText().orEmpty()
             ReflowSection(
                 index = i,
-                title = href.substringAfterLast('/').substringBeforeLast('.'),
-                approxChars = 4000,
+                title = html?.epubSectionTitle() ?: href.prettifyHrefTitle(),
+                approxChars = text.length.coerceAtLeast(1),
             )
         }
 
@@ -26,3 +28,48 @@ internal class EpubReflowSource(private val book: EpubBook) : ReflowableSource {
     override fun baseUrl(index: Int): String =
         "file://${book.unpackedRoot.absolutePath}/"
 }
+
+private fun String.epubSectionTitle(): String? {
+    val candidates = listOf(
+        TITLE_REGEX.find(this)?.groupValues?.get(1),
+        HEADING_REGEX.find(this)?.groupValues?.get(2),
+    )
+    return candidates
+        .asSequence()
+        .filterNotNull()
+        .map { it.htmlToReadableText() }
+        .firstOrNull { it.isNotBlank() }
+}
+
+private fun String.prettifyHrefTitle(): String =
+    substringAfterLast('/')
+        .substringBeforeLast('.')
+        .replace(Regex("""[-_]+"""), " ")
+        .trim()
+        .split(Regex("""\s+"""))
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { word ->
+            word.lowercase().replaceFirstChar { c -> c.uppercase() }
+        }
+
+private fun String.htmlToReadableText(): String =
+    replace(SCRIPT_OR_STYLE_REGEX, " ")
+        .replace(TAG_REGEX, " ")
+        .htmlDecodeBasicEntities()
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+
+private fun String.htmlDecodeBasicEntities(): String =
+    replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+
+private val TITLE_REGEX = Regex("""<title[^>]*>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+private val HEADING_REGEX = Regex("""<h([1-3])[^>]*>(.*?)</h\1>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+private val SCRIPT_OR_STYLE_REGEX =
+    Regex("""<(script|style)\b[^>]*>.*?</\1>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+private val TAG_REGEX = Regex("""<[^>]+>""")

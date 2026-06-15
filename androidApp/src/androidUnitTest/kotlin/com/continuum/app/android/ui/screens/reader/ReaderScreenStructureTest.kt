@@ -65,4 +65,13 @@ class ReaderScreenStructureTest {
 
         assertFalse(label.orEmpty().contains("Page"))
     }
+
+    @Test
+    fun settingsSheetLabelsThemeTypographyAndMargins() {
+        assertTrue(shell.contains("Theme"))
+        assertTrue(shell.contains("Text size"))
+        assertTrue(shell.contains("Margins"))
+        assertTrue(shell.contains("Normal"))
+        assertTrue(shell.contains("%"))
+    }
 }

@@ -3,6 +3,7 @@ package com.continuum.app.android.ui.screens.reader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import com.continuum.app.common.ebook.ReaderSheet
 import com.continuum.app.common.ebook.ReaderTheme
 import com.continuum.app.common.ebook.reduceReaderShellState
 import com.continuum.app.model.ebook.EbookAnnotation
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -285,33 +287,75 @@ private fun ReaderSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text("Reader settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
-        if (capabilities.supportsTheme) {
-            Row(modifier = Modifier.padding(horizontal = 16.dp)) {
-                listOf(ReaderTheme.System, ReaderTheme.Light, ReaderTheme.Sepia, ReaderTheme.Dark).forEach { theme ->
-                    TextButton(
-                        onClick = { onSettingsChange(settings.copy(theme = theme).normalized()) },
-                    ) {
-                        Text(theme.name)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Text("Reader settings", style = MaterialTheme.typography.titleLarge)
+            if (capabilities.supportsTheme) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Theme", style = MaterialTheme.typography.titleMedium)
+                    Row {
+                        listOf(ReaderTheme.System, ReaderTheme.Light, ReaderTheme.Sepia, ReaderTheme.Dark).forEach { theme ->
+                            TextButton(
+                                onClick = { onSettingsChange(settings.copy(theme = theme).normalized()) },
+                            ) {
+                                Text(theme.name)
+                            }
+                        }
                     }
                 }
             }
-        }
-        if (capabilities.supportsTextSize) {
-            Slider(
-                value = settings.textScale,
-                onValueChange = { onSettingsChange(settings.copy(textScale = it).normalized()) },
-                valueRange = 0.6f..3.0f,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
-        }
-        if (capabilities.supportsMargins) {
-            Slider(
-                value = settings.marginScale,
-                onValueChange = { onSettingsChange(settings.copy(marginScale = it).normalized()) },
-                valueRange = 0.75f..1.5f,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
+            if (capabilities.supportsTextSize) {
+                ReaderSettingSlider(
+                    label = "Text size",
+                    valueLabel = settings.textScale.readerPercentLabel(),
+                    value = settings.textScale,
+                    valueRange = 0.6f..3.0f,
+                    onValueChange = { onSettingsChange(settings.copy(textScale = it).normalized()) },
+                )
+            }
+            if (capabilities.supportsMargins) {
+                ReaderSettingSlider(
+                    label = "Margins",
+                    valueLabel = settings.marginScale.readerPercentLabel(),
+                    value = settings.marginScale,
+                    valueRange = 0.75f..1.5f,
+                    onValueChange = { onSettingsChange(settings.copy(marginScale = it).normalized()) },
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun ReaderSettingSlider(
+    label: String,
+    valueLabel: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, style = MaterialTheme.typography.titleMedium)
+            Text(valueLabel, style = MaterialTheme.typography.labelLarge)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+        )
+    }
+}
+
+private fun Float.readerPercentLabel(): String {
+    val percent = (this * 100).roundToInt()
+    return if (percent == 100) "Normal (100%)" else "$percent%"
 }
