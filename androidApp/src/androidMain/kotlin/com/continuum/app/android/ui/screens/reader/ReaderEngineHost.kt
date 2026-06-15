@@ -22,6 +22,7 @@ import com.continuum.app.android.ui.screens.reader.reflow.ReflowableReader
 import com.continuum.app.common.downloads.DownloadOpenTarget
 import com.continuum.app.common.ebook.ReaderEngineKind
 import com.continuum.app.common.ebook.ReaderSection
+import com.continuum.app.model.ebook.EbookReadMode
 
 @Composable
 fun ReaderEngineHost(
@@ -35,10 +36,11 @@ fun ReaderEngineHost(
 ) {
     val engineKind = state.capabilities.engineKind
     val fileUrl = state.fileUrl
+    val showExternalReadingPanel = shouldShowExternalReadingPanel(state)
 
     when {
         state.isLoading -> CenteredReaderMessage("Loading book...")
-        engineKind == ReaderEngineKind.External -> ExternalReadingPanel(state = state)
+        showExternalReadingPanel -> ExternalReadingPanel(state = state)
         state.error != null -> CenteredReaderMessage(state.error)
         fileUrl.isNullOrBlank() -> CenteredReaderMessage("No file available for this book.")
         else -> when (engineKind) {
@@ -67,10 +69,14 @@ fun ReaderEngineHost(
                 onPageChanged = onPageChanged,
                 onPageCountKnown = onPageCountKnown,
             )
-            ReaderEngineKind.External -> ExternalReadingPanel(state = state)
+            ReaderEngineKind.External -> CenteredReaderMessage("Reader unavailable.")
         }
     }
 }
+
+internal fun shouldShowExternalReadingPanel(state: ReaderUiState): Boolean =
+    state.capabilities.engineKind == ReaderEngineKind.External &&
+        state.readMode == EbookReadMode.ExternalOnly
 
 @Composable
 private fun ExternalReadingPanel(state: ReaderUiState) {

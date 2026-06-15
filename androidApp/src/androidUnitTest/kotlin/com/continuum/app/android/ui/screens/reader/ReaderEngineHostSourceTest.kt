@@ -1,7 +1,11 @@
 package com.continuum.app.android.ui.screens.reader
 
+import com.continuum.app.common.ebook.ReaderCapabilities
+import com.continuum.app.model.book.BookFormat
+import com.continuum.app.model.ebook.EbookReadMode
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderEngineHostSourceTest {
@@ -26,5 +30,37 @@ class ReaderEngineHostSourceTest {
         assertTrue(source.contains("DownloadOpenTarget.from("))
         assertTrue(source.contains("openDownloadTargetInExternalApp("))
         assertTrue(source.contains("Open with another reader"))
+    }
+
+    @Test
+    fun externalPanelRoutingRequiresExternalOnlyReadMode() {
+        val unsupportedExternalEngineState = ReaderUiState(
+            isLoading = false,
+            readMode = EbookReadMode.Unsupported,
+            capabilities = ReaderCapabilities.forFormat(BookFormat.Unknown),
+        )
+
+        assertFalse(shouldShowExternalReadingPanel(unsupportedExternalEngineState))
+        assertTrue(
+            shouldShowExternalReadingPanel(
+                unsupportedExternalEngineState.copy(readMode = EbookReadMode.ExternalOnly),
+            ),
+        )
+        assertFalse(
+            shouldShowExternalReadingPanel(
+                unsupportedExternalEngineState.copy(
+                    readMode = EbookReadMode.ExternalOnly,
+                    capabilities = ReaderCapabilities.forFormat(BookFormat.Epub),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun sourceGuardsExternalPanelByReadMode() {
+        val source = sourceFile.readText()
+
+        assertTrue(source.contains("state.readMode == EbookReadMode.ExternalOnly"))
+        assertTrue(source.contains("shouldShowExternalReadingPanel(state)"))
     }
 }
