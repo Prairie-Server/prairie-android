@@ -133,7 +133,11 @@ class ReaderViewModelReaderTargetSourceTest {
     }
 
     @Test
-    fun onlineMissingRequestedFileIdDoesNotFallbackToAnotherReaderTarget() = runTest(dispatcher) {
+    fun onlineMissingRequestedFileIdFallsThroughToReadableTarget() = runTest(dispatcher) {
+        // chooseReaderVersion (Task 3): when the requested fileId is absent the
+        // selection falls through to the best available readable version, consistent
+        // with chooseEbookVersion. The catalog here only has fileId=8 (epub); the
+        // requested fileId=7 is not present, so the reader should open fileId=8.
         val vm = viewModel(
             catalogRepository = catalogRepository(
                 responseBody = itemDetailJson(fileId = 8, fileName = "other.epub", container = "epub"),
@@ -147,9 +151,10 @@ class ReaderViewModelReaderTargetSourceTest {
 
         assertEquals("Book", state.title)
         assertEquals("Ada Author", state.author)
-        assertNull(state.fileId)
-        assertNull(state.fileUrl)
-        assertEquals("No supported ebook file is available.", state.error)
+        assertEquals(8, state.fileId)
+        assertEquals(BookFormat.Epub, state.format)
+        assertEquals(EbookReadMode.InApp, state.readMode)
+        assertNull(state.error)
     }
 
     @Test

@@ -100,8 +100,8 @@ class ReaderEngineHostSourceTest {
         assertTrue(pdfSource.contains("onToggleChrome: () -> Unit"))
         assertTrue(pdfSource.contains("else -> onToggleChrome()"))
         assertTrue(comicSource.contains("onToggleChrome: () -> Unit"))
-        // Comic tap routing is now config-driven; ToggleChrome is a named branch rather than else.
-        assertTrue(comicSource.contains("onToggleChrome()"))
+        // Comic tap routing is config-driven; ToggleChrome is an explicit named branch.
+        assertTrue(comicSource.contains("ComicTapAction.ToggleChrome -> onToggleChrome()"))
     }
 
     @Test
@@ -114,8 +114,11 @@ class ReaderEngineHostSourceTest {
         assertTrue(pdfSource.contains("animateScrollToPage(pagerState.currentPage - 1)"))
         assertTrue(pdfSource.contains("animateScrollToPage(pagerState.currentPage + 1)"))
 
-        // Comic tap zones are now delegated to ComicReaderConfig.tapAction(); the
-        // per-zone thresholds live in ComicReaderConfig.kt rather than ComicReader.kt.
+        // Comic tap zones are delegated through config.tapAction(); Previous/Next
+        // branches drive the scroll, ToggleChrome is an explicit named dispatch.
+        assertTrue(comicSource.contains("config.tapAction("))
+        assertTrue(comicSource.contains("ComicTapAction.Previous ->"))
+        assertTrue(comicSource.contains("ComicTapAction.Next ->"))
         assertTrue(comicSource.contains("animateScrollToPage(pagerState.currentPage - 1)"))
         assertTrue(comicSource.contains("animateScrollToPage(pagerState.currentPage + 1)"))
     }

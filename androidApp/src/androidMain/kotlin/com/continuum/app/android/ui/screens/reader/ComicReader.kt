@@ -6,7 +6,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -26,11 +25,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.continuum.app.network.TokenManager
 import kotlinx.coroutines.CoroutineScope
@@ -192,13 +189,17 @@ fun ComicReader(
     }
     val scope = rememberCoroutineScope()
     val config = remember { ComicReaderConfig() }
-    val onPageTap: (Float) -> Unit = { xFraction ->
-        when (config.tapAction(xFraction)) {
-            ComicTapAction.Previous ->
-                if (pagerState.currentPage > 0) scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } else onToggleChrome()
-            ComicTapAction.Next ->
-                if (pagerState.currentPage < pages.lastIndex) scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } else onToggleChrome()
-            ComicTapAction.ToggleChrome -> onToggleChrome()
+    // Keyed on pages.lastIndex and config so the lambda is stable across
+    // recompositions; pagerState, scope, and onToggleChrome are stable references.
+    val onPageTap: (Float) -> Unit = remember(pages.lastIndex, config) {
+        { xFraction ->
+            when (config.tapAction(xFraction)) {
+                ComicTapAction.Previous ->
+                    if (pagerState.currentPage > 0) scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } else onToggleChrome()
+                ComicTapAction.Next ->
+                    if (pagerState.currentPage < pages.lastIndex) scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } else onToggleChrome()
+                ComicTapAction.ToggleChrome -> onToggleChrome()
+            }
         }
     }
 
@@ -233,7 +234,9 @@ private fun ComicPage(
             decodeComicPageBitmap(zip, entryName, targetMaxDimension)
         }
     }
-    BoxWithConstraints(
+    // TODO: Fit-mode rendering with pan/scroll is deferred to the comic-v2/SSIV
+    //  task. Until then all modes use ContentScale.Fit so nothing clips.
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(onPageTap) {
@@ -252,31 +255,16 @@ private fun ComicPage(
             .padding(8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        val density = LocalDensity.current
-        val viewWidthPx = with(density) { maxWidth.toPx() }.toInt()
-        val viewHeightPx = with(density) { maxHeight.toPx() }.toInt()
         when (val result = bitmapResult) {
             null -> CircularProgressIndicator()
             else -> result.fold(
                 onSuccess = { bmp ->
-                    if (fitMode == ComicFitMode.Screen) {
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = entryName,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit,
-                        )
-                    } else {
-                        val scale = comicFitScale(bmp.width, bmp.height, viewWidthPx, viewHeightPx, fitMode)
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = entryName,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { scaleX = scale; scaleY = scale },
-                            contentScale = ContentScale.None,
-                        )
-                    }
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = entryName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
                 },
                 onFailure = { throwable ->
                     Text(readerLoadErrorMessage(throwable), modifier = Modifier.padding(32.dp))
