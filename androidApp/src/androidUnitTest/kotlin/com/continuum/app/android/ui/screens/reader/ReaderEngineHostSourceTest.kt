@@ -100,7 +100,8 @@ class ReaderEngineHostSourceTest {
         assertTrue(pdfSource.contains("onToggleChrome: () -> Unit"))
         assertTrue(pdfSource.contains("else -> onToggleChrome()"))
         assertTrue(comicSource.contains("onToggleChrome: () -> Unit"))
-        assertTrue(comicSource.contains("else -> onToggleChrome()"))
+        // Comic tap routing is now config-driven; ToggleChrome is a named branch rather than else.
+        assertTrue(comicSource.contains("onToggleChrome()"))
     }
 
     @Test
@@ -113,8 +114,8 @@ class ReaderEngineHostSourceTest {
         assertTrue(pdfSource.contains("animateScrollToPage(pagerState.currentPage - 1)"))
         assertTrue(pdfSource.contains("animateScrollToPage(pagerState.currentPage + 1)"))
 
-        assertTrue(comicSource.contains("xFraction < 1f / 3f"))
-        assertTrue(comicSource.contains("xFraction > 2f / 3f"))
+        // Comic tap zones are now delegated to ComicReaderConfig.tapAction(); the
+        // per-zone thresholds live in ComicReaderConfig.kt rather than ComicReader.kt.
         assertTrue(comicSource.contains("animateScrollToPage(pagerState.currentPage - 1)"))
         assertTrue(comicSource.contains("animateScrollToPage(pagerState.currentPage + 1)"))
     }
@@ -173,6 +174,14 @@ class ReaderEngineHostSourceTest {
         assertReaderBranchUsesToggle(source, "if (result == null)")
         assertReaderBranchUsesToggle(source, "result.exceptionOrNull()?.let { throwable ->")
         assertReaderBranchUsesToggle(source, "if (handle.pageCount == 0)")
+    }
+
+    @Test
+    fun `comic reader uses config-driven tap actions and reverse layout`() {
+        val src = File("src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ComicReader.kt").readText()
+        assertTrue(src.contains("ComicReaderConfig"), "ComicReader must use ComicReaderConfig")
+        assertTrue(src.contains("tapAction("), "tap handling must route through config.tapAction")
+        assertTrue(src.contains("reverseLayout ="), "pager must honor RTL via reverseLayout")
     }
 
     @Test

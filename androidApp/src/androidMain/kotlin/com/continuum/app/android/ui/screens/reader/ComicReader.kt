@@ -6,7 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -26,9 +26,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.continuum.app.network.TokenManager
 import kotlinx.coroutines.CoroutineScope
@@ -189,28 +191,20 @@ fun ComicReader(
         }
     }
     val scope = rememberCoroutineScope()
+    val config = remember { ComicReaderConfig() }
     val onPageTap: (Float) -> Unit = { xFraction ->
-        when {
-            xFraction < 1f / 3f -> {
-                if (pagerState.currentPage > 0) {
-                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
-                } else {
-                    onToggleChrome()
-                }
-            }
-            xFraction > 2f / 3f -> {
-                if (pagerState.currentPage < pages.lastIndex) {
-                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                } else {
-                    onToggleChrome()
-                }
-            }
-            else -> onToggleChrome()
+        when (config.tapAction(xFraction)) {
+            ComicTapAction.Previous ->
+                if (pagerState.currentPage > 0) scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } else onToggleChrome()
+            ComicTapAction.Next ->
+                if (pagerState.currentPage < pages.lastIndex) scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } else onToggleChrome()
+            ComicTapAction.ToggleChrome -> onToggleChrome()
         }
     }
 
     HorizontalPager(
         state = pagerState,
+        reverseLayout = config.direction == ReadingDirection.RightToLeft,
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface),
@@ -219,6 +213,7 @@ fun ComicReader(
             zip = zip,
             entryName = pages[pageIndex].entryName,
             targetMaxDimension = targetMaxDimension,
+            fitMode = config.fitMode,
             onPageTap = onPageTap,
         )
     }
@@ -229,6 +224,7 @@ private fun ComicPage(
     zip: ZipFile,
     entryName: String,
     targetMaxDimension: Int,
+    fitMode: ComicFitMode,
     onPageTap: (Float) -> Unit,
 ) {
     var bitmapResult by remember(entryName) { mutableStateOf<Result<Bitmap>?>(null) }
@@ -237,7 +233,7 @@ private fun ComicPage(
             decodeComicPageBitmap(zip, entryName, targetMaxDimension)
         }
     }
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(onPageTap) {
@@ -256,18 +252,31 @@ private fun ComicPage(
             .padding(8.dp),
         contentAlignment = Alignment.Center,
     ) {
+        val density = LocalDensity.current
+        val viewWidthPx = with(density) { maxWidth.toPx() }.toInt()
+        val viewHeightPx = with(density) { maxHeight.toPx() }.toInt()
         when (val result = bitmapResult) {
             null -> CircularProgressIndicator()
             else -> result.fold(
                 onSuccess = { bmp ->
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = entryName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .aspectRatio(bmp.width.toFloat() / bmp.height.toFloat()),
-                        contentScale = ContentScale.Fit,
-                    )
+                    if (fitMode == ComicFitMode.Screen) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = entryName,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else {
+                        val scale = comicFitScale(bmp.width, bmp.height, viewWidthPx, viewHeightPx, fitMode)
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = entryName,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { scaleX = scale; scaleY = scale },
+                            contentScale = ContentScale.None,
+                        )
+                    }
                 },
                 onFailure = { throwable ->
                     Text(readerLoadErrorMessage(throwable), modifier = Modifier.padding(32.dp))
