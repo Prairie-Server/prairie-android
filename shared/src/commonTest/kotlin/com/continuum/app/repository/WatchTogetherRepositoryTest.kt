@@ -17,6 +17,7 @@ import com.continuum.app.network.api.WatchTogetherApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -76,8 +77,11 @@ class WatchTogetherRepositoryTest {
         val events: MutableSharedFlow<RoomRealtimeEvent> = MutableSharedFlow(replay = 0, extraBufferCapacity = 64),
     ) : WatchTogetherRealtimeClient {
         var connectCount = 0
+        /** When true, the returned flow throws immediately on collection. */
+        var failConnect = false
         override fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent> {
             connectCount++
+            if (failConnect) return flow { throw IllegalStateException("boom") }
             return events.asSharedFlow()
         }
         override suspend fun attachSession(sessionId: String) {}
@@ -272,5 +276,20 @@ class WatchTogetherRepositoryTest {
         advanceUntilIdle()
         assertEquals(1, realtime.connectCount)
         assertTrue(job.isCompleted || job.isCancelled)
+    }
+
+    // ---- reconnect gives up after max consecutive failures ----------------------
+
+    @Test
+    fun `reconnect loop gives up after the max consecutive failures`() = runTest {
+        val realtime = FakeRealtime().apply { failConnect = true }
+        val r = repo(realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val job = launch { r.connect("room-1") }
+        advanceUntilIdle()
+        // The loop must have stopped on its own (job completed, not still running).
+        assertTrue(job.isCompleted || job.isCancelled)
+        // And the closed reason must signal connection_lost.
+        assertEquals("connection_lost", r.roomClosedReason.value)
     }
 }

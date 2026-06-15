@@ -270,8 +270,10 @@ class WatchTogetherRepository(
         realtime = client
         _roomClosedReason.value = null // fresh connect: clear any stale close/error reason
         var backoffIndex = 0
+        var failures = 0
         while (true) {
             var closedByServer = false
+            var healthy = false
             try {
                 client.connect(roomId, roomToken).collect { event ->
                     if (event is RoomRealtimeEvent.Closed) {
@@ -283,7 +285,9 @@ class WatchTogetherRepository(
                         _roomSnapshot.value = null
                         throw ServerClosed
                     } else {
+                        healthy = true
                         backoffIndex = 0 // healthy traffic resets backoff
+                        failures = 0
                     }
                     fold(event)
                 }
@@ -293,9 +297,14 @@ class WatchTogetherRepository(
             } catch (_: ServerClosed) {
                 // terminal — handled below via closedByServer
             } catch (_: Throwable) {
-                // fall through to backoff-reconnect
+                // fall through to backoff-reconnect; count failure if no healthy event arrived
+                if (!healthy) failures++
             }
             if (closedByServer) break
+            if (failures >= MAX_RECONNECT_ATTEMPTS) {
+                _roomClosedReason.value = "connection_lost"
+                break
+            }
             delay(BACKOFF_MS[backoffIndex])
             backoffIndex = (backoffIndex + 1).coerceAtMost(BACKOFF_MS.lastIndex)
         }
@@ -348,5 +357,12 @@ class WatchTogetherRepository(
     companion object {
         /** Reconnect backoff steps (ms) — spec: not after room_closed. */
         val BACKOFF_MS = longArrayOf(500L, 1_000L, 2_000L, 5_000L)
+
+        /**
+         * Maximum number of consecutive connection failures (e.g. throws during
+         * [connect] collection, factory/handshake errors) before the reconnect
+         * loop gives up. Reset to zero on any healthy server event.
+         */
+        const val MAX_RECONNECT_ATTEMPTS = 6
     }
 }
