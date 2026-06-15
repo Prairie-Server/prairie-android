@@ -140,4 +140,18 @@ class RequestsRepositoryTest {
         assertTrue(result is ApiResult.Success)
         assertEquals(listOf(cancelled, other), repo.mine.first())
     }
+
+    @Test
+    fun `reset clears mine state flow`() = runTest {
+        val seeded = listOf(stubRequest("a", 1), stubRequest("b", 2))
+        val api = FakeRequestsApi(mineResult = ApiResult.Success(RequestsListResponse(seeded)))
+        val repo = RequestsRepository(api)
+
+        repo.refreshMine()
+        assertTrue(repo.mine.first().isNotEmpty())
+
+        repo.reset()
+
+        assertTrue(repo.mine.first().isEmpty())
+    }
 }

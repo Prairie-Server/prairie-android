@@ -45,7 +45,7 @@ val repositoryModule = module {
     single { CalendarRepository(get()) }
     single { PlaybackRepository(get()) }
     single { PersonalDataRepository(get()) }
-    single { ProfileRepository(get(), get(), getOrNull(), get()) }
+    single { ProfileRepository(get(), get(), getOrNull(), get(), get()) }
     single { CollectionRepository(get()) }
     single { SectionRepository(get()) }
     single { RecommendationRepository(get()) }

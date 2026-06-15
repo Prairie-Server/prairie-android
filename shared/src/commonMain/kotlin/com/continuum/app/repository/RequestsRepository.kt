@@ -70,6 +70,10 @@ class RequestsRepository(private val api: RequestsApi) {
             is ApiResult.NetworkError -> ApiResult.NetworkError(result.exception)
         }
 
+    fun reset() {
+        _mine.value = emptyList()
+    }
+
     private fun upsertMine(request: MediaRequest) {
         _mine.update { list ->
             val replaced = list.map { if (it.id == request.id) request else it }
