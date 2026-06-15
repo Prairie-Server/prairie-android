@@ -105,23 +105,23 @@ class EbookVersionSelectionTest {
     }
 
     @Test
-    fun requestedUnsupportedVersionDoesNotFallbackToAnotherVersion() {
+    fun requestedUnsupportedVersionFallsThroughToReadableVersion() {
         val versions = listOf(
             FileVersion(fileId = 1, fileName = "cover.jpg", container = "jpg"),
             FileVersion(fileId = 2, fileName = "book.epub", container = "epub"),
         )
 
-        assertNull(chooseReaderVersion(versions, requestedFileId = 1))
+        assertEquals(2, chooseReaderVersion(versions, requestedFileId = 1)?.version?.fileId)
     }
 
     @Test
-    fun requestedMissingReaderVersionDoesNotFallbackToAnotherVersion() {
+    fun requestedMissingReaderVersionFallsThroughToReadableVersion() {
         val versions = listOf(
             FileVersion(fileId = 2, fileName = "book.epub", container = "epub"),
             FileVersion(fileId = 3, fileName = "book.mobi", container = "mobi"),
         )
 
-        assertNull(chooseReaderVersion(versions, requestedFileId = 1))
+        assertEquals(2, chooseReaderVersion(versions, requestedFileId = 1)?.version?.fileId)
     }
 
     @Test

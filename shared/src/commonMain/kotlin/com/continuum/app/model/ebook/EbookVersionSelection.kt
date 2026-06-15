@@ -177,14 +177,10 @@ fun chooseReaderVersion(
     versions: List<FileVersion>,
     requestedFileId: Int?,
 ): ReaderVersionTarget? {
+    val targets = versions.mapNotNull { it.readerTargetOrNull() }
     if (requestedFileId != null) {
-        return versions.firstOrNull { it.fileId == requestedFileId }?.readerTargetOrNull()
+        targets.firstOrNull { it.version.fileId == requestedFileId }?.let { return it }
     }
-
-    val targets = versions.mapNotNull { version ->
-        version.readerTargetOrNull()
-    }
-
     return targets.preferredReaderTarget(EbookReadMode.InApp)
         ?: targets.preferredReaderTarget(EbookReadMode.ExternalOnly)
 }
