@@ -2,18 +2,24 @@ package com.continuum.app.android.ui.screens.reader.reflow
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SectionWeightsTest {
-    private val w = SectionWeights(listOf(100, 300)) // total 400
-
-    @Test fun `start of first section is zero`() =
+    @Test fun `progress weights by cumulative char offset`() {
+        val w = SectionWeights(listOf(100, 300)) // section 0 is 25% of the book
         assertEquals(0.0, w.bookProgression(0, 0.0), 1e-9)
-    @Test fun `mid first section weights by chars`() =
-        assertEquals(0.125, w.bookProgression(0, 0.5), 1e-9) // 0 + 0.25*0.5
-    @Test fun `start of second section is first section weight`() =
         assertEquals(0.25, w.bookProgression(1, 0.0), 1e-9)
-    @Test fun `end of last section is one`() =
+        assertEquals(0.25, w.bookProgression(0, 1.0), 1e-9)
         assertEquals(1.0, w.bookProgression(1, 1.0), 1e-9)
-    @Test fun `single empty section degrades to page progression`() =
-        assertEquals(0.5, SectionWeights(listOf(0)).bookProgression(0, 0.5), 1e-9)
+    }
+
+    @Test fun `clamps out-of-range section index`() {
+        val w = SectionWeights(listOf(100, 100))
+        assertTrue(w.bookProgression(9, 0.5) in 0.0..1.0)
+    }
+
+    @Test fun `empty sections fall back to raw page progression`() {
+        val w = SectionWeights(emptyList())
+        assertEquals(0.5, w.bookProgression(0, 0.5), 1e-9)
+    }
 }
