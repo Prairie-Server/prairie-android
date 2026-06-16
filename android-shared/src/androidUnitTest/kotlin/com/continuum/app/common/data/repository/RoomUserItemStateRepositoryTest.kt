@@ -128,6 +128,13 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun localPositionReadsBackTheRecordedResumePoint() = runTest {
+        assertNull(repo.localPosition("c1", fileId = 7))
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 456.0, durationSeconds = 3600.0)
+        assertEquals(456.0, repo.localPosition("c1", fileId = 7))
+    }
+
+    @Test
     fun recordPositionRejectsNonFinitePosition() = runTest {
         repo.recordPosition("c1", fileId = 7, positionSeconds = Double.NaN, durationSeconds = 3600.0)
         repo.recordPosition("c1", fileId = 7, positionSeconds = -5.0, durationSeconds = 3600.0)

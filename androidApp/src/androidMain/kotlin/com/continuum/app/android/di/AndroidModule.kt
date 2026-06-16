@@ -97,16 +97,19 @@ val androidModule = module {
     // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
     // up the Room-backed port and writes optimistic projection + outbox rows.
     single { com.continuum.app.common.data.db.SiloDatabase.build(androidContext()) }
+    single<com.continuum.app.common.data.sync.OutboxSyncScheduler> {
+        val appContext = androidContext().applicationContext
+        com.continuum.app.common.data.sync.OutboxSyncScheduler {
+            com.continuum.app.common.data.sync.SyncWorker.enqueue(appContext)
+        }
+    }
     single<com.continuum.app.repository.port.UserItemStatePort> {
         val tokenManager: TokenManager = get()
-        val appContext = androidContext().applicationContext
         com.continuum.app.common.data.repository.RoomUserItemStateRepository(
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
             // Drain is requested only when a write is left pending (resolve RETRIABLE).
-            syncScheduler = com.continuum.app.common.data.sync.OutboxSyncScheduler {
-                com.continuum.app.common.data.sync.SyncWorker.enqueue(appContext)
-            },
+            syncScheduler = get(),
         )
     }
     single {
@@ -208,6 +211,8 @@ val androidModule = module {
             sessionLifecycle = get(),
             sleepTimer = get(),
             subtitlesRepository = get(),
+            userItemStatePort = get(),
+            outboxSyncScheduler = get(),
         )
     }
     viewModel { HomeViewModel(get(), get()) }

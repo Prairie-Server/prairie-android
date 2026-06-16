@@ -243,11 +243,37 @@ class TvPlayerViewModel(
     private val sleepTimer: SleepTimerController,
     // Subtitle suite (provider search/download + AI translate).
     private val subtitlesRepository: SubtitlesRepository,
+    // Track B: durable offline-safe position (resume + outbox sync).
+    private val userItemStatePort: com.continuum.app.repository.port.UserItemStatePort,
+    private val outboxSyncScheduler: com.continuum.app.common.data.sync.OutboxSyncScheduler,
     private val launchArgs: TvPlayerLaunchArgs,
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "TvPlayerViewModel"
+        // Record a durable position roughly every 10s of content time.
+        private const val POSITION_RECORD_INTERVAL_SEC = 10.0
+    }
+
+    private var lastRecordedKey: String? = null
+    private var lastRecordedPositionSec: Double = -1.0
+
+    /** [force] bypasses the time-throttle (used on pause/stop to capture the exact spot). */
+    private fun maybeRecordPosition(positionSec: Double, durationSec: Double, force: Boolean = false) {
+        if (positionSec < 0.0) return
+        val cid = contentId.takeIf { it.isNotBlank() } ?: return
+        val fileId = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId ?: return
+        val key = "$cid|$fileId"
+        if (!force && key == lastRecordedKey && lastRecordedPositionSec >= 0.0 &&
+            kotlin.math.abs(positionSec - lastRecordedPositionSec) < POSITION_RECORD_INTERVAL_SEC
+        ) {
+            return
+        }
+        lastRecordedKey = key
+        lastRecordedPositionSec = positionSec
+        viewModelScope.launch {
+            userItemStatePort.recordPosition(cid, fileId, positionSec, durationSec.takeIf { it > 0.0 })
+        }
     }
 
     private val contentId: String = launchArgs.contentId
@@ -662,10 +688,20 @@ class TvPlayerViewModel(
             durationSec = if (durationSec > 0) durationSec else _uiState.value.duration,
             isPaused = _uiState.value.isPaused,
         )
+
+        // Track B: durably record (local resume + outbox sync) for both streaming
+        // and offline-download; throttled to ~every 10s of content time.
+        maybeRecordPosition(positionSec, if (durationSec > 0) durationSec else _uiState.value.duration)
     }
 
     fun onPlayingChanged(isPlaying: Boolean) {
         _uiState.update { it.copy(isPlaying = isPlaying) }
+        // Durably capture the exact spot when playback halts (pause/stall/stop)
+        // while the VM is alive, so resume is reliable without depending on the
+        // exit-time write completing during teardown.
+        if (!isPlaying) {
+            maybeRecordPosition(_uiState.value.position, _uiState.value.duration, force = true)
+        }
     }
 
     fun onBufferingChanged(isBuffering: Boolean) {
@@ -1148,6 +1184,18 @@ class TvPlayerViewModel(
     }
 
     suspend fun stopSessionForExit() {
+        // Track B: durably record the final position + prompt a drain (covers the
+        // online offline-download case with no live session / connectivity change).
+        val fileId = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId
+        if (contentId.isNotBlank() && fileId != null) {
+            userItemStatePort.recordPosition(
+                contentId,
+                fileId,
+                _uiState.value.position,
+                _uiState.value.duration.takeIf { it > 0.0 },
+            )
+            outboxSyncScheduler.requestSync()
+        }
         sessionLifecycle.stop()
         introObserveJob?.cancel()
         introAutoSkipController.reset()

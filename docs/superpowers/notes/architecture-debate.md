@@ -758,3 +758,13 @@ The user reviewed the corrected tradeoff and chose **build the full network-laye
 - Liveness: `OutboxSyncStarter` enqueues on launch + connectivity + active-server change; `SyncEngine` computes `remaining` from a re-snapshot of the CURRENTLY-active scope at drain end, so a `KEEP`-dropped activation enqueue can't strand a scope. `DirtyOperationDao.supersedeOrRecordFailure` is one `@Transaction`.
 
 The "Scoped API requests" follow-up task above is now DONE (folded into Task 5). The only known limitation: while a retry chain backs off, `KEEP` can briefly defer an immediately-due op until the chain's next tick — latency only, never data loss.
+
+### Track B position slice unit 2 — player integration (Claude↔Codex, 2026-06-16)
+
+Wired recordPosition/localPosition into PlayerViewModel + TvPlayerViewModel: throttled (~10s content-time, keyed by contentId|fileId) periodic record from onPositionChanged covering BOTH streaming and offline-download; a forced record on onPlayingChanged(false) (pause/stall/stop) for deterministic capture while the VM is alive; a best-effort final record + requestSync on exit. Phone offline resume folds in localPosition (max of server detail + local, furthest-wins). OutboxSyncScheduler extracted to a DI single. Codex verdict: accept, no blockers.
+
+**Follow-ups (deferred, not blockers):**
+1. Phone exit-on-active-playback final write is fire-and-forget (viewModelScope may cancel during teardown) → resume can be ≤10s stale in the rare "back out while playing without a pause event" flow. TV awaits stopSessionForExit before nav; mirroring that on phone (suspend exit awaited before popBackStack) is a nice-to-have.
+2. Pre-existing fileId-fallback bug (NOT introduced here): in tryLocalPlayback, if online watchDetail.versions is non-empty but missing the downloaded file's fileId, selectedIndex falls back to 0 → wrong fileId; the new position writer inherits it. Fix the selection logic.
+3. TV has the position WRITE path but not the local-resume READ (no fully-mapped TV offline-download start path); add TV local-resume-read for parity when that path is mapped.
+4. Audiobook/ebook fold onto the outbox (from the position-scope decision) remains deferred consolidation.

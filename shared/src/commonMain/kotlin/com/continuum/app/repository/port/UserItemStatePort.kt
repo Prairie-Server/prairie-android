@@ -43,6 +43,13 @@ interface UserItemStatePort {
         durationSeconds: Double?,
     ) {
     }
+
+    /**
+     * The locally-recorded resume position for an item, or null if none. Lets the
+     * player resume from the last on-device position when offline (no server
+     * round-trip). No-op (null) on the default port.
+     */
+    suspend fun localPosition(contentId: String, fileId: Int): Double? = null
 }
 
 /**

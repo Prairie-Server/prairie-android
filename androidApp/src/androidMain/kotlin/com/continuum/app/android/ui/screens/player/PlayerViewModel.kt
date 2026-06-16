@@ -88,11 +88,17 @@ class PlayerViewModel(
     private val sleepTimer: SleepTimerController,
     // Subtitle suite (search/download + AI translate):
     private val subtitlesRepository: SubtitlesRepository,
+    // Track B: durable offline-safe position (resume + outbox sync).
+    private val userItemStatePort: com.continuum.app.repository.port.UserItemStatePort,
+    private val outboxSyncScheduler: com.continuum.app.common.data.sync.OutboxSyncScheduler,
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "PlayerViewModel"
         private const val CONTROLS_AUTO_HIDE_MS = 3_000L
+        // Record a durable position roughly every 10s of content time (matches the
+        // server reporter cadence) to bound DB/outbox churn.
+        private const val POSITION_RECORD_INTERVAL_SEC = 10.0
     }
 
     data class PlayerUiState(
@@ -552,6 +558,39 @@ class PlayerViewModel(
             durationSec = if (durationSec > 0) durationSec else _uiState.value.duration,
             isPaused = _uiState.value.isPaused,
         )
+
+        // Track B: durably record the position (local resume + outbox sync) for
+        // BOTH streaming and offline-download playback — the lifecycle's server
+        // reporter does nothing on the offline-download path (no session). Throttled
+        // by content-time delta so it fires ~every 10s of playback, not per tick.
+        maybeRecordPosition(positionSec, if (durationSec > 0) durationSec else _uiState.value.duration)
+    }
+
+    private var lastRecordedKey: String? = null
+    private var lastRecordedPositionSec: Double = -1.0
+
+    private fun currentFileId(): Int? =
+        _uiState.value.versions.getOrNull(_uiState.value.selectedVersionIndex)?.fileId
+
+    /** [force] bypasses the time-throttle (used on pause/stop to capture the exact spot). */
+    private fun maybeRecordPosition(positionSec: Double, durationSec: Double, force: Boolean = false) {
+        if (positionSec < 0.0) return
+        val contentId = _uiState.value.contentId.takeIf { it.isNotBlank() } ?: return
+        val fileId = currentFileId() ?: return
+        val key = "$contentId|$fileId"
+        // Always record the first sample for a new item/version; otherwise throttle
+        // by content-time delta so the per-item first write is never suppressed by
+        // the previous item's position.
+        if (!force && key == lastRecordedKey && lastRecordedPositionSec >= 0.0 &&
+            kotlin.math.abs(positionSec - lastRecordedPositionSec) < POSITION_RECORD_INTERVAL_SEC
+        ) {
+            return
+        }
+        lastRecordedKey = key
+        lastRecordedPositionSec = positionSec
+        viewModelScope.launch {
+            userItemStatePort.recordPosition(contentId, fileId, positionSec, durationSec.takeIf { it > 0.0 })
+        }
     }
 
     /**
@@ -566,6 +605,12 @@ class PlayerViewModel(
         // Controls should auto-hide once real playback resumes after a pause.
         if (isPlaying && !_uiState.value.isPaused && _uiState.value.showControls) {
             scheduleControlsHide()
+        }
+        // Durably capture the exact spot when playback halts (pause/stall/stop) —
+        // this runs while the VM is alive, so resume is reliable even if the
+        // fire-and-forget exit write doesn't complete during teardown.
+        if (!isPlaying) {
+            maybeRecordPosition(_uiState.value.position, _uiState.value.duration, force = true)
         }
     }
 
@@ -1042,6 +1087,20 @@ class PlayerViewModel(
     /** Called when the user exits the player. */
     fun onExit() {
         viewModelScope.launch {
+            // Track B: durably record the final position for both paths, then ask
+            // the outbox to drain promptly (covers the online offline-download case
+            // where there's no live session and no connectivity change to trigger it).
+            val cid = _uiState.value.contentId.takeIf { it.isNotBlank() }
+            val fid = currentFileId()
+            if (cid != null && fid != null) {
+                userItemStatePort.recordPosition(
+                    cid,
+                    fid,
+                    _uiState.value.position,
+                    _uiState.value.duration.takeIf { it > 0.0 },
+                )
+                outboxSyncScheduler.requestSync()
+            }
             // Lifecycle.stop() handles: final progress report, snapshot via PersonalData,
             // session stop, and reporter cancellation. The single call replaces the
             // duplicated reportProgress/stopSession + syncProgressSnapshot flow.
@@ -1174,10 +1233,15 @@ class PlayerViewModel(
             )
         val selectedIndex = versions.indexOfFirst { it.fileId == fileId }
             .coerceAtLeast(0)
+        // Offline-safe resume: the server's watchDetail may be stale or absent in
+        // airplane mode, so fold in the locally-recorded position and take the
+        // furthest of the two (matches the server's GREATEST semantics).
+        val localPos = userItemStatePort.localPosition(contentId, fileId)
+        val detailPos = listOfNotNull(watchDetail?.userData?.positionSeconds, localPos).maxOrNull()
         val startPos = resolvePlaybackStartPosition(
             overridePosition = resumePositionOverride,
             sessionPosition = 0.0,
-            detailPosition = watchDetail?.userData?.positionSeconds,
+            detailPosition = detailPos,
         )
         val artworkUrl = watchDetail?.posterUrl?.takeIf { url -> url.isNotBlank() }
             ?: watchDetail?.backdropUrl?.takeIf { url -> url.isNotBlank() }
