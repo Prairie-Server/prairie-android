@@ -16,6 +16,14 @@ object PlaybackEngineCommand {
     const val SET_ENGINE = "silo.SET_ENGINE"
     const val ARG_REQUEST_JSON = "request_json"
 
+    /**
+     * Boolean extra on the command's [SessionResult] indicating the session player
+     * was actually swapped to a different engine. The UI uses this to re-attach the
+     * PlayerView so its video Surface is re-pushed to the new (e.g. MPV) player;
+     * without a swap it stays bound and no re-attach (or flicker) is needed.
+     */
+    const val RESULT_SWAPPED = "silo.engine_swapped"
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true

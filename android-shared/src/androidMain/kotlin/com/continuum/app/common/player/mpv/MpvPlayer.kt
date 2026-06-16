@@ -1220,6 +1220,7 @@ class MpvPlayer(
     }
 
     private fun attachVideoSurface(surface: Surface?) {
+        Log.i(TAG, "attachVideoSurface: surface=${surface != null} valid=${surface?.isValid} sameAsCurrent=${surface == currentSurface}")
         if (surface == null || !surface.isValid) {
             detachVideoSurface(currentSurface)
             return

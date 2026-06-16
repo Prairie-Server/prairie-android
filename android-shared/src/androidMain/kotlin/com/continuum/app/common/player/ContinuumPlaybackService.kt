@@ -252,7 +252,13 @@ class ContinuumPlaybackService : MediaSessionService() {
                     } else {
                         SessionResult.RESULT_SUCCESS
                     }
-                    future.set(SessionResult(code))
+                    // Tell the UI whether the session player was actually swapped, so
+                    // it can re-attach the PlayerView (re-pushing the video Surface to
+                    // the new engine). Only SWITCHED requires the re-attach.
+                    val extras = Bundle().apply {
+                        putBoolean(PlaybackEngineCommand.RESULT_SWAPPED, outcome == SwitchOutcome.SWITCHED)
+                    }
+                    future.set(SessionResult(code, extras))
                 } catch (c: CancellationException) {
                     future.setException(c)
                     throw c
