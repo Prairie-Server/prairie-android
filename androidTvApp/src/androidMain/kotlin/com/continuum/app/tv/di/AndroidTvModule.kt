@@ -103,6 +103,7 @@ val androidTvModule = module {
         com.continuum.app.common.data.sync.SyncEngine(
             db = get(),
             personalDataApi = get(),
+            ebookReaderApi = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }

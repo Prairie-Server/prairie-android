@@ -8,6 +8,8 @@ import com.continuum.app.model.ebook.SaveEbookAnnotationRequest
 import com.continuum.app.model.ebook.SaveEbookProgressRequest
 import com.continuum.app.model.ebook.SaveEbookReaderConfigRequest
 import com.continuum.app.network.ApiResult
+import com.continuum.app.network.AuthScopeSnapshot
+import com.continuum.app.network.authScope
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -15,21 +17,31 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 
 open class EbookReaderApi(private val client: HttpClient) {
     fun readPath(contentId: String, fileId: Int): String =
         "/api/v1/ebooks/${contentId.encodeURLPathPart()}/files/$fileId/read"
 
-    open suspend fun getProgress(contentId: String): ApiResult<EbookReaderProgress> = safeApiCall {
-        client.get("/api/v1/ebooks/${contentId.encodeURLPathPart()}/progress")
+    open suspend fun getProgress(
+        contentId: String,
+        scope: AuthScopeSnapshot? = null,
+    ): ApiResult<EbookReaderProgress> = safeApiCall {
+        client.get("/api/v1/ebooks/${contentId.encodeURLPathPart()}/progress") {
+            scope?.let { authScope(it) }
+        }
     }
 
     open suspend fun saveProgress(
         contentId: String,
         request: SaveEbookProgressRequest,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<EbookReaderProgress> = safeApiCall {
         client.put("/api/v1/ebooks/${contentId.encodeURLPathPart()}/progress") {
+            scope?.let { authScope(it) }
+            contentType(ContentType.Application.Json)
             setBody(request)
         }
     }

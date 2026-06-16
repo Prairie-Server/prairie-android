@@ -41,15 +41,19 @@ class SyncEngineTest {
         profileToken = "pt",
     )
 
-    private val api = PersonalDataApi(
-        HttpClient(MockEngine { respond("{}", status, headersOf(HttpHeaders.ContentType, "application/json")) }) {
-            install(ContentNegotiation) { json(ContinuumJson) }
-        },
-    )
+    private fun mockClient() = HttpClient(
+        MockEngine { respond("{}", status, headersOf(HttpHeaders.ContentType, "application/json")) },
+    ) {
+        install(ContentNegotiation) { json(ContinuumJson) }
+    }
+
+    private val api = PersonalDataApi(mockClient())
+    private val ebookApi = com.continuum.app.network.api.EbookReaderApi(mockClient())
 
     private fun engine(batchLimit: Int = 50) = SyncEngine(
         db = db,
         personalDataApi = api,
+        ebookReaderApi = ebookApi,
         snapshotProvider = { snapshot },
         now = { clock },
         batchLimit = batchLimit,
@@ -176,11 +180,30 @@ class SyncEngineTest {
         val noScopeEngine = SyncEngine(
             db = db,
             personalDataApi = api,
+            ebookReaderApi = ebookApi,
             snapshotProvider = { null },
             now = { clock },
         )
         val result = noScopeEngine.drainOnce()
         assertEquals(0, result.synced)
         assertEquals(1, db.dirtyOperationDao().count())
+    }
+
+    @Test
+    fun ebookProgressDrainsWhenLocalAheadOfServer() = runTest {
+        // MockEngine getProgress returns "{}" → server progress 0.0; local 0.5 is
+        // ahead → saveProgress runs → 200 → synced.
+        db.dirtyOperationDao().insert(
+            op(
+                coalesceKey = "s1|p1|c1|${OutboxOperation.SET_EBOOK_PROGRESS}",
+                idempotencyKey = "i1",
+                opKind = OutboxOperation.SET_EBOOK_PROGRESS,
+                payload = OutboxOperation.encodeEbookProgressPayload(7, "epubcfi(/6/4!/4)", 0.5),
+            ),
+        )
+        status = HttpStatusCode.OK
+        val result = engine().drainOnce()
+        assertEquals(1, result.synced)
+        assertEquals(0, db.dirtyOperationDao().count())
     }
 }

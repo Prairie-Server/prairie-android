@@ -135,6 +135,17 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun recordEbookProgressWritesProjectionOpAndReadsBack() = runTest {
+        repo.recordEbookProgress("c1", fileId = 7, location = "epubcfi(/6/4!/4)", progress = 0.42)
+        val back = repo.localEbookProgress("c1", fileId = 7)
+        assertEquals("epubcfi(/6/4!/4)", back?.location)
+        assertEquals(0.42, back?.progress)
+        val op = db.dirtyOperationDao().dueBatch("s1", "p1", nowMs = 2000L, limit = 10).single()
+        assertEquals(OutboxOperation.SET_EBOOK_PROGRESS, op.opKind)
+        assertEquals("s1|p1|c1|${OutboxOperation.SET_EBOOK_PROGRESS}", op.coalesceKey)
+    }
+
+    @Test
     fun recordPositionRejectsNonFinitePosition() = runTest {
         repo.recordPosition("c1", fileId = 7, positionSeconds = Double.NaN, durationSeconds = 3600.0)
         repo.recordPosition("c1", fileId = 7, positionSeconds = -5.0, durationSeconds = 3600.0)

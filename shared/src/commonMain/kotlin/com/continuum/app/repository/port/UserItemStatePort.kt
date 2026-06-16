@@ -57,7 +57,29 @@ interface UserItemStatePort {
      * known yet at resume time. No-op (null) on the default port.
      */
     suspend fun localPositionForContent(contentId: String): Double? = null
+
+    /**
+     * Durably record ebook reading position (CFI [location] + [progress] 0..1) for
+     * offline-safe resume + sync. Like [recordPosition] there is no inline call:
+     * the local file-level projection (cfi/readProgress) is the resume source and a
+     * single content-level op drains via the monotonic-guarded ebook sync (the
+     * drain only pushes when local progress exceeds the server's, so a stale replay
+     * never rewinds reading position). No-op on the default port.
+     */
+    suspend fun recordEbookProgress(
+        contentId: String,
+        fileId: Int,
+        location: String,
+        progress: Double,
+    ) {
+    }
+
+    /** Locally-recorded ebook resume point for a file, or null. No-op (null) by default. */
+    suspend fun localEbookProgress(contentId: String, fileId: Int): EbookLocalProgress? = null
 }
+
+/** Local ebook resume point: CFI [location] + [progress] fraction (0..1). */
+data class EbookLocalProgress(val location: String, val progress: Double)
 
 /**
  * Opaque reference to an enqueued outbox op. [NONE] means nothing was recorded

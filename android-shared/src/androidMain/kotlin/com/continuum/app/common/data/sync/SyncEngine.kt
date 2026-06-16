@@ -3,9 +3,12 @@ package com.continuum.app.common.data.sync
 import android.util.Log
 import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
+import com.continuum.app.model.ebook.SaveEbookProgressRequest
 import com.continuum.app.model.personal.SyncProgressItem
 import com.continuum.app.model.personal.SyncProgressRequest
+import com.continuum.app.network.ApiResult
 import com.continuum.app.network.AuthScopeSnapshot
+import com.continuum.app.network.api.EbookReaderApi
 import com.continuum.app.network.api.PersonalDataApi
 import com.continuum.app.repository.port.WriteOutcome
 import com.continuum.app.repository.port.toWriteOutcome
@@ -35,6 +38,7 @@ import com.continuum.app.repository.port.toWriteOutcome
 class SyncEngine(
     db: SiloDatabase,
     private val personalDataApi: PersonalDataApi,
+    private val ebookReaderApi: EbookReaderApi,
     private val snapshotProvider: suspend () -> AuthScopeSnapshot?,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val batchLimit: Int = 50,
@@ -165,14 +169,52 @@ class SyncEngine(
                 )
             }
 
+            OutboxOperation.SET_EBOOK_PROGRESS -> return dispatchEbookProgress(op, contentId, scope)
+
             else -> {
-                // This engine version cannot send this kind (e.g. SET_POSITION
-                // replay is a later slice). Drop it rather than retry forever.
+                // This engine version cannot send this kind. Drop it rather than
+                // retry forever.
                 Log.w(TAG, "Dropping un-replayable outbox op kind=${op.opKind} id=${op.id}")
                 return WriteOutcome.TERMINAL
             }
         }
         return result.toWriteOutcome()
+    }
+
+    /**
+     * Ebook progress replay with a monotonic guard: the server PUT is plain LWW, so
+     * a stale offline replay could rewind reading position made on another device.
+     * GET the server's progress first and only PUT when our local progress is
+     * further ahead (mirrors the retired EbookProgressSyncer's guard). A 404 means
+     * the server has no progress yet → push.
+     */
+    private suspend fun dispatchEbookProgress(
+        op: DirtyOperationEntity,
+        contentId: String,
+        scope: AuthScopeSnapshot,
+    ): WriteOutcome {
+        val payload = OutboxOperation.decodeEbookProgressPayload(op.payloadJson)
+        val request = SaveEbookProgressRequest(
+            fileId = payload.fileId,
+            location = payload.location,
+            progress = payload.progress,
+        )
+        return when (val server = ebookReaderApi.getProgress(contentId, scope)) {
+            is ApiResult.Success ->
+                if (payload.progress > server.data.progress) {
+                    ebookReaderApi.saveProgress(contentId, request, scope).toWriteOutcome()
+                } else {
+                    // Server is already at/ahead — nothing to push; the op is done.
+                    WriteOutcome.SYNCED
+                }
+            is ApiResult.NetworkError -> WriteOutcome.RETRIABLE
+            is ApiResult.Error ->
+                if (server.code == 404) {
+                    ebookReaderApi.saveProgress(contentId, request, scope).toWriteOutcome()
+                } else {
+                    server.toWriteOutcome()
+                }
+        }
     }
 
     /** Capped exponential backoff: 30s · 2^attempt, ceiling 6h. */

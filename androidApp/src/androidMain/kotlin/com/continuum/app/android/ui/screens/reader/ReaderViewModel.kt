@@ -27,6 +27,7 @@ import com.continuum.app.repository.ProfileRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -84,6 +85,10 @@ class ReaderViewModel(
     private val ebookReaderRepository: EbookReaderRepository,
     private val offlineMediaResolver: OfflineMediaResolver,
     private val localStateStore: EbookLocalStateStore,
+    // Track B: reading position via the unified outbox (replaces the progress half
+    // of EbookLocalStateStore + EbookProgressSyncer; bookmarks/settings stay local).
+    private val userItemStatePort: com.continuum.app.repository.port.UserItemStatePort,
+    private val outboxSyncScheduler: com.continuum.app.common.data.sync.OutboxSyncScheduler,
     private val serverRegistry: ServerRegistry,
     private val profileRepository: ProfileRepository,
     savedStateHandle: SavedStateHandle,
@@ -290,9 +295,9 @@ class ReaderViewModel(
 
     private suspend fun loadLocalReaderState(fileId: Int): InitialReaderState {
         val (serverId, profileId) = resolveScope()
-        val progress = withContext(Dispatchers.IO) {
-            localStateStore.readProgress(serverId, profileId, contentId)
-        }?.takeIf { it.fileId == fileId }
+        // Reading position now comes from the Track B local projection; bookmarks
+        // still live in EbookLocalStateStore.
+        val progress = userItemStatePort.localEbookProgress(contentId, fileId)
         val bookmarks = withContext(Dispatchers.IO) {
             localStateStore.listBookmarks(serverId, profileId, contentId)
         }.map { it.toAnnotation() }
@@ -302,6 +307,13 @@ class ReaderViewModel(
             progressPercent = progress?.progress,
             bookmarks = bookmarks.takeIf { it.isNotEmpty() },
         )
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // Drain the reading-position outbox on exit (prompt sync when online;
+        // offline waits for connectivity). requestSync just enqueues WorkManager.
+        outboxSyncScheduler.requestSync()
     }
 
     private suspend fun loadDisplaySettings(): ReaderDisplaySettings {
@@ -366,9 +378,9 @@ class ReaderViewModel(
 
     /**
      * Persist a reflowable-reader locator. The reflowable engine reports an
-     * opaque [locationJson] string and a 0..1 book-level [progress]; we store
-     * both through the same local-then-server path as page-based progress so
-     * the shipped [EbookProgressSyncer] carries it offline->online.
+     * opaque [locationJson] string and a 0..1 book-level [progress]; we record
+     * both through the same Track B outbox path as page-based progress so the
+     * sync engine carries it offline->online (monotonic-guarded).
      */
     fun onLocatorChanged(locationJson: String, progress: Double) {
         val state = _uiState.value
@@ -391,43 +403,18 @@ class ReaderViewModel(
      */
     private fun persistProgress(fileId: Int, location: String, progressPercent: Double) {
         progressSaveJob?.cancel()
-        _uiState.update { it.copy(isSyncing = true, syncError = null) }
+        // Optimistic + offline-first: the local Room projection is the resume
+        // source and is written instantly, so progress is "saved" immediately;
+        // the content-level outbox op syncs to the server (monotonic-guarded in
+        // the drain) on reader exit / reconnect / launch. No inline PUT.
+        _uiState.update { it.copy(isSyncing = false) }
         val saveJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
-            val (serverId, profileId) = resolveScope()
             progressPersistMutex.withLock {
-                withContext(Dispatchers.IO) {
-                    localStateStore.writeProgress(
-                        serverId,
-                        profileId,
-                        contentId,
-                        EbookLocalStateStore.ProgressSnapshot(
-                            fileId = fileId,
-                            location = location,
-                            progress = progressPercent,
-                            updatedAtMs = System.currentTimeMillis(),
-                        ),
-                    )
-                }
-                when (ebookReaderRepository.saveProgress(
-                    contentId,
-                    SaveEbookProgressRequest(
-                        fileId = fileId,
-                        location = location,
-                        progress = progressPercent,
-                    ),
-                )) {
-                    is ApiResult.Success -> {
-                        if (progressSaveJob === coroutineContext[Job]) {
-                            _uiState.update { it.copy(isSyncing = false) }
-                        }
-                    }
-                    else -> {
-                        if (progressSaveJob === coroutineContext[Job]) {
-                            _uiState.update {
-                                it.copy(isSyncing = false, syncError = "Reading progress could not sync.")
-                            }
-                        }
-                    }
+                // NonCancellable: the durable local write must complete even if the
+                // VM is torn down right after the final page turn (back navigation
+                // cancels viewModelScope) — otherwise the last position is lost.
+                withContext(NonCancellable) {
+                    userItemStatePort.recordEbookProgress(contentId, fileId, location, progressPercent)
                 }
             }
         }

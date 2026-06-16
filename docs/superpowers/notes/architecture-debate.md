@@ -768,3 +768,12 @@ Wired recordPosition/localPosition into PlayerViewModel + TvPlayerViewModel: thr
 2. Pre-existing fileId-fallback bug (NOT introduced here): in tryLocalPlayback, if online watchDetail.versions is non-empty but missing the downloaded file's fileId, selectedIndex falls back to 0 → wrong fileId; the new position writer inherits it. Fix the selection logic.
 3. TV has the position WRITE path but not the local-resume READ (no fully-mapped TV offline-download start path); add TV local-resume-read for parity when that path is mapped.
 4. Audiobook/ebook fold onto the outbox (from the position-scope decision) remains deferred consolidation.
+
+### Track B — audiobook + ebook folded onto the outbox (clean cutover, 2026-06-16)
+
+User confirmed the app is UNRELEASED → no migration; the bespoke stores/syncers were removed outright (no dual-read window).
+
+- **Audiobook** (commit): reuses SET_POSITION verbatim (it's a position, same furthest-wins syncProgress). AudiobookPlayerViewModel records via UserItemStatePort.recordPosition + resumes via localPositionForContent (content-level — playing fileId unknown at resume). AudiobookPositionStore + AudiobookProgressSyncer deleted. TV gains audiobook offline sync via OutboxSyncStarter.
+- **Ebook** (this commit): PURE-OUTBOX (chosen over Codex's hybrid — simpler + guarded-everywhere is more correct than the old unguarded inline PUT; Codex accepted). New SET_EBOOK_PROGRESS op ({fileId, location/CFI, progress}, serialized). recordEbookProgress writes UserItemStateEntity.cfi/readProgress + content-coalesced op; localEbookProgress reads it back. SyncEngine.dispatchEbookProgress applies the MONOTONIC GUARD (getProgress → push only if local>server; 404→push; pinned) replicating the retired EbookProgressSyncer. EbookReaderApi.getProgress/saveProgress gained scope params; saveProgress now sets explicit Content-Type. ReaderViewModel: optimistic local write (NonCancellable so the final page-turn always commits), onCleared→requestSync. EbookProgressSyncer + ProgressSyncStarter deleted; EbookLocalStateStore kept for bookmarks/settings.
+
+All three media types (video, audiobook, ebook) now ride ONE durable, scope-pinned outbox. Known API limitation (not introduced here): ebook getProgress→saveProgress isn't atomic, so a concurrent remote advance between GET and PUT could still be overwritten — server-side monotonic ebook progress would be the clean fix (server PR, deferred).

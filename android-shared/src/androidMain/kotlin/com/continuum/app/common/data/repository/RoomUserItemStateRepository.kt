@@ -8,6 +8,7 @@ import com.continuum.app.common.data.db.entity.UserItemStateEntity
 import com.continuum.app.common.data.sync.OutboxOperation
 import com.continuum.app.common.data.sync.OutboxSyncScheduler
 import com.continuum.app.network.AuthScopeSnapshot
+import com.continuum.app.repository.port.EbookLocalProgress
 import com.continuum.app.repository.port.OutboxHandle
 import com.continuum.app.repository.port.UserItemStatePort
 import com.continuum.app.repository.port.WriteOutcome
@@ -138,6 +139,63 @@ class RoomUserItemStateRepository(
         return userStateDao.getByContent(snapshot.serverId, profileId, contentId)
             .mapNotNull { it.positionSeconds.takeIf { p -> p > 0.0 } }
             .maxOrNull()
+    }
+
+    override suspend fun recordEbookProgress(
+        contentId: String,
+        fileId: Int,
+        location: String,
+        progress: Double,
+    ) {
+        if (contentId.isBlank() || location.isBlank() || !progress.isFinite()) return
+        val clamped = progress.coerceIn(0.0, 1.0)
+        val snapshot = snapshotProvider() ?: return
+        val serverId = snapshot.serverId
+        val profileId = snapshot.profileId ?: return
+        val nowMs = now()
+
+        db.withTransaction {
+            val existing = userStateDao.get(serverId, profileId, contentId, fileId)
+            val row = existing?.copy(cfi = location, readProgress = clamped, clientUpdatedAtMs = nowMs)
+                ?: UserItemStateEntity(
+                    serverId = serverId,
+                    profileId = profileId,
+                    contentId = contentId,
+                    fileId = fileId,
+                    positionSeconds = 0.0,
+                    durationSeconds = null,
+                    audioFingerprint = null,
+                    subtitleFingerprint = null,
+                    cfi = location,
+                    readProgress = clamped,
+                    clientUpdatedAtMs = nowMs,
+                    serverUpdatedAtMs = null,
+                )
+            userStateDao.upsert(row)
+
+            outboxDao.enqueueCoalescing(
+                DirtyOperationEntity(
+                    opKind = OutboxOperation.SET_EBOOK_PROGRESS,
+                    serverId = serverId,
+                    profileId = profileId,
+                    targetContentId = contentId,
+                    targetFileId = fileId,
+                    coalesceKey = "$serverId|$profileId|$contentId|${OutboxOperation.SET_EBOOK_PROGRESS}",
+                    idempotencyKey = idGenerator(),
+                    payloadJson = OutboxOperation.encodeEbookProgressPayload(fileId, location, clamped),
+                    createdAtMs = nowMs,
+                    nextAttemptAtMs = nowMs,
+                ),
+            )
+        }
+    }
+
+    override suspend fun localEbookProgress(contentId: String, fileId: Int): EbookLocalProgress? {
+        val snapshot = snapshotProvider() ?: return null
+        val profileId = snapshot.profileId ?: return null
+        val row = userStateDao.get(snapshot.serverId, profileId, contentId, fileId) ?: return null
+        val location = row.cfi ?: return null
+        return EbookLocalProgress(location = location, progress = row.readProgress ?: 0.0)
     }
 
     override suspend fun resolve(handle: OutboxHandle, outcome: WriteOutcome) {

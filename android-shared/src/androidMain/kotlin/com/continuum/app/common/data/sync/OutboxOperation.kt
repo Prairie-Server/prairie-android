@@ -1,5 +1,7 @@
 package com.continuum.app.common.data.sync
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
@@ -11,11 +13,10 @@ import kotlinx.serialization.json.jsonObject
 /**
  * A typed, coalescible entry for the offline-first sync outbox (Track B).
  *
- * The outbox is limited to the four ops today's server APIs can represent:
- * SET_POSITION (PersonalDataApi.syncProgress), SET_WATCHED (markWatched/Unwatched),
- * SET_RATING (setRating/deleteRating), SET_FAVORITE (addFavorite/removeFavorite).
- * SET_TRACK_SELECTION has no server projection API (local-only) and CFI rides the
- * existing EbookProgressSyncer, so neither is an outbox op.
+ * Op kinds the drain can replay today: SET_POSITION (PersonalDataApi.syncProgress),
+ * SET_WATCHED/SET_RATING/SET_FAVORITE (PersonalDataApi mutations), and
+ * SET_EBOOK_PROGRESS (EbookReaderApi.saveProgress, monotonic-guarded in the drain).
+ * SET_TRACK_SELECTION has no server projection API (local-only) so it is not an op.
  *
  * [coalesceKey] lets a newer op replace older un-synced ops of the same kind+target
  * (e.g. repeated SET_POSITION). Pure (JSON payloads) so it is unit-tested.
@@ -26,11 +27,16 @@ data class OutboxOperation(
     val payloadJson: String,
     val createdAtMs: Long,
 ) {
+    /** Payload for [SET_EBOOK_PROGRESS]; serialized (CFI [location] needs escaping). */
+    @Serializable
+    data class EbookProgress(val fileId: Int, val location: String, val progress: Double)
+
     companion object {
         const val SET_POSITION = "SET_POSITION"
         const val SET_WATCHED = "SET_WATCHED"
         const val SET_RATING = "SET_RATING"
         const val SET_FAVORITE = "SET_FAVORITE"
+        const val SET_EBOOK_PROGRESS = "SET_EBOOK_PROGRESS"
 
         private val json = Json
 
@@ -81,5 +87,11 @@ data class OutboxOperation(
             val duration = (obj["duration"] as? JsonPrimitive)?.doubleOrNull
             return position to duration
         }
+
+        fun encodeEbookProgressPayload(fileId: Int, location: String, progress: Double): String =
+            json.encodeToString(EbookProgress(fileId, location, progress))
+
+        fun decodeEbookProgressPayload(payloadJson: String): EbookProgress =
+            json.decodeFromString(payloadJson)
     }
 }

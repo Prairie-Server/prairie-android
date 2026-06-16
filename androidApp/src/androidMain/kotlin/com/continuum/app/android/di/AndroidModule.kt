@@ -117,6 +117,7 @@ val androidModule = module {
         com.continuum.app.common.data.sync.SyncEngine(
             db = get(),
             personalDataApi = get(),
+            ebookReaderApi = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }
@@ -283,19 +284,10 @@ val androidModule = module {
     }
     // Audiobook position now flows through the Track B outbox (UserItemStatePort)
     // — the old AudiobookPositionStore + AudiobookProgressSyncer were removed.
+    // Still owns ebook bookmarks + display settings; reading POSITION now flows
+    // through the Track B outbox (EbookProgressSyncer was removed).
     single {
         com.continuum.app.common.ebook.EbookLocalStateStore(androidContext().filesDir)
-    }
-    // Flushes locally-saved (offline) ebook reading position back to the server
-    // on reconnect / app foreground.
-    single {
-        com.continuum.app.common.ebook.EbookProgressSyncer(
-            localStateStore = get(),
-            ebookReaderRepository = get(),
-            scope = kotlinx.coroutines.CoroutineScope(
-                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
-            ),
-        )
     }
 
     // Audiobook + book readers. SavedStateHandle is auto-injected via Koin's
@@ -321,6 +313,8 @@ val androidModule = module {
             ebookReaderRepository = get(),
             offlineMediaResolver = get(),
             localStateStore = get(),
+            userItemStatePort = get(),
+            outboxSyncScheduler = get(),
             serverRegistry = get(),
             profileRepository = get(),
             savedStateHandle = get(),
