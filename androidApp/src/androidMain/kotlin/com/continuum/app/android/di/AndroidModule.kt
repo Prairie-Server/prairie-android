@@ -281,22 +281,8 @@ val androidModule = module {
     single {
         com.continuum.app.common.audiobook.AudiobookBookmarksStore(androidContext().filesDir)
     }
-    // Audiobook position store — per-(server, profile, contentId) JSON
-    // files under filesDir/audiobook_positions.
-    single {
-        com.continuum.app.common.audiobook.AudiobookPositionStore(androidContext().filesDir)
-    }
-    // Flushes locally-saved (offline) audiobook positions back to the server
-    // on reconnect / app foreground. App-scoped IO coroutine scope.
-    single {
-        com.continuum.app.common.audiobook.AudiobookProgressSyncer(
-            positionStore = get(),
-            personalDataRepository = get(),
-            scope = kotlinx.coroutines.CoroutineScope(
-                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
-            ),
-        )
-    }
+    // Audiobook position now flows through the Track B outbox (UserItemStatePort)
+    // — the old AudiobookPositionStore + AudiobookProgressSyncer were removed.
     single {
         com.continuum.app.common.ebook.EbookLocalStateStore(androidContext().filesDir)
     }
@@ -320,7 +306,8 @@ val androidModule = module {
             playbackSessionManager = get(),
             capabilityDetector = get(),
             bookmarksStore = get(),
-            positionStore = get(),
+            userItemStatePort = get(),
+            outboxSyncScheduler = get(),
             serverRegistry = get(),
             profileRepository = get(),
             offlineMediaResolver = get(),

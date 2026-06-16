@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.continuum.app.audiobook.AudiobookChapter
 import com.continuum.app.audiobook.AudiobookChapters
 import com.continuum.app.common.audiobook.AudiobookBookmarksStore
-import com.continuum.app.common.audiobook.AudiobookPositionStore
 import com.continuum.app.common.downloads.DownloadEnqueuer
 import com.continuum.app.common.downloads.OfflineMediaResolver
 import com.continuum.app.model.audiobook.AudiobookBookmark
@@ -80,7 +79,10 @@ class AudiobookPlayerViewModel(
     private val playbackSessionManager: PlaybackSessionManager,
     private val capabilityDetector: PlaybackCapabilityDetector,
     private val bookmarksStore: AudiobookBookmarksStore,
-    private val positionStore: AudiobookPositionStore,
+    // Track B: durable position via the unified outbox (replaces AudiobookPositionStore
+    // + AudiobookProgressSyncer — same furthest-wins syncProgress semantics).
+    private val userItemStatePort: com.continuum.app.repository.port.UserItemStatePort,
+    private val outboxSyncScheduler: com.continuum.app.common.data.sync.OutboxSyncScheduler,
     private val serverRegistry: ServerRegistry,
     private val profileRepository: ProfileRepository,
     private val offlineMediaResolver: OfflineMediaResolver,
@@ -677,19 +679,14 @@ class AudiobookPlayerViewModel(
         if (state.durationSeconds <= 0) return  // metadata not loaded yet
         viewModelScope.launch {
             if (state.positionSeconds > 0) {
-                val (serverId, profileId) = resolveScope()
-                withContext(Dispatchers.IO) {
-                    runCatching {
-                        positionStore.write(
-                            serverId, profileId, contentId,
-                            AudiobookPositionStore.Snapshot(
-                                positionSeconds = state.positionSeconds,
-                                durationSeconds = state.durationSeconds,
-                                updatedAtMs = System.currentTimeMillis(),
-                            ),
-                        )
-                    }
-                }
+                // Durable local projection + content-level outbox op (drained via
+                // syncProgress, furthest-wins). fileId is the playing version.
+                userItemStatePort.recordPosition(
+                    contentId = contentId,
+                    fileId = state.selectedFileId ?: requestedFileId ?: 0,
+                    positionSeconds = state.positionSeconds,
+                    durationSeconds = state.durationSeconds,
+                )
             }
             reportSessionProgress(state)
         }
@@ -703,16 +700,11 @@ class AudiobookPlayerViewModel(
      *  Exposed via [resumePositionSeconds] for the Compose host to seek to once
      *  the controller + metadata are ready. */
     private suspend fun loadResumePositionSnapshot(serverPositionSeconds: Double? = null): Double? {
-        val (serverId, profileId) = resolveScope()
-        val snapshot = withContext(Dispatchers.IO) {
-            // Fall back to a scope-agnostic lookup when the active scope can't
-            // resolve the snapshot — e.g. offline cold start before the server
-            // registry restored the active server id, where a scoped read would
-            // miss the snapshot written under the real server id.
-            positionStore.read(serverId, profileId, contentId)
-                ?: positionStore.findLatest(contentId)
-        }
-        val local = snapshot?.positionSeconds?.takeIf { it > 0 }
+        // Content-level local read: the playing fileId isn't known yet at resume,
+        // and audiobook resume is per-book — take the furthest on-device position
+        // across the item's files, maxed with the server's recorded position so we
+        // never resume behind progress made on another device.
+        val local = userItemStatePort.localPositionForContent(contentId)?.takeIf { it > 0 }
         val server = serverPositionSeconds?.takeIf { it > 0 }
         val position = listOfNotNull(local, server).maxOrNull()
         _resumePosition.value = position
@@ -755,11 +747,23 @@ class AudiobookPlayerViewModel(
         viewModelScope.launch {
             try {
                 withContext(NonCancellable + Dispatchers.IO) {
+                    if (state.positionSeconds > 0) {
+                        userItemStatePort.recordPosition(
+                            contentId = contentId,
+                            fileId = state.selectedFileId ?: requestedFileId ?: 0,
+                            positionSeconds = state.positionSeconds,
+                            durationSeconds = state.durationSeconds,
+                        )
+                    }
                     reportAndStopSession(
                         sessionId = sessionId,
                         positionSeconds = state.positionSeconds,
                         isPaused = true,
                     )
+                    // Inside NonCancellable so a teardown-cancelled viewModelScope
+                    // can't skip the prompt drain (covers downloaded/offline-while-
+                    // online where no connectivity change triggers it).
+                    outboxSyncScheduler.requestSync()
                 }
             } finally {
                 if (stoppingSessionId == sessionId) {

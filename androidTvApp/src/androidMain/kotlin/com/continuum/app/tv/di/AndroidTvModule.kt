@@ -160,7 +160,6 @@ val androidTvModule = module {
         )
     }
     single { com.continuum.app.common.audiobook.AudiobookBookmarksStore(androidContext().filesDir) }
-    single { com.continuum.app.common.audiobook.AudiobookPositionStore(androidContext().filesDir) }
 
     // Shared audiobook player VM (android-shared). SavedStateHandle is
     // auto-injected by Koin's viewModel scope so the contentId/fileId nav args
@@ -171,7 +170,8 @@ val androidTvModule = module {
             playbackSessionManager = get(),
             capabilityDetector = get(),
             bookmarksStore = get(),
-            positionStore = get(),
+            userItemStatePort = get(),
+            outboxSyncScheduler = get(),
             serverRegistry = get(),
             profileRepository = get(),
             offlineMediaResolver = get(),

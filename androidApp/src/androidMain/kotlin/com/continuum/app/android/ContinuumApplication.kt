@@ -41,16 +41,15 @@ class ContinuumApplication : Application(), Configuration.Provider {
         }.onFailure {
             android.util.Log.w("ContinuumApplication", "Notifications starter init failed", it)
         }
-        // Flush offline audiobook + ebook progress back to the server on
-        // reconnect / foreground. Guarded — never load-bearing for cold start.
+        // Flush offline ebook progress back to the server on reconnect / foreground.
+        // Audiobook progress now rides the Track B outbox (OutboxSyncStarter).
+        // Guarded — never load-bearing for cold start.
         runCatching {
-            val audiobookSyncer =
-                koinApp.koin.get<com.continuum.app.common.audiobook.AudiobookProgressSyncer>()
             val ebookSyncer =
                 koinApp.koin.get<com.continuum.app.common.ebook.EbookProgressSyncer>()
             com.continuum.app.android.sync.ProgressSyncStarter(
                 context = this@ContinuumApplication,
-                flushers = listOf(audiobookSyncer::requestFlush, ebookSyncer::requestFlush),
+                flushers = listOf(ebookSyncer::requestFlush),
             ).register()
         }.onFailure {
             android.util.Log.w("ContinuumApplication", "Progress sync init failed", it)

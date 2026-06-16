@@ -132,6 +132,14 @@ class RoomUserItemStateRepository(
             ?.takeIf { it > 0.0 }
     }
 
+    override suspend fun localPositionForContent(contentId: String): Double? {
+        val snapshot = snapshotProvider() ?: return null
+        val profileId = snapshot.profileId ?: return null
+        return userStateDao.getByContent(snapshot.serverId, profileId, contentId)
+            .mapNotNull { it.positionSeconds.takeIf { p -> p > 0.0 } }
+            .maxOrNull()
+    }
+
     override suspend fun resolve(handle: OutboxHandle, outcome: WriteOutcome) {
         if (handle.opId < 0) return
         when (outcome) {

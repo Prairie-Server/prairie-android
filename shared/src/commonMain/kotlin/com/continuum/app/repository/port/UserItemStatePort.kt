@@ -50,6 +50,13 @@ interface UserItemStatePort {
      * round-trip). No-op (null) on the default port.
      */
     suspend fun localPosition(contentId: String, fileId: Int): Double? = null
+
+    /**
+     * The furthest locally-recorded position across all files of a content item.
+     * For content-level resume (e.g. audiobooks) where the playing file id isn't
+     * known yet at resume time. No-op (null) on the default port.
+     */
+    suspend fun localPositionForContent(contentId: String): Double? = null
 }
 
 /**
