@@ -172,6 +172,23 @@ fields, the `EngineSwitchCallback` shell with `onConnect` available-commands + d
 handling, job retargeting to `activePlayer`, and the source-assertion test. The unsafe part is
 `switchEngine`'s body + the immediate-success future.)
 
+**STATUS (2026-06-16): Task 0 IMPLEMENTED + device-verified (commit `554a616`).** All 8 reqs
++ the follow-up findings (masked-result, cancellation/teardown leak via synchronized
+stash-or-release) are resolved and Codex-approved across 5 review rounds. On the Pixel,
+playing an h264/eac3 title logs `playback-engine selected=Media3 actual=Media3
+downgraded=false reason=default` — the SET_ENGINE command fires end-to-end and Auto
+correctly picks Media3 for non-ASS content.
+
+**Open follow-up (Codex Medium):** ASS/SSA subtitles that arrive *after* initial mount
+(downloaded / AI-generated tracks via the `subtitleRefreshNonce` path in `PlayerScreen.kt`
+/ `TvPlayerScreen.kt`) do **not** re-send `SET_ENGINE`, so a mid-playback ASS arrival stays
+on Media3. The initial-mount case (subs known up front) is handled. Resending on refresh
+would trigger a mid-playback engine swap (state-transfer supports it) but is a UX decision
+(brief interruption) — defer to Phase 2 with the rest of the Auto-policy productionization.
+
+**Still device-pending (Task 6):** the MPV-selection path itself needs an ASS/SSA fixture to
+trigger; refresh-rate/HDR/passthrough; the full device matrix.
+
 ---
 
 ## Task 1: Auto policy — route/session intent forces Media3
