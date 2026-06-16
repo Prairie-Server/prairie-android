@@ -135,6 +135,43 @@ git add android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ba
 git commit -m "Engine-ownership boundary: ContinuumPlaybackService builds+rebinds chosen engine"
 ```
 
+### Task 0 implementation requirements (from Codex heavy review of the first pass — MUST address)
+The naive first pass (build player → `session.player = new` → `old.release()`) is unsafe.
+A correct engine-swap MUST:
+1. **Serialize switches** — a `Mutex`/single-flight around the *entire* switch; re-read session
+   state under the lock; release superseded players in `finally`. Concurrent `SET_ENGINE`
+   commands otherwise double-release/leak players (both capture the same `old`).
+2. **Complete the command future after the switch** — `onCustomCommand` must return a
+   `SettableFuture` resolved *after* `switchEngine` finishes, carrying actual/fallback/error;
+   returning `RESULT_SUCCESS` immediately masks MPV build/rebind failures and lets the caller
+   mount before the engine is ready.
+3. **Build MPV off-main** — `createMpvPlayer`/`MpvPlayer.init` does directory setup, file
+   writes, `MPVLib.create`, native calls, `mpv.init`, audio-focus work; on `Main.immediate`
+   that's ANR-prone. Build heavy init off-main, keep `session.player = …` + Player API calls
+   on the application looper. **Verify `MpvPlayer`'s thread-confinement first** (a Media3 Player
+   is bound to the looper it's used on — confirm where its Handler/looper is established before
+   constructing off-main).
+4. **Transfer full state** — not just media items/index/position/playWhenReady, but
+   `trackSelectionParameters`, `playbackParameters` (speed), `volume`, `repeatMode`,
+   `shuffleModeEnabled`. (UI effects keyed on the same `MediaController` won't reliably reapply
+   across a session-player swap.)
+5. **Robust fallback** — rethrow `CancellationException`; only fall back when
+   `PlaybackBackendFallback.onStartFailure` returns a step; if MPV fails while **already on
+   Media3**, keep the old ExoPlayer (don't rebuild → avoids rebuffer/state loss); on failed
+   *terminal* (Media3) build, keep the old player active rather than swapping to nothing.
+6. **`try/finally` cleanup** — if `transferPlaybackState`, `session.player = new`, or
+   `old.release()` throws, release the failed new player and keep `activePlayer`/
+   `currentEngineKind` consistent.
+7. **Actually send the command (Step 6 is not optional)** — until `PlayerScreen`/`TvPlayerScreen`
+   send `MediaController.sendCustomCommand(SET_ENGINE, …)` at mount with the media-derived
+   request, the whole path is inert and the factory keeps reporting Media3.
+8. Device-verify all of the above in Task 6 (the swap cannot be proven by unit/source tests).
+
+(Reusable scaffolding from the first pass: imports, `@Volatile activePlayer` + `currentEngineKind`
+fields, the `EngineSwitchCallback` shell with `onConnect` available-commands + decode-failure
+handling, job retargeting to `activePlayer`, and the source-assertion test. The unsafe part is
+`switchEngine`'s body + the immediate-success future.)
+
 ---
 
 ## Task 1: Auto policy — route/session intent forces Media3
