@@ -56,7 +56,7 @@ val repositoryModule = module {
     }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get()) }
     single { CollectionRepository(get()) }
-    single { SectionRepository(get()) }
+    single { SectionRepository(get(), getOrNull<com.continuum.app.repository.port.CatalogCachePort>() ?: com.continuum.app.repository.port.NoOpCatalogCachePort) }
     single { RecommendationRepository(get()) }
     single { RequestsRepository(get()) }
     single { SettingsRepository(get()) }

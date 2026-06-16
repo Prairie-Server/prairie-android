@@ -47,6 +47,21 @@ class RoomCatalogCacheRepositoryTest {
     }
 
     @Test
+    fun roundTripsLibrarySectionsPerLibraryId() = runTest {
+        val section = com.continuum.app.model.section.ResolvedSection(
+            id = "recently_added",
+            sectionType = "recently_added",
+            title = "Recently Added",
+            items = listOf(com.continuum.app.model.section.SectionItem(contentId = "c1", type = "movie", title = "A")),
+        )
+        repo.cacheLibrarySections(7, listOf(section))
+        assertEquals("recently_added", repo.getCachedLibrarySections(7)?.first()?.id)
+        assertNull(repo.getCachedLibrarySections(8))
+        // Distinct from the browse-grid key for the same library id.
+        assertNull(repo.getCachedDefaultLibraryPage(7))
+    }
+
+    @Test
     fun cacheIsScopedAndNoOpWithoutScope() = runTest {
         repo.cacheLibraries(listOf(UserLibrary(id = 1, name = "Movies", type = "movie")))
         scope = AuthScopeSnapshot("s2", "p1", "https://s2.example", null)

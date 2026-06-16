@@ -4,6 +4,7 @@ import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.db.entity.CatalogCacheEntity
 import com.continuum.app.model.catalog.CatalogResponse
 import com.continuum.app.model.personal.UserLibrary
+import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.network.AuthScopeSnapshot
 import com.continuum.app.repository.port.CatalogCachePort
 import kotlinx.serialization.json.Json
@@ -35,6 +36,12 @@ class RoomCatalogCacheRepository(
     override suspend fun getCachedDefaultLibraryPage(libraryId: Int): CatalogResponse? =
         get(libraryKey(libraryId))?.let { runCatching { json.decodeFromString<CatalogResponse>(it) }.getOrNull() }
 
+    override suspend fun cacheLibrarySections(libraryId: Int, sections: List<ResolvedSection>) =
+        put(librarySectionsKey(libraryId), json.encodeToString(sections))
+
+    override suspend fun getCachedLibrarySections(libraryId: Int): List<ResolvedSection>? =
+        get(librarySectionsKey(libraryId))?.let { runCatching { json.decodeFromString<List<ResolvedSection>>(it) }.getOrNull() }
+
     private suspend fun put(cacheKey: String, jsonStr: String) {
         val snapshot = snapshotProvider() ?: return
         val profileId = snapshot.profileId ?: return
@@ -58,5 +65,6 @@ class RoomCatalogCacheRepository(
     private companion object {
         const val KEY_LIBRARIES = "libraries"
         fun libraryKey(libraryId: Int) = "library:$libraryId"
+        fun librarySectionsKey(libraryId: Int) = "library-sections:$libraryId"
     }
 }

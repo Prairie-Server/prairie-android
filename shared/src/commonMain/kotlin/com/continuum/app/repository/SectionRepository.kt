@@ -9,9 +9,14 @@ import com.continuum.app.model.section.SectionsResponse
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.api.SectionApi
 import com.continuum.app.network.map
+import com.continuum.app.repository.port.CatalogCachePort
+import com.continuum.app.repository.port.NoOpCatalogCachePort
+import com.continuum.app.repository.port.canServeCache
 
 class SectionRepository(
     private val sectionApi: SectionApi,
+    /** Offline read cache for a library's Recommended sections (Track B). No-op by default. */
+    private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
 ) {
     /** Fetches the home screen layout configuration. */
     suspend fun getHomeLayout(): ApiResult<HomeLayoutResponse> =
@@ -25,9 +30,19 @@ class SectionRepository(
     suspend fun getHomeSectionItems(sectionId: String): ApiResult<HomeSectionItemsResponse> =
         sectionApi.getHomeSectionItems(sectionId)
 
-    /** Fetches sections for a specific library. */
-    suspend fun getLibrarySections(libraryId: Int): ApiResult<SectionsResponse> =
-        sectionApi.getLibrarySections(libraryId)
+    /** Fetches a library's resolved sections (offline: last cached sections). */
+    suspend fun getLibrarySections(libraryId: Int): ApiResult<SectionsResponse> {
+        val result = sectionApi.getLibrarySections(libraryId)
+        if (result is ApiResult.Success) {
+            catalogCache.cacheLibrarySections(libraryId, result.data.sections)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedLibrarySections(libraryId)
+                ?.let { return ApiResult.Success(SectionsResponse(sections = it)) }
+        }
+        return result
+    }
 
     /** Fetches items within a specific library section. */
     suspend fun getLibrarySectionItems(

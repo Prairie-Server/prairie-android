@@ -2,6 +2,7 @@ package com.continuum.app.repository.port
 
 import com.continuum.app.model.catalog.CatalogResponse
 import com.continuum.app.model.personal.UserLibrary
+import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.network.ApiResult
 
 /**
@@ -23,6 +24,10 @@ interface CatalogCachePort {
     /** Cache the default (unfiltered, first-page) browse for a library. */
     suspend fun cacheDefaultLibraryPage(libraryId: Int, response: CatalogResponse) {}
     suspend fun getCachedDefaultLibraryPage(libraryId: Int): CatalogResponse? = null
+
+    /** Cache a library's resolved "Recommended" sections (for the offline landing tab). */
+    suspend fun cacheLibrarySections(libraryId: Int, sections: List<ResolvedSection>) {}
+    suspend fun getCachedLibrarySections(libraryId: Int): List<ResolvedSection>? = null
 }
 
 /** Network-only default. */
