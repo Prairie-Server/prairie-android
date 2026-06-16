@@ -92,6 +92,19 @@ class DownloadStorage(
         publicStore.complete(uriString)
     }
 
+    /** Actual on-disk bytes of a partial download at [uriString], or 0 if it's
+     *  gone/unreadable. Used to resume an interrupted download via HTTP Range.
+     *  Reads the real file length (fd stat), not the MediaStore SIZE column,
+     *  which is stale for an in-progress (pending) item. */
+    fun partialSize(uriString: String): Long =
+        publicStore.partialSize(uriString)
+
+    /** Opens the existing partial at [uriString] for APPEND so a resumed transfer
+     *  continues where it left off. Returns null if append isn't supported/possible
+     *  (caller falls back to a fresh download). */
+    fun openAppend(uriString: String): OutputStream? =
+        publicStore.openAppend(uriString)
+
     fun totalBytesUsed(serverId: String, profileId: String): Long =
         publicStore.totalBytesUsed(serverId, profileId)
 
@@ -172,6 +185,13 @@ interface PublicDownloadStore {
     fun locateByFileId(serverId: String, profileId: String, fileId: Int): DownloadLocation?
     fun delete(serverId: String, profileId: String, fileId: Int, uriString: String?): Boolean
     fun complete(uriString: String) = Unit
+
+    /** Open an existing partial for append (resume). Null = unsupported/unavailable. */
+    fun openAppend(uriString: String): OutputStream? = null
+
+    /** Real on-disk byte count of a partial at [uriString] (fd stat, not a stale
+     *  metadata SIZE column). 0 = gone/unreadable. */
+    fun partialSize(uriString: String): Long = 0L
     fun deleteAllForProfile(serverId: String, profileId: String): Boolean
     fun deleteAllForServer(serverId: String): Boolean
     fun totalBytesUsed(): Long
@@ -246,6 +266,14 @@ class FileBackedPublicDownloadStore(
         val file = (locate(uriString) as? FileDownloadLocation)?.file ?: return
         onFileCompleted(file)
     }
+
+    override fun openAppend(uriString: String): OutputStream? {
+        val file = (locate(uriString) as? FileDownloadLocation)?.file ?: return null
+        return java.io.FileOutputStream(file, /* append = */ true)
+    }
+
+    override fun partialSize(uriString: String): Long =
+        (locate(uriString) as? FileDownloadLocation)?.file?.takeIf { it.isFile }?.length() ?: 0L
 
     override fun deleteAllForProfile(serverId: String, profileId: String): Boolean {
         var deleted = false
@@ -357,6 +385,22 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
             }
         }
         return null
+    }
+
+    override fun openAppend(uriString: String): OutputStream? {
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return null
+        // "wa" = write + append on a pending item we own (no include-pending needed
+        // for a direct item-uri open). Continues a resumed transfer in place.
+        return runCatching { resolver.openOutputStream(uri, "wa") }.getOrNull()
+    }
+
+    override fun partialSize(uriString: String): Long {
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return 0L
+        // The MediaStore SIZE column is stale/0 while IS_PENDING=1; read the real
+        // bytes from the file descriptor instead.
+        return runCatching {
+            resolver.openFileDescriptor(uri, "r")?.use { pfd -> pfd.statSize.coerceAtLeast(0L) }
+        }.getOrNull() ?: 0L
     }
 
     override fun delete(serverId: String, profileId: String, fileId: Int, uriString: String?): Boolean {

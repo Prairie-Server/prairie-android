@@ -63,4 +63,9 @@ data class DownloadEntity(
     val createdAt: String,
     val completedAt: String?,
     val updatedAtMs: Long,
+    /** HTTP validator (strong ETag, else Last-Modified) captured at download
+     *  start so a resumed transfer can send `If-Range` — the server then returns
+     *  206 (source unchanged → safe to append) or 200 (source changed → restart).
+     *  Null = no validator captured (resume falls back to a fresh download). */
+    val resumeValidator: String? = null,
 )

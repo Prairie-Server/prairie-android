@@ -61,7 +61,7 @@ val repositoryModule = module {
     single { RequestsRepository(get()) }
     single { SettingsRepository(get()) }
     single { LibraryPlaybackPrefsRepository(get()) }
-    single { DownloadsRepository(get()) }
+    single { DownloadsRepository(get(), getOrNull<com.continuum.app.repository.port.DownloadDeletionPort>() ?: com.continuum.app.repository.port.NoOpDownloadDeletionPort) }
     single { EbookReaderRepository(get()) }
     single { SubtitlesRepository(get()) }
     single { AdminRepository(get()) }

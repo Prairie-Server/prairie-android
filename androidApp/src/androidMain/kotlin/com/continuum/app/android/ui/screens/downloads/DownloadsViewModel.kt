@@ -230,13 +230,23 @@ class DownloadsViewModel(
             // first metadata read, so pre-cutover downloads aren't briefly missing
             // on a cold start. Memoized — a no-op once the app-start pass has run.
             legacyImporter.awaitImport(System.currentTimeMillis())
+            // Finish any offline delete interrupted by a crash between the durable
+            // tombstone and the on-device cleanup (idempotent byte/metadata delete).
+            finishPendingDeletions()
             // Backfill + initial sidecar read.
             reloadSidecarMetadata()
             val seeded = metadataByRecordId.values.toList()
             repository.seedFromSidecars(seeded.map { it.record })
 
             val keep = seeded.map { it.record.id }.toSet()
-            launch { repository.refresh(keepIdsAbsentFromServer = keep) }
+            val (refreshServerId, refreshProfileId) = activeDownloadScope()
+            launch {
+                repository.refresh(
+                    keepIdsAbsentFromServer = keep,
+                    serverId = refreshServerId,
+                    profileId = refreshProfileId,
+                )
+            }
 
             repository.records.collect { records ->
                 // Section building reads sidecars + walks file sizes — keep
@@ -270,11 +280,26 @@ class DownloadsViewModel(
         viewModelScope.launch {
             reloadSidecarMetadata()
             val keep = metadataByRecordId.keys
-            when (val r = repository.refresh(keepIdsAbsentFromServer = keep)) {
+            val (serverId, profileId) = activeDownloadScope()
+            when (val r = repository.refresh(keepIdsAbsentFromServer = keep, serverId = serverId, profileId = profileId)) {
                 is ApiResult.Success -> _uiState.update { it.copy(error = null) }
                 is ApiResult.Error, is ApiResult.NetworkError ->
                     _uiState.update { it.copy(error = r.errorMessage("Failed to refresh downloads")) }
             }
+        }
+    }
+
+    /** Idempotently complete on-device cleanup for any durable delete tombstone
+     *  in the active scope — covers a crash between tombstone enqueue and byte
+     *  deletion. The server side is replayed by [repository.refresh]'s reconcile. */
+    private suspend fun finishPendingDeletions() {
+        val (serverId, profileId) = activeDownloadScope()
+        val pending = runCatching { repository.pendingDeletionsForScope(serverId, profileId) }
+            .getOrElse { emptyList() }
+        for (p in pending) {
+            val fileId = p.mediaFileId ?: continue
+            withContext(Dispatchers.IO) { storage.delete(p.serverId, p.profileId, fileId) }
+            metadataStore.deleteSidecar(p.serverId, p.profileId, fileId)
         }
     }
 
@@ -311,41 +336,21 @@ class DownloadsViewModel(
             val record = repository.records.value.firstOrNull { it.id == id }
             val sidecar = metadataByRecordId[id]
             val fileId = record?.mediaFileId ?: sidecar?.record?.mediaFileId
+            val (serverId, profileId) = fileId?.let { scopeByFileId[it] } ?: activeScope
             Log.i(TAG, "remove($id): record=${record?.status ?: "(missing)"} fileId=$fileId")
 
-            // Server delete FIRST. Only a confirmed removal (success, or a
-            // 404 = the record exists only locally — repository.delete maps
-            // that to Success) may drop bytes from disk. pendingDelete is
-            // in-memory only: deleting bytes before the server confirms
-            // means an app restart merges the server record back pointing
-            // at files that no longer exist.
-            when (val result = repository.delete(id)) {
-                is ApiResult.Success -> Log.i(TAG, "remove($id): server delete OK")
-                is ApiResult.Error -> {
-                    Log.w(TAG, "remove($id): server returned ${result.code} ${result.message}")
-                    if (firstError == null) firstError = result.errorMessage("Delete failed (${result.code})")
-                    continue
-                }
-                is ApiResult.NetworkError -> {
-                    // One network failure means the rest of the batch will
-                    // fail the same way — bail out instead of grinding on.
-                    Log.w(TAG, "remove($id): network error", result.exception)
-                    if (firstError == null) firstError = result.errorMessage("Network error. Check your connection.")
-                    break
-                }
-            }
-
-            // An active record still has a DownloadWorker streaming bytes.
-            // Cancel it only after the server confirmed the delete, so a
-            // failed server delete leaves the active download untouched
-            // (pendingDelete suppression covers the worker race in between).
+            // Local-first, offline-safe delete. A download delete only removes the
+            // on-device copy + the server's *download record* (never the library
+            // media), so it must not require the network. Cancel any active worker,
+            // write a DURABLE tombstone (so the record can't resurrect as a ghost on
+            // the next online refresh — written BEFORE byte deletion so a crash can't
+            // lose the server-delete intent), then drop the bytes + metadata.
             val status = record?.statusEnum() ?: sidecar?.record?.statusEnum()
             if (status == DownloadStatus.Queued || status == DownloadStatus.Downloading) {
                 downloadEnqueuer.cancel(id)
             }
-
+            repository.enqueueDurableDelete(serverId, profileId, id, fileId)
             if (fileId != null) {
-                val (serverId, profileId) = scopeByFileId[fileId] ?: activeScope
                 withContext(Dispatchers.IO) {
                     storage.delete(serverId, profileId, fileId)
                 }
@@ -353,6 +358,21 @@ class DownloadsViewModel(
                 scopeByFileId = scopeByFileId - fileId
             }
             metadataByRecordId = metadataByRecordId - id
+
+            // Best-effort server reconcile now. Offline → NetworkError: the durable
+            // tombstone replays the DELETE on the next online refresh, so the local
+            // delete still "succeeds" — no blocking error. A real server error (4xx)
+            // is surfaced but the local copy is already gone.
+            when (val result = repository.delete(id)) {
+                is ApiResult.Success -> Log.i(TAG, "remove($id): server delete OK")
+                is ApiResult.Error -> {
+                    Log.w(TAG, "remove($id): server returned ${result.code} ${result.message}")
+                    if (firstError == null) firstError = result.errorMessage("Delete failed (${result.code})")
+                }
+                is ApiResult.NetworkError -> {
+                    Log.i(TAG, "remove($id): offline — tombstoned, will reconcile on reconnect")
+                }
+            }
         }
         val (serverId, profileId) = activeDownloadScope()
         val bytesUsed = withContext(Dispatchers.IO) { storage.totalBytesUsed(serverId, profileId) }

@@ -9,6 +9,7 @@ import com.continuum.app.common.data.db.dao.CatalogCacheDao
 import com.continuum.app.common.data.db.dao.ContentItemStateDao
 import com.continuum.app.common.data.db.dao.DirtyOperationDao
 import com.continuum.app.common.data.db.dao.DownloadDao
+import com.continuum.app.common.data.db.dao.DownloadDeletionDao
 import com.continuum.app.common.data.db.dao.HomeCacheDao
 import com.continuum.app.common.data.db.dao.LegacyImportDao
 import com.continuum.app.common.data.db.dao.UserItemStateDao
@@ -16,6 +17,7 @@ import com.continuum.app.common.data.db.entity.CatalogCacheEntity
 import com.continuum.app.common.data.db.entity.ContentItemStateEntity
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
 import com.continuum.app.common.data.db.entity.DownloadEntity
+import com.continuum.app.common.data.db.entity.DownloadDeletionEntity
 import com.continuum.app.common.data.db.entity.HomeCacheEntity
 import com.continuum.app.common.data.db.entity.LegacyImportEntity
 import com.continuum.app.common.data.db.entity.UserItemStateEntity
@@ -41,12 +43,15 @@ import com.continuum.app.common.data.db.entity.UserItemStateEntity
         LegacyImportEntity::class,
         HomeCacheEntity::class,
         CatalogCacheEntity::class,
+        DownloadDeletionEntity::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
+        AutoMigration(from = 3, to = 4),
+        AutoMigration(from = 4, to = 5),
     ],
 )
 abstract class SiloDatabase : RoomDatabase() {
@@ -54,6 +59,7 @@ abstract class SiloDatabase : RoomDatabase() {
     abstract fun contentItemStateDao(): ContentItemStateDao
     abstract fun dirtyOperationDao(): DirtyOperationDao
     abstract fun downloadDao(): DownloadDao
+    abstract fun downloadDeletionDao(): DownloadDeletionDao
     abstract fun legacyImportDao(): LegacyImportDao
     abstract fun homeCacheDao(): HomeCacheDao
     abstract fun catalogCacheDao(): CatalogCacheDao

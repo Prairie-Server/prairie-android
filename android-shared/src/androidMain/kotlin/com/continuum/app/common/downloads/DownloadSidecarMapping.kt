@@ -40,6 +40,7 @@ fun DownloadSidecar.toEntity(serverId: String, profileId: String): DownloadEntit
         narrator = narrator,
         durationSeconds = durationSeconds,
         chaptersJson = chapters?.let { mappingJson.encodeToString(it) },
+        resumeValidator = resumeValidator,
         status = record.status,
         kind = record.kind,
         fileSize = record.fileSize,
@@ -81,5 +82,6 @@ fun DownloadEntity.toSidecar(): DownloadSidecar =
         narrator = narrator,
         durationSeconds = durationSeconds,
         chapters = chaptersJson?.let { runCatching { mappingJson.decodeFromString<List<VersionChapter>>(it) }.getOrNull() },
+        resumeValidator = resumeValidator,
         updatedAtMs = updatedAtMs,
     )

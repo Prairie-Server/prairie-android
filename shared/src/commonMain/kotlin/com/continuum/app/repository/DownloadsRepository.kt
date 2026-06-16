@@ -4,6 +4,8 @@ import com.continuum.app.model.download.DownloadRecord
 import com.continuum.app.model.download.DownloadRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.api.DownloadsApi
+import com.continuum.app.repository.port.DownloadDeletionPort
+import com.continuum.app.repository.port.NoOpDownloadDeletionPort
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,14 +32,19 @@ import kotlinx.coroutines.flow.update
  * merge so a deleted-by-the-user record stays gone even if it bounces
  * back from the server.
  */
-class DownloadsRepository(private val api: DownloadsApi) {
+class DownloadsRepository(
+    private val api: DownloadsApi,
+    private val deletions: DownloadDeletionPort = NoOpDownloadDeletionPort,
+) {
 
     private val _records = MutableStateFlow<List<DownloadRecord>>(emptyList())
     val records: StateFlow<List<DownloadRecord>> = _records.asStateFlow()
 
     /** Ids the user has asked to delete but which the server still returns
      *  (active records that the server only marks cancelled on first DELETE).
-     *  Cleared once the server actually drops the row from its list. */
+     *  Cleared once the server actually drops the row from its list. In-memory,
+     *  session-scoped; the durable cross-restart tombstone is [deletions] (used
+     *  for offline-first delete — see [refresh] filtering + reconcile). */
     private val pendingDelete = mutableSetOf<String>()
 
     /**
@@ -63,30 +70,59 @@ class DownloadsRepository(private val api: DownloadsApi) {
      * conflict (their status is fresher). Records absent from the server
      * response are kept *only* if there's still bytes on disk for them
      * (the caller passes [keepIdsAbsentFromServer] sourced from the disk
-     * walk); otherwise they're dropped as truly-removed. Records in
-     * [pendingDelete] are filtered out of the merged result.
+     * walk); otherwise they're dropped as truly-removed. Records the user
+     * deleted — both this session's [pendingDelete] and the durable
+     * cross-restart tombstones in [deletions] — are filtered out of the merge.
+     *
+     * When [serverId]/[profileId] are supplied (by the Downloads tab for the
+     * active scope), this also reconciles that scope's durable tombstones:
+     * any still-present server record gets its `DELETE` replayed, and a
+     * tombstone is dropped once the server's list confirms the record is gone
+     * (never on a possibly-bouncing 2xx). recordIds are server-unique, so the
+     * *filter* is global, but the *clear* is scope-local — clearing one scope's
+     * tombstone can never resurrect another scope's still-pending delete.
      */
     suspend fun refresh(
         keepIdsAbsentFromServer: Set<String> = emptySet(),
+        serverId: String? = null,
+        profileId: String? = null,
     ): ApiResult<Unit> = when (val r = api.list()) {
         is ApiResult.Success -> {
             val serverIds = r.data.downloads.map { it.id }.toSet()
+            val durableTombstones = deletions.allPendingRecordIds()
+            val tombstoned = pendingDelete + durableTombstones
             // Server's view, minus anything the user deleted locally.
-            val serverList = r.data.downloads.filterNot { it.id in pendingDelete }
+            val serverList = r.data.downloads.filterNot { it.id in tombstoned }
             _records.update { current ->
                 // Local records the server no longer reports — keep only the
                 // ones the caller proved still have bytes on disk.
                 val localKeepers = current.filter { rec ->
                     rec.id !in serverIds &&
-                        rec.id !in pendingDelete &&
+                        rec.id !in tombstoned &&
                         rec.id in keepIdsAbsentFromServer
                 }
                 serverList + localKeepers
             }
-            // Server confirmed a pending-delete is gone — clear the flag so
-            // we don't keep filtering forever.
-            val confirmedGone = pendingDelete - serverIds
-            if (confirmedGone.isNotEmpty()) pendingDelete.removeAll(confirmedGone)
+            // Scope-local reconcile of durable (offline) tombstones.
+            if (serverId != null && profileId != null) {
+                for (p in deletions.pendingForScope(serverId, profileId)) {
+                    if (p.recordId !in serverIds) {
+                        // Server's list confirms it's gone — drop the tombstone.
+                        deletions.remove(serverId, profileId, p.recordId)
+                        pendingDelete.remove(p.recordId)
+                    } else {
+                        // Still present — replay the server delete; the tombstone
+                        // clears on the next refresh once the list confirms absence.
+                        serverDeleteConfirmedGone(p.recordId)
+                    }
+                }
+            }
+            // In-memory-only entries (this session's online deletes) the server
+            // already dropped. Safe to clear regardless of scope: a
+            // server-deleted record is absent from every scope's list. Durable
+            // (offline) tombstones are excluded here — they're handled above.
+            val inMemoryOnlyGone = (pendingDelete - durableTombstones) - serverIds
+            if (inMemoryOnlyGone.isNotEmpty()) pendingDelete.removeAll(inMemoryOnlyGone)
             ApiResult.Success(Unit)
         }
         is ApiResult.Error -> ApiResult.Error(r.code, r.error, r.message)
@@ -154,6 +190,36 @@ class DownloadsRepository(private val api: DownloadsApi) {
             return ApiResult.Success(Unit)
         }
         return second.mapToUnit()
+    }
+
+    /**
+     * Offline-first delete (Track B). Records a durable tombstone and drops the
+     * record from the cache so the deleted download disappears immediately and
+     * stays gone across restarts; the on-device bytes + Room metadata are removed
+     * by the Android caller. The server `DELETE` is replayed by [refresh]'s
+     * scope-local reconcile when back online. The tombstone is written BEFORE the
+     * caller deletes bytes so a crash can't lose the server-delete intent.
+     */
+    suspend fun enqueueDurableDelete(serverId: String, profileId: String, recordId: String, mediaFileId: Int?) {
+        deletions.enqueue(serverId, profileId, recordId, mediaFileId)
+        markPendingDelete(recordId)
+        _records.update { list -> list.filterNot { it.id == recordId } }
+    }
+
+    /** Pending durable tombstones for a scope — lets the Android side finish an
+     *  on-device cleanup interrupted by a crash (idempotent byte/metadata delete). */
+    suspend fun pendingDeletionsForScope(serverId: String, profileId: String) =
+        deletions.pendingForScope(serverId, profileId)
+
+    /** The server's two-phase DELETE, returning true iff the record is confirmed
+     *  gone (first-call 404, or success/404 on the second). Used by [refresh]'s
+     *  reconcile to replay an offline delete without touching cache state. */
+    private suspend fun serverDeleteConfirmedGone(id: String): Boolean {
+        val first = api.delete(id)
+        if (first is ApiResult.Error && first.code == 404) return true
+        if (first !is ApiResult.Success) return false
+        val second = api.delete(id)
+        return second is ApiResult.Success || (second is ApiResult.Error && second.code == 404)
     }
 
     private fun ApiResult<*>.mapToUnit(): ApiResult<Unit> = when (this) {

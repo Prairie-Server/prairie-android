@@ -112,6 +112,9 @@ val androidTvModule = module {
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }
+    single<com.continuum.app.repository.port.DownloadDeletionPort> {
+        com.continuum.app.common.data.repository.RoomDownloadDeletionStore(db = get())
+    }
     single {
         val tokenManager: TokenManager = get()
         com.continuum.app.common.data.sync.SyncEngine(

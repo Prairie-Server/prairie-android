@@ -20,8 +20,13 @@ import androidx.work.workDataOf
 import com.continuum.app.model.download.DownloadStatus
 import com.continuum.app.repository.DownloadsRepository
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.timeout
+import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
@@ -74,20 +79,81 @@ class DownloadWorker(
             setForeground(buildForegroundInfo(downloadId, displayTitle, progress = 0, indeterminate = true))
         }.onFailure { Log.w(TAG, "setForeground initial failed", it) }
 
-        var target: DownloadTarget? = null
+        var activeUri: String? = null
+
+        // Resume state (survives process death + WorkManager retries): the partial's
+        // uri + the validator captured at download start. Resume offset is the REAL
+        // on-disk size (fd stat), never the metadata SIZE column (stale while pending).
+        val existing = runCatching { metadataStore.readSidecar(serverId, profileId, fileId) }.getOrNull()
+        val resumeUri = existing?.localUri
+        val resumeFrom = resumeUri?.let { storage.partialSize(it) } ?: 0L
+        val resumeValidator = existing?.resumeValidator
+        // Resume ONLY with a validator: an unvalidated Range append would silently
+        // corrupt the file if the source changed (the server can't tell us). No
+        // validator → behave as a fresh download (no Range header).
+        val canResume = resumeFrom > 0 && resumeUri != null && !resumeValidator.isNullOrBlank()
 
         try {
-            httpClient.prepareGet("/api/v1/downloads/$downloadId/file").execute { response ->
+            httpClient.prepareGet("/api/v1/downloads/$downloadId/file") {
+                // Streaming download: drop the global 60s TOTAL-request timeout (it
+                // guillotines large files mid-transfer) and keep only a socket/idle
+                // timeout so a genuinely stalled connection still fails → retry.
+                timeout {
+                    requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+                    socketTimeoutMillis = IDLE_TIMEOUT_MS
+                }
+                // Byte ranges index the identity-coded entity; refuse transfer
+                // re-encoding so written bytes line up with requested offsets.
+                header(HttpHeaders.AcceptEncoding, "identity")
+                if (canResume) {
+                    header(HttpHeaders.Range, "bytes=$resumeFrom-")
+                    // If-Range: server returns 206 only if the source is unchanged;
+                    // a changed file yields a 200 (full) → we restart cleanly.
+                    header(HttpHeaders.IfRange, resumeValidator!!)
+                }
+            }.execute { response ->
+                // 416 = our partial is invalid against the current server file
+                // (shrank/changed). Drop it and retry fresh (no Range next time).
+                if (canResume && response.status == HttpStatusCode.RequestedRangeNotSatisfiable) {
+                    // Drop the partial; partialSize→0 makes the retry a fresh GET.
+                    storage.delete(serverId, profileId, fileId)
+                    throw IOException("range not satisfiable — restarting fresh")
+                }
                 downloadHttpStatusFailure(response.status)?.let { throw it }
-                val resolvedFileName = downloadFileNameForTarget(
-                    catalogFileName = fileName,
-                    contentDisposition = response.headers["Content-Disposition"],
-                )
-                val activeTarget = storage.prepareWrite(serverId, profileId, fileId, resolvedFileName, container, mediaType)
-                    .also { target = it }
-                val total = response.headers["Content-Length"]?.toLongOrNull() ?: -1L
+
+                val rangeInfo = parseContentRange(response.headers[HttpHeaders.ContentRange])
+                val resuming = canResume &&
+                    response.status == HttpStatusCode.PartialContent &&
+                    rangeInfo != null && rangeInfo.start == resumeFrom
+
+                val total: Long
+                var written: Long
+                val out: java.io.OutputStream
+                if (resuming) {
+                    // 206 with a matching range → append to the existing partial.
+                    val append = storage.openAppend(resumeUri!!)
+                        ?: throw IOException("could not open partial for append")
+                    activeUri = resumeUri
+                    total = rangeInfo!!.total ?: -1L
+                    written = resumeFrom
+                    Log.i(TAG, "doWork resume id=$downloadId from=$resumeFrom total=$total")
+                    out = append
+                } else {
+                    // Fresh (200, or no usable partial): (re)create the target and
+                    // persist its uri + validator NOW so a later attempt can resume.
+                    val resolvedFileName = downloadFileNameForTarget(
+                        catalogFileName = fileName,
+                        contentDisposition = response.headers["Content-Disposition"],
+                    )
+                    val fresh = storage.prepareWrite(serverId, profileId, fileId, resolvedFileName, container, mediaType)
+                    activeUri = fresh.uriString
+                    total = response.headers["Content-Length"]?.toLongOrNull() ?: -1L
+                    written = 0L
+                    persistResumeStart(serverId, profileId, fileId, fresh.uriString, captureValidator(response))
+                    out = fresh.openOutputStream()
+                }
+
                 val channel = response.bodyAsChannel()
-                var written = 0L
                 val throttle = DownloadProgressThrottle()
 
                 val buf = ByteArray(BUFFER_BYTES)
@@ -95,7 +161,7 @@ class DownloadWorker(
                 // Avoids version-fragile ByteReadChannel read APIs and keeps
                 // the streaming copy + progress reporting on the same thread.
                 channel.toInputStream().use { input ->
-                    activeTarget.openOutputStream().use { out ->
+                    out.use { out ->
                         while (true) {
                             val n = input.read(buf)
                             if (n < 0) break
@@ -132,28 +198,29 @@ class DownloadWorker(
             // Server flips status → completed when its serve handler returns;
             // a refresh here ensures the cache reflects that before the
             // worker exits and the UI re-renders.
-            val completedTarget = target ?: error("download target was not created")
-            storage.completeWrite(completedTarget.uriString)
-            Log.i(TAG, "doWork success id=$downloadId bytes=${completedTarget.sizeBytes()}")
+            val finalUri = activeUri ?: error("download target was not created")
+            val finalBytes = storage.partialSize(finalUri)
+            storage.completeWrite(finalUri)
+            Log.i(TAG, "doWork success id=$downloadId bytes=$finalBytes")
             repository.refresh()
             // Update the sidecar to status=completed. Enqueuer wrote the
             // initial sidecar with title + poster; we just flip status here
-            // so it survives an offline app launch.
+            // so it survives an offline app launch. Clear the resume validator
+            // (download is done — nothing to resume).
             updateSidecarStatus(
                 serverId, profileId, fileId,
                 status = com.continuum.app.model.download.DownloadStatus.Completed.wire,
-                bytesSent = completedTarget.sizeBytes(),
-                fileSize = completedTarget.sizeBytes(),
-                localUri = completedTarget.uriString,
-                fileName = completedTarget.displayName,
+                bytesSent = finalBytes,
+                fileSize = finalBytes,
+                localUri = finalUri,
+                resumeValidator = "",
             )
-            Result.success(workDataOf(KEY_BYTES_WRITTEN to completedTarget.sizeBytes(), KEY_TOTAL_BYTES to completedTarget.sizeBytes()))
+            Result.success(workDataOf(KEY_BYTES_WRITTEN to finalBytes, KEY_TOTAL_BYTES to finalBytes))
         } catch (e: CancellationException) {
             // Worker stopped — user cancel (notification action /
             // DownloadEnqueuer.cancel → cancelAllWorkByTag) or a
             // constraint / quota stop. Not a failure: drop the partial
-            // bytes (prepareWrite starts clean on the next attempt
-            // anyway) but leave the repo record + sidecar status alone.
+            // bytes but leave the repo record + sidecar status alone.
             // A constraint-stop must keep "downloading" state so the
             // WorkManager retry restarts cleanly; a user cancel is
             // finalized by the record-delete path, not here. Writing
@@ -161,20 +228,24 @@ class DownloadWorker(
             // downloads with a red badge and delete-then-fail them.
             Log.i(TAG, "doWork cancelled id=$downloadId")
             withContext(NonCancellable) {
-                target?.let { runCatching { storage.deleteUri(it.uriString) } }
+                // Delete by scope+fileId (not just activeUri): a cancel before the
+                // response is classified leaves activeUri null but a prior attempt's
+                // partial may still be on disk.
+                runCatching { storage.delete(serverId, profileId, fileId) }
             }
             throw e
         } catch (e: IOException) {
-            // Transient — let WorkManager retry. Drop the partial file so the
-            // next attempt starts fresh (no resume in v1). Sidecar stays so
-            // the row is visible in the UI as "downloading" awaiting retry.
-            Log.w(TAG, "doWork IO error id=$downloadId → retry", e)
-            target?.let { runCatching { storage.deleteUri(it.uriString) } }
+            // Transient — let WorkManager retry. KEEP the partial bytes + the
+            // persisted localUri/validator so the retry RESUMES via HTTP Range
+            // instead of re-downloading from zero. Sidecar stays "downloading".
+            Log.w(TAG, "doWork IO error id=$downloadId → retry (resume from partial)", e)
             Result.retry()
         } catch (e: Throwable) {
             // Permanent — clean up local file and let the user retry manually.
             Log.e(TAG, "doWork fatal id=$downloadId", e)
-            target?.let { runCatching { storage.deleteUri(it.uriString) } }
+            // Delete by scope+fileId so a partial from any attempt is cleaned up
+            // even if this attempt failed before activeUri was assigned.
+            runCatching { storage.delete(serverId, profileId, fileId) }
             // Best-effort: publish failed state into the repo + sidecar.
             val record = repository.recordForFile(fileId)
             if (record != null) {
@@ -185,7 +256,7 @@ class DownloadWorker(
                 status = DownloadStatus.Failed.wire,
                 bytesSent = 0,
                 fileSize = 0,
-                localUri = target?.uriString,
+                localUri = activeUri,
             )
             Result.failure()
         }
@@ -206,6 +277,8 @@ class DownloadWorker(
         fileSize: Long,
         localUri: String? = null,
         fileName: String? = null,
+        // null = keep existing; "" = clear (download finished/failed); else set.
+        resumeValidator: String? = null,
     ) {
         runCatching {
             val existing = metadataStore.readSidecar(serverId, profileId, fileId) ?: return@runCatching
@@ -219,10 +292,37 @@ class DownloadWorker(
                     ),
                     localUri = localUri ?: existing.localUri,
                     fileName = fileName?.takeIf { it.isNotBlank() } ?: existing.fileName,
+                    resumeValidator = when {
+                        resumeValidator == null -> existing.resumeValidator
+                        resumeValidator.isBlank() -> null
+                        else -> resumeValidator
+                    },
                     updatedAtMs = System.currentTimeMillis(),
                 ),
             )
         }.onFailure { Log.w(TAG, "updateSidecarStatus failed for fileId=$fileId", it) }
+    }
+
+    /**
+     * Persist the partial's uri + resume validator the moment a fresh download
+     * starts, so a WorkManager retry — or a relaunch after process death — can
+     * resume via HTTP Range instead of re-downloading from zero.
+     */
+    private suspend fun persistResumeStart(
+        serverId: String,
+        profileId: String,
+        fileId: Int,
+        localUri: String,
+        validator: String?,
+    ) {
+        updateSidecarStatus(
+            serverId, profileId, fileId,
+            status = DownloadStatus.Downloading.wire,
+            bytesSent = 0,
+            fileSize = 0,
+            localUri = localUri,
+            resumeValidator = validator?.takeIf { it.isNotBlank() } ?: "",
+        )
     }
 
     private fun buildForegroundInfo(
@@ -266,6 +366,10 @@ class DownloadWorker(
         const val KEY_TOTAL_BYTES = "total"
 
         private const val BUFFER_BYTES = 64 * 1024
+
+        /** Idle (socket) timeout for the streaming download. The total-request
+         *  timeout is disabled per-request; this still fails a stalled connection. */
+        private const val IDLE_TIMEOUT_MS = 60_000L
 
         fun tagFor(downloadId: String): String = "download_$downloadId"
         private fun notificationIdFor(downloadId: String): Int =
@@ -325,6 +429,31 @@ internal fun downloadHttpStatusFailure(status: HttpStatusCode): Throwable? = whe
     status.isSuccess() -> null
     status.value >= 500 -> IOException("HTTP ${status.value} while downloading")
     else -> IllegalStateException("HTTP ${status.value} while downloading")
+}
+
+/** Parsed `Content-Range: bytes start-end/total` (total null for `*`). Returns
+ *  null when malformed or inconsistent (end<start, or total<=end). */
+internal data class ContentRangeInfo(val start: Long, val end: Long, val total: Long?)
+
+internal fun parseContentRange(header: String?): ContentRangeInfo? {
+    val match = contentRangeRegex.find(header?.trim().orEmpty()) ?: return null
+    val start = match.groupValues[1].toLongOrNull() ?: return null
+    val end = match.groupValues[2].toLongOrNull() ?: return null
+    if (end < start) return null
+    val totalToken = match.groupValues[3]
+    val total = if (totalToken == "*") null else (totalToken.toLongOrNull() ?: return null)
+    if (total != null && total <= end) return null
+    return ContentRangeInfo(start, end, total)
+}
+
+private val contentRangeRegex = Regex("""(?i)^bytes\s+(\d+)-(\d+)/(\d+|\*)$""")
+
+/** Strong HTTP validator for `If-Range`: a strong ETag, else `Last-Modified`.
+ *  Weak ETags (`W/"…"`) are skipped — they're invalid for byte-range If-Range. */
+internal fun captureValidator(response: HttpResponse): String? {
+    val etag = response.headers[HttpHeaders.ETag]?.trim()?.takeIf { it.isNotEmpty() }
+    if (etag != null && !etag.startsWith("W/")) return etag
+    return response.headers[HttpHeaders.LastModified]?.trim()?.takeIf { it.isNotEmpty() }
 }
 
 internal fun downloadFileNameForTarget(
