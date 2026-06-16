@@ -44,6 +44,7 @@ class SyncEngine(
     private val batchLimit: Int = 50,
 ) {
     private val dao = db.dirtyOperationDao()
+    private val contentDao = db.contentItemStateDao()
 
     data class DrainResult(
         val synced: Int = 0,
@@ -92,6 +93,10 @@ class SyncEngine(
                         synced++
                     }
                     WriteOutcome.TERMINAL -> {
+                        // Server rejected this op for good — drop it AND revert the
+                        // optimistic content projection so the card overlay defers to
+                        // server state (no fake local state after cold start).
+                        contentDao.revertForTerminalOp(op)
                         dao.deleteById(op.id)
                         dropped++
                     }

@@ -29,6 +29,24 @@ interface ContentItemStateDao {
     )
     suspend fun favorites(serverId: String, profileId: String): List<ContentItemStateEntity>
 
+    /** Batch read for the card overlay. */
+    @Query(
+        "SELECT * FROM content_item_state " +
+            "WHERE serverId = :serverId AND profileId = :profileId AND contentId IN (:contentIds)",
+    )
+    suspend fun getForContentIds(serverId: String, profileId: String, contentIds: List<String>): List<ContentItemStateEntity>
+
+    // Revert a single optimistic field to "unknown" after its outbox op is dropped
+    // (terminal server rejection) — the overlay then defers to server state.
+    @Query("UPDATE content_item_state SET watched = NULL WHERE serverId = :serverId AND profileId = :profileId AND contentId = :contentId")
+    suspend fun clearWatched(serverId: String, profileId: String, contentId: String)
+
+    @Query("UPDATE content_item_state SET favorite = NULL WHERE serverId = :serverId AND profileId = :profileId AND contentId = :contentId")
+    suspend fun clearFavorite(serverId: String, profileId: String, contentId: String)
+
+    @Query("UPDATE content_item_state SET ratingValue = NULL WHERE serverId = :serverId AND profileId = :profileId AND contentId = :contentId")
+    suspend fun clearRating(serverId: String, profileId: String, contentId: String)
+
     @Query("DELETE FROM content_item_state WHERE serverId = :serverId AND profileId = :profileId AND contentId = :contentId")
     suspend fun delete(serverId: String, profileId: String, contentId: String)
 }

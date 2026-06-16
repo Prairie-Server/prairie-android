@@ -7,8 +7,10 @@ import com.continuum.app.common.data.db.entity.DirtyOperationEntity
 import com.continuum.app.common.data.db.entity.UserItemStateEntity
 import com.continuum.app.common.data.sync.OutboxOperation
 import com.continuum.app.common.data.sync.OutboxSyncScheduler
+import com.continuum.app.common.data.sync.revertForTerminalOp
 import com.continuum.app.network.AuthScopeSnapshot
 import com.continuum.app.repository.port.EbookLocalProgress
+import com.continuum.app.repository.port.LocalContentState
 import com.continuum.app.repository.port.OutboxHandle
 import com.continuum.app.repository.port.UserItemStatePort
 import com.continuum.app.repository.port.WriteOutcome
@@ -201,12 +203,27 @@ class RoomUserItemStateRepository(
     override suspend fun resolve(handle: OutboxHandle, outcome: WriteOutcome) {
         if (handle.opId < 0) return
         when (outcome) {
-            // Acked, or rejected for good — either way the op must not be replayed.
-            WriteOutcome.SYNCED, WriteOutcome.TERMINAL -> outboxDao.deleteById(handle.opId)
+            // Acked: server matches our optimistic projection; just drop the op.
+            WriteOutcome.SYNCED -> outboxDao.deleteById(handle.opId)
+            // Rejected for good: drop the op AND revert the optimistic projection
+            // field so the card overlay defers to server state (no fake local state
+            // across cold starts).
+            WriteOutcome.TERMINAL -> db.withTransaction {
+                outboxDao.getById(handle.opId)?.let { contentDao.revertForTerminalOp(it) }
+                outboxDao.deleteById(handle.opId)
+            }
             // Transient: leave the pending op and ask the sync engine to drain it.
             // Triggered here (not in record()) so it can't race the inline call.
             WriteOutcome.RETRIABLE -> syncScheduler.requestSync()
         }
+    }
+
+    override suspend fun localContentStates(contentIds: List<String>): Map<String, LocalContentState> {
+        if (contentIds.isEmpty()) return emptyMap()
+        val snapshot = snapshotProvider() ?: return emptyMap()
+        val profileId = snapshot.profileId ?: return emptyMap()
+        return contentDao.getForContentIds(snapshot.serverId, profileId, contentIds.distinct())
+            .associate { it.contentId to LocalContentState(watched = it.watched, favorite = it.favorite) }
     }
 
     private suspend fun record(

@@ -76,10 +76,23 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
-    fun resolveTerminalDropsOp() = runTest {
+    fun resolveTerminalDropsOpAndRevertsProjection() = runTest {
         val handle = repo.recordFavorite("c1", favorite = true)
+        assertEquals(true, db.contentItemStateDao().get("s1", "p1", "c1")?.favorite)
         repo.resolve(handle, WriteOutcome.TERMINAL)
         assertEquals(0, db.dirtyOperationDao().count())
+        // Optimistic favorite reverted to null so the card overlay defers to server.
+        assertNull(db.contentItemStateDao().get("s1", "p1", "c1")?.favorite)
+    }
+
+    @Test
+    fun localContentStatesReturnsOptimisticWatchedAndFavorite() = runTest {
+        repo.recordWatched("c1", watched = true)
+        repo.recordFavorite("c2", favorite = true)
+        val states = repo.localContentStates(listOf("c1", "c2", "c3"))
+        assertEquals(true, states["c1"]?.watched)
+        assertEquals(true, states["c2"]?.favorite)
+        assertNull(states["c3"]) // no local opinion
     }
 
     @Test

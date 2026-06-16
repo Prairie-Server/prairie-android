@@ -230,7 +230,7 @@ val androidModule = module {
             outboxSyncScheduler = get(),
         )
     }
-    viewModel { HomeViewModel(get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get()) }
     viewModel { MainHeaderViewModel(get()) }
     viewModel { LibrariesViewModel(get(), get(), get()) }
     viewModel { ReadingHubViewModel(get(), get(), get()) }

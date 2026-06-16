@@ -127,6 +127,9 @@ interface DirtyOperationDao {
     )
     suspend fun recordFailure(id: Long, nowMs: Long, nextAttemptAtMs: Long, error: String?)
 
+    @Query("SELECT * FROM dirty_operations WHERE id = :id")
+    suspend fun getById(id: Long): DirtyOperationEntity?
+
     @Query("DELETE FROM dirty_operations WHERE id = :id")
     suspend fun deleteById(id: Long)
 

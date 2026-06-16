@@ -10,6 +10,9 @@ import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.SectionRepository
 import com.continuum.app.repository.port.HomeCachePort
 import com.continuum.app.repository.port.NoOpHomeCachePort
+import com.continuum.app.repository.port.LocalContentState
+import com.continuum.app.repository.port.NoOpUserItemStatePort
+import com.continuum.app.repository.port.UserItemStatePort
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +40,9 @@ class HomeViewModel(
     // Track B: offline home cache. Defaults to no-op so commonMain/tests stay
     // network-only; the Android platform module binds a Room-backed cache.
     private val homeCache: HomeCachePort = NoOpHomeCachePort,
+    // Track B: local optimistic user-state, overlaid onto cards so an offline
+    // mark-watched/favorite shows immediately instead of a stale cached badge.
+    private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -52,7 +58,8 @@ class HomeViewModel(
             // capable), then refresh from the network below.
             val cached = homeCache.getCachedHome()
             if (cached != null && cached.sections.isNotEmpty()) {
-                _uiState.update { it.copy(isLoading = false, sections = cached.sections, error = null) }
+                val overlaid = overlayLocalState(cached.sections)
+                _uiState.update { it.copy(isLoading = false, sections = overlaid, error = null) }
             } else {
                 _uiState.update { it.copy(isLoading = true, error = null) }
             }
@@ -65,6 +72,32 @@ class HomeViewModel(
             _uiState.update { it.copy(isRefreshing = true, error = null) }
             fetchSections()
             _uiState.update { it.copy(isRefreshing = false) }
+        }
+    }
+
+    /**
+     * Overlay local optimistic watched/favorite onto card user_state (local non-null
+     * wins; watchlist stays server — no local projection). Makes an offline mutation
+     * show immediately instead of the stale server snapshot baked into a cached card.
+     */
+    private suspend fun overlayLocalState(sections: List<ResolvedSection>): List<ResolvedSection> {
+        val ids = sections.flatMap { section -> section.items.map { it.contentId } }.distinct()
+        if (ids.isEmpty()) return sections
+        val local: Map<String, LocalContentState> = userItemState.localContentStates(ids)
+        if (local.isEmpty()) return sections
+        return sections.map { section ->
+            section.copy(
+                items = section.items.map { item ->
+                    val ls = local[item.contentId] ?: return@map item
+                    val base = item.userState ?: MediaItemUserState()
+                    item.copy(
+                        userState = base.copy(
+                            played = ls.watched ?: base.played,
+                            isFavorite = ls.favorite ?: base.isFavorite,
+                        ),
+                    )
+                },
+            )
         }
     }
 
@@ -87,17 +120,20 @@ class HomeViewModel(
                 // Don't persist a partially-resolved home over a good cached one.
                 val fullyResolved = resolvedPairs.all { it.second }
 
+                // Cache the RAW server sections (snapshot), but display with the
+                // local optimistic overlay applied.
+                if (fullyResolved) {
+                    homeCache.cacheHome(resolved)
+                }
+                val overlaid = overlayLocalState(resolved)
                 _uiState.update {
                     // Only replace what's shown when the fetch fully resolved (or there
                     // was nothing yet) — a partial refresh must not clobber a good Home.
                     if (fullyResolved || !hadSections) {
-                        it.copy(isLoading = false, sections = resolved, error = null)
+                        it.copy(isLoading = false, sections = overlaid, error = null)
                     } else {
                         it.copy(isLoading = false, error = null)
                     }
-                }
-                if (fullyResolved) {
-                    homeCache.cacheHome(resolved)
                 }
             }
             is ApiResult.Error -> {

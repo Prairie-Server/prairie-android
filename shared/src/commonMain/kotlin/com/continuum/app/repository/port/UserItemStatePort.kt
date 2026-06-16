@@ -76,7 +76,18 @@ interface UserItemStatePort {
 
     /** Locally-recorded ebook resume point for a file, or null. No-op (null) by default. */
     suspend fun localEbookProgress(contentId: String, fileId: Int): EbookLocalProgress? = null
+
+    /**
+     * Local optimistic content-level state (watched/favorite) for the given content
+     * ids, for overlaying onto displayed cards so a mutation — especially one made
+     * offline — reflects immediately instead of the stale server snapshot baked into
+     * a cached card. Batched (one query). Empty map by default / unknown ids absent.
+     */
+    suspend fun localContentStates(contentIds: List<String>): Map<String, LocalContentState> = emptyMap()
 }
+
+/** Local optimistic content-level state; null fields = "no local opinion" (defer to server). */
+data class LocalContentState(val watched: Boolean?, val favorite: Boolean?)
 
 /** Local ebook resume point: CFI [location] + [progress] fraction (0..1). */
 data class EbookLocalProgress(val location: String, val progress: Double)

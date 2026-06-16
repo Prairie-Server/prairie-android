@@ -247,7 +247,7 @@ val androidTvModule = module {
     viewModel { AdminStatsViewModel(get()) }
 
     // Content ViewModels
-    viewModel { HomeViewModel(get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get()) }
     viewModel { com.continuum.app.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { RequestsViewModel(get()) }
