@@ -52,7 +52,16 @@ class RefreshRateMatcher {
         val modes = display.supportedModes
         if (modes.size <= 1) return
 
-        val best = RefreshRateSelector.pickByRefreshRate(modes, frameRateHz) ?: return
+        // Only switch refresh rate within the CURRENT resolution. Some phones expose
+        // multiple physical resolutions (e.g. the Pixel's 1344x2992 native vs the
+        // 1080x2404 default), and switching resolution triggers an Activity config
+        // change/recreate — the branded startup splash re-runs — and resizes the
+        // video surface (boxed video). Refresh-rate-only switching is seamless.
+        val current = display.mode
+        val sameResolution = modes.filter {
+            it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+        }
+        val best = RefreshRateSelector.pickByRefreshRateAmong(sameResolution, frameRateHz) ?: return
         val params = w.attributes
         if (params.preferredDisplayModeId == best.modeId) {
             lastAppliedFrameRate = frameRateHz
