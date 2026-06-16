@@ -44,11 +44,11 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import android.os.Bundle
-import androidx.core.content.ContextCompat
 import com.continuum.app.common.player.backend.PlaybackEngineCommand
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
+import com.continuum.app.common.player.ActivePlayerHolder
 import com.continuum.app.common.player.AudioCapabilityManager
 import com.continuum.app.common.player.ContinuumPlaybackService
 import com.continuum.app.common.player.DisplayHdrProbe
@@ -105,6 +105,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
+    val activePlayerHolder: ActivePlayerHolder = koinInject()
     val uiState by viewModel.uiState.collectAsState()
     val backendFactory: VideoPlaybackBackendFactory = koinInject()
     val audioCapabilityManager: AudioCapabilityManager = koinInject()
@@ -179,10 +180,13 @@ fun PlayerScreen(
     // resolves when the service binds. We hold the controller in a compose
     // state so downstream effects can re-run once it's ready.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
-    // Bumped when the playback service reports it swapped the session engine (e.g.
-    // to MPV for ASS/SSA subs). Drives a PlayerView re-attach so the video Surface
-    // is re-pushed to the new engine (MediaController doesn't do it automatically).
-    var engineSwapNonce by remember { mutableStateOf(0) }
+    // The real session Player (ExoPlayer/MpvPlayer), published by the playback
+    // service. The video PlayerView binds its SurfaceView directly to this (NOT the
+    // MediaController) so the engine receives proper surface-lifecycle callbacks
+    // (surfaceCreated/Changed/Destroyed) and recovers across seek/recreate/rotation
+    // — fixing MPV black-on-seek. Transport stays on the MediaController (same
+    // underlying player). Re-binds automatically when the engine swaps.
+    val sessionPlayer by activePlayerHolder.player.collectAsState()
     val videoBackend = remember(mediaController, backendFactory, contentId, initialFileId) {
         mediaController?.let { controller ->
             backendFactory.create(
@@ -381,17 +385,14 @@ fun PlayerScreen(
                 hasStyledSubtitles = uiState.subtitleTracks.orEmpty()
                     .any { it.codec?.lowercase() in setOf("ass", "ssa") },
             )
-            val future = controller.sendCustomCommand(
+            controller.sendCustomCommand(
                 SessionCommand(PlaybackEngineCommand.SET_ENGINE, Bundle.EMPTY),
                 Bundle().apply {
                     putString(PlaybackEngineCommand.ARG_REQUEST_JSON, PlaybackEngineCommand.encode(engineRequest))
                 },
             )
-            future.addListener({
-                val swapped = runCatching { future.get() }.getOrNull()
-                    ?.extras?.getBoolean(PlaybackEngineCommand.RESULT_SWAPPED) == true
-                if (swapped) engineSwapNonce++
-            }, ContextCompat.getMainExecutor(context))
+            // No surface re-attach needed here: the service publishes the new engine
+            // via ActivePlayerHolder and the PlayerView re-binds to it directly.
         }
         backend.mount(mediaSpec)
     }
@@ -635,18 +636,6 @@ fun PlayerScreen(
                 subtitleManager.applyAppearance(pv, subtitleAppearance)
             }
 
-            // After the service swaps the session engine (e.g. to MPV), re-attach the
-            // PlayerView so its video Surface is re-pushed to the new player —
-            // MediaController doesn't propagate the surface across a setPlayer swap,
-            // which otherwise leaves MPV with "Missing surface pointer" (black video).
-            LaunchedEffect(playerViewRef, engineSwapNonce) {
-                if (engineSwapNonce == 0) return@LaunchedEffect
-                val pv = playerViewRef ?: return@LaunchedEffect
-                val c = controller ?: return@LaunchedEffect
-                android.util.Log.i("ContinuumPlayback", "PlayerView re-attach after engine swap (nonce=$engineSwapNonce)")
-                pv.player = null
-                pv.player = c
-            }
 
             if (controller != null) {
                 AndroidView(
@@ -662,7 +651,10 @@ fun PlayerScreen(
                         }
                     },
                     update = { view ->
-                        view.player = controller
+                        // Bind the SurfaceView directly to the real session player
+                        // (not the MediaController) so MPV gets surface-lifecycle
+                        // callbacks; re-binds automatically when the engine swaps.
+                        view.player = sessionPlayer
                         view.resizeMode = resizeMode
                     },
                     modifier = Modifier.fillMaxSize(),

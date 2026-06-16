@@ -69,6 +69,7 @@ class ContinuumPlaybackService : MediaSessionService() {
     }
 
     private val playerFactory: ContinuumPlayerFactory by inject()
+    private val activePlayerHolder: ActivePlayerHolder by inject()
     private val analyticsListener: PlaybackAnalyticsListener by inject()
     private val playerSettingsStore: PlayerSettingsStore by inject()
     private val delayProcessor: DelayAudioProcessor by inject()
@@ -97,6 +98,12 @@ class ContinuumPlaybackService : MediaSessionService() {
     private val pendingLock = Any()
     private var pendingBuiltPlayer: Player? = null
     @Volatile private var serviceDestroyed = false
+    // The just-swapped-out player. NOT released immediately on swap: the UI binds
+    // its PlayerView surface directly to the session player and re-binds to the new
+    // player asynchronously (recomposition), so releasing the old one synchronously
+    // would let PlayerView call into a released player and crash. Held and released
+    // on the next swap (UI long re-bound by then) or on destroy.
+    private var previousPlayer: Player? = null
 
     private val _positionMs = MutableStateFlow(0L)
 
@@ -119,6 +126,7 @@ class ContinuumPlaybackService : MediaSessionService() {
         }
         activePlayer = player
         currentEngineKind = VideoPlaybackBackendKind.Media3
+        activePlayerHolder.set(player)
         val count = playerInstanceCount.incrementAndGet()
         android.util.Log.i(
             TAG,
@@ -393,12 +401,18 @@ class ContinuumPlaybackService : MediaSessionService() {
             session.player = newPlayer
             activePlayer = newPlayer
             currentEngineKind = actual
+            // Publish so the UI re-binds its PlayerView surface to the new engine.
+            activePlayerHolder.set(newPlayer)
         } catch (t: Throwable) {
             android.util.Log.e(TAG, "Engine bind failed; releasing new player, keeping old", t)
             runCatching { newPlayer.release() }
             return false
         }
-        runCatching { old.release() }
+        // Defer releasing the old player: the UI re-binds its PlayerView off it
+        // asynchronously. Release the previous-previous now (long detached); hold
+        // this one until the next swap or destroy.
+        previousPlayer?.let { runCatching { it.release() } }
+        previousPlayer = old
         logDecision(request, selected, actual)
         return true
     }
@@ -465,6 +479,9 @@ class ContinuumPlaybackService : MediaSessionService() {
         }
         mediaSession = null
         activePlayer = null
+        activePlayerHolder.set(null)
+        previousPlayer?.let { runCatching { it.release() } }
+        previousPlayer = null
         val count = playerInstanceCount.decrementAndGet()
         android.util.Log.i(TAG, "Playback player released; live instance count = $count")
         super.onDestroy()

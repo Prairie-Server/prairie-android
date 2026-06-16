@@ -1,5 +1,6 @@
 package com.continuum.app.common.di
 
+import com.continuum.app.common.player.ActivePlayerHolder
 import com.continuum.app.common.player.AudiobookSettingsStore
 import com.continuum.app.common.player.PlaybackSessionLifecycle
 import com.continuum.app.common.player.SleepTimerController
@@ -34,6 +35,10 @@ import org.koin.dsl.module
  * lifecycle here is wired but unused until Phase 1+ migrations.
  */
 val playerInfraModule = module {
+    // Shares the active session Player with the in-process UI so the video
+    // SurfaceView can bind directly to it (proper surface lifecycle for MPV).
+    single { ActivePlayerHolder() }
+
     // Long-lived application-scope flusher: debounced server writes survive
     // ViewModel teardown. Uses Dispatchers.IO since flushOne does network work.
     single<ServerSettingsFlusher> {

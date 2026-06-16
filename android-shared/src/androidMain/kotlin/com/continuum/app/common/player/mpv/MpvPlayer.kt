@@ -1253,10 +1253,6 @@ class MpvPlayer(
         currentSurface = surface
         mpv.attachSurface(surface)
         mpv.setOptionString("force-window", "yes")
-        // Re-assert the video output on attach (findroid/Wholphin do this) so the
-        // vo is (re)created against the freshly-attached surface rather than left
-        // in whatever state a prior detach/failed-init left it.
-        mpv.setOptionString("vo", videoOutput)
         mpv.setOptionString("vid", "auto")
         applySurfaceFrameRate()
     }
