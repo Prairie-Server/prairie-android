@@ -275,6 +275,7 @@ fun ItemDetailScreen(
                         val nextEpisodeLabel = nextEpisode?.let { ep ->
                             "S${ep.seasonNumber}·E${ep.episodeNumber}"
                         }
+                        val episodeDownloadRecords by viewModel.downloads.collectAsState()
 
                         SeriesDetailContent(
                             detail = detail,
@@ -314,6 +315,12 @@ fun ItemDetailScreen(
                             },
                             onEpisodeDownloadClick = { ep ->
                                 runDownloadAction { viewModel.onEpisodeDownloadTapped(ep) }
+                            },
+                            episodeDownloadState = { ep ->
+                                detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = episodeDownloadRecords,
+                                )
                             },
                             onWatchTogether = {
                                 onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null)

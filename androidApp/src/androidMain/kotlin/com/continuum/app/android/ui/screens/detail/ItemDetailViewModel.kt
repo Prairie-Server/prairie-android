@@ -142,17 +142,28 @@ class ItemDetailViewModel(
     fun onEpisodeDownloadTapped(episode: EpisodeListItem) {
         val fileId = episode.files.firstOrNull()?.fileId ?: return
         val detail = _uiState.value.detail ?: return
-        viewModelScope.launch {
-            downloadEnqueuer.startEpisode(
-                seriesContentId = detail.contentId,
-                episodeContentId = episode.contentId,
-                fileId = fileId,
-                seriesTitle = detail.title,
-                seasonNumber = episode.seasonNumber,
-                episodeNumber = episode.episodeNumber,
-                episodeTitle = episode.title,
-                posterUrl = detail.posterUrl,
-            )
+        // Branch on current state like the movie/audiobook path: a downloaded
+        // episode is a no-op (manage via the Downloads tab); an in-flight one
+        // cancels; otherwise start. Previously it always re-enqueued.
+        val existing = downloads.value.firstOrNull { it.mediaFileId == fileId }
+        when (detailDownloadTapAction(existing?.statusEnum(), forceRedownloadMissingLocal = false)) {
+            DetailDownloadTapAction.Ignore -> Unit
+            DetailDownloadTapAction.Cancel -> existing?.let { record ->
+                downloadEnqueuer.cancel(record.id)
+                viewModelScope.launch { downloadsRepository.delete(record.id) }
+            }
+            DetailDownloadTapAction.Start, DetailDownloadTapAction.ReplaceAndStart -> viewModelScope.launch {
+                downloadEnqueuer.startEpisode(
+                    seriesContentId = detail.contentId,
+                    episodeContentId = episode.contentId,
+                    fileId = fileId,
+                    seriesTitle = detail.title,
+                    seasonNumber = episode.seasonNumber,
+                    episodeNumber = episode.episodeNumber,
+                    episodeTitle = episode.title,
+                    posterUrl = detail.posterUrl,
+                )
+            }
         }
     }
 

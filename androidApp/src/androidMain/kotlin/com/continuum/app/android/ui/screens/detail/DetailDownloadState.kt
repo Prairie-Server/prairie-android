@@ -5,7 +5,7 @@ import com.continuum.app.model.download.DownloadRecord
 import com.continuum.app.model.download.DownloadStatus
 import com.continuum.app.model.download.statusEnum
 
-internal data class DetailDownloadState(
+data class DetailDownloadState(
     val isDownloaded: Boolean = false,
     val progress: Float? = null,
     val needsLocalRecovery: Boolean = false,
@@ -22,8 +22,19 @@ internal fun detailDownloadStateFor(
     version: FileVersion?,
     records: List<DownloadRecord>,
     hasLocalMedia: Boolean? = null,
+): DetailDownloadState = detailDownloadStateForFile(version?.fileId, records, hasLocalMedia)
+
+/**
+ * Download state for a specific media file id — used for per-episode indicators
+ * in the episode list (the episode's downloadable file), mirroring the movie /
+ * audiobook path which keys off [FileVersion.fileId].
+ */
+internal fun detailDownloadStateForFile(
+    fileId: Int?,
+    records: List<DownloadRecord>,
+    hasLocalMedia: Boolean? = null,
 ): DetailDownloadState {
-    val record = version?.let { v -> records.firstOrNull { it.mediaFileId == v.fileId } }
+    val record = fileId?.let { f -> records.firstOrNull { it.mediaFileId == f } }
     val status = record?.statusEnum()
     val progress = record
         ?.takeIf {

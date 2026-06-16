@@ -17,8 +17,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -51,6 +53,7 @@ fun EpisodeList(
     onEpisodePlayClick: (String, Double?) -> Unit,
     onEpisodeDetailClick: (String) -> Unit,
     onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
+    episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -63,6 +66,7 @@ fun EpisodeList(
                 onPlayClick = { onEpisodePlayClick(episode.contentId, playbackResumePosition(episode)) },
                 onDetailClick = { onEpisodeDetailClick(episode.contentId) },
                 onDownloadClick = onEpisodeDownloadClick?.let { cb -> { cb(episode) } },
+                downloadState = episodeDownloadState(episode),
             )
         }
     }
@@ -74,6 +78,7 @@ private fun EpisodeRow(
     onPlayClick: () -> Unit,
     onDetailClick: () -> Unit,
     onDownloadClick: (() -> Unit)? = null,
+    downloadState: DetailDownloadState = DetailDownloadState(),
 ) {
     val userData = episode.userData
     val isPlayed = userData?.played == true
@@ -191,9 +196,9 @@ private fun EpisodeRow(
             }
         }
 
-        // Trailing download icon — disabled state if the episode has no
-        // files (rare, just a defensive guard) but layout-stable so the
-        // column doesn't reflow.
+        // Trailing download control: ✓ when the episode is downloaded, a spinner
+        // while it's in flight, else the download arrow. Disabled when the episode
+        // has no files (rare guard) but layout-stable so the column doesn't reflow.
         if (onDownloadClick != null) {
             val hasFiles = episode.files.isNotEmpty()
             IconButton(
@@ -201,12 +206,26 @@ private fun EpisodeRow(
                 enabled = hasFiles,
                 modifier = Modifier.size(36.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.FileDownload,
-                    contentDescription = "Download episode",
-                    tint = if (hasFiles) DetailSecondaryText else DetailTertiaryText,
-                    modifier = Modifier.size(22.dp),
-                )
+                when {
+                    downloadState.isDownloaded -> Icon(
+                        imageVector = Icons.Filled.DownloadDone,
+                        contentDescription = "Downloaded",
+                        tint = DetailPrimaryText,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    downloadState.progress != null -> CircularProgressIndicator(
+                        progress = { downloadState.progress.coerceIn(0f, 1f) },
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = DetailPrimaryText,
+                    )
+                    else -> Icon(
+                        imageVector = Icons.Outlined.FileDownload,
+                        contentDescription = "Download episode",
+                        tint = if (hasFiles) DetailSecondaryText else DetailTertiaryText,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
         }
     }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,6 +64,7 @@ fun SeriesDetailContent(
     onSeriesDownloadClick: (() -> Unit)? = null,
     onSeasonDownloadClick: ((Int) -> Unit)? = null,
     onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
+    episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
     onWatchTogether: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -149,18 +151,38 @@ fun SeriesDetailContent(
                     // AND the parent screen wired the callback.
                     val seasonNumberForDownload = selectedSeason?.seasonNumber
                     if (seasonNumberForDownload != null && onSeasonDownloadClick != null && episodes.isNotEmpty()) {
+                        // Roll up ONLY the episodes of the selected season (the
+                        // loaded `episodes` can briefly be the previous season's
+                        // during a season switch — don't claim ✓ off stale data).
+                        val seasonEpisodes = episodes.filter { it.seasonNumber == seasonNumberForDownload }
+                        val states = seasonEpisodes.map { episodeDownloadState(it) }
+                        val allDownloaded = seasonEpisodes.isNotEmpty() && states.all { it.isDownloaded }
+                        val anyInFlight = states.any { it.progress != null }
                         IconButton(
                             onClick = { onSeasonDownloadClick(seasonNumberForDownload) },
                             modifier = Modifier
                                 .padding(end = SafePadding)
                                 .size(40.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.FileDownload,
-                                contentDescription = "Download season $seasonNumberForDownload",
-                                tint = DetailPrimaryText,
-                                modifier = Modifier.size(24.dp),
-                            )
+                            when {
+                                allDownloaded -> Icon(
+                                    imageVector = Icons.Filled.DownloadDone,
+                                    contentDescription = "Season $seasonNumberForDownload downloaded",
+                                    tint = DetailPrimaryText,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                                anyInFlight -> CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp,
+                                    color = DetailPrimaryText,
+                                )
+                                else -> Icon(
+                                    imageVector = Icons.Outlined.FileDownload,
+                                    contentDescription = "Download season $seasonNumberForDownload",
+                                    tint = DetailPrimaryText,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -196,6 +218,7 @@ fun SeriesDetailContent(
                             onEpisodePlayClick = onEpisodePlayClick,
                             onEpisodeDetailClick = onEpisodeDetailClick,
                             onEpisodeDownloadClick = onEpisodeDownloadClick,
+                            episodeDownloadState = episodeDownloadState,
                         )
                     }
                 }
