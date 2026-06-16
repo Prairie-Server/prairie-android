@@ -160,7 +160,10 @@ class MpvPlayer(
             this.httpHeaderFieldsProvider = httpHeaderFieldsProvider
         }
 
-        fun build() = MpvPlayer(this)
+        // startObserving() is called only after the MpvPlayer is fully constructed,
+        // so mpv property events (which dispatch through `listeners`) can never fire
+        // before every field is initialized — safe for off-main construction.
+        fun build() = MpvPlayer(this).apply { startObserving() }
     }
 
     init {
@@ -227,26 +230,15 @@ class MpvPlayer(
             mpv.setPropertyInt("aaudio-session-id", audioSessionId)
         }
 
-        mpv.addObserver(this)
-
-        arrayOf(
-                Property("track-list", MPVLib.MpvFormat.MPV_FORMAT_STRING),
-                Property("paused", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
-                Property("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
-                Property("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
-                Property("seekable", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
-                Property("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
-                Property("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
-                Property("demuxer-cache-time", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
-                Property("speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
-                Property("playlist-count", MPVLib.MpvFormat.MPV_FORMAT_INT64),
-                Property("playlist-current-pos", MPVLib.MpvFormat.MPV_FORMAT_INT64),
-                Property("video-params/w", MPVLib.MpvFormat.MPV_FORMAT_INT64),
-                Property("video-params/h", MPVLib.MpvFormat.MPV_FORMAT_INT64),
-                Property("video-params/gamma", MPVLib.MpvFormat.MPV_FORMAT_STRING),
-                Property("video-params/primaries", MPVLib.MpvFormat.MPV_FORMAT_STRING),
-            )
-            .forEach { (name, format) -> mpv.observeProperty(name, format) }
+        // NOTE: mpv.addObserver(this) + observeProperty() are intentionally NOT
+        // called here. observeProperty emits each property's current value
+        // immediately, which dispatches eventProperty -> handler.post(main) ->
+        // listeners.sendEvent. When this player is constructed OFF the main thread
+        // (the service builds MPV on Dispatchers.Default to avoid an ANR), that
+        // posted runnable can race the still-running constructor and touch
+        // `listeners` (declared after this init block) before it is assigned -> NPE.
+        // Registering observers only after construction (via startObserving(),
+        // called by Builder.build()) guarantees every field is initialized first.
 
         if (handleAudioFocus) {
             audioFocusRequest =
@@ -259,6 +251,34 @@ class MpvPlayer(
                 mpv.setPropertyBoolean("pause", true)
             }
         }
+    }
+
+    /**
+     * Register the mpv property observers. Called by [Builder.build] AFTER the
+     * MpvPlayer is fully constructed, never from the `init` block — observeProperty
+     * emits each property's current value immediately, and those events dispatch
+     * through `listeners`, which is only assigned after the init block. Registering
+     * here avoids an init-order NPE when the player is built off the main thread.
+     */
+    private fun startObserving() {
+        mpv.addObserver(this)
+        arrayOf(
+            Property("track-list", MPVLib.MpvFormat.MPV_FORMAT_STRING),
+            Property("paused", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
+            Property("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
+            Property("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
+            Property("seekable", MPVLib.MpvFormat.MPV_FORMAT_FLAG),
+            Property("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
+            Property("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
+            Property("demuxer-cache-time", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
+            Property("speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE),
+            Property("playlist-count", MPVLib.MpvFormat.MPV_FORMAT_INT64),
+            Property("playlist-current-pos", MPVLib.MpvFormat.MPV_FORMAT_INT64),
+            Property("video-params/w", MPVLib.MpvFormat.MPV_FORMAT_INT64),
+            Property("video-params/h", MPVLib.MpvFormat.MPV_FORMAT_INT64),
+            Property("video-params/gamma", MPVLib.MpvFormat.MPV_FORMAT_STRING),
+            Property("video-params/primaries", MPVLib.MpvFormat.MPV_FORMAT_STRING),
+        ).forEach { (name, format) -> mpv.observeProperty(name, format) }
     }
 
     private fun setupDirectories(context: Context, configDir: File, cacheDir: File) {
