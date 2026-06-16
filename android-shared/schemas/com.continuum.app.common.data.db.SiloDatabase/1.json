@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "96e9b763f4e9ae0bb15b626b48e5cf87",
+    "identityHash": "19cb300644e0be2d7310b7dbe7d14d8f",
     "entities": [
       {
         "tableName": "user_item_state",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `profileId` TEXT NOT NULL, `contentId` TEXT NOT NULL, `fileId` INTEGER NOT NULL, `positionSeconds` REAL NOT NULL, `durationSeconds` REAL, `watched` INTEGER NOT NULL, `ratingValue` INTEGER, `favorite` INTEGER NOT NULL, `audioFingerprint` TEXT, `subtitleFingerprint` TEXT, `cfi` TEXT, `readProgress` REAL, `clientUpdatedAtMs` INTEGER NOT NULL, `serverUpdatedAtMs` INTEGER, PRIMARY KEY(`serverId`, `profileId`, `contentId`, `fileId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `profileId` TEXT NOT NULL, `contentId` TEXT NOT NULL, `fileId` INTEGER NOT NULL, `positionSeconds` REAL NOT NULL, `durationSeconds` REAL, `audioFingerprint` TEXT, `subtitleFingerprint` TEXT, `cfi` TEXT, `readProgress` REAL, `clientUpdatedAtMs` INTEGER NOT NULL, `serverUpdatedAtMs` INTEGER, PRIMARY KEY(`serverId`, `profileId`, `contentId`, `fileId`))",
         "fields": [
           {
             "fieldPath": "serverId",
@@ -42,23 +42,6 @@
             "fieldPath": "durationSeconds",
             "columnName": "durationSeconds",
             "affinity": "REAL"
-          },
-          {
-            "fieldPath": "watched",
-            "columnName": "watched",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "ratingValue",
-            "columnName": "ratingValue",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "favorite",
-            "columnName": "favorite",
-            "affinity": "INTEGER",
-            "notNull": true
           },
           {
             "fieldPath": "audioFingerprint",
@@ -125,6 +108,64 @@
             "createSql": "CREATE INDEX IF NOT EXISTS `index_user_item_state_serverId_profileId_clientUpdatedAtMs` ON `${TABLE_NAME}` (`serverId`, `profileId`, `clientUpdatedAtMs`)"
           }
         ]
+      },
+      {
+        "tableName": "content_item_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `profileId` TEXT NOT NULL, `contentId` TEXT NOT NULL, `watched` INTEGER, `ratingValue` INTEGER, `favorite` INTEGER, `clientUpdatedAtMs` INTEGER NOT NULL, `serverUpdatedAtMs` INTEGER, PRIMARY KEY(`serverId`, `profileId`, `contentId`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentId",
+            "columnName": "contentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watched",
+            "columnName": "watched",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "ratingValue",
+            "columnName": "ratingValue",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "favorite",
+            "columnName": "favorite",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "clientUpdatedAtMs",
+            "columnName": "clientUpdatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverUpdatedAtMs",
+            "columnName": "serverUpdatedAtMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId",
+            "profileId",
+            "contentId"
+          ]
+        }
       },
       {
         "tableName": "dirty_operations",
@@ -546,7 +587,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '96e9b763f4e9ae0bb15b626b48e5cf87')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '19cb300644e0be2d7310b7dbe7d14d8f')"
     ]
   }
 }

@@ -2,6 +2,7 @@ package com.continuum.app.common.data.db
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.continuum.app.common.data.db.entity.ContentItemStateEntity
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
 import com.continuum.app.common.data.db.entity.DownloadEntity
 import com.continuum.app.common.data.db.entity.LegacyImportEntity
@@ -40,9 +41,6 @@ class SiloDatabaseDaoTest {
         fileId = fileId,
         positionSeconds = positionSeconds,
         durationSeconds = 3600.0,
-        watched = false,
-        ratingValue = null,
-        favorite = false,
         audioFingerprint = null,
         subtitleFingerprint = null,
         cfi = null,
@@ -76,6 +74,27 @@ class SiloDatabaseDaoTest {
         dao.upsert(userState(fileId = 3, clientUpdatedAtMs = 200L))
         val resume = dao.recentlyPlayed("s1", "p1", limit = 10)
         assertEquals(listOf(2, 3, 1), resume.map { it.fileId })
+    }
+
+    @Test
+    fun contentItemStateUpsertReadAndFavoritesScan() = runTest {
+        val dao = db.contentItemStateDao()
+        dao.upsert(
+            ContentItemStateEntity(
+                serverId = "s1", profileId = "p1", contentId = "c1",
+                watched = true, ratingValue = 4, favorite = true,
+                clientUpdatedAtMs = 5L, serverUpdatedAtMs = null,
+            ),
+        )
+        dao.upsert(
+            ContentItemStateEntity(
+                serverId = "s1", profileId = "p1", contentId = "c2",
+                watched = null, ratingValue = null, favorite = false,
+                clientUpdatedAtMs = 6L, serverUpdatedAtMs = null,
+            ),
+        )
+        assertEquals(4, dao.get("s1", "p1", "c1")?.ratingValue)
+        assertEquals(listOf("c1"), dao.favorites("s1", "p1").map { it.contentId })
     }
 
     @Test

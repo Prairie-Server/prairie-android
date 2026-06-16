@@ -9,9 +9,19 @@ import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.api.PersonalDataApi
 import com.continuum.app.network.map
+import com.continuum.app.repository.port.NoOpUserItemStatePort
+import com.continuum.app.repository.port.UserItemStatePort
+import com.continuum.app.repository.port.WriteOutcome
 
 open class PersonalDataRepository(
     private val personalDataApi: PersonalDataApi,
+    /**
+     * Local-first side-channel (Track B). Defaults to the no-op port so
+     * commonMain/tests stay network-only; the Android platform module binds a
+     * Room-backed [UserItemStatePort] that records an optimistic projection +
+     * outbox op around each content-level mutation below.
+     */
+    private val userItemStatePort: UserItemStatePort = NoOpUserItemStatePort,
 ) {
     // -- Libraries --
 
@@ -33,12 +43,16 @@ open class PersonalDataRepository(
      * Adds or removes an item from the user's favorites.
      * @param isFavorite true to add, false to remove.
      */
-    suspend fun toggleFavorite(itemId: String, isFavorite: Boolean): ApiResult<Unit> =
-        if (isFavorite) {
+    suspend fun toggleFavorite(itemId: String, isFavorite: Boolean): ApiResult<Unit> {
+        val handle = userItemStatePort.recordFavorite(itemId, isFavorite)
+        val result = if (isFavorite) {
             personalDataApi.addFavorite(itemId)
         } else {
             personalDataApi.removeFavorite(itemId)
         }
+        userItemStatePort.resolve(handle, result.toWriteOutcome())
+        return result
+    }
 
     // -- Watchlist --
 
@@ -88,12 +102,20 @@ open class PersonalDataRepository(
         personalDataApi.getRating(itemId)
 
     /** Sets or updates the user's star rating (integer 1-5) for a specific item. */
-    suspend fun setRating(itemId: String, rating: Int): ApiResult<Unit> =
-        personalDataApi.setRating(itemId, rating)
+    suspend fun setRating(itemId: String, rating: Int): ApiResult<Unit> {
+        val handle = userItemStatePort.recordRating(itemId, rating)
+        val result = personalDataApi.setRating(itemId, rating)
+        userItemStatePort.resolve(handle, result.toWriteOutcome())
+        return result
+    }
 
     /** Removes the user's rating for a specific item. */
-    suspend fun deleteRating(itemId: String): ApiResult<Unit> =
-        personalDataApi.deleteRating(itemId)
+    suspend fun deleteRating(itemId: String): ApiResult<Unit> {
+        val handle = userItemStatePort.recordRating(itemId, null)
+        val result = personalDataApi.deleteRating(itemId)
+        userItemStatePort.resolve(handle, result.toWriteOutcome())
+        return result
+    }
 
     // -- Watched --
 
@@ -102,8 +124,12 @@ open class PersonalDataRepository(
      * targets, so passing a series / season ID marks the appropriate
      * episodes.
      */
-    open suspend fun setWatched(itemId: String, watched: Boolean): ApiResult<Unit> =
-        if (watched) personalDataApi.markWatched(itemId) else personalDataApi.markUnwatched(itemId)
+    open suspend fun setWatched(itemId: String, watched: Boolean): ApiResult<Unit> {
+        val handle = userItemStatePort.recordWatched(itemId, watched)
+        val result = if (watched) personalDataApi.markWatched(itemId) else personalDataApi.markUnwatched(itemId)
+        userItemStatePort.resolve(handle, result.toWriteOutcome())
+        return result
+    }
 
     // -- Continue Watching dismissals --
 
@@ -117,4 +143,25 @@ open class PersonalDataRepository(
     /** Undo a Continue Watching dismissal. */
     open suspend fun undismissContinueWatching(itemId: String): ApiResult<Unit> =
         personalDataApi.undismissContinueWatching(itemId)
+}
+
+/**
+ * Maps an inline network result to the outbox-resolution intent: success acks
+ * the op, transient failures keep it for retry, and a genuine server rejection
+ * (4xx other than auth) drops it so a doomed write is not replayed.
+ *
+ * Retriable failures: no network, 5xx, 408, 429, and **401** — the auth
+ * interceptor refreshes transparently before the repository sees a result, so a
+ * 401 that reaches here means refresh could not complete; the mutation was
+ * never accepted and may succeed once auth is restored. 403 and other 4xx are
+ * terminal (the request is wrong/forbidden regardless of retry).
+ */
+private fun ApiResult<*>.toWriteOutcome(): WriteOutcome = when (this) {
+    is ApiResult.Success -> WriteOutcome.SYNCED
+    is ApiResult.NetworkError -> WriteOutcome.RETRIABLE
+    is ApiResult.Error -> if (code == 401 || code == 408 || code == 429 || code in 500..599) {
+        WriteOutcome.RETRIABLE
+    } else {
+        WriteOutcome.TERMINAL
+    }
 }

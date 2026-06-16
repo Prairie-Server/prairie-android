@@ -4,21 +4,19 @@ import androidx.room.Entity
 import androidx.room.Index
 
 /**
- * Local-first projection of per-item user state — resume position, watched,
- * rating, favorite, track selections, and ebook reading position.
+ * Local-first projection of **file-level** user state — resume position, track
+ * selections, and ebook reading position.
  *
  * Identity is `(serverId, profileId, contentId, fileId)` because Silo scopes
  * all user state by server + profile (see `ScopedJsonFileStore` and
- * `DownloadStorage`), and progress/track/CFI are **file-level** (a multi-file
+ * `DownloadStorage`), and progress/track/CFI are file-level (a multi-file
  * content item — e.g. a movie with multiple versions, or an audiobook with
  * many tracks — has independent positions per file).
  *
- * `watched` / `ratingValue` / `favorite` are **content-level** in the server
- * contract (`PersonalDataApi` keys them by item id only, no fileId). They are
- * stored on every file row for read convenience, but the outbox coalesces
- * those mutations at content scope (the SET_WATCHED/RATING/FAVORITE coalesce
- * keys omit fileId — see [com.continuum.app.common.data.sync.OutboxOperation])
- * so a multi-file item never emits duplicate/conflicting ops per file.
+ * Content-level state (watched / rating / favorite) lives in a separate
+ * [ContentItemStateEntity] keyed `(serverId, profileId, contentId)`: those
+ * server APIs are keyed by item id only (no fileId), and the mutations can
+ * fire before any file row exists, so they do not belong on a file row.
  *
  * Track selections are stored as **stable fingerprints**
  * `(index|language|codec|title|forced)` rather than raw UI indices, so a
@@ -42,9 +40,6 @@ data class UserItemStateEntity(
     val fileId: Int,
     val positionSeconds: Double,
     val durationSeconds: Double?,
-    val watched: Boolean,
-    val ratingValue: Int?,
-    val favorite: Boolean,
     // Stable selection fingerprints: (index|language|codec|title|forced), not raw UI index.
     val audioFingerprint: String?,
     val subtitleFingerprint: String?,

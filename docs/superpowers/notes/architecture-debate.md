@@ -694,3 +694,27 @@ Claude implemented the Room foundation to the richer schema above; build + Robol
 **Two nice-to-haves deferred to Task 5 (drain-loop + producer wiring), NOT Task 1:**
 1. `DirtyOperationDao.recordFailure` can resurrect an older in-flight op after a newer pending op with the same `coalesceKey` was queued. When wiring the drain loop, on failure drop the failed older row if a newer pending row exists for that key (or fold coalescing into the failure path).
 2. `OutboxOperation` coalesce keys omit `serverId`, but `enqueueCoalescing` deletes by bare `coalesceKey`. When wiring the producer → `DirtyOperationEntity`, make the coalesce key globally scoped (prefix `serverId|profileId`) OR change the DAO delete to also filter `serverId/profileId`. Pick one and enforce it in the producer.
+
+## Track B Task 4 — converged design (Claude↔Codex, 2026-06-16)
+
+Claude proposed a narrower re-scope after the Explore map showed the plan's draft mis-targeted the surface (resume position is read server-side via home-sections + WatchDetail.userData, not an interceptable repo method). Codex reviewed the actual code and countered on three points; we converged:
+
+**Scope:** Track B Task 4 = content-level user-state **mutations** (watched/favorite/rating) as a strangler. Resume/position read+write is a separate later slice (position is session-keyed; the later slice must cover `ManagePlaybackUseCase.reportProgress`, `PlaybackSessionManager.reportProgress`/`PlaybackSessionLifecycle`, AND `PersonalDataRepository.syncProgress` — Codex correction).
+
+**Choke point (Codex won):** NOT `MediaActionsCoordinator` — it lacks rating methods and is bypassed by favorites-removal (`PersonalListViewModels.kt:124`) and phone/TV detail VMs (`ItemDetailViewModel.kt:291/312/329`, `TvItemDetailViewModel.kt:145/180/199`). Instead, **`PersonalDataRepository` delegates** its `toggleFavorite/setRating/deleteRating/setWatched` to a `UserItemStatePort` — catches every caller without chasing UI sites.
+
+**Dual-path (Codex refinement):** write content projection + pending outbox op in one Room txn → call network inline → **resolve**: Success ⇒ delete op (acked, so Task 5 won't replay); `NetworkError`/5xx/408/429 ⇒ keep pending (durable retry); other 4xx ⇒ drop op (don't replay a doomed write). Projection-revert on terminal failure is deferred to the local-read slice (nothing reads the projection yet, so a stale optimistic row is unobservable now). Callers still get the real `ApiResult` and roll back UI as today (`MediaActionsCoordinator.kt:11`, `HomeViewModel.kt:113`, `CardActionsHelpers.kt:42`).
+
+**Projection key (Codex won):** add a **separate `content_item_state` table** PK `(serverId, profileId, contentId)` for watched/rating/favorite — these mutations carry no fileId and can fire before any file row exists. `UserItemStateEntity` stays file-level (position/track/CFI); drop watched/ratingValue/favorite from it. Matches the outbox's `targetFileId: Int?` (null for content ops). **Coalesce key now serverId-scoped**: `serverId|profileId|contentId|kind`.
+
+**Schema:** amend v1 in place (no migration) — the DB is committed but unreleased and not yet wired into DI, so no device has `silo.db`.
+
+**DI:** commonMain `single { PersonalDataRepository(get(), getOrNull() ?: NoOpUserItemStatePort) }`; `androidModule`+`androidTvModule` bind `SiloDatabase` and `single<UserItemStatePort> { RoomUserItemStateRepository(...) }` after `sharedModules()` (mirrors TokenManager override at `AndroidModule.kt:94`).
+
+### Track B Task 4 — Codex code-review verdict (2026-06-16)
+
+Codex reviewed the diff read-only. Verdict: faithful to the converged design (record→network→resolve; separate `content_item_state`; server-scoped coalesce key). **One must-fix (applied):** `toWriteOutcome` classified HTTP 401 as TERMINAL, which could drop a valid unsynced write when token refresh can't complete — 401 is now RETRIABLE (403 + other 4xx stay terminal). Added a MockEngine-backed `PersonalDataRepositoryPortTest` locking 200→SYNCED / 401→RETRIABLE / 403→TERMINAL / 500→RETRIABLE.
+
+Confirmed non-issues: `resolve()` interleaving sound for pending rows (a coalesced-away opId resolve is a harmless no-op); `db.withTransaction` + suspend DAOs fine (nested `@Transaction` is redundant but harmless); Koin lazy-singleton DI order fine; `favorite = 1` on nullable Boolean fine.
+
+Deferred (not Task 4): (1) `DirtyOperationDao.recordFailure` can move an old in_flight row back to pending after a newer op exists — fix before Task 5 drain wiring. (2) `OutboxOperation` helper keys are still profile-only — fix before any producer is wired through those helpers (this Room producer already uses serverId-scoped keys). (3) `ContentItemStateEntity.ratingValue` uses null for both "unknown" and "cleared" — the local-read slice will need field-level known/updated metadata.

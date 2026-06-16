@@ -93,6 +93,19 @@ val androidModule = module {
     // is registered first in ContinuumApplication, so this wins.
     single<TokenManager> { EncryptedTokenManagerImpl(get(), get()) }
 
+    // Offline-first Room store (Track B). Bound after sharedModules() so the
+    // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
+    // up the Room-backed port and writes optimistic projection + outbox rows.
+    single { com.continuum.app.common.data.db.SiloDatabase.build(androidContext()) }
+    single<com.continuum.app.repository.port.UserItemStatePort> {
+        val tokenManager: TokenManager = get()
+        com.continuum.app.common.data.repository.RoomUserItemStateRepository(
+            db = get(),
+            currentServerId = { tokenManager.getCurrentServerId() },
+            currentProfileId = { tokenManager.getProfileId() },
+        )
+    }
+
     // App-wide services
     single { ThemeManager(androidContext()) }
     single<AndroidServerSettingsCache> { AndroidServerSettingsCache(androidContext()) }

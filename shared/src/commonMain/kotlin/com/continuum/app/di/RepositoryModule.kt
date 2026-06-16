@@ -44,7 +44,15 @@ val repositoryModule = module {
     single { CatalogRepository(get()) }
     single { CalendarRepository(get()) }
     single { PlaybackRepository(get()) }
-    single { PersonalDataRepository(get()) }
+    // `getOrNull()` picks up the Room-backed UserItemStatePort when the Android
+    // platform module binds it (Track B local-first writes); falls back to the
+    // network-only no-op port in commonMain tests / when unbound.
+    single {
+        PersonalDataRepository(
+            get(),
+            getOrNull() ?: com.continuum.app.repository.port.NoOpUserItemStatePort,
+        )
+    }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get()) }
     single { CollectionRepository(get()) }
     single { SectionRepository(get()) }
