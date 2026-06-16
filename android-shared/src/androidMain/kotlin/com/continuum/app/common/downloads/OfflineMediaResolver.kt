@@ -18,23 +18,29 @@ data class OfflineMedia(
         get() = if (uriString.startsWith("file://")) java.io.File(uriString.removePrefix("file://")) else null
 }
 
-class OfflineMediaResolver(private val storage: DownloadStorage) {
+class OfflineMediaResolver(
+    private val metadata: DownloadMetadataStore,
+    private val storage: DownloadStorage,
+    private val legacyImporter: LegacyDownloadImporter,
+) {
 
-    fun listLocalMedia(
+    suspend fun listLocalMedia(
         serverId: String,
         profileId: String,
         contentId: String,
-    ): List<OfflineMedia> =
-        storage.listSidecars(serverId, profileId)
+    ): List<OfflineMedia> {
+        // Ensure the one-time legacy sidecar→Room import has finished before
+        // resolving offline media; otherwise a pre-cutover download could read as
+        // missing on the first cold start. Memoized: a no-op after it runs once.
+        legacyImporter.awaitImport(System.currentTimeMillis())
+        return metadata.listSidecars(serverId, profileId)
             .filter { sidecar ->
                 sidecar.record.contentId == contentId &&
                     sidecar.record.statusEnum() == DownloadStatus.Completed
             }
             .mapNotNull { sidecar ->
                 val fileId = sidecar.record.mediaFileId
-                val located = storage.locateSidecarByFileId(serverId, profileId, fileId) ?: return@mapNotNull null
-                val (_, _, locatedSidecar) = located
-                if (locatedSidecar.record.contentId != contentId) return@mapNotNull null
+                // Bytes are resolved by fileId (sync); metadata confirms scope/content.
                 val media = storage.locateLocalMedia(serverId, profileId, fileId) ?: return@mapNotNull null
                 OfflineMedia(
                     serverId = serverId,
@@ -46,8 +52,9 @@ class OfflineMediaResolver(private val storage: DownloadStorage) {
                     sidecar = sidecar,
                 )
             }
+    }
 
-    fun findLocalMedia(
+    suspend fun findLocalMedia(
         serverId: String,
         profileId: String,
         contentId: String,

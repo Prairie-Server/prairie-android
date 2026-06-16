@@ -51,6 +51,7 @@ class DownloadWorker(
     params: androidx.work.WorkerParameters,
     private val repository: DownloadsRepository,
     private val storage: DownloadStorage,
+    private val metadataStore: DownloadMetadataStore,
     private val httpClient: HttpClient,
 ) : CoroutineWorker(appContext, params) {
 
@@ -196,7 +197,7 @@ class DownloadWorker(
      * doesn't exist yet (Enqueuer always writes it at download start, so
      * this should only happen for legacy / corrupted state).
      */
-    private fun updateSidecarStatus(
+    private suspend fun updateSidecarStatus(
         serverId: String,
         profileId: String,
         fileId: Int,
@@ -207,8 +208,8 @@ class DownloadWorker(
         fileName: String? = null,
     ) {
         runCatching {
-            val existing = storage.readSidecar(serverId, profileId, fileId) ?: return@runCatching
-            storage.writeSidecar(
+            val existing = metadataStore.readSidecar(serverId, profileId, fileId) ?: return@runCatching
+            metadataStore.writeSidecar(
                 serverId, profileId,
                 existing.copy(
                     record = existing.record.copy(

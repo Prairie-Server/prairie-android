@@ -45,6 +45,7 @@ class AppWorkerFactory : WorkerFactory() {
                     params = workerParameters,
                     repository = koin.get<DownloadsRepository>(),
                     storage = koin.get<DownloadStorage>(),
+                    metadataStore = koin.get<com.continuum.app.common.downloads.DownloadMetadataStore>(),
                     httpClient = koin.get<HttpClient>(),
                 )
             }

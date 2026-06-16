@@ -10,9 +10,6 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.continuum.app.model.download.DownloadMediaType
-import com.continuum.app.model.download.DownloadSidecar
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.OutputStream
 import java.net.URI
@@ -46,14 +43,11 @@ class DownloadStorage(
         },
     )
 
-    private val downloadsRoot: File get() = File(baseDir, DOWNLOADS_DIR_NAME)
-
-    fun locateLocalMedia(serverId: String, profileId: String, fileId: Int): DownloadLocation? {
-        readSidecar(serverId, profileId, fileId)?.localUri?.let { uri ->
-            publicStore.locate(uri)?.let { return it }
-        }
-        return publicStore.locateByFileId(serverId, profileId, fileId)
-    }
+    // Byte resolution is fileId-based (no sidecar read) so it stays synchronous —
+    // the player surface (Compose) and worker call these on non-suspend paths.
+    // Download metadata now lives in Room (suspend); only the bytes are file/MediaStore.
+    fun locateLocalMedia(serverId: String, profileId: String, fileId: Int): DownloadLocation? =
+        publicStore.locateByFileId(serverId, profileId, fileId)
 
     fun locateLocalFile(serverId: String, profileId: String, fileId: Int): File? =
         (locateLocalMedia(serverId, profileId, fileId) as? FileDownloadLocation)?.file
@@ -71,7 +65,7 @@ class DownloadStorage(
         container: String? = null,
         mediaType: String? = null,
     ): DownloadTarget {
-        publicStore.delete(serverId, profileId, fileId, readSidecar(serverId, profileId, fileId)?.localUri)
+        publicStore.delete(serverId, profileId, fileId, uriString = null)
         return publicStore.create(
             serverId = serverId,
             profileId = profileId,
@@ -92,7 +86,7 @@ class DownloadStorage(
      * through [deleteAllForProfile] or [deleteAllForServer].
      */
     fun delete(serverId: String, profileId: String, fileId: Int): Boolean =
-        publicStore.delete(serverId, profileId, fileId, readSidecar(serverId, profileId, fileId)?.localUri)
+        publicStore.delete(serverId, profileId, fileId, uriString = null)
 
     fun completeWrite(uriString: String) {
         publicStore.complete(uriString)
@@ -104,21 +98,14 @@ class DownloadStorage(
     fun deleteUri(uriString: String): Boolean =
         publicStore.delete("", "", -1, uriString)
 
-    /** Wipes every download under (serverId, profileId). Used on sign-out
-     *  and profile switch. */
-    fun deleteAllForProfile(serverId: String, profileId: String): Boolean {
-        val dir = File(downloadsRoot, "$serverId/$profileId")
-        val sidecarsDeleted = if (dir.exists()) dir.deleteRecursively() else false
-        return publicStore.deleteAllForProfile(serverId, profileId) || sidecarsDeleted
-    }
+    /** Wipes every downloaded byte under (serverId, profileId). Used on sign-out
+     *  and profile switch. Metadata rows are cleared via [DownloadMetadataStore]. */
+    fun deleteAllForProfile(serverId: String, profileId: String): Boolean =
+        publicStore.deleteAllForProfile(serverId, profileId)
 
-    /** Wipes every download under (serverId). Used on server delete /
-     *  re-bind. */
-    fun deleteAllForServer(serverId: String): Boolean {
-        val dir = File(downloadsRoot, serverId)
-        val sidecarsDeleted = if (dir.exists()) dir.deleteRecursively() else false
-        return publicStore.deleteAllForServer(serverId) || sidecarsDeleted
-    }
+    /** Wipes every downloaded byte under (serverId). Used on server delete / re-bind. */
+    fun deleteAllForServer(serverId: String): Boolean =
+        publicStore.deleteAllForServer(serverId)
 
     /** Sum of bytes across every downloaded file under this storage. */
     fun totalBytesUsed(): Long = publicStore.totalBytesUsed()
@@ -126,117 +113,6 @@ class DownloadStorage(
     /** Reports the filesystem's remaining usable space for the base dir,
      *  useful for the Downloads header storage card. */
     fun usableSpaceBytes(): Long = baseDir.usableSpace
-
-    // ── Sidecar (.record.json) primitives ──────────────────────────────
-    //
-    // Disk-as-truth design (v1.1): the sidecar is the complete picture of
-    // every download the user owns. Written at enqueue time, rewritten on
-    // every worker status transition, read at app start to seed the
-    // in-memory cache before any server call. Without it, an offline boot
-    // shows an empty Downloads tab even when bytes exist on disk.
-
-    /** Path of the sidecar JSON for `(serverId, profileId, fileId)`. */
-    fun sidecarFile(serverId: String, profileId: String, fileId: Int): File =
-        File(downloadsRoot, "$serverId/$profileId/$fileId.record.json")
-
-    /** Writes the sidecar atomically (tmp + rename). Creates parent dirs. */
-    fun writeSidecar(serverId: String, profileId: String, sidecar: DownloadSidecar) {
-        val target = sidecarFile(serverId, profileId, sidecar.record.mediaFileId)
-        target.parentFile?.mkdirs()
-        val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.writeText(JSON.encodeToString(sidecar))
-        tmp.renameTo(target)
-    }
-
-    /** Reads the sidecar, or null if missing or malformed. */
-    fun readSidecar(serverId: String, profileId: String, fileId: Int): DownloadSidecar? {
-        val file = sidecarFile(serverId, profileId, fileId)
-        if (!file.isFile) return null
-        return runCatching { JSON.decodeFromString<DownloadSidecar>(file.readText()) }.getOrNull()
-    }
-
-    /** Deletes the sidecar. Returns true if a file was removed. */
-    fun deleteSidecar(serverId: String, profileId: String, fileId: Int): Boolean =
-        sidecarFile(serverId, profileId, fileId).let { if (it.exists()) it.delete() else false }
-
-    /**
-     * Walks every sidecar under the downloads tree (across all servers /
-     * profiles) and returns the parsed contents. Silently skips files that
-     * fail to decode (forward-compat with future sidecar shape changes).
-     */
-    fun listAllSidecars(): List<DownloadSidecar> =
-        listAllSidecarsWithScope().map { it.third }
-
-    fun listSidecars(serverId: String, profileId: String): List<DownloadSidecar> {
-        val dir = File(downloadsRoot, "$serverId/$profileId")
-        if (!dir.exists()) return emptyList()
-        return dir.walkTopDown()
-            .filter { it.isFile && it.name.endsWith(".record.json") }
-            .mapNotNull { file ->
-                runCatching { JSON.decodeFromString<DownloadSidecar>(file.readText()) }.getOrNull()
-            }
-            .toList()
-    }
-
-    /**
-     * Like [listAllSidecars] but preserves the `(serverId, profileId)`
-     * scope derived from each sidecar's path
-     * (`<downloadsRoot>/<serverId>/<profileId>/<fileId>.record.json`).
-     * One walk serves callers that need both the sidecar and where it
-     * lives, instead of a per-fileId [locateSidecarByFileId] re-walk.
-     */
-    fun listAllSidecarsWithScope(): List<Triple<String, String, DownloadSidecar>> {
-        val root = downloadsRoot
-        if (!root.exists()) return emptyList()
-        return root.walkTopDown()
-            .filter { it.isFile && it.name.endsWith(".record.json") }
-            .mapNotNull { file ->
-                val sidecar = runCatching { JSON.decodeFromString<DownloadSidecar>(file.readText()) }.getOrNull()
-                    ?: return@mapNotNull null
-                val profileDir = file.parentFile ?: return@mapNotNull null
-                val serverDir = profileDir.parentFile ?: return@mapNotNull null
-                Triple(serverDir.name, profileDir.name, sidecar)
-            }
-            .toList()
-    }
-
-    /**
-     * Finds the sidecar (across all server/profile combinations under this
-     * storage) whose `record.contentId` matches. Used by the player's
-     * offline path to locate the local file from a contentId without
-     * touching the network. Returns the first match.
-     */
-    fun findSidecarByContentId(contentId: String): DownloadSidecar? =
-        listAllSidecars().firstOrNull { it.record.contentId == contentId }
-
-    /**
-     * Returns the `(serverId, profileId)` tuple for the sidecar whose
-     * fileId matches, or null if not found. Used by the delete path to
-     * unconditionally clean up the sidecar even when the in-memory record
-     * is gone.
-     */
-    fun locateSidecarByFileId(fileId: Int): Triple<String, String, DownloadSidecar>? {
-        val root = downloadsRoot
-        if (!root.exists()) return null
-        val target = "$fileId.record.json"
-        root.walkTopDown().forEach { f ->
-            if (f.isFile && f.name == target) {
-                val sidecar = runCatching { JSON.decodeFromString<DownloadSidecar>(f.readText()) }.getOrNull()
-                if (sidecar != null) {
-                    // path: <downloadsRoot>/<serverId>/<profileId>/<fileId>.record.json
-                    val profileDir = f.parentFile ?: return null
-                    val serverDir = profileDir.parentFile ?: return null
-                    return Triple(serverDir.name, profileDir.name, sidecar)
-                }
-            }
-        }
-        return null
-    }
-
-    fun locateSidecarByFileId(serverId: String, profileId: String, fileId: Int): Triple<String, String, DownloadSidecar>? {
-        val sidecar = readSidecar(serverId, profileId, fileId) ?: return null
-        return Triple(serverId, profileId, sidecar)
-    }
 
     private fun localMediaFileName(fileId: Int, fileName: String?, container: String?): String {
         val originalName = fileName
@@ -261,10 +137,6 @@ class DownloadStorage(
     private fun sanitizeBasename(value: String): String =
         value.replace(Regex("[\\\\/:*?\"<>|]"), "_")
 
-    companion object {
-        const val DOWNLOADS_DIR_NAME = "downloads"
-        private val JSON = Json { ignoreUnknownKeys = true }
-    }
 }
 
 data class DownloadTarget(
@@ -491,23 +363,29 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
         uriString?.let { uri ->
             return runCatching { resolver.delete(Uri.parse(uri), null, null) > 0 }.getOrDefault(false)
         }
-        return false
+        // No URI (sidecar-independent path): delete by the fileId's relative path.
+        // Exact match (mirrors locateByFileId) — never LIKE, so base64url ids
+        // containing `_` can't wildcard-match a sibling scope's same-fileId row.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        return deleteAcrossCollections { collection ->
+            deleteByExactRelativePath(collection, mediaStoreRelativePath(collection, serverId, profileId, fileId))
+        }
     }
 
     override fun deleteAllForProfile(serverId: String, profileId: String): Boolean =
         deleteAcrossCollections { collection ->
-            deleteByRelativePath(collection, "${collection.relativeRoot}/Silo/$serverId/$profileId/%")
+            deleteByRelativePathPrefix(collection, "${collection.relativeRoot}/Silo/${escapeLike(serverId)}/${escapeLike(profileId)}/%")
         }
 
     override fun deleteAllForServer(serverId: String): Boolean =
         deleteAcrossCollections { collection ->
-            deleteByRelativePath(collection, "${collection.relativeRoot}/Silo/$serverId/%")
+            deleteByRelativePathPrefix(collection, "${collection.relativeRoot}/Silo/${escapeLike(serverId)}/%")
         }
 
     override fun totalBytesUsed(): Long {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0L
         val projection = arrayOf(MediaStore.MediaColumns.SIZE)
-        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? ESCAPE '\\'"
         var total = 0L
         PublicDownloadCollection.entries.forEach { collection ->
             resolver.query(collection.contentUri(), projection, selection, arrayOf("${collection.relativeRoot}/Silo/%"), null)?.use { cursor ->
@@ -520,14 +398,14 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
     override fun totalBytesUsed(serverId: String, profileId: String): Long {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0L
         val projection = arrayOf(MediaStore.MediaColumns.SIZE)
-        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? ESCAPE '\\'"
         var total = 0L
         PublicDownloadCollection.entries.forEach { collection ->
             resolver.query(
                 collection.contentUri(),
                 projection,
                 selection,
-                arrayOf("${collection.relativeRoot}/Silo/$serverId/$profileId/%"),
+                arrayOf("${collection.relativeRoot}/Silo/${escapeLike(serverId)}/${escapeLike(profileId)}/%"),
                 null,
             )?.use { cursor ->
                 while (cursor.moveToNext()) total += cursor.getLong(0)
@@ -542,11 +420,28 @@ class MediaStorePublicDownloadStore(context: Context) : PublicDownloadStore {
         resolver.update(Uri.parse(uriString), values, null, null)
     }
 
-    private fun deleteByRelativePath(collection: PublicDownloadCollection, pattern: String): Boolean {
+    /** Exact-path delete (no wildcards). Used for single-file deletes. */
+    private fun deleteByExactRelativePath(collection: PublicDownloadCollection, path: String): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
-        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+        return resolver.delete(collection.contentUri(), selection, arrayOf(path)) > 0
+    }
+
+    /** Prefix delete (`.../%`). Caller must pre-escape dynamic segments via [escapeLike]. */
+    private fun deleteByRelativePathPrefix(collection: PublicDownloadCollection, pattern: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? ESCAPE '\\'"
         return resolver.delete(collection.contentUri(), selection, arrayOf(pattern)) > 0
     }
+
+    /**
+     * Escapes SQL LIKE metacharacters so a base64url scope id (whose alphabet
+     * includes `_`) matches literally instead of as a single-char wildcard —
+     * otherwise a scoped delete/scan could match a sibling scope. Pair with
+     * `ESCAPE '\'`.
+     */
+    private fun escapeLike(value: String): String =
+        value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     private fun deleteAcrossCollections(block: (PublicDownloadCollection) -> Boolean): Boolean {
         var deleted = false

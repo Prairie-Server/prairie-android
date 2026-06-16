@@ -1,8 +1,13 @@
 package com.continuum.app.android.ui.screens.reader
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import com.continuum.app.common.data.db.SiloDatabase
+import com.continuum.app.common.downloads.DownloadMetadataStore
 import com.continuum.app.common.downloads.DownloadStorage
 import com.continuum.app.common.downloads.DownloadTarget
+import com.continuum.app.common.downloads.LegacyDownloadImporter
 import com.continuum.app.common.downloads.OfflineMediaResolver
 import com.continuum.app.common.ebook.EbookLocalStateStore
 import com.continuum.app.model.book.BookFormat
@@ -42,6 +47,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -51,11 +59,21 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = android.app.Application::class)
 class ReaderViewModelReaderTargetSourceTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
     private val dispatcher = UnconfinedTestDispatcher()
+
+    // Download metadata is Room-backed now; the resolver reads it via this store.
+    private val db = Room.inMemoryDatabaseBuilder(
+        ApplicationProvider.getApplicationContext(),
+        SiloDatabase::class.java,
+    ).allowMainThreadQueries().build()
+
+    private val metadata = DownloadMetadataStore(db)
 
     @BeforeTest
     fun setUp() {
@@ -65,6 +83,7 @@ class ReaderViewModelReaderTargetSourceTest {
     @AfterTest
     fun tearDown() {
         Dispatchers.resetMain()
+        db.close()
     }
 
     @Test
@@ -260,10 +279,18 @@ class ReaderViewModelReaderTargetSourceTest {
         ReaderViewModel(
             catalogRepository = catalogRepository,
             ebookReaderRepository = ebookReaderRepository(),
-            offlineMediaResolver = OfflineMediaResolver(downloadStorage),
+            // Importer over an empty dir → awaitImport is a no-op; metadata is
+            // written directly to Room via [metadata] in writeCompletedDownload.
+            offlineMediaResolver = OfflineMediaResolver(
+                metadata,
+                downloadStorage,
+                LegacyDownloadImporter(tmp.newFolder(), db),
+            ),
             localStateStore = EbookLocalStateStore(tmp.newFolder("reader-state")),
             serverRegistry = FakeServerRegistry(),
             profileRepository = FakeProfileRepository(),
+            userItemStatePort = com.continuum.app.repository.port.NoOpUserItemStatePort,
+            outboxSyncScheduler = com.continuum.app.common.data.sync.OutboxSyncScheduler.NONE,
             savedStateHandle = SavedStateHandle(
                 buildMap {
                     put("contentId", CONTENT_ID)
@@ -363,12 +390,12 @@ class ReaderViewModelReaderTargetSourceTest {
         }
         """.trimIndent()
 
-    private fun DownloadStorage.writeCompletedDownload(fileId: Int = FILE_ID, fileName: String) {
+    private suspend fun DownloadStorage.writeCompletedDownload(fileId: Int = FILE_ID, fileName: String) {
         val container = fileName.substringAfterLast('.', missingDelimiterValue = "")
         prepareWrite(SERVER_ID, PROFILE_ID, fileId, fileName = fileName, container = container).writeTargetBytes(
             container.encodeToByteArray(),
         )
-        writeSidecar(
+        metadata.writeSidecar(
             SERVER_ID,
             PROFILE_ID,
             DownloadSidecar(

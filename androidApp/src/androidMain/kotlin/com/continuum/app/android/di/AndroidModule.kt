@@ -186,8 +186,12 @@ val androidModule = module {
     // Media files keep original names so other Android readers/players can
     // discover them under Downloads/Silo.
     single { DownloadStorage(androidContext()) }
-    single { OfflineMediaResolver(get()) }
-    single { DownloadEnqueuer(androidContext(), get(), get(), get(), get(), get(), get()) }
+    // Download metadata now lives in Room (replaces the .record.json sidecars).
+    single { com.continuum.app.common.downloads.DownloadMetadataStore(get()) }
+    // One-time import of the legacy .record.json sidecar tree into Room.
+    single { com.continuum.app.common.downloads.LegacyDownloadImporter(androidContext().filesDir, get()) }
+    single { OfflineMediaResolver(get(), get(), get()) }
+    single { DownloadEnqueuer(androidContext(), get(), get(), get(), get(), get(), get(), get()) }
     // CoroutineWorker constructed by Koin's WorkerFactory — see
     // ContinuumApplication.onCreate `workManagerFactory()` call.
     worker {
@@ -196,6 +200,7 @@ val androidModule = module {
             params = get(),
             repository = get(),
             storage = get(),
+            metadataStore = get(),
             httpClient = get(),
         )
     }
@@ -273,7 +278,7 @@ val androidModule = module {
     viewModel { AdminSessionsViewModel(get()) }
     viewModel { AdminLogsViewModel(get()) }
     viewModel { AdminScansViewModel(get(), get()) }
-    viewModel { DownloadsViewModel(get(), get(), get(), get(), get()) }
+    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { ServerSetupViewModel(get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }

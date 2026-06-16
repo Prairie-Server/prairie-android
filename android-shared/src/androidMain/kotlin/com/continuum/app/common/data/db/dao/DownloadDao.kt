@@ -17,6 +17,17 @@ interface DownloadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(row: DownloadEntity)
 
+    /**
+     * Insert only when no conflicting row exists — neither the `(serverId,
+     * profileId, mediaFileId)` primary key nor the unique `recordId` index.
+     * Returns the new rowId, or -1 when a conflict caused the insert to be
+     * ignored. Used by the legacy import so an existing Room row always wins
+     * atomically, without [upsert]'s REPLACE (which would delete a row that
+     * merely shares `recordId`).
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(row: DownloadEntity): Long
+
     @Query(
         "SELECT * FROM downloads " +
             "WHERE serverId = :serverId AND profileId = :profileId AND mediaFileId = :mediaFileId",
@@ -52,4 +63,20 @@ interface DownloadDao {
 
     @Query("DELETE FROM downloads WHERE serverId = :serverId AND profileId = :profileId")
     suspend fun deleteAll(serverId: String, profileId: String)
+
+    // -- Cross-scope (downloads metadata replaces the old sidecar tree-walk) --
+
+    @Query("SELECT * FROM downloads ORDER BY updatedAtMs DESC")
+    suspend fun getAllAcrossScopes(): List<DownloadEntity>
+
+    /** First download (any scope) for a content id — offline player contentId→file lookup. */
+    @Query("SELECT * FROM downloads WHERE contentId = :contentId LIMIT 1")
+    suspend fun findByContentId(contentId: String): DownloadEntity?
+
+    /** First download (any scope) for a media file id — scope-agnostic delete cleanup. */
+    @Query("SELECT * FROM downloads WHERE mediaFileId = :mediaFileId LIMIT 1")
+    suspend fun findByFileId(mediaFileId: Int): DownloadEntity?
+
+    @Query("DELETE FROM downloads WHERE serverId = :serverId")
+    suspend fun deleteAllForServer(serverId: String)
 }

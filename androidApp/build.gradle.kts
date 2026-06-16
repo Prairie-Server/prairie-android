@@ -69,6 +69,12 @@ kotlin {
             // The Android-bundled org.json is mocked; this standalone jar provides
             // the real implementation so tests don't need the Robolectric runner.
             implementation("org.json:json:20240303")
+            // ReaderViewModelReaderTargetSourceTest resolves offline media through
+            // the Room-backed DownloadMetadataStore, so it builds an in-memory
+            // SiloDatabase. :android-shared exposes Room as `implementation`, so the
+            // runtime + ApplicationProvider aren't transitive — add them here.
+            implementation(libs.androidx.room.runtime)
+            implementation(libs.androidx.test.core)
         }
     }
 }

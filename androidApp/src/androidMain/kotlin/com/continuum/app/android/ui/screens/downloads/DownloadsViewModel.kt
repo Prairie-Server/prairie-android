@@ -205,9 +205,11 @@ data class DownloadsUiState(
 class DownloadsViewModel(
     private val repository: DownloadsRepository,
     private val storage: DownloadStorage,
+    private val metadataStore: com.continuum.app.common.downloads.DownloadMetadataStore,
     private val serverRegistry: ServerRegistry,
     private val profileRepository: ProfileRepository,
     private val downloadEnqueuer: DownloadEnqueuer,
+    private val legacyImporter: com.continuum.app.common.downloads.LegacyDownloadImporter,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DownloadsUiState(isLoading = true))
@@ -224,7 +226,11 @@ class DownloadsViewModel(
 
     init {
         viewModelScope.launch {
-            // Bootstrap: backfill + initial sidecar read.
+            // Bootstrap: finish the one-time legacy sidecar→Room import before the
+            // first metadata read, so pre-cutover downloads aren't briefly missing
+            // on a cold start. Memoized — a no-op once the app-start pass has run.
+            legacyImporter.awaitImport(System.currentTimeMillis())
+            // Backfill + initial sidecar read.
             reloadSidecarMetadata()
             val seeded = metadataByRecordId.values.toList()
             repository.seedFromSidecars(seeded.map { it.record })
@@ -342,8 +348,8 @@ class DownloadsViewModel(
                 val (serverId, profileId) = scopeByFileId[fileId] ?: activeScope
                 withContext(Dispatchers.IO) {
                     storage.delete(serverId, profileId, fileId)
-                    storage.deleteSidecar(serverId, profileId, fileId)
                 }
+                metadataStore.deleteSidecar(serverId, profileId, fileId)
                 scopeByFileId = scopeByFileId - fileId
             }
             metadataByRecordId = metadataByRecordId - id
@@ -361,8 +367,8 @@ class DownloadsViewModel(
     /** One filesystem walk loads both lookup maps. Call on Dispatchers.IO. */
     private suspend fun reloadSidecarMetadata() {
         val (activeServerId, activeProfileId) = activeDownloadScope()
-        val scoped = withContext(Dispatchers.IO) {
-            runCatching { storage.listAllSidecarsWithScope() }.getOrElse { emptyList() }
+        val scoped = run {
+            runCatching { metadataStore.listAllSidecarsWithScope() }.getOrElse { emptyList() }
                 .filter { (serverId, profileId, _) ->
                     serverId == activeServerId && profileId == activeProfileId
                 }

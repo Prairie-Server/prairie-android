@@ -9,6 +9,7 @@ import com.continuum.app.di.sharedModules
 import com.continuum.app.tv.di.androidTvModule
 import com.continuum.app.tv.notifications.NotificationsForegroundStarter
 import com.continuum.app.tv.watchnext.TvWorkerFactory
+import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 
@@ -59,6 +60,20 @@ class ContinuumTvApplication : Application(), Configuration.Provider {
             ).start()
         }.onFailure {
             android.util.Log.w("ContinuumTvApplication", "Outbox sync starter init failed", it)
+        }
+        // One-time migration: drain the legacy .record.json download sidecar tree
+        // into Room so pre-cutover downloads keep their metadata. Guarded — runs
+        // off the main thread, never load-bearing for cold start.
+        runCatching {
+            val importer = koinApp.koin.get<com.continuum.app.common.downloads.LegacyDownloadImporter>()
+            kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+            ).launch {
+                runCatching { importer.awaitImport(System.currentTimeMillis()) }
+                    .onFailure { android.util.Log.w("ContinuumTvApplication", "Legacy download import failed", it) }
+            }
+        }.onFailure {
+            android.util.Log.w("ContinuumTvApplication", "Legacy download importer init failed", it)
         }
     }
 

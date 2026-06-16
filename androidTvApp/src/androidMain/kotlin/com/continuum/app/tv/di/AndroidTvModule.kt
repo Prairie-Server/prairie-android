@@ -171,8 +171,14 @@ val androidTvModule = module {
     // stream. The stores are local-only JSON under filesDir.
     single {
         com.continuum.app.common.downloads.OfflineMediaResolver(
+            com.continuum.app.common.downloads.DownloadMetadataStore(get()),
             com.continuum.app.common.downloads.DownloadStorage(androidContext()),
+            get(),
         )
+    }
+    // One-time import of the legacy .record.json sidecar tree into Room.
+    single {
+        com.continuum.app.common.downloads.LegacyDownloadImporter(androidContext().filesDir, get())
     }
     single { com.continuum.app.common.audiobook.AudiobookBookmarksStore(androidContext().filesDir) }
 

@@ -36,6 +36,7 @@ class DownloadEnqueuer(
     private val playerSettingsStore: PlayerSettingsStore,
     private val catalogRepository: CatalogRepository,
     private val storage: DownloadStorage,
+    private val metadataStore: DownloadMetadataStore,
 ) {
 
     /**
@@ -247,7 +248,7 @@ class DownloadEnqueuer(
         val profileId = profileRepository.getActiveProfileId() ?: DEFAULT_PROFILE_ID
         val wifiOnly = playerSettingsStore.downloadsWifiOnlyFlow.first()
         runCatching {
-            storage.writeSidecar(serverId, profileId, sidecar)
+            metadataStore.writeSidecar(serverId, profileId, sidecar)
         }.onFailure { Log.w(TAG, "finalize: writeSidecar failed for id=${record.id}", it) }
         DownloadWorker.enqueue(
             context = context,
