@@ -5,8 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.model.catalog.CatalogFiltersResponse
+import com.continuum.app.model.catalog.MediaItemUserState
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
+import com.continuum.app.repository.port.LocalContentState
+import com.continuum.app.repository.port.NoOpUserItemStatePort
+import com.continuum.app.repository.port.UserItemStatePort
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +52,7 @@ data class BrowseUiState(
 class BrowseViewModel(
     private val catalogRepository: CatalogRepository,
     savedStateHandle: SavedStateHandle,
+    private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BrowseUiState())
@@ -105,6 +110,29 @@ class BrowseViewModel(
         }
     }
 
+    /**
+     * Overlay local optimistic watched/favorite onto the grid items (local non-null
+     * wins), so a mutation made offline — or just-made online before the next
+     * refresh — shows immediately instead of the stale server snapshot. Mirrors
+     * [com.continuum.app.viewmodel.HomeViewModel]. No-op on the default port.
+     */
+    private suspend fun overlayLocalState(items: List<BrowseItem>): List<BrowseItem> {
+        val ids = items.map { it.contentId }.distinct()
+        if (ids.isEmpty()) return items
+        val local: Map<String, LocalContentState> = userItemState.localContentStates(ids)
+        if (local.isEmpty()) return items
+        return items.map { item ->
+            val ls = local[item.contentId] ?: return@map item
+            val base = item.userState ?: MediaItemUserState()
+            item.copy(
+                userState = base.copy(
+                    played = ls.watched ?: base.played,
+                    isFavorite = ls.favorite ?: base.isFavorite,
+                ),
+            )
+        }
+    }
+
     private fun loadItems(reset: Boolean) {
         viewModelScope.launch {
             val currentState = _uiState.value
@@ -128,11 +156,14 @@ class BrowseViewModel(
             when (result) {
                 is ApiResult.Success -> {
                     val response = result.data
+                    // Overlay local optimistic watched/favorite so an offline mutation
+                    // shows immediately on the cached grid (mirrors Home).
+                    val overlaid = overlayLocalState(response.items)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             isLoadingMore = false,
-                            items = if (reset) response.items else it.items + response.items,
+                            items = if (reset) overlaid else it.items + overlaid,
                             hasMore = response.hasMore,
                             total = response.total,
                             title = response.title ?: "Browse",

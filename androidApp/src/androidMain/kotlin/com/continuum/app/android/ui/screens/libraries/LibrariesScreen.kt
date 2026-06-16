@@ -87,6 +87,7 @@ import com.continuum.app.android.ui.screens.profiles.ProfileAvatar
 import com.continuum.app.android.ui.util.rememberDominantColor
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.model.catalog.MediaItemUserState
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.model.profile.Profile
 import com.continuum.app.model.section.LibraryCollection
@@ -145,6 +146,8 @@ class LibrariesViewModel(
     private val personalDataRepository: PersonalDataRepository,
     private val sectionRepository: SectionRepository,
     private val catalogRepository: CatalogRepository,
+    private val userItemState: com.continuum.app.repository.port.UserItemStatePort =
+        com.continuum.app.repository.port.NoOpUserItemStatePort,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(LibrariesUiState())
     val uiState: StateFlow<LibrariesUiState> = _uiState.asStateFlow()
@@ -382,11 +385,13 @@ class LibrariesViewModel(
                 )
             ) {
                 is ApiResult.Success -> {
+                    // Overlay local optimistic watched/favorite (mirrors Home/Browse).
+                    val overlaid = overlayLocalState(result.data.items)
                     _uiState.update {
                         it.copy(
                             isLoadingCatalog = false,
                             isLoadingMoreCatalog = false,
-                            catalogItems = if (reset) result.data.items else it.catalogItems + result.data.items,
+                            catalogItems = if (reset) overlaid else it.catalogItems + overlaid,
                             catalogTotal = result.data.total,
                             catalogHasMore = result.data.hasMore,
                             catalogError = null,
@@ -412,6 +417,26 @@ class LibrariesViewModel(
                     }
                 }
             }
+        }
+    }
+
+    /** Overlay local optimistic watched/favorite onto the library grid (local
+     *  non-null wins), so an offline mutation shows immediately. Mirrors Home/
+     *  Browse. No-op on the default port. */
+    private suspend fun overlayLocalState(items: List<BrowseItem>): List<BrowseItem> {
+        val ids = items.map { it.contentId }.distinct()
+        if (ids.isEmpty()) return items
+        val local = userItemState.localContentStates(ids)
+        if (local.isEmpty()) return items
+        return items.map { item ->
+            val ls = local[item.contentId] ?: return@map item
+            val base = item.userState ?: MediaItemUserState()
+            item.copy(
+                userState = base.copy(
+                    played = ls.watched ?: base.played,
+                    isFavorite = ls.favorite ?: base.isFavorite,
+                ),
+            )
         }
     }
 

@@ -240,12 +240,28 @@ val androidModule = module {
     }
     viewModel { HomeViewModel(get(), get(), get(), get()) }
     viewModel { MainHeaderViewModel(get()) }
-    viewModel { LibrariesViewModel(get(), get(), get()) }
+    viewModel {
+        LibrariesViewModel(
+            get(), get(), get(),
+            getOrNull<com.continuum.app.repository.port.UserItemStatePort>() ?: com.continuum.app.repository.port.NoOpUserItemStatePort,
+        )
+    }
     viewModel { ReadingHubViewModel(get(), get(), get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { SearchViewModel(get()) }
-    viewModel { params -> BrowseViewModel(get(), params.get()) }
-    viewModel { params -> ItemDetailViewModel(get(), get(), get(), get(), params.get()) }
+    viewModel { params ->
+        BrowseViewModel(
+            get(),
+            params.get(),
+            getOrNull<com.continuum.app.repository.port.UserItemStatePort>() ?: com.continuum.app.repository.port.NoOpUserItemStatePort,
+        )
+    }
+    viewModel { params ->
+        ItemDetailViewModel(
+            get(), get(), get(), get(), params.get(),
+            getOrNull<com.continuum.app.repository.port.UserItemStatePort>() ?: com.continuum.app.repository.port.NoOpUserItemStatePort,
+        )
+    }
     viewModel { params -> PersonDetailViewModel(get(), params.get()) }
     viewModel { params -> LibraryCollectionsViewModel(get(), params.get()) }
     viewModel { FavoritesViewModel(get()) }

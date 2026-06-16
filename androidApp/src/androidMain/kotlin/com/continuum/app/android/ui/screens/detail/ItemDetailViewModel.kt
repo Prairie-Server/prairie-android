@@ -66,6 +66,8 @@ class ItemDetailViewModel(
     private val downloadsRepository: DownloadsRepository,
     private val downloadEnqueuer: DownloadEnqueuer,
     savedStateHandle: SavedStateHandle,
+    private val userItemState: com.continuum.app.repository.port.UserItemStatePort =
+        com.continuum.app.repository.port.NoOpUserItemStatePort,
 ) : ViewModel() {
 
     private val contentId: String = savedStateHandle.get<String>("contentId") ?: ""
@@ -238,9 +240,19 @@ class ItemDetailViewModel(
 
     private fun loadUserState() {
         viewModelScope.launch {
-            val favResult = personalDataRepository.isFavorite(contentId)
-            if (favResult is ApiResult.Success) {
-                _uiState.update { it.copy(isFavorite = favResult.data) }
+            // Local optimistic favorite wins and is applied IMMEDIATELY (isFavorite
+            // is a network-only read — stale/unavailable offline or right after an
+            // offline toggle; don't let a slow/failed network call delay or clobber it).
+            val localFavorite = runCatching {
+                userItemState.localContentStates(listOf(contentId))[contentId]?.favorite
+            }.getOrNull()
+            if (localFavorite != null) {
+                _uiState.update { it.copy(isFavorite = localFavorite) }
+            } else {
+                val favResult = personalDataRepository.isFavorite(contentId)
+                if (favResult is ApiResult.Success) {
+                    _uiState.update { it.copy(isFavorite = favResult.data) }
+                }
             }
         }
         viewModelScope.launch {
