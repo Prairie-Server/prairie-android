@@ -3,6 +3,7 @@ package com.continuum.app.common.player.mpv
 import android.content.Context
 import android.content.res.AssetManager
 import android.graphics.SurfaceTexture
+import android.os.Build
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
@@ -56,7 +57,7 @@ class MpvPlayer(
     private val pauseAtEndOfMediaItems: Boolean = false,
     private val videoOutput: String = "gpu-next",
     private val audioOutput: String = "aaudio",
-    private val hwDec: String = "mediacodec",
+    private val hwDec: String = "mediacodec-copy",
     private val bufferSizeMb: Int = 64,
     private val httpHeaderFieldsProvider: () -> List<Pair<String, String>> = { emptyList() },
 ) : BasePlayer(), MPVLib.EventObserver, AudioManager.OnAudioFocusChangeListener {
@@ -114,7 +115,7 @@ class MpvPlayer(
         var audioOutput: String = "aaudio"
             private set
 
-        var hwDec: String = "mediacodec"
+        var hwDec: String = "mediacodec-copy"
             private set
 
         var bufferSizeMb: Int = 64
@@ -199,14 +200,15 @@ class MpvPlayer(
 
         mpv.setOptionString("tls-verify", "no")
 
+        // Modest in-memory buffering, matching the working findroid/Wholphin MPV
+        // configs. The previous config used cache-on-disk + cache-secs/
+        // demuxer-readahead-secs=36000 (a 10-hour readahead with continuous disk
+        // writes), which starves the render thread and causes the aimagereader
+        // frame-timeout stutter. Let mpv use default readahead with a bounded buffer.
         mpv.setOptionString("cache", "yes")
-        mpv.setOptionString("cache-on-disk", "yes")
         mpv.setOptionString("cache-pause-initial", "yes")
-        mpv.setOptionString("cache-dir", cacheDir.path)
         mpv.setOptionString("demuxer-max-bytes", "${bufferSizeMb}MiB")
-        mpv.setOptionString("demuxer-max-back-bytes", "50MiB")
-        mpv.setOptionString("cache-secs", "36000")
-        mpv.setOptionString("demuxer-readahead-secs", "36000")
+        mpv.setOptionString("demuxer-max-back-bytes", "32MiB")
 
         mpv.setOptionString("sub-scale-with-window", "yes")
         mpv.setOptionString("sub-use-margins", "no")
@@ -220,7 +222,6 @@ class MpvPlayer(
         mpv.init()
 
         mpv.setPropertyString("demuxer-max-bytes", "${bufferSizeMb}MiB")
-        mpv.setPropertyString("cache-secs", "36000")
         mpv.setOptionString("sub-auto", "exact")
         mpv.setOptionString("sub-visibility", "yes")
 
@@ -374,6 +375,11 @@ class MpvPlayer(
     private var oldMediaItem: MediaItem? = null
     private var currentVideoWidth: Int = 0
     private var currentVideoHeight: Int = 0
+    // Content video frame rate (from mpv's demux-fps). Used to hint the Android
+    // compositor via Surface.setFrameRate so MPV playback is paced to the source
+    // rate — ExoPlayer does this automatically; mpv's generic Android vo does not,
+    // which is why MPV playback judders even on a 120Hz panel.
+    @Volatile private var videoFrameRate: Float = 0f
 
     override fun eventProperty(property: String) {}
 
@@ -384,6 +390,20 @@ class MpvPlayer(
                 "track-list" -> {
                     val newTracks = getTracks(value)
                     currentTracks = newTracks
+                    // Capture the content video frame rate and hint the Android
+                    // compositor (Surface.setFrameRate) so MPV playback is paced to
+                    // the source rate, matching what ExoPlayer does.
+                    val videoFps = newTracks.groups
+                        .firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.length > 0 }
+                        ?.let { group ->
+                            (0 until group.length)
+                                .map { group.getTrackFormat(it).frameRate }
+                                .firstOrNull { it > 0f }
+                        }
+                    if (videoFps != null && videoFps != videoFrameRate) {
+                        videoFrameRate = videoFps
+                        applySurfaceFrameRate()
+                    }
                     listeners.sendEvent(EVENT_TRACKS_CHANGED) { listener ->
                         listener.onTracksChanged(currentTracks)
                     }
@@ -1233,7 +1253,29 @@ class MpvPlayer(
         currentSurface = surface
         mpv.attachSurface(surface)
         mpv.setOptionString("force-window", "yes")
+        // Re-assert the video output on attach (findroid/Wholphin do this) so the
+        // vo is (re)created against the freshly-attached surface rather than left
+        // in whatever state a prior detach/failed-init left it.
+        mpv.setOptionString("vo", videoOutput)
         mpv.setOptionString("vid", "auto")
+        applySurfaceFrameRate()
+    }
+
+    /**
+     * Hint the Android compositor to pace presentation to the content frame rate
+     * (and, on capable panels, switch the display to a matching refresh rate). This
+     * is what ExoPlayer does via VideoFrameReleaseHelper; mpv's generic Android vo
+     * does not, so without it MPV playback judders even on a 120Hz panel. API 30+.
+     */
+    private fun applySurfaceFrameRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val surface = currentSurface ?: return
+        val fps = videoFrameRate
+        if (fps <= 0f || !surface.isValid) return
+        runCatching {
+            surface.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
+            Log.i(TAG, "Surface.setFrameRate($fps) applied for smooth MPV pacing")
+        }
     }
 
     private fun detachVideoSurface(surface: Surface?) {
