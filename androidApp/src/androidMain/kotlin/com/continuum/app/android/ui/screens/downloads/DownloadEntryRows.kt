@@ -175,6 +175,18 @@ private fun renderEntry(
             onDeleteEntry = onDeleteEntry,
             depth = depth,
         )
+
+        is DownloadEntry.Author -> ExpandableAggregateRow(
+            entry = entry,
+            children = entry.books,
+            modifier = Modifier.padding(start = leftInset),
+            onItemClick = onItemClick,
+            onReadEbook = onReadEbook,
+            onOpenExternalDownload = onOpenExternalDownload,
+            onDeleteSingle = onDeleteSingle,
+            onDeleteEntry = onDeleteEntry,
+            depth = depth,
+        )
     }
 }
 

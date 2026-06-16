@@ -305,7 +305,9 @@ class DownloadEnqueuer(
             container = version?.container,
             mediaType = DownloadMediaType.fromCatalogType(detail?.type).wire,
             overview = detail?.overview,
-            author = detail?.audiobook?.authorNames,
+            // Author drives the Downloads-tab books tiering (author → book) — capture
+            // it for ebooks too, not just audiobooks.
+            author = detail?.audiobook?.authorNames ?: detail?.ebook?.authorNames,
             narrator = detail?.audiobook?.narratorNames,
             durationSeconds = detail?.audiobook?.totalDurationSeconds?.toDouble()
                 ?: version?.duration,

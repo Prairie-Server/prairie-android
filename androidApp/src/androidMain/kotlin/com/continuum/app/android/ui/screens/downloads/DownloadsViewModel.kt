@@ -162,6 +162,26 @@ sealed class DownloadEntry {
         override val isComplete = seasons.isNotEmpty() && seasons.all { it.isComplete }
         override val recordIds = seasons.flatMap { it.recordIds }
     }
+
+    /** Books grouped under an author (audiobooks/ebooks). One level: author →
+     *  book. Only used when an author has 2+ downloaded books — a lone book
+     *  renders as a flat [Single] (no needless drill-down). */
+    data class Author(
+        val authorName: String,
+        val books: List<Single>,
+        override val posterUrl: String?,
+        override val posterThumbhash: String?,
+    ) : DownloadEntry() {
+        override val id = "author:$authorName"
+        override val title = authorName
+        private val completedCount = books.count { it.isComplete }
+        override val subtitle = "$completedCount of ${books.size} books"
+        override val totalBytesUsed = books.sumOf { it.totalBytesUsed }
+        override val progress = if (books.isEmpty()) 0f
+            else books.map { it.progress }.average().toFloat()
+        override val isComplete = books.isNotEmpty() && books.all { it.isComplete }
+        override val recordIds = books.flatMap { it.recordIds }
+    }
 }
 
 /**
@@ -500,6 +520,7 @@ class DownloadsViewModel(
             if (group.isEmpty()) return@mapNotNull null
             val entries = when (type) {
                 DownloadMediaType.TvShow -> group.toTvEntries(liveById)
+                DownloadMediaType.Audiobook, DownloadMediaType.Ebook -> group.toBookEntries(liveById)
                 else -> group.sortedByDescending { it.updatedAtMs }
                     .map { DownloadEntry.Single(it.toDownloadItem(liveById[it.record.id])) }
             }
@@ -554,5 +575,37 @@ class DownloadsViewModel(
             )
         }
         return seriesEntries + orphans.map { DownloadEntry.Single(it.toDownloadItem(liveById[it.record.id])) }
+    }
+
+    /**
+     * Books branch (audiobooks/ebooks): group by author → book. An author with a
+     * single downloaded book renders as a flat [Single] (no drill-down clutter);
+     * 2+ become an [Author] aggregate. Books with no author surface as Singles.
+     */
+    private fun List<DownloadSidecar>.toBookEntries(liveById: Map<String, DownloadRecord>): List<DownloadEntry> {
+        val byAuthor = LinkedHashMap<String, MutableList<DownloadSidecar>>()
+        val orphans = mutableListOf<DownloadSidecar>()
+        for (sc in this) {
+            val author = sc.author?.trim()?.takeIf { it.isNotBlank() }
+            if (author == null) orphans += sc else byAuthor.getOrPut(author) { mutableListOf() } += sc
+        }
+        val authorEntries = byAuthor.map { (author, group) ->
+            val books = group
+                .sortedBy { it.title }
+                .map { DownloadEntry.Single(it.toDownloadItem(liveById[it.record.id])) }
+            if (books.size == 1) {
+                books.first()
+            } else {
+                DownloadEntry.Author(
+                    authorName = author,
+                    books = books,
+                    posterUrl = group.firstNotNullOfOrNull { it.posterUrl },
+                    posterThumbhash = group.firstNotNullOfOrNull { it.posterThumbhash },
+                )
+            }
+        }
+        return authorEntries + orphans
+            .sortedByDescending { it.updatedAtMs }
+            .map { DownloadEntry.Single(it.toDownloadItem(liveById[it.record.id])) }
     }
 }
