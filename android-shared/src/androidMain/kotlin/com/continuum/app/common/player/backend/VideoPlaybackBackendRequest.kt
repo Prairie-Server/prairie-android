@@ -1,7 +1,9 @@
 package com.continuum.app.common.player.backend
 
 import com.continuum.app.model.playback.PlayMethod
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class VideoPlaybackBackendRequest(
     val contentId: String? = null,
     val fileId: Int? = null,
