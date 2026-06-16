@@ -1,7 +1,9 @@
 package com.continuum.app.repository.port
 
 import com.continuum.app.model.catalog.CatalogResponse
+import com.continuum.app.model.catalog.EpisodesResponse
 import com.continuum.app.model.catalog.ItemDetail
+import com.continuum.app.model.catalog.SeasonsResponse
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.network.ApiResult
@@ -33,6 +35,12 @@ interface CatalogCachePort {
     /** Cache an item's detail page (tap-a-title-offline). */
     suspend fun cacheItemDetail(contentId: String, detail: ItemDetail) {}
     suspend fun getCachedItemDetail(contentId: String): ItemDetail? = null
+
+    /** Cache a series' season list + a season's episode list (offline series detail). */
+    suspend fun cacheSeasons(seriesId: String, response: SeasonsResponse) {}
+    suspend fun getCachedSeasons(seriesId: String): SeasonsResponse? = null
+    suspend fun cacheEpisodes(seriesId: String, seasonNumber: Int, response: EpisodesResponse) {}
+    suspend fun getCachedEpisodes(seriesId: String, seasonNumber: Int): EpisodesResponse? = null
 }
 
 /** Network-only default. */

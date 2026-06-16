@@ -1,6 +1,7 @@
 package com.continuum.app.repository
 
 import com.continuum.app.model.catalog.ItemDetail
+import com.continuum.app.model.catalog.SeasonsResponse
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.ContinuumJson
 import com.continuum.app.network.api.CatalogApi
@@ -21,10 +22,14 @@ import kotlin.test.assertTrue
 /** Locks the cache-with-fallback contract on [CatalogRepository.getItemDetail]. */
 class CatalogRepositoryDetailCacheTest {
 
-    private class FakeCache(val preset: ItemDetail?) : CatalogCachePort {
+    private class FakeCache(
+        val preset: ItemDetail? = null,
+        val seasonsPreset: SeasonsResponse? = null,
+    ) : CatalogCachePort {
         var cachedId: String? = null
         override suspend fun cacheItemDetail(contentId: String, detail: ItemDetail) { cachedId = contentId }
         override suspend fun getCachedItemDetail(contentId: String): ItemDetail? = preset
+        override suspend fun getCachedSeasons(seriesId: String): SeasonsResponse? = seasonsPreset
     }
 
     private fun repo(status: HttpStatusCode, body: String, cache: CatalogCachePort): CatalogRepository {
@@ -58,5 +63,12 @@ class CatalogRepositoryDetailCacheTest {
         val cache = FakeCache(preset = ItemDetail(contentId = "c1", type = "movie", title = "Cached"))
         val result = repo(HttpStatusCode.NotFound, "{}", cache).getItemDetail("c1")
         assertTrue(result is ApiResult.Error)
+    }
+
+    @Test
+    fun seasonsServesCacheOffline() = runTest {
+        val cache = FakeCache(seasonsPreset = SeasonsResponse(seasons = emptyList()))
+        val result = repo(HttpStatusCode.ServiceUnavailable, "{}", cache).getSeasons("series-1")
+        assertTrue(result is ApiResult.Success)
     }
 }

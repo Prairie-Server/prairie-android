@@ -3,7 +3,9 @@ package com.continuum.app.common.data.repository
 import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.db.entity.CatalogCacheEntity
 import com.continuum.app.model.catalog.CatalogResponse
+import com.continuum.app.model.catalog.EpisodesResponse
 import com.continuum.app.model.catalog.ItemDetail
+import com.continuum.app.model.catalog.SeasonsResponse
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.network.AuthScopeSnapshot
@@ -49,6 +51,18 @@ class RoomCatalogCacheRepository(
     override suspend fun getCachedItemDetail(contentId: String): ItemDetail? =
         get(itemDetailKey(contentId))?.let { runCatching { json.decodeFromString<ItemDetail>(it) }.getOrNull() }
 
+    override suspend fun cacheSeasons(seriesId: String, response: SeasonsResponse) =
+        put(seasonsKey(seriesId), json.encodeToString(response))
+
+    override suspend fun getCachedSeasons(seriesId: String): SeasonsResponse? =
+        get(seasonsKey(seriesId))?.let { runCatching { json.decodeFromString<SeasonsResponse>(it) }.getOrNull() }
+
+    override suspend fun cacheEpisodes(seriesId: String, seasonNumber: Int, response: EpisodesResponse) =
+        put(episodesKey(seriesId, seasonNumber), json.encodeToString(response))
+
+    override suspend fun getCachedEpisodes(seriesId: String, seasonNumber: Int): EpisodesResponse? =
+        get(episodesKey(seriesId, seasonNumber))?.let { runCatching { json.decodeFromString<EpisodesResponse>(it) }.getOrNull() }
+
     private suspend fun put(cacheKey: String, jsonStr: String) {
         val snapshot = snapshotProvider() ?: return
         val profileId = snapshot.profileId ?: return
@@ -74,5 +88,7 @@ class RoomCatalogCacheRepository(
         fun libraryKey(libraryId: Int) = "library:$libraryId"
         fun librarySectionsKey(libraryId: Int) = "library-sections:$libraryId"
         fun itemDetailKey(contentId: String) = "item-detail:$contentId"
+        fun seasonsKey(seriesId: String) = "seasons:$seriesId"
+        fun episodesKey(seriesId: String, seasonNumber: Int) = "episodes:$seriesId:$seasonNumber"
     }
 }

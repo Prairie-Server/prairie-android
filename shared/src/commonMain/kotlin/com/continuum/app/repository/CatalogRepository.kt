@@ -94,13 +94,31 @@ class CatalogRepository(
     suspend fun getWatchDetail(contentId: String): ApiResult<WatchDetail> =
         catalogApi.getWatchDetail(contentId)
 
-    /** Lists seasons for a series. */
-    suspend fun getSeasons(seriesId: String): ApiResult<SeasonsResponse> =
-        catalogApi.getSeasons(seriesId)
+    /** Lists seasons for a series (offline: last cached seasons). */
+    suspend fun getSeasons(seriesId: String): ApiResult<SeasonsResponse> {
+        val result = catalogApi.getSeasons(seriesId)
+        if (result is ApiResult.Success) {
+            catalogCache.cacheSeasons(seriesId, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedSeasons(seriesId)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
 
-    /** Lists episodes for a specific season of a series. */
-    suspend fun getEpisodes(seriesId: String, seasonNumber: Int): ApiResult<EpisodesResponse> =
-        catalogApi.getEpisodes(seriesId, seasonNumber)
+    /** Lists episodes for a specific season of a series (offline: last cached episodes). */
+    suspend fun getEpisodes(seriesId: String, seasonNumber: Int): ApiResult<EpisodesResponse> {
+        val result = catalogApi.getEpisodes(seriesId, seasonNumber)
+        if (result is ApiResult.Success) {
+            catalogCache.cacheEpisodes(seriesId, seasonNumber, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedEpisodes(seriesId, seasonNumber)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
 
     /** Lists all episodes directly attached to an item (e.g. a season content ID). */
     suspend fun getItemEpisodes(contentId: String): ApiResult<EpisodesResponse> =
