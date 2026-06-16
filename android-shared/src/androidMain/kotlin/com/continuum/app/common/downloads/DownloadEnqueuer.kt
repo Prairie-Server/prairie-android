@@ -95,6 +95,7 @@ class DownloadEnqueuer(
             subtitle = "S${seasonNumber}E${episodeNumber}" + (episodeTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
             posterUrl = posterUrl,
             seriesTitle = seriesTitle,
+            seriesContentId = seriesContentId,
             seasonNumber = seasonNumber,
             episodeNumber = episodeNumber,
             fileName = version?.fileName,
@@ -147,6 +148,7 @@ class DownloadEnqueuer(
                 posterUrl = posterUrl,
                 posterThumbhash = seriesDetail?.posterThumbhash,
                 seriesTitle = seriesTitle,
+                seriesContentId = seriesContentId,
                 seasonNumber = ep?.seasonNumber,
                 episodeNumber = ep?.episodeNumber,
                 fileName = version?.fileName,
@@ -247,9 +249,14 @@ class DownloadEnqueuer(
         val serverId = serverRegistry.activeServerId.value ?: DEFAULT_SERVER_ID
         val profileId = profileRepository.getActiveProfileId() ?: DEFAULT_PROFILE_ID
         val wifiOnly = playerSettingsStore.downloadsWifiOnlyFlow.first()
+        // The Room metadata row is what makes the download visible in the
+        // Downloads tab (it's the source of truth there). A write failure would
+        // create an invisible download — log loudly. (Recovery: the worker
+        // re-asserts the row on status transitions; full create-if-missing is a
+        // tracked follow-up.)
         runCatching {
             metadataStore.writeSidecar(serverId, profileId, sidecar)
-        }.onFailure { Log.w(TAG, "finalize: writeSidecar failed for id=${record.id}", it) }
+        }.onFailure { Log.e(TAG, "finalize: writeSidecar FAILED for id=${record.id} — download will not appear in Downloads", it) }
         DownloadWorker.enqueue(
             context = context,
             downloadId = record.id,
@@ -281,6 +288,9 @@ class DownloadEnqueuer(
             posterThumbhash = detail?.posterThumbhash,
             year = detail?.year?.takeIf { it > 0 },
             seriesTitle = detail?.seriesTitle,
+            // Stable TV grouping key — present for episode detail downloads via the
+            // main detail button (this path), so they group like startEpisode's.
+            seriesContentId = detail?.seriesId,
             seasonNumber = detail?.seasonNumber,
             episodeNumber = detail?.episodeNumber,
             subtitle = detail?.let { d ->

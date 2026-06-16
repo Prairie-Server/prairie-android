@@ -41,6 +41,10 @@ data class DownloadEntity(
     val posterThumbhash: String?,
     val year: Int?,
     val seriesTitle: String?,
+    /** Stable content id of the parent series/show (TV) or manga series — the
+     *  rename-safe grouping key for the tiered Downloads tab. Null for non-tiered
+     *  leaves (movies). Books group by [author]; music by artist/album (later). */
+    val seriesContentId: String? = null,
     val seasonNumber: Int?,
     val episodeNumber: Int?,
     val fileName: String?,

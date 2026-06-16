@@ -31,6 +31,9 @@ data class DownloadSidecar(
     val posterThumbhash: String? = null,
     val year: Int? = null,
     val seriesTitle: String? = null,
+    /** Stable parent series/show content id — the rename-safe grouping key for the
+     *  tiered Downloads tab (TV/manga). Null for movies; books group by [author]. */
+    val seriesContentId: String? = null,
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
     /** Original server-provided basename for the downloaded file, when

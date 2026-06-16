@@ -122,13 +122,16 @@ sealed class DownloadEntry {
     }
 
     data class Season(
+        /** Stable grouping key (series contentId, else title) — keeps the
+         *  LazyColumn key + expansion state stable across renames/title collisions. */
+        val seriesKey: String,
         val seriesTitle: String,
         val seasonNumber: Int,
         val episodes: List<Single>,
         override val posterUrl: String?,
         override val posterThumbhash: String?,
     ) : DownloadEntry() {
-        override val id = "season:$seriesTitle:$seasonNumber"
+        override val id = "season:$seriesKey:$seasonNumber"
         override val title = "Season $seasonNumber"
         val completedCount = episodes.count { it.isComplete }
         override val subtitle = "$completedCount of ${episodes.size} episodes"
@@ -140,12 +143,14 @@ sealed class DownloadEntry {
     }
 
     data class Series(
+        /** Stable grouping key (series contentId, else title). */
+        val seriesKey: String,
         val seriesTitle: String,
         val seasons: List<Season>,
         override val posterUrl: String?,
         override val posterThumbhash: String?,
     ) : DownloadEntry() {
-        override val id = "series:$seriesTitle"
+        override val id = "series:$seriesKey"
         override val title = seriesTitle
         val totalEpisodes = seasons.sumOf { it.episodes.size }
         val completedEpisodes = seasons.sumOf { it.completedCount }
@@ -249,17 +254,20 @@ class DownloadsViewModel(
             }
 
             repository.records.collect { records ->
-                // Section building reads sidecars + walks file sizes — keep
-                // it off the main dispatcher; the worker emits every ~200ms
-                // during an active download.
+                // Room is the source of truth for what's downloaded locally; the
+                // tab is built from the Room sidecars (which always carry
+                // title/poster/mediaType/series), NOT from server records joined
+                // to a map that can be empty (the old path rendered a bare
+                // contentId + MOVIES + "missing file" whenever the join missed).
+                // Live byte-progress/status is overlaid from the in-memory server
+                // records for in-flight items. Reload sidecars when a record the
+                // map doesn't know about appears (newly enqueued).
                 val (sections, bytesUsed) = withContext(Dispatchers.IO) {
-                    // Refresh sidecars so newly-enqueued records get their
-                    // metadata into the UI without waiting for a restart.
                     if (records.any { it.id !in metadataByRecordId }) {
                         reloadSidecarMetadata()
                     }
-                    val (serverId, profileId) = activeDownloadScope()
-                    records.toSections() to storage.totalBytesUsed(serverId, profileId)
+                    val sects = buildSections(records.associateBy { it.id })
+                    sects to sects.sumOf { it.totalBytesUsed }
                 }
                 _uiState.update {
                     it.copy(
@@ -413,65 +421,73 @@ class DownloadsViewModel(
 
     // ── Sectioning + grouping ─────────────────────────────────────────────
 
-    private fun DownloadRecord.toItem(): DownloadItem {
-        val meta = metadataByRecordId[id]
-        val mediaType = resolveMediaType()
-        val located = scopeByFileId[mediaFileId]?.let { (serverId, profileId) ->
-            storage.locateLocalMedia(serverId, profileId, mediaFileId)
+    /**
+     * Build a [DownloadItem] from a Room sidecar (the authoritative local
+     * picture — always carries title/poster/mediaType/series). Live status +
+     * bytes are overlaid from [live] (the in-memory server record) for in-flight
+     * items; a completed local-only download (server forgot it) uses the sidecar.
+     */
+    private fun DownloadSidecar.toDownloadItem(live: DownloadRecord?): DownloadItem {
+        val rec = live ?: record
+        val mediaType = resolveSidecarMediaType()
+        val located = scopeByFileId[record.mediaFileId]?.let { (serverId, profileId) ->
+            storage.locateLocalMedia(serverId, profileId, record.mediaFileId)
         }
-        val progress = if (fileSize > 0) {
-            (bytesSent.toFloat() / fileSize.toFloat()).coerceIn(0f, 1f)
+        val knownSize = if (rec.fileSize > 0) rec.fileSize else record.fileSize
+        val progress = if (knownSize > 0) {
+            (rec.bytesSent.toFloat() / knownSize.toFloat()).coerceIn(0f, 1f)
         } else 0f
-        val status = statusEnum()
-        val fileState = downloadItemFileState(
-            status = status,
-            hasLocalMedia = located != null,
-        )
+        val status = rec.statusEnum()
+        val fileState = downloadItemFileState(status = status, hasLocalMedia = located != null)
         val displayProgress = downloadItemDisplayProgress(
             status = status,
             rawProgress = progress,
             hasLocalMedia = located != null,
         )
+        // Shown size = REAL on-disk bytes via fd-stat (MediaStore SIZE is stale/0
+        // while the item is pending, so don't trust located.sizeBytes mid-download),
+        // falling back to the live record's bytesSent. Never the sidecar's claimed
+        // fileSize, which overstates queued/failed/missing rows (Codex).
+        val sizeUri = localUri ?: located?.uriString
+        val shownBytes = (sizeUri?.let { storage.partialSize(it) }?.takeIf { it > 0 })
+        // No real bytes on disk: a completed-but-missing row is 0 (don't show a
+        // stale size or inflate the header); an in-flight row uses live bytesSent.
+            ?: if (status == DownloadStatus.Completed) 0L else rec.bytesSent
         return DownloadItem(
-            id = id,
-            contentId = contentId,
-            title = meta?.title ?: contentId.ifEmpty { "Download #${mediaFileId}" },
-            subtitle = meta?.subtitle,
-            posterUrl = meta?.posterUrl,
-            posterThumbhash = meta?.posterThumbhash,
-            fileSizeBytes = fileSize,
+            id = record.id,
+            contentId = record.contentId,
+            title = title,
+            subtitle = subtitle,
+            posterUrl = posterUrl,
+            posterThumbhash = posterThumbhash,
+            fileSizeBytes = shownBytes,
             progress = displayProgress,
             isComplete = fileState.isComplete,
             status = status,
             isFailed = fileState.isFailed,
             isMissingLocal = fileState.isMissingLocal,
             mediaType = mediaType,
-            fileId = mediaFileId,
+            fileId = record.mediaFileId,
             localUri = located?.uriString,
-            displayName = located?.displayName ?: meta?.fileName,
-            container = meta?.container,
+            displayName = located?.displayName ?: fileName,
+            container = container,
         )
     }
 
-    /**
-     * Resolves the media type for a record. Trusts the sidecar's
-     * [DownloadSidecar.mediaType] field first; if unset (older sidecar
-     * predating the field), falls back to the seriesTitle heuristic
-     * (presence implies TV).
-     */
-    private fun DownloadRecord.resolveMediaType(): DownloadMediaType {
-        val sidecar = metadataByRecordId[id]
-        val explicit = DownloadMediaType.fromWire(sidecar?.mediaType)
+    private fun DownloadSidecar.resolveSidecarMediaType(): DownloadMediaType {
+        val explicit = DownloadMediaType.fromWire(mediaType)
         if (explicit != DownloadMediaType.Unknown) return explicit
-        return if (!sidecar?.seriesTitle.isNullOrBlank()) DownloadMediaType.TvShow
-        else DownloadMediaType.Movie
+        return if (!seriesTitle.isNullOrBlank()) DownloadMediaType.TvShow else DownloadMediaType.Movie
     }
 
-    /** Top-level: group records into per-mediaType sections in stable
-     *  display order. Empty sections are skipped. */
-    private fun List<DownloadRecord>.toSections(): List<DownloadTypeSection> {
-        if (isEmpty()) return emptyList()
-        val byType = groupBy { it.resolveMediaType() }
+    /**
+     * Top-level: build per-mediaType sections from the Room sidecars (source of
+     * truth), in stable display order. [liveById] overlays in-flight progress.
+     */
+    private fun buildSections(liveById: Map<String, DownloadRecord>): List<DownloadTypeSection> {
+        val sidecars = metadataByRecordId.values.toList()
+        if (sidecars.isEmpty()) return emptyList()
+        val byType = sidecars.groupBy { it.resolveSidecarMediaType() }
         val sectionOrder = listOf(
             DownloadMediaType.Movie,
             DownloadMediaType.TvShow,
@@ -480,11 +496,12 @@ class DownloadsViewModel(
             DownloadMediaType.Unknown,
         )
         return sectionOrder.mapNotNull { type ->
-            val recs = byType[type].orEmpty()
-            if (recs.isEmpty()) return@mapNotNull null
+            val group = byType[type].orEmpty()
+            if (group.isEmpty()) return@mapNotNull null
             val entries = when (type) {
-                DownloadMediaType.TvShow -> recs.toTvEntries()
-                else -> recs.map { DownloadEntry.Single(it.toItem()) }
+                DownloadMediaType.TvShow -> group.toTvEntries(liveById)
+                else -> group.sortedByDescending { it.updatedAtMs }
+                    .map { DownloadEntry.Single(it.toDownloadItem(liveById[it.record.id])) }
             }
             DownloadTypeSection(
                 mediaType = type,
@@ -496,52 +513,46 @@ class DownloadsViewModel(
     }
 
     /**
-     * TV branch: records → [Series] → [Season] → [Single]. A record with
-     * no resolvable seriesTitle (rare — TV-typed but missing metadata)
-     * still surfaces as a Single under the TV section so the user can
-     * delete it.
+     * TV branch: sidecars → [Series] → [Season] → [Single]. Grouped by STABLE
+     * series content id (rename-safe), falling back to seriesTitle only when the
+     * id is absent (rows written before seriesContentId existed). A sidecar with
+     * no series at all surfaces as a Single so it's still deletable.
      */
-    private fun List<DownloadRecord>.toTvEntries(): List<DownloadEntry> {
-        val bySeries = LinkedHashMap<String, MutableList<DownloadRecord>>()
-        val orphans = mutableListOf<DownloadRecord>()
-        for (rec in this) {
-            val series = metadataByRecordId[rec.id]?.seriesTitle?.takeIf { it.isNotBlank() }
-            if (series == null) orphans += rec
-            else bySeries.getOrPut(series) { mutableListOf() } += rec
+    private fun List<DownloadSidecar>.toTvEntries(liveById: Map<String, DownloadRecord>): List<DownloadEntry> {
+        val bySeries = LinkedHashMap<String, MutableList<DownloadSidecar>>()
+        val orphans = mutableListOf<DownloadSidecar>()
+        for (sc in this) {
+            val key = sc.seriesContentId?.takeIf { it.isNotBlank() }
+                ?: sc.seriesTitle?.takeIf { it.isNotBlank() }
+            if (key == null) orphans += sc else bySeries.getOrPut(key) { mutableListOf() } += sc
         }
-
-        val seriesEntries = bySeries.map { (seriesTitle, recs) ->
-            // Group by season number; null seasonNumber becomes -1 so
-            // it sorts first (won't happen in practice for properly-
-            // tagged downloads).
-            val bySeason = LinkedHashMap<Int, MutableList<DownloadRecord>>()
-            for (rec in recs) {
-                val season = metadataByRecordId[rec.id]?.seasonNumber ?: -1
-                bySeason.getOrPut(season) { mutableListOf() } += rec
-            }
-            val firstMeta = recs.asSequence()
-                .mapNotNull { metadataByRecordId[it.id] }
-                .firstOrNull()
-            val seasons = bySeason.toSortedMap().map { (season, seasonRecs) ->
-                val episodes = seasonRecs
-                    .map { DownloadEntry.Single(it.toItem()) }
-                    .sortedBy { metadataByRecordId[it.item.id]?.episodeNumber ?: Int.MAX_VALUE }
+        val seriesEntries = bySeries.map { (seriesKey, group) ->
+            val seriesTitle = group.firstNotNullOfOrNull { it.seriesTitle?.takeIf { t -> t.isNotBlank() } } ?: "Series"
+            val poster = group.firstNotNullOfOrNull { it.posterUrl }
+            val thumb = group.firstNotNullOfOrNull { it.posterThumbhash }
+            val bySeason = LinkedHashMap<Int, MutableList<DownloadSidecar>>()
+            for (sc in group) bySeason.getOrPut(sc.seasonNumber ?: -1) { mutableListOf() } += sc
+            val seasons = bySeason.toSortedMap().map { (season, seasonScs) ->
+                val episodes = seasonScs
+                    .sortedBy { it.episodeNumber ?: Int.MAX_VALUE }
+                    .map { DownloadEntry.Single(it.toDownloadItem(liveById[it.record.id])) }
                 DownloadEntry.Season(
+                    seriesKey = seriesKey,
                     seriesTitle = seriesTitle,
                     seasonNumber = season,
                     episodes = episodes,
-                    posterUrl = firstMeta?.posterUrl,
-                    posterThumbhash = firstMeta?.posterThumbhash,
+                    posterUrl = poster,
+                    posterThumbhash = thumb,
                 )
             }
             DownloadEntry.Series(
+                seriesKey = seriesKey,
                 seriesTitle = seriesTitle,
                 seasons = seasons,
-                posterUrl = firstMeta?.posterUrl,
-                posterThumbhash = firstMeta?.posterThumbhash,
+                posterUrl = poster,
+                posterThumbhash = thumb,
             )
         }
-
-        return seriesEntries + orphans.map { DownloadEntry.Single(it.toItem()) }
+        return seriesEntries + orphans.map { DownloadEntry.Single(it.toDownloadItem(liveById[it.record.id])) }
     }
 }
