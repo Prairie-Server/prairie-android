@@ -10,9 +10,14 @@ import com.continuum.app.model.catalog.SeasonsResponse
 import com.continuum.app.model.catalog.WatchDetail
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.api.CatalogApi
+import com.continuum.app.repository.port.CatalogCachePort
+import com.continuum.app.repository.port.NoOpCatalogCachePort
+import com.continuum.app.repository.port.canServeCache
 
 class CatalogRepository(
     private val catalogApi: CatalogApi,
+    /** Offline read cache for a library's default first page (Track B). No-op by default. */
+    private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
 ) {
     /** Browse the catalog with optional filters, sorting, and pagination. */
     suspend fun browse(
@@ -30,8 +35,8 @@ class CatalogRepository(
         yearMin: Int? = null,
         yearMax: Int? = null,
         snapshotAt: String? = null,
-    ): ApiResult<CatalogResponse> =
-        catalogApi.getCatalog(
+    ): ApiResult<CatalogResponse> {
+        val result = catalogApi.getCatalog(
             source = source,
             query = query,
             mediaType = mediaType,
@@ -47,6 +52,26 @@ class CatalogRepository(
             yearMax = yearMax,
             snapshotAt = snapshotAt,
         )
+
+        // Only the unfiltered, first-page default browse of a single library is
+        // cached for offline (every request-shaping param must be at its default).
+        val cacheableLibraryId = libraryId?.takeIf {
+            (offset == null || offset == 0) &&
+                query == null && genre == null && contentRating == null &&
+                namePrefix == null && yearMin == null && yearMax == null &&
+                source == null && mediaType == null && snapshotAt == null &&
+                (sort == null || sort == "added_at") && (order == null || order == "desc")
+        } ?: return result
+
+        if (result is ApiResult.Success) {
+            catalogCache.cacheDefaultLibraryPage(cacheableLibraryId, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedDefaultLibraryPage(cacheableLibraryId)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
 
     /** Returns available filter options (genres, studios, etc.) for the catalog. */
     suspend fun getFilters(libraryId: Int? = null): ApiResult<CatalogFiltersResponse> =

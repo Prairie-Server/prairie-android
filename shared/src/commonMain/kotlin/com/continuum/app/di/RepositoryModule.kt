@@ -41,16 +41,17 @@ val repositoryModule = module {
     // multi-server side effects when the registry is null.
     single { AuthRepository(get(), get(), getOrNull(), getOrNull()) }
     single { DeviceLoginRepository(get()) }
-    single { CatalogRepository(get()) }
+    single { CatalogRepository(get(), getOrNull<com.continuum.app.repository.port.CatalogCachePort>() ?: com.continuum.app.repository.port.NoOpCatalogCachePort) }
     single { CalendarRepository(get()) }
     single { PlaybackRepository(get()) }
-    // `getOrNull()` picks up the Room-backed UserItemStatePort when the Android
-    // platform module binds it (Track B local-first writes); falls back to the
-    // network-only no-op port in commonMain tests / when unbound.
+    // `getOrNull()` picks up the Room-backed ports when the Android platform
+    // module binds them (Track B local-first writes + offline read cache); falls
+    // back to the network-only no-op ports in commonMain tests / when unbound.
     single {
         PersonalDataRepository(
             get(),
-            getOrNull() ?: com.continuum.app.repository.port.NoOpUserItemStatePort,
+            getOrNull<com.continuum.app.repository.port.UserItemStatePort>() ?: com.continuum.app.repository.port.NoOpUserItemStatePort,
+            getOrNull<com.continuum.app.repository.port.CatalogCachePort>() ?: com.continuum.app.repository.port.NoOpCatalogCachePort,
         )
     }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get()) }

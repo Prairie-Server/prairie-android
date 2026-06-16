@@ -105,6 +105,13 @@ val androidTvModule = module {
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }
+    single<com.continuum.app.repository.port.CatalogCachePort> {
+        val tokenManager: TokenManager = get()
+        com.continuum.app.common.data.repository.RoomCatalogCacheRepository(
+            db = get(),
+            snapshotProvider = { tokenManager.snapshotCurrentScope() },
+        )
+    }
     single {
         val tokenManager: TokenManager = get()
         com.continuum.app.common.data.sync.SyncEngine(

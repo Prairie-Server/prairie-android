@@ -9,8 +9,11 @@ import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.api.PersonalDataApi
 import com.continuum.app.network.map
+import com.continuum.app.repository.port.CatalogCachePort
+import com.continuum.app.repository.port.NoOpCatalogCachePort
 import com.continuum.app.repository.port.NoOpUserItemStatePort
 import com.continuum.app.repository.port.UserItemStatePort
+import com.continuum.app.repository.port.canServeCache
 import com.continuum.app.repository.port.toWriteOutcome
 
 open class PersonalDataRepository(
@@ -22,12 +25,23 @@ open class PersonalDataRepository(
      * outbox op around each content-level mutation below.
      */
     private val userItemStatePort: UserItemStatePort = NoOpUserItemStatePort,
+    /** Offline read cache for the library list (Track B). No-op by default. */
+    private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
 ) {
     // -- Libraries --
 
-    /** Lists the libraries visible to the current user. */
-    suspend fun listUserLibraries(): ApiResult<List<UserLibrary>> =
-        personalDataApi.listUserLibraries()
+    /** Lists the libraries visible to the current user (offline: last cached list). */
+    suspend fun listUserLibraries(): ApiResult<List<UserLibrary>> {
+        val result = personalDataApi.listUserLibraries()
+        if (result is ApiResult.Success) {
+            catalogCache.cacheLibraries(result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedLibraries()?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
 
     // -- Favorites --
 

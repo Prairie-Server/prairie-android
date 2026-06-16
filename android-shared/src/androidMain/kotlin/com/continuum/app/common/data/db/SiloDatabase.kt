@@ -5,12 +5,14 @@ import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.continuum.app.common.data.db.dao.CatalogCacheDao
 import com.continuum.app.common.data.db.dao.ContentItemStateDao
 import com.continuum.app.common.data.db.dao.DirtyOperationDao
 import com.continuum.app.common.data.db.dao.DownloadDao
 import com.continuum.app.common.data.db.dao.HomeCacheDao
 import com.continuum.app.common.data.db.dao.LegacyImportDao
 import com.continuum.app.common.data.db.dao.UserItemStateDao
+import com.continuum.app.common.data.db.entity.CatalogCacheEntity
 import com.continuum.app.common.data.db.entity.ContentItemStateEntity
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
 import com.continuum.app.common.data.db.entity.DownloadEntity
@@ -38,10 +40,14 @@ import com.continuum.app.common.data.db.entity.UserItemStateEntity
         DownloadEntity::class,
         LegacyImportEntity::class,
         HomeCacheEntity::class,
+        CatalogCacheEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+        AutoMigration(from = 2, to = 3),
+    ],
 )
 abstract class SiloDatabase : RoomDatabase() {
     abstract fun userItemStateDao(): UserItemStateDao
@@ -50,6 +56,7 @@ abstract class SiloDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
     abstract fun legacyImportDao(): LegacyImportDao
     abstract fun homeCacheDao(): HomeCacheDao
+    abstract fun catalogCacheDao(): CatalogCacheDao
 
     companion object {
         const val NAME = "silo.db"
