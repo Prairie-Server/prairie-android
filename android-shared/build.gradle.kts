@@ -100,6 +100,12 @@ kotlin {
             // stubs provide. androidx-test-core supplies ApplicationProvider.
             implementation(libs.androidx.test.core)
             implementation(libs.robolectric)
+
+            // SyncEngine tests drive a real PersonalDataApi over a MockEngine
+            // HttpClient to exercise the outbox drain end-to-end.
+            implementation(libs.ktor.client.mock)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.json)
         }
     }
 }

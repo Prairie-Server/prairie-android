@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import com.continuum.app.common.data.sync.SyncEngine
+import com.continuum.app.common.data.sync.SyncWorker
 import com.continuum.app.repository.SectionRepository
 import org.koin.core.context.GlobalContext
 
@@ -40,6 +42,14 @@ class TvWorkerFactory : WorkerFactory() {
                     params = workerParameters,
                     sectionRepository = koin.get<SectionRepository>(),
                     repository = koin.get<WatchNextRepository>(),
+                )
+            }
+            SyncWorker::class.java.name -> {
+                Log.i(TAG, "Building SyncWorker via Koin")
+                SyncWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    syncEngine = koin.get<SyncEngine>(),
                 )
             }
             else -> {

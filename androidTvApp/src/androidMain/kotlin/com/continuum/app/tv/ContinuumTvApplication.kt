@@ -50,6 +50,16 @@ class ContinuumTvApplication : Application(), Configuration.Provider {
         }.onFailure {
             android.util.Log.w("ContinuumTvApplication", "WorkManager.initialize failed (already initialised?)", it)
         }
+        // Drain the user-state outbox (Track B) on launch + when connectivity
+        // returns. Guarded — never load-bearing for cold start.
+        runCatching {
+            com.continuum.app.common.data.sync.OutboxSyncStarter(
+                context = this@ContinuumTvApplication,
+                registry = koinApp.koin.get(),
+            ).start()
+        }.onFailure {
+            android.util.Log.w("ContinuumTvApplication", "Outbox sync starter init failed", it)
+        }
     }
 
     override val workManagerConfiguration: Configuration

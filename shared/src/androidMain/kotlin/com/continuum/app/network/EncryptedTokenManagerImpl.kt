@@ -182,6 +182,57 @@ class EncryptedTokenManagerImpl(
         clearTokens()
     }
 
+    // ---- Scoped auth (pinned background requests) ----
+
+    override suspend fun snapshotCurrentScope(): AuthScopeSnapshot? = mutex.withLock {
+        val serverId = activeServerId ?: return@withLock null
+        // Resolve the URL for *this* serverId from the registry entries so the
+        // snapshot is internally consistent. Do NOT fall back to activeEntry —
+        // if the captured serverId isn't a known, non-blank-URL entry, a pinned
+        // request could be sent to the wrong server (or skip the rewrite and hit
+        // localhost). Return null instead so the drain simply no-ops this pass.
+        val url = registry.entries.value.firstOrNull { it.id == serverId }?.url
+        if (url.isNullOrBlank()) return@withLock null
+        AuthScopeSnapshot(
+            serverId = serverId,
+            profileId = profileId,
+            serverUrl = url,
+            profileToken = profileToken,
+        )
+    }
+
+    override suspend fun getAccessTokenForScope(serverId: String): String? = mutex.withLock {
+        if (serverId == activeServerId) accessToken
+        else prefs.getString(serverScopedKey(serverId, KEY_ACCESS_TOKEN), null)
+    }
+
+    override suspend fun getRefreshTokenForScope(serverId: String): String? = mutex.withLock {
+        if (serverId == activeServerId) refreshToken
+        else prefs.getString(serverScopedKey(serverId, KEY_REFRESH_TOKEN), null)
+    }
+
+    override suspend fun saveTokensForScope(
+        serverId: String,
+        accessToken: String,
+        refreshToken: String,
+        expiresIn: Long,
+    ) {
+        mutex.withLock {
+            val expiryEpochMs = System.currentTimeMillis() + expiresIn * 1000L
+            prefs.edit()
+                .putString(serverScopedKey(serverId, KEY_ACCESS_TOKEN), accessToken)
+                .putString(serverScopedKey(serverId, KEY_REFRESH_TOKEN), refreshToken)
+                .putLong(serverScopedKey(serverId, KEY_TOKEN_EXPIRY), expiryEpochMs)
+                .apply()
+            // Keep the in-memory cache coherent if we just refreshed the active server.
+            if (serverId == activeServerId) {
+                this.accessToken = accessToken
+                this.refreshToken = refreshToken
+                this.tokenExpiryEpochMs = expiryEpochMs
+            }
+        }
+    }
+
     // ---- Internal cache management ----
 
     private suspend fun reloadCacheLocked() {

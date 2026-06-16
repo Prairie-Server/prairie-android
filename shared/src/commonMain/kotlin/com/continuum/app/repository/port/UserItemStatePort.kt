@@ -1,5 +1,7 @@
 package com.continuum.app.repository.port
 
+import com.continuum.app.network.AuthScopeSnapshot
+
 /**
  * Local-first side-channel for **content-level** user-state mutations
  * (watched / favorite / rating). The strangler entry point for Track B:
@@ -30,8 +32,14 @@ interface UserItemStatePort {
 /**
  * Opaque reference to an enqueued outbox op. [NONE] means nothing was recorded
  * (e.g. no active server/profile scope, or the no-op port) — [resolve] ignores it.
+ *
+ * [scope] is the auth snapshot captured atomically when the op was recorded.
+ * The repository pins the inline network call to it so a server/profile switch
+ * between recording and sending can't route the write to the wrong account (and
+ * then false-ack/delete the op). Null for the no-op port (single-scope) →
+ * unpinned, preserving the original behaviour.
  */
-data class OutboxHandle(val opId: Long) {
+data class OutboxHandle(val opId: Long, val scope: AuthScopeSnapshot? = null) {
     companion object {
         val NONE = OutboxHandle(-1L)
     }

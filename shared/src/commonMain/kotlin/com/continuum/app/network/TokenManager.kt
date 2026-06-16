@@ -72,4 +72,34 @@ interface TokenManager {
 
     /** Wipe just the active server's tokens + profile state, keeping the registry entry. */
     suspend fun signOutCurrentServer()
+
+    // ----- Scoped auth (Track B outbox replay; see [AuthScopeSnapshot]) -----
+
+    /**
+     * Capture the currently-active scope for pinning a background request. Returns
+     * null when no server is active or the implementation isn't multi-server-aware.
+     * Default: not supported (single-scope impls), so callers fall back to the
+     * global active scope.
+     */
+    suspend fun snapshotCurrentScope(): AuthScopeSnapshot? = null
+
+    /**
+     * Read a specific server's latest access token (handles rotation). Default
+     * delegates to the active-scope [getAccessToken] for single-scope impls.
+     */
+    suspend fun getAccessTokenForScope(serverId: String): String? = getAccessToken()
+
+    /** Read a specific server's latest refresh token. Default: active scope. */
+    suspend fun getRefreshTokenForScope(serverId: String): String? = getRefreshToken()
+
+    /**
+     * Persist refreshed tokens to a specific server's slot (used by a pinned
+     * refresh so it doesn't clobber the active server). Default: active scope.
+     */
+    suspend fun saveTokensForScope(
+        serverId: String,
+        accessToken: String,
+        refreshToken: String,
+        expiresIn: Long,
+    ) = saveTokens(accessToken, refreshToken, expiresIn)
 }

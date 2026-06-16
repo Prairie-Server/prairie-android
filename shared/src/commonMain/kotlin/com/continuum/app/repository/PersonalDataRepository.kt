@@ -11,7 +11,7 @@ import com.continuum.app.network.api.PersonalDataApi
 import com.continuum.app.network.map
 import com.continuum.app.repository.port.NoOpUserItemStatePort
 import com.continuum.app.repository.port.UserItemStatePort
-import com.continuum.app.repository.port.WriteOutcome
+import com.continuum.app.repository.port.toWriteOutcome
 
 open class PersonalDataRepository(
     private val personalDataApi: PersonalDataApi,
@@ -46,9 +46,9 @@ open class PersonalDataRepository(
     suspend fun toggleFavorite(itemId: String, isFavorite: Boolean): ApiResult<Unit> {
         val handle = userItemStatePort.recordFavorite(itemId, isFavorite)
         val result = if (isFavorite) {
-            personalDataApi.addFavorite(itemId)
+            personalDataApi.addFavorite(itemId, handle.scope)
         } else {
-            personalDataApi.removeFavorite(itemId)
+            personalDataApi.removeFavorite(itemId, handle.scope)
         }
         userItemStatePort.resolve(handle, result.toWriteOutcome())
         return result
@@ -104,7 +104,7 @@ open class PersonalDataRepository(
     /** Sets or updates the user's star rating (integer 1-5) for a specific item. */
     suspend fun setRating(itemId: String, rating: Int): ApiResult<Unit> {
         val handle = userItemStatePort.recordRating(itemId, rating)
-        val result = personalDataApi.setRating(itemId, rating)
+        val result = personalDataApi.setRating(itemId, rating, handle.scope)
         userItemStatePort.resolve(handle, result.toWriteOutcome())
         return result
     }
@@ -112,7 +112,7 @@ open class PersonalDataRepository(
     /** Removes the user's rating for a specific item. */
     suspend fun deleteRating(itemId: String): ApiResult<Unit> {
         val handle = userItemStatePort.recordRating(itemId, null)
-        val result = personalDataApi.deleteRating(itemId)
+        val result = personalDataApi.deleteRating(itemId, handle.scope)
         userItemStatePort.resolve(handle, result.toWriteOutcome())
         return result
     }
@@ -126,7 +126,11 @@ open class PersonalDataRepository(
      */
     open suspend fun setWatched(itemId: String, watched: Boolean): ApiResult<Unit> {
         val handle = userItemStatePort.recordWatched(itemId, watched)
-        val result = if (watched) personalDataApi.markWatched(itemId) else personalDataApi.markUnwatched(itemId)
+        val result = if (watched) {
+            personalDataApi.markWatched(itemId, handle.scope)
+        } else {
+            personalDataApi.markUnwatched(itemId, handle.scope)
+        }
         userItemStatePort.resolve(handle, result.toWriteOutcome())
         return result
     }
@@ -143,25 +147,4 @@ open class PersonalDataRepository(
     /** Undo a Continue Watching dismissal. */
     open suspend fun undismissContinueWatching(itemId: String): ApiResult<Unit> =
         personalDataApi.undismissContinueWatching(itemId)
-}
-
-/**
- * Maps an inline network result to the outbox-resolution intent: success acks
- * the op, transient failures keep it for retry, and a genuine server rejection
- * (4xx other than auth) drops it so a doomed write is not replayed.
- *
- * Retriable failures: no network, 5xx, 408, 429, and **401** — the auth
- * interceptor refreshes transparently before the repository sees a result, so a
- * 401 that reaches here means refresh could not complete; the mutation was
- * never accepted and may succeed once auth is restored. 403 and other 4xx are
- * terminal (the request is wrong/forbidden regardless of retry).
- */
-private fun ApiResult<*>.toWriteOutcome(): WriteOutcome = when (this) {
-    is ApiResult.Success -> WriteOutcome.SYNCED
-    is ApiResult.NetworkError -> WriteOutcome.RETRIABLE
-    is ApiResult.Error -> if (code == 401 || code == 408 || code == 429 || code in 500..599) {
-        WriteOutcome.RETRIABLE
-    } else {
-        WriteOutcome.TERMINAL
-    }
 }

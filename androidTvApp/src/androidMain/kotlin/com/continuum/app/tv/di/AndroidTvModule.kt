@@ -86,10 +86,21 @@ val androidTvModule = module {
     single { com.continuum.app.common.data.db.SiloDatabase.build(androidContext()) }
     single<com.continuum.app.repository.port.UserItemStatePort> {
         val tokenManager: TokenManager = get()
+        val appContext = androidContext().applicationContext
         com.continuum.app.common.data.repository.RoomUserItemStateRepository(
             db = get(),
-            currentServerId = { tokenManager.getCurrentServerId() },
-            currentProfileId = { tokenManager.getProfileId() },
+            snapshotProvider = { tokenManager.snapshotCurrentScope() },
+            syncScheduler = com.continuum.app.common.data.sync.OutboxSyncScheduler {
+                com.continuum.app.common.data.sync.SyncWorker.enqueue(appContext)
+            },
+        )
+    }
+    single {
+        val tokenManager: TokenManager = get()
+        com.continuum.app.common.data.sync.SyncEngine(
+            db = get(),
+            personalDataApi = get(),
+            snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }
 

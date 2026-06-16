@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import com.continuum.app.common.data.sync.SyncEngine
+import com.continuum.app.common.data.sync.SyncWorker
 import com.continuum.app.common.downloads.DownloadStorage
 import com.continuum.app.common.downloads.DownloadWorker
 import com.continuum.app.repository.DownloadsRepository
@@ -44,6 +46,14 @@ class AppWorkerFactory : WorkerFactory() {
                     repository = koin.get<DownloadsRepository>(),
                     storage = koin.get<DownloadStorage>(),
                     httpClient = koin.get<HttpClient>(),
+                )
+            }
+            SyncWorker::class.java.name -> {
+                Log.i(TAG, "Building SyncWorker via Koin")
+                SyncWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    syncEngine = koin.get<SyncEngine>(),
                 )
             }
             else -> {

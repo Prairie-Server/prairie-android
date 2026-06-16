@@ -104,7 +104,7 @@ class SiloDatabaseDaoTest {
         dao.enqueueCoalescing(op(coalesceKey = "k1", payload = "2", idempotencyKey = "i2"))
         // Older pending op with the same coalesce key was dropped.
         assertEquals(1, dao.count())
-        val due = dao.dueBatch(nowMs = 10L, limit = 10)
+        val due = dao.dueBatch("s1", "p1", nowMs = 10L, limit = 10)
         assertEquals("2", due.single().payloadJson)
     }
 
@@ -113,7 +113,17 @@ class SiloDatabaseDaoTest {
         val dao = db.dirtyOperationDao()
         dao.enqueueCoalescing(op(coalesceKey = "a", idempotencyKey = "ia", nextAttemptAtMs = 0L))
         dao.enqueueCoalescing(op(coalesceKey = "b", idempotencyKey = "ib", nextAttemptAtMs = 5_000L))
-        assertEquals(1, dao.dueBatch(nowMs = 1_000L, limit = 10).size)
+        assertEquals(1, dao.dueBatch("s1", "p1", nowMs = 1_000L, limit = 10).size)
+    }
+
+    @Test
+    fun dirtyOperationClaimIsAtomic() = runTest {
+        val dao = db.dirtyOperationDao()
+        val id = dao.enqueueCoalescing(op(coalesceKey = "a", idempotencyKey = "ia"))
+        // First claim wins (1 row updated); a second claim sees it already
+        // in-flight and updates nothing.
+        assertEquals(1, dao.claim(id))
+        assertEquals(0, dao.claim(id))
     }
 
     @Test

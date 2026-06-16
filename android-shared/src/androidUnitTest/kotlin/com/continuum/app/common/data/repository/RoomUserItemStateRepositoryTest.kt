@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.sync.OutboxOperation
+import com.continuum.app.network.AuthScopeSnapshot
 import com.continuum.app.repository.port.OutboxHandle
 import com.continuum.app.repository.port.WriteOutcome
 import kotlinx.coroutines.test.runTest
@@ -26,8 +27,7 @@ class RoomUserItemStateRepositoryTest {
     private var nextId = 0
     private val repo = RoomUserItemStateRepository(
         db = db,
-        currentServerId = { "s1" },
-        currentProfileId = { "p1" },
+        snapshotProvider = { AuthScopeSnapshot("s1", "p1", "https://s1.example", "pt") },
         now = { 1000L },
         idGenerator = { "id-${nextId++}" },
     )
@@ -42,7 +42,7 @@ class RoomUserItemStateRepositoryTest {
 
         assertEquals(true, db.contentItemStateDao().get("s1", "p1", "c1")?.watched)
 
-        val op = db.dirtyOperationDao().dueBatch(nowMs = 2000L, limit = 10).single()
+        val op = db.dirtyOperationDao().dueBatch("s1", "p1", nowMs = 2000L, limit = 10).single()
         assertEquals(OutboxOperation.SET_WATCHED, op.opKind)
         assertNull(op.targetFileId)
         assertEquals("s1|p1|c1|${OutboxOperation.SET_WATCHED}", op.coalesceKey)
@@ -64,7 +64,7 @@ class RoomUserItemStateRepositoryTest {
         repo.recordWatched("c1", watched = true)
         repo.recordWatched("c1", watched = false)
         assertEquals(1, db.dirtyOperationDao().count())
-        val op = db.dirtyOperationDao().dueBatch(nowMs = 2000L, limit = 10).single()
+        val op = db.dirtyOperationDao().dueBatch("s1", "p1", nowMs = 2000L, limit = 10).single()
         assertEquals(false, OutboxOperation.decodeBooleanPayload(op.payloadJson))
     }
 
@@ -93,13 +93,20 @@ class RoomUserItemStateRepositoryTest {
     fun missingScopeRecordsNothing() = runTest {
         val scopeless = RoomUserItemStateRepository(
             db = db,
-            currentServerId = { null },
-            currentProfileId = { "p1" },
+            snapshotProvider = { null },
             now = { 1000L },
             idGenerator = { "id-x" },
         )
         val handle = scopeless.recordWatched("c1", watched = true)
         assertEquals(OutboxHandle.NONE, handle)
         assertEquals(0, db.dirtyOperationDao().count())
+    }
+
+    @Test
+    fun handleCarriesScopeForInlinePinning() = runTest {
+        val handle = repo.recordFavorite("c1", favorite = true)
+        assertEquals("s1", handle.scope?.serverId)
+        assertEquals("p1", handle.scope?.profileId)
+        assertEquals("https://s1.example", handle.scope?.serverUrl)
     }
 }

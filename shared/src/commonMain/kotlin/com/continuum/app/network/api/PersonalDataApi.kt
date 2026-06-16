@@ -7,6 +7,8 @@ import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.model.catalog.CatalogResponse
 import com.continuum.app.model.personal.*
 import com.continuum.app.network.ApiResult
+import com.continuum.app.network.AuthScopeSnapshot
+import com.continuum.app.network.authScope
 
 class PersonalDataApi(private val client: HttpClient) {
 
@@ -32,12 +34,12 @@ class PersonalDataApi(private val client: HttpClient) {
         client.get("/api/v1/favorites/$itemId")
     }
 
-    suspend fun addFavorite(itemId: String): ApiResult<Unit> = safeApiCall {
-        client.put("/api/v1/favorites/$itemId")
+    suspend fun addFavorite(itemId: String, scope: AuthScopeSnapshot? = null): ApiResult<Unit> = safeApiCall {
+        client.put("/api/v1/favorites/$itemId") { scope?.let { authScope(it) } }
     }
 
-    suspend fun removeFavorite(itemId: String): ApiResult<Unit> = safeApiCall {
-        client.delete("/api/v1/favorites/$itemId")
+    suspend fun removeFavorite(itemId: String, scope: AuthScopeSnapshot? = null): ApiResult<Unit> = safeApiCall {
+        client.delete("/api/v1/favorites/$itemId") { scope?.let { authScope(it) } }
     }
 
     // --- Watchlist ---
@@ -99,27 +101,28 @@ class PersonalDataApi(private val client: HttpClient) {
         client.get("/api/v1/ratings/$itemId")
     }
 
-    suspend fun setRating(itemId: String, rating: Int): ApiResult<Unit> = safeApiCall {
+    suspend fun setRating(itemId: String, rating: Int, scope: AuthScopeSnapshot? = null): ApiResult<Unit> = safeApiCall {
         client.put("/api/v1/ratings/$itemId") {
+            scope?.let { authScope(it) }
             contentType(ContentType.Application.Json)
             setBody(SetRatingRequest(rating))
         }
     }
 
-    suspend fun deleteRating(itemId: String): ApiResult<Unit> = safeApiCall {
-        client.delete("/api/v1/ratings/$itemId")
+    suspend fun deleteRating(itemId: String, scope: AuthScopeSnapshot? = null): ApiResult<Unit> = safeApiCall {
+        client.delete("/api/v1/ratings/$itemId") { scope?.let { authScope(it) } }
     }
 
     // --- Watched ---
 
     /** Mark an item (movie / series / season / episode) as watched. Server resolves leaf targets. */
-    suspend fun markWatched(itemId: String): ApiResult<Unit> = safeApiCall {
-        client.post("/api/v1/watched/$itemId")
+    suspend fun markWatched(itemId: String, scope: AuthScopeSnapshot? = null): ApiResult<Unit> = safeApiCall {
+        client.post("/api/v1/watched/$itemId") { scope?.let { authScope(it) } }
     }
 
     /** Mark an item as unwatched. */
-    suspend fun markUnwatched(itemId: String): ApiResult<Unit> = safeApiCall {
-        client.delete("/api/v1/watched/$itemId")
+    suspend fun markUnwatched(itemId: String, scope: AuthScopeSnapshot? = null): ApiResult<Unit> = safeApiCall {
+        client.delete("/api/v1/watched/$itemId") { scope?.let { authScope(it) } }
     }
 
     // --- Continue Watching dismissals ---

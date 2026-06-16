@@ -5,6 +5,8 @@ import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.db.entity.ContentItemStateEntity
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
 import com.continuum.app.common.data.sync.OutboxOperation
+import com.continuum.app.common.data.sync.OutboxSyncScheduler
+import com.continuum.app.network.AuthScopeSnapshot
 import com.continuum.app.repository.port.OutboxHandle
 import com.continuum.app.repository.port.UserItemStatePort
 import com.continuum.app.repository.port.WriteOutcome
@@ -18,10 +20,14 @@ import java.util.UUID
  * [com.continuum.app.repository.PersonalDataRepository] can [resolve] the op
  * with the inline network outcome.
  *
- * Scope `(serverId, profileId)` is resolved per call via the injected
- * providers (wired to `TokenManager` in the platform DI module). If either is
- * absent — no active server/profile — the mutation records nothing and returns
- * [OutboxHandle.NONE]; the network call still proceeds in the repository.
+ * Scope is captured as ONE atomic [AuthScopeSnapshot] per call (not separate
+ * server/profile reads, which could straddle a switch). The snapshot's
+ * `(serverId, profileId)` scopes the projection + outbox rows, and the handle
+ * carries the snapshot so the repository can PIN the inline network call to the
+ * exact scope the op was recorded for — a switch between record and send then
+ * can't route the write to the wrong account. No active scope (or no profile) →
+ * records nothing and returns [OutboxHandle.NONE]; the inline call still runs
+ * (unpinned, current scope) so foreground behaviour is unchanged.
  *
  * Coalesce keys are server-scoped (`serverId|profileId|contentId|kind`) so a
  * newer pending op of the same kind+target replaces an older un-synced one
@@ -29,8 +35,8 @@ import java.util.UUID
  */
 class RoomUserItemStateRepository(
     private val db: SiloDatabase,
-    private val currentServerId: suspend () -> String?,
-    private val currentProfileId: suspend () -> String?,
+    private val snapshotProvider: suspend () -> AuthScopeSnapshot?,
+    private val syncScheduler: OutboxSyncScheduler = OutboxSyncScheduler.NONE,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : UserItemStatePort {
@@ -62,8 +68,9 @@ class RoomUserItemStateRepository(
         when (outcome) {
             // Acked, or rejected for good — either way the op must not be replayed.
             WriteOutcome.SYNCED, WriteOutcome.TERMINAL -> outboxDao.deleteById(handle.opId)
-            // Transient: leave the pending op for the sync engine to retry.
-            WriteOutcome.RETRIABLE -> Unit
+            // Transient: leave the pending op and ask the sync engine to drain it.
+            // Triggered here (not in record()) so it can't race the inline call.
+            WriteOutcome.RETRIABLE -> syncScheduler.requestSync()
         }
     }
 
@@ -73,8 +80,9 @@ class RoomUserItemStateRepository(
         payloadJson: String,
         applyField: (ContentItemStateEntity) -> ContentItemStateEntity,
     ): OutboxHandle {
-        val serverId = currentServerId() ?: return OutboxHandle.NONE
-        val profileId = currentProfileId() ?: return OutboxHandle.NONE
+        val snapshot = snapshotProvider() ?: return OutboxHandle.NONE
+        val serverId = snapshot.serverId
+        val profileId = snapshot.profileId ?: return OutboxHandle.NONE
         val nowMs = now()
 
         var opId = OutboxHandle.NONE.opId
@@ -109,6 +117,6 @@ class RoomUserItemStateRepository(
                 ),
             )
         }
-        return OutboxHandle(opId)
+        return OutboxHandle(opId, snapshot)
     }
 }

@@ -99,10 +99,22 @@ val androidModule = module {
     single { com.continuum.app.common.data.db.SiloDatabase.build(androidContext()) }
     single<com.continuum.app.repository.port.UserItemStatePort> {
         val tokenManager: TokenManager = get()
+        val appContext = androidContext().applicationContext
         com.continuum.app.common.data.repository.RoomUserItemStateRepository(
             db = get(),
-            currentServerId = { tokenManager.getCurrentServerId() },
-            currentProfileId = { tokenManager.getProfileId() },
+            snapshotProvider = { tokenManager.snapshotCurrentScope() },
+            // Drain is requested only when a write is left pending (resolve RETRIABLE).
+            syncScheduler = com.continuum.app.common.data.sync.OutboxSyncScheduler {
+                com.continuum.app.common.data.sync.SyncWorker.enqueue(appContext)
+            },
+        )
+    }
+    single {
+        val tokenManager: TokenManager = get()
+        com.continuum.app.common.data.sync.SyncEngine(
+            db = get(),
+            personalDataApi = get(),
+            snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }
 
@@ -167,6 +179,16 @@ val androidModule = module {
             repository = get(),
             storage = get(),
             httpClient = get(),
+        )
+    }
+    // Kept for consistency, but DEAD AT RUNTIME: Koin's WorkManager factory
+    // returns null on WM 2.10 + Koin 4.1.0, so AppWorkerFactory does the real
+    // injection (see AppWorkerFactory). Update both if SyncWorker's deps change.
+    worker {
+        com.continuum.app.common.data.sync.SyncWorker(
+            appContext = androidContext(),
+            params = get(),
+            syncEngine = get(),
         )
     }
 

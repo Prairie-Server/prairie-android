@@ -8,10 +8,14 @@ import androidx.room.Transaction
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
 
 /**
- * Outbox access: coalescing enqueue, due-batch drain selection, attempt
- * bookkeeping, and delete-on-ack. The drain loop claims a batch
- * ([markInFlight]), sends each op, then either [deleteById] on success or
- * [recordFailure] to schedule a backoff retry.
+ * Outbox access: coalescing enqueue, scoped due-batch drain selection, atomic
+ * claim, attempt bookkeeping, reclaim of crash-stranded rows, and delete-on-ack.
+ *
+ * Drain loop (see `SyncEngine`): reclaim stranded in-flight rows
+ * ([deleteSupersededInFlight] then [resetInFlightToPending]) → [dueBatch] the
+ * current scope → [claim] each (skip if not won) → send → [deleteById] on
+ * success/terminal, or [recordFailure] on transient failure (unless a newer
+ * pending op for the same key supersedes it — [countNewerPending] → [deleteById]).
  */
 @Dao
 interface DirtyOperationDao {
@@ -35,16 +39,84 @@ interface DirtyOperationDao {
     )
     suspend fun deletePendingByCoalesceKey(coalesceKey: String)
 
-    /** Oldest-due-first batch of sendable ops (FIFO via the nextAttemptAtMs,id index). */
+    /**
+     * Oldest-due-first batch of sendable ops for one server/profile scope
+     * (FIFO via the nextAttemptAtMs,id index). Scoped because the shared HTTP
+     * client binds relative calls to the *current* server/profile — replaying a
+     * different scope's rows would write to the wrong account.
+     */
     @Query(
         "SELECT * FROM dirty_operations " +
             "WHERE state = '${DirtyOperationEntity.STATE_PENDING}' AND nextAttemptAtMs <= :nowMs " +
+            "AND serverId = :serverId AND profileId = :profileId " +
             "ORDER BY nextAttemptAtMs ASC, id ASC LIMIT :limit",
     )
-    suspend fun dueBatch(nowMs: Long, limit: Int): List<DirtyOperationEntity>
+    suspend fun dueBatch(serverId: String, profileId: String, nowMs: Long, limit: Int): List<DirtyOperationEntity>
 
-    @Query("UPDATE dirty_operations SET state = '${DirtyOperationEntity.STATE_IN_FLIGHT}' WHERE id = :id")
-    suspend fun markInFlight(id: Long)
+    /**
+     * Atomically claim a pending op for sending. Returns the number of rows
+     * updated: 1 if this caller won the claim, 0 if it was already claimed or
+     * removed. The state guard makes this safe across concurrent drains/processes.
+     */
+    @Query(
+        "UPDATE dirty_operations SET state = '${DirtyOperationEntity.STATE_IN_FLIGHT}' " +
+            "WHERE id = :id AND state = '${DirtyOperationEntity.STATE_PENDING}'",
+    )
+    suspend fun claim(id: Long): Int
+
+    /** Count of pending ops for the same coalesce key that are newer than [id]. */
+    @Query(
+        "SELECT COUNT(*) FROM dirty_operations " +
+            "WHERE coalesceKey = :coalesceKey AND state = '${DirtyOperationEntity.STATE_PENDING}' AND id > :id",
+    )
+    suspend fun countNewerPending(coalesceKey: String, id: Long): Int
+
+    /**
+     * Atomic resolution of a failed send: if a newer pending op for the same
+     * coalesce key exists this op is superseded (deleted, returns true);
+     * otherwise it is returned to pending with backoff (returns false). Done in
+     * one transaction so a concurrent enqueue can't slip between the check and
+     * the write and resurrect a stale op.
+     */
+    @Transaction
+    suspend fun supersedeOrRecordFailure(
+        id: Long,
+        coalesceKey: String,
+        nowMs: Long,
+        nextAttemptAtMs: Long,
+        error: String?,
+    ): Boolean {
+        if (countNewerPending(coalesceKey, id) > 0) {
+            deleteById(id)
+            return true
+        }
+        recordFailure(id, nowMs, nextAttemptAtMs, error)
+        return false
+    }
+
+    /**
+     * Drop in-flight rows (for one scope) the app was sending when it died, if a
+     * newer pending op for the same key already supersedes them — sending the
+     * stale value after the newer intent would corrupt state. Scoped so a drain
+     * never touches another server/profile's rows.
+     */
+    @Query(
+        "DELETE FROM dirty_operations WHERE state = '${DirtyOperationEntity.STATE_IN_FLIGHT}' " +
+            "AND serverId = :serverId AND profileId = :profileId " +
+            "AND EXISTS (SELECT 1 FROM dirty_operations newer " +
+            "WHERE newer.coalesceKey = dirty_operations.coalesceKey " +
+            "AND newer.serverId = dirty_operations.serverId AND newer.profileId = dirty_operations.profileId " +
+            "AND newer.state = '${DirtyOperationEntity.STATE_PENDING}' AND newer.id > dirty_operations.id)",
+    )
+    suspend fun deleteSupersededInFlight(serverId: String, profileId: String)
+
+    /** Return remaining crash-stranded in-flight rows (for one scope) to pending. */
+    @Query(
+        "UPDATE dirty_operations SET state = '${DirtyOperationEntity.STATE_PENDING}' " +
+            "WHERE state = '${DirtyOperationEntity.STATE_IN_FLIGHT}' " +
+            "AND serverId = :serverId AND profileId = :profileId",
+    )
+    suspend fun resetInFlightToPending(serverId: String, profileId: String)
 
     @Query(
         "UPDATE dirty_operations SET " +
@@ -57,6 +129,12 @@ interface DirtyOperationDao {
 
     @Query("DELETE FROM dirty_operations WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query(
+        "SELECT COUNT(*) FROM dirty_operations " +
+            "WHERE serverId = :serverId AND profileId = :profileId",
+    )
+    suspend fun countForScope(serverId: String, profileId: String): Int
 
     @Query("SELECT COUNT(*) FROM dirty_operations")
     suspend fun count(): Int

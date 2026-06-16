@@ -718,3 +718,43 @@ Codex reviewed the diff read-only. Verdict: faithful to the converged design (re
 Confirmed non-issues: `resolve()` interleaving sound for pending rows (a coalesced-away opId resolve is a harmless no-op); `db.withTransaction` + suspend DAOs fine (nested `@Transaction` is redundant but harmless); Koin lazy-singleton DI order fine; `favorite = 1` on nullable Boolean fine.
 
 Deferred (not Task 4): (1) `DirtyOperationDao.recordFailure` can move an old in_flight row back to pending after a newer op exists — fix before Task 5 drain wiring. (2) `OutboxOperation` helper keys are still profile-only — fix before any producer is wired through those helpers (this Room producer already uses serverId-scoped keys). (3) `ContentItemStateEntity.ratingValue` uses null for both "unknown" and "cleared" — the local-read slice will need field-level known/updated metadata.
+
+## Track B Task 5 — converged design (Claude↔Codex, 2026-06-16)
+
+Outbox drain: `SyncEngine` (android-shared) + `SyncWorker` (CoroutineWorker) replay `dirty_operations` to the server via **raw `PersonalDataApi`** (NOT `PersonalDataRepository` — it re-enters the port → re-enqueue loop). Converged points:
+
+- **Scoped drain (Codex):** `dueBatch(serverId, profileId, now, limit)` — the shared Ktor client binds relative `/api` calls to the *current* server/profile (`AuthInterceptorImpl.kt:47/73`), so only current-scope rows may drain. Never replay old-profile rows through the current profile.
+- **Atomic claim (Codex):** `claim(id)` = `UPDATE … SET state='in_flight' WHERE id=:id AND state='pending'` returning affected count; the engine sends only when count==1. Survives process boundaries; better than an app Mutex. `enqueueUniqueWork(KEEP)` is backpressure, not a lock.
+- **Both reclaim + failure-supersede (Codex walked the interleaving):** at drain start, `deleteSupersededInFlight()` (drop in_flight rows that a newer pending row with the same coalesceKey supersedes) then `resetInFlightToPending()` (reclaim the rest — app died mid-send). On live RETRIABLE failure, if a newer pending op with the same key exists, drop the older instead of `recordFailure`. Reclaim handles crash-stranded rows; failure-supersede handles live-fail-after-newer.
+- **No cap-drop (Codex):** drop only terminal 4xx, unknown op kinds, bad payloads, and superseded rows. Network/401/408/429/5xx keep the row with capped exponential backoff (no data loss).
+- **Trigger from `resolve(RETRIABLE)` (Codex):** calling from `record()` races the inline API call → double-send while online. Inject a no-op-default `OutboxSyncScheduler` into `RoomUserItemStateRepository`; the real one enqueues `SyncWorker`. Add an `OutboxSyncStarter` (foreground + connectivity) to BOTH apps (`ProgressSyncStarter` is phone-only + audiobook/ebook-specific; TV also performs these mutations).
+- **WorkManager wiring:** `SyncWorker` added to BOTH hand-rolled factories (`AppWorkerFactory`/`TvWorkerFactory`); the Koin `worker{}` DSL is dead-at-runtime (corrected comment). `NetworkType.CONNECTED` + exponential backoff; `Result.retry()` while retriable rows remain.
+- **Classifier:** extract `toWriteOutcome` to commonMain (public, shared by repo + engine).
+- **Scope:** only currently-produced kinds (watched/favorite/rating). SET_POSITION replay is a later slice; the engine drops unknown kinds explicitly. Downloads stay download-worker-owned. Idempotency is best-effort (APIs take no key); final-state ops are naturally idempotent — ordering correctness comes from scoped drain + atomic claim + reclaim/failure-supersede.
+
+### Track B Task 5 — scope-pinning resolution (Claude↔Codex↔user, 2026-06-16)
+
+Codex's round-2/3 review correctly escalated the mid-drain server-switch hole, including the A→B→A case (value-equality post-send check passes, so a wrong-scope 404→TERMINAL could still delete A's op = data loss). Codex's full fix is network-layer per-request auth scope pinning (scoped token reads + per-call pin honored by `ContinuumAuthPlugin` + refresh-by-scope).
+
+**Decision (user chose, after Claude argued the tradeoff):** the full auth pin refactors security-sensitive code every request flows through — disproportionate/riskier than the sub-ms multi-server-switch edge it fixes. So Task 5 ships the **proportionate fix** that fully closes DATA LOSS, and the full pin is a tracked follow-up.
+
+**Proportionate fix (implemented):**
+- `ScopeGenerationTracker` — monotonic counter bumped on every active-server switch (observes `ServerRegistry.activeServerId`). The engine captures the generation before each send and compares after; a bump means a switch occurred *during* the send even if the value was restored (A→B→A). On a bump OR a current-scope mismatch, the op is **kept (or superseded), never acked**, and the pass aborts. Test `generationBumpDuringSendKeepsOpEvenWhenScopeValueRestored`.
+- Tainted-branch now routes through `keepOrSupersede` (Codex note: don't resurrect a stale op when a newer pending one exists).
+- `deleteSupersededInFlight` EXISTS subquery now also matches `serverId`/`profileId` (Codex hardening).
+
+**Residual (accepted, follow-up filed):** a single idempotent wrong-server request (≈404 no-op) can still go out in the sub-ms window — no DB corruption, no lost op. Eliminated only by per-request auth scope pinning.
+
+### FOLLOW-UP TASK — "Scoped API requests (per-request auth scope pinning)"
+Network-layer capability so a single API call can be pinned to a captured `(serverId, profileId, serverUrl, accessToken, refreshToken, profileToken)` instead of resolving global current state. Codex's minimal design: `AuthScopeSnapshot` + `TokenManager.snapshotForScope()`/scoped token read+write; Ktor `AttributeKey<AuthScopeSnapshot>` + `HttpRequestBuilder.authScope(snapshot)`; `ContinuumAuthPlugin` uses only the snapshot when present (URL/bearer/profile), refreshes against `snapshot.serverUrl` with the scoped refresh token, saves back to `snapshot.serverId`, and does NOT invalidate the active UI session for a non-active pinned scope; `SyncEngine` captures the snapshot before sending and threads it through `PersonalDataApi`. Eliminates the Task 5 residual wrong-write and unlocks future multi-scope background work.
+
+### Track B Task 5 — SUPERSEDES the proportionate-fix note above (2026-06-16)
+
+The user reviewed the corrected tradeoff and chose **build the full network-layer auth scope pin now**. So the `ScopeGenerationTracker` / proportionate-fix described earlier was DELETED and replaced by per-request scope pinning. Current state:
+
+- `AuthScopeSnapshot(serverId, profileId, serverUrl, profileToken)` + Ktor `authScope()` pin attribute. `ContinuumAuthPlugin` honors a pinned request: rewrites URL to the snapshot's server, sets the live per-server access token (`getAccessTokenForScope`), and the frozen profile id/token; 401 refreshes against the snapshot's scope (`getRefreshTokenForScope` → `saveTokensForScope`) WITHOUT invalidating the active UI session. Global (unpinned) path unchanged.
+- `TokenManager` gains `snapshotCurrentScope` / `getAccessTokenForScope` / `getRefreshTokenForScope` / `saveTokensForScope` (default impls keep fakes + in-memory `TokenManagerImpl` compiling; `EncryptedTokenManagerImpl` overrides). `snapshotCurrentScope` returns null unless the serverId resolves to a non-blank URL in `registry.entries` (no `activeEntry` fallback).
+- BOTH paths pinned: the background `SyncEngine` pins every replayed send to the captured snapshot; the inline `PersonalDataRepository` mutation pins its call to the snapshot the `UserItemStatePort` captured at record time (carried on `OutboxHandle.scope`). `RoomUserItemStateRepository` captures ONE atomic `snapshotCurrentScope()` for the projection row + outbox row + inline-send pin. NoOp port → null scope → unpinned (single-server unchanged).
+- Liveness: `OutboxSyncStarter` enqueues on launch + connectivity + active-server change; `SyncEngine` computes `remaining` from a re-snapshot of the CURRENTLY-active scope at drain end, so a `KEEP`-dropped activation enqueue can't strand a scope. `DirtyOperationDao.supersedeOrRecordFailure` is one `@Transaction`.
+
+The "Scoped API requests" follow-up task above is now DONE (folded into Task 5). The only known limitation: while a retry chain backs off, `KEEP` can briefly defer an immediately-due op until the chain's next tick — latency only, never data loss.
