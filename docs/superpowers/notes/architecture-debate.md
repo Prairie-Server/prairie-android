@@ -503,3 +503,194 @@ old offline resolver path available until the Room projection proves equivalent
 5. Biggest risk / single fix:
 - Biggest correctness risk: Task 4/5 can build Room/outbox code that no real app path uses, then drain ops against APIs that cannot represent them.
 - Single most important fix: rewrite Task 4/5 before implementation so migrated consumers depend on explicit shared ports, Room-backed Android implementations are bound at `androidModule` / `androidTvModule`, and the outbox is limited to server-supported ops: `SET_POSITION` via `PersonalDataApi.syncProgress`, watched, rating, and favorite. Track selection stays local-only until the server has a real projection API.
+
+## Track B Task 1 - Codex (2026-06-16)
+
+**Build-infra verdict:** use KSP `2.1.20-2.0.1` and Room `2.8.4`.
+`android-shared` is KMP with `androidTarget` and Android-only source sets
+(`android-shared/build.gradle.kts:1`, `android-shared/build.gradle.kts:9`,
+`android-shared/build.gradle.kts:18`), while the catalog currently has no KSP or
+Room aliases (`gradle/libs.versions.toml:93`). The KSP release tag for Kotlin
+`2.1.20` is exactly `2.1.20-2.0.1`
+(`https://github.com/google/ksp/releases/tag/2.1.20-2.0.1`:177,199-201).
+KSP's KMP docs say to use per-target configurations such as
+`add("ksp<Target>", ...)`, and to avoid plain `ksp(...)` for multiplatform
+projects (`https://kotlinlang.org/docs/ksp-multiplatform.html`:5,11-17).
+Room `2.7.0` made Room a KMP library and recommends KSP2 for Kotlin 2.0+
+(`https://developer.android.com/jetpack/androidx/releases/room`:856-860);
+the current Room dependency examples use `2.8.4`
+(`https://developer.android.com/jetpack/androidx/releases/room`:548-555).
+
+Copy-paste catalog delta:
+
+```toml
+[versions]
+ksp = "2.1.20-2.0.1"
+room = "2.8.4"
+androidx-test-core = "1.6.1"
+
+[libraries]
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
+androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
+androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
+androidx-test-core = { module = "androidx.test:core-ktx", version.ref = "androidx-test-core" }
+
+[plugins]
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+androidx-room = { id = "androidx.room", version.ref = "room" }
+```
+
+Copy-paste `android-shared/build.gradle.kts` shape:
+
+```kotlin
+plugins {
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.androidx.room)
+}
+
+kotlin {
+    androidTarget {
+        compilations.all {
+            kotlinOptions {
+                jvmTarget = "21"
+            }
+        }
+    }
+
+    sourceSets {
+        androidMain.dependencies {
+            implementation(libs.androidx.room.runtime)
+            implementation(libs.androidx.room.ktx)
+        }
+
+        androidUnitTest.dependencies {
+            implementation(libs.androidx.test.core)
+            implementation(libs.robolectric)
+        }
+    }
+}
+
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
+dependencies {
+    add("kspAndroid", libs.androidx.room.compiler)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+}
+```
+
+The important difference from findroid: `findroid/data` is a pure Android
+library, so it applies KSP directly (`/Users/jimcole/source/findroid/data/build.gradle.kts:1-4`),
+passes raw Room KSP args in `defaultConfig`
+(`/Users/jimcole/source/findroid/data/build.gradle.kts:20-23`), and uses
+`ksp(libs.androidx.room.compiler)`
+(`/Users/jimcole/source/findroid/data/build.gradle.kts:39-43`).
+In `android-shared`, do **not** copy that dependency line. Use
+`add("kspAndroid", libs.androidx.room.compiler)` because the module is
+multiplatform. The Room Gradle plugin is not required for Room to compile, but it
+is preferred for schemas: official docs say Room 2.6+ can use
+`room { schemaDirectory(...) }`, while raw `room.schemaLocation` should be wired
+through a Gradle-aware argument provider for correctness
+(`https://developer.android.com/training/data-storage/room/migrating-db-versions`:581-602,636-641).
+So prefer `alias(libs.plugins.androidx.room)` plus `room { schemaDirectory(...) }`
+over findroid-style raw KSP args. Keep `@Database(exportSchema = true)`, commit
+`android-shared/schemas`, and add `android.sourceSets["androidUnitTest"].assets`
+only when migration tests start using `room-testing`.
+
+**Task-1 schema review:** the proposed four entities are a good minimal start,
+but they are not yet a complete offline-first projection/outbox.
+
+- `UserItemStateEntity` must include `serverId` in identity. Silo's legacy stores
+  scope state by `(serverId, profileId, contentId)`
+  (`android-shared/src/androidMain/kotlin/com/continuum/app/common/store/ScopedJsonFileStore.kt:24-29`),
+  and downloads are scoped the same way
+  (`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:138-140`).
+  Use
+  primary key `["serverId", "profileId", "contentId", "fileId"]` for file-level
+  progress/track/CFI rows. If watched/rating/favorite stay in this table, define
+  the content-level semantics now: those APIs are keyed only by item id
+  (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:35-40`,
+  `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:102-110`,
+  `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:115-122`),
+  so a multi-file content item must not emit
+  duplicate/conflicting ops per file. Add indices for `serverId/profileId/contentId`
+  and resume scans by `serverId/profileId/clientUpdatedAtMs`.
+- `DirtyOperationEntity` needs durable replay metadata, not just payload JSON.
+  Add `serverId`, `profileId`, `targetContentId`, nullable `targetFileId`,
+  `idempotencyKey`, `opVersion`, `lastAttemptAtMs`, `nextAttemptAtMs`,
+  `lastError`, and a pending/in-flight state or keep pending-only with explicit
+  retry columns. Add a unique index on `idempotencyKey`, an index on
+  `coalesceKey`, and a drain index on `nextAttemptAtMs, id`. Projection write
+  plus outbox insert must happen in one Room transaction; Voice's repository
+  layer does multi-DAO work through a database transaction
+  (`/Users/jimcole/source/Voice/core/data/api/src/main/kotlin/voice/core/data/repo/internals/RoomTransaction.kt:9-25`).
+- `DownloadEntity` needs enough sidecar data to render and play offline. The plan
+  captures title/poster/file/status, but the current sidecar also carries
+  subtitle, poster thumbhash, year, series/season/episode metadata, overview,
+  author, narrator, duration, chapters, and `updatedAtMs`
+  (`shared/src/commonMain/kotlin/com/continuum/app/model/download/DownloadSidecar.kt:26-66`).
+  Store `record.contentId`, `fileSize`, `bytesSent`,
+  `kind`, `createdAt`, and `completedAt` from `DownloadRecord`
+  (`shared/src/commonMain/kotlin/com/continuum/app/model/download/DownloadModels.kt:16-28`).
+  If chapters are stored as a list, add a
+  `@TypeConverters`; simpler for Task 1 is `chaptersJson: String?`.
+  Add indices for `(serverId, profileId, status)`, `(serverId, profileId, contentId)`,
+  and unique `recordId`.
+- `LegacyImportEntity` is directionally right, but make it diagnostic enough for
+  repeatable imports: `sourceKind`, `sourcePath`, `sourceHash`, `sourceMtimeMs`,
+  `importedAtMs`, `importVersion`, `status`, and nullable `error`. Use a unique
+  index on `(sourceKind, sourcePath)` rather than assuming every path namespace is
+  globally stable.
+- `SiloDatabase` needs `@TypeConverters` only if entities use non-primitive Room
+  fields. Strings, numbers, booleans, and JSON strings need no converter. Findroid
+  needs converters because it persists UUIDs, SDK DateTime, and chapter lists
+  (`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/database/Converters.kt:11-40`);
+  Voice needs converters for `Instant`, `Uri`, `File`, UUID wrappers, and lists
+  (`/Users/jimcole/source/Voice/core/data/impl/src/main/kotlin/voice/core/data/repo/internals/Converters.kt:16-81`).
+
+DAOs should be wider than the plan's smoke-test methods. `UserItemStateDao` needs
+scoped reads by content and resume/progress scans, not just exact file lookup.
+`DirtyOperationDao` needs transactional enqueue/coalesce, due-batch selection,
+attempt bookkeeping, and delete-on-ack. `DownloadDao` needs `get(serverId,
+profileId, mediaFileId)`, `getByContent(...)`, `getAll(serverId, profileId)`,
+status scans, and scoped deletes. `LegacyImportDao` needs upsert and lookup by
+kind/path/hash/mtime.
+
+Reference comparison: findroid stores a Room user-data snapshot with a single
+`toBeSynced` dirty flag
+(`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/models/FindroidUserDataDto.kt:6-14`),
+local offline writes set that flag after updating position/favorite/played
+(`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/repository/JellyfinRepositoryOfflineImpl.kt:239-295`),
+and `SyncWorker` later posts the snapshot and clears the flag
+(`/Users/jimcole/source/findroid/core/src/main/java/dev/jdtech/jellyfin/work/SyncWorker.kt:72-93`).
+That is useful precedent for local-first projection, but
+Silo needs a typed operation outbox because Silo has independent server commands
+for progress, watched, favorite, and rating, most returning `Unit`
+(`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:85-89`,
+`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:102-110`,
+`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:115-122`).
+Voice is the better precedent for schema hygiene:
+it exports schemas, keeps explicit auto migrations on the database
+(`/Users/jimcole/source/Voice/core/data/impl/src/main/kotlin/voice/core/data/repo/internals/AppDb.kt:18-38`),
+and validates migrations with `MigrationTestHelper`
+(`/Users/jimcole/source/Voice/core/data/impl/src/test/kotlin/voice/core/data/repo/internals/internals/DataBaseMigratorTest.kt:26-46`).
+For Silo Task 1, ship version 1 with no
+auto migrations; after schema v1 is committed, use auto migrations only for
+simple additive/rename cases and manual migrations for any data transform.
+
+### Track B Task 1 — Codex review verdict (2026-06-16)
+
+Claude implemented the Room foundation to the richer schema above; build + Robolectric DAO test pass (KSP ran, `copyRoomSchemas` exported `schemas/.../1.json`, 9 tests green). Codex reviewed the uncommitted diff read-only.
+
+**Verdict: good to commit. No must-fix in the schema/DAO foundation.** Confirmed: `user_item_state` PK/indices correct; dirty-ops unique `idempotencyKey` + `coalesceKey` + drain `(nextAttemptAtMs,id)`; downloads status/content indices + unique `recordId`; legacy unique `(sourceKind,sourcePath)`; `enqueueCoalescing` delete+insert is atomic (Room wraps the `@Transaction suspend` fn in `performInTransactionSuspending`); `exportSchema=true` / v1 / no converters correct; `1.json` matches annotations.
+
+**Two nice-to-haves deferred to Task 5 (drain-loop + producer wiring), NOT Task 1:**
+1. `DirtyOperationDao.recordFailure` can resurrect an older in-flight op after a newer pending op with the same `coalesceKey` was queued. When wiring the drain loop, on failure drop the failed older row if a newer pending row exists for that key (or fold coalescing into the failure path).
+2. `OutboxOperation` coalesce keys omit `serverId`, but `enqueueCoalescing` deletes by bare `coalesceKey`. When wiring the producer → `DirtyOperationEntity`, make the coalesce key globally scoped (prefix `serverId|profileId`) OR change the DAO delete to also filter `serverId/profileId`. Pick one and enforce it in the producer.

@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.androidx.room)
 }
 
 kotlin {
@@ -73,6 +75,12 @@ kotlin {
             // WorkManager — used by DownloadWorker. Phone app installs the
             // KoinWorkerFactory; TV app does the same for its own workers.
             implementation(libs.androidx.work.runtime.ktx)
+
+            // Room — offline-first persistence (Track B). The KSP compiler is
+            // wired below via the kspAndroid configuration; the Room Gradle
+            // plugin (applied above) drives schema export to $projectDir/schemas.
+            implementation(libs.androidx.room.runtime)
+            implementation(libs.androidx.room.ktx)
         }
 
         // First tests in this module — JUnit 4 via kotlin-test-junit, which
@@ -85,6 +93,13 @@ kotlin {
             implementation(kotlin("test"))
             implementation(kotlin("test-junit"))
             implementation(libs.kotlinx.coroutines.test)
+
+            // Room DAO tests run under Robolectric — Room's in-memory builder
+            // needs a real android.content.Context (ApplicationProvider) and a
+            // SQLite implementation, neither of which the default unit-test
+            // stubs provide. androidx-test-core supplies ApplicationProvider.
+            implementation(libs.androidx.test.core)
+            implementation(libs.robolectric)
         }
     }
 }
@@ -121,6 +136,17 @@ android {
     }
 }
 
+// Room schema export — the generated JSON schemas are committed under
+// android-shared/schemas/ and are the source of truth for migration tests.
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+
+    // Room annotation processor. KSP for the KMP androidTarget is configured
+    // through the kspAndroid configuration (not plain `ksp(...)`); the plain
+    // accessor isn't created for multiplatform modules.
+    add("kspAndroid", libs.androidx.room.compiler)
 }

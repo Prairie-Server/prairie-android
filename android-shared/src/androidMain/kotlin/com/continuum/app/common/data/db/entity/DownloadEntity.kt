@@ -1,0 +1,66 @@
+package com.continuum.app.common.data.db.entity
+
+import androidx.room.Entity
+import androidx.room.Index
+
+/**
+ * Room projection of a [com.continuum.app.model.download.DownloadSidecar]
+ * (server [com.continuum.app.model.download.DownloadRecord] + the catalog
+ * metadata needed to render and play a download offline).
+ *
+ * Identity is `(serverId, profileId, mediaFileId)` to match how downloads are
+ * scoped on disk today (`DownloadStorage`). [recordId] (the server record id)
+ * is kept uniquely indexed so server-driven reconciliation can look a row up
+ * by record without re-deriving the scope.
+ *
+ * Field set mirrors the sidecar so the Downloads tab and offline player need
+ * no network round-trip: title/poster/thumbhash, series/season/episode,
+ * overview/author/narrator, duration, and chapters (stored as
+ * [chaptersJson] — a serialized `List<VersionChapter>` — to avoid a TypeConverter
+ * in schema v1). Byte/progress and lifecycle fields (`fileSize`, `bytesSent`,
+ * `kind`, `createdAt`, `completedAt`) come from the record.
+ */
+@Entity(
+    tableName = "downloads",
+    primaryKeys = ["serverId", "profileId", "mediaFileId"],
+    indices = [
+        Index(value = ["serverId", "profileId", "status"]),
+        Index(value = ["serverId", "profileId", "contentId"]),
+        Index(value = ["recordId"], unique = true),
+    ],
+)
+data class DownloadEntity(
+    val serverId: String,
+    val profileId: String,
+    val mediaFileId: Int,
+    val recordId: String,
+    val contentId: String,
+    val title: String,
+    val subtitle: String?,
+    val posterUrl: String?,
+    val posterThumbhash: String?,
+    val year: Int?,
+    val seriesTitle: String?,
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+    val fileName: String?,
+    val container: String?,
+    val localUri: String?,
+    val mediaType: String,
+    val overview: String?,
+    val author: String?,
+    val narrator: String?,
+    val durationSeconds: Double?,
+    /** Serialized `List<VersionChapter>`; null/absent for non-chaptered media. */
+    val chaptersJson: String?,
+    // Mirror DownloadStatus wire values (lowercase): queued/downloading/completed/
+    // failed/cancelled (DownloadModels.kt); plus a local-only "stale" for imported
+    // rows whose bytes are missing (Task 6).
+    val status: String,
+    val kind: String,
+    val fileSize: Long,
+    val bytesSent: Long,
+    val createdAt: String,
+    val completedAt: String?,
+    val updatedAtMs: Long,
+)
