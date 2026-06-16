@@ -43,7 +43,11 @@
 - Modify: `android-shared/build.gradle.kts` (Room + KSP)
 - Test: `android-shared/src/androidUnitTest/.../data/db/SiloDatabaseDaoTest.kt`
 
-- [ ] **Step 1: Add Room + KSP to `android-shared/build.gradle.kts`** — apply the KSP plugin, add `androidx.room:room-runtime`, `room-ktx`, and `ksp(androidx.room:room-compiler)` (use the version catalog; add entries to `gradle/libs.versions.toml` if absent). Room schema export dir `room.schemaLocation` under `android-shared/schemas`.
+- [ ] **Step 1: Add Room + KSP to `android-shared/build.gradle.kts`** (per Codex review — KMP-specific):
+  - Add KSP + Room aliases to `gradle/libs.versions.toml` (none exist today).
+  - `android-shared` is a **KMP module with an `androidTarget`**, so use the **Android-target KSP configuration**, not generic `ksp(...)`: `dependencies { add("kspAndroid", libs.androidx.room.compiler) }`. Add `room-runtime` + `room-ktx` to the `androidMain` source-set deps.
+  - Room schema export dir `room.schemaLocation` → `android-shared/schemas`.
+  - The DAO test needs Robolectric: add `robolectric` + `androidx.test.core` (for `ApplicationProvider`) to the `androidUnitTest` source-set deps (currently only kotlin-test/JUnit/coroutines-test).
 
 - [ ] **Step 2: Write the failing DAO test** (Robolectric + in-memory DB)
 
@@ -156,7 +160,10 @@ data class DownloadEntity(
     val container: String?,
     val mediaType: String,
     val localUri: String?,
-    val status: String,       // QUEUED, RUNNING, COMPLETE, STALE, FAILED
+    // Mirror DownloadStatus wire values (lowercase): queued/downloading/completed/
+    // failed/cancelled (see model/download/DownloadModels.kt:59); plus a local-only
+    // "stale" for imported rows whose bytes are missing (Task 6).
+    val status: String,
     val updatedAtMs: Long,
 )
 ```
@@ -296,7 +303,9 @@ class OutboxOperationTest {
 Run: `./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.data.sync.OutboxOperationTest"`
 Expected: FAIL — `OutboxOperation` does not exist.
 
-- [ ] **Step 3: Implement the pure op model** — a sealed/factory model producing `kind`, `coalesceKey`, and a serializable `payloadJson` (kotlinx.serialization) for each op: `SET_POSITION`, `SET_WATCHED`, `SET_RATING`, `SET_FAVORITE`, `SET_TRACK_SELECTION`, `SET_CFI`. Factory functions as in the test; `coalesceKey` = `"$profileId|$contentId[|$fileId]|$KIND"`.
+- [ ] **Step 3: Implement the pure op model** — a sealed/factory model producing `kind`, `coalesceKey`, and a serializable `payloadJson` (kotlinx.serialization). **Outbox is limited to the four server-supported ops** (per Codex review): `SET_POSITION`, `SET_WATCHED`, `SET_RATING`, `SET_FAVORITE`. Factory functions as in the test; `coalesceKey` = `"$profileId|$contentId[|$fileId]|$KIND"`.
+  - **`SET_TRACK_SELECTION` is NOT in the outbox** — no server API persists track preference (`changeAudio` needs a live session; subtitle choice has no API). Track selection is stored in the Room projection **local-only** until a server projection API exists (defer to a server PR / later phase).
+  - **CFI / ebook progress is NOT in this outbox** — it already round-trips via the existing `EbookProgressSyncer` + ebook progress endpoint; Track B does not duplicate it. (Reading lives in Phase 4.)
 
 - [ ] **Step 4: Run to verify it passes; commit**
 
@@ -379,22 +388,28 @@ git commit -m "Sync: per-field conflict policy (LWW + furthest-monotonic)"
 - Create test: `android-shared/src/androidUnitTest/.../data/repository/RoomUserItemStateRepositoryTest.kt`
 - Modify: `shared/.../di/RepositoryModule.kt` and the Android DI module (Koin override)
 
-- [ ] **Step 1: Write the failing test** (Robolectric + in-memory DB + a fake API)
+**DI reality (per Codex review):** `RepositoryModule` binds **final** concrete repos (`PersonalDataRepository`, `PlaybackRepository`, `DownloadsRepository`) in `commonMain`, and consumers depend on those concrete classes — so a same-key Koin rebind cannot intercept them. The strangler therefore introduces an explicit **port** and **repoints the migrated consumers at the port**, with the Room-backed impl bound in the **platform module loaded after `sharedModules()`**: `androidModule` (`ContinuumApplication`) and `androidTvModule` (`ContinuumTvApplication`) — the documented load-order override point (see the `TokenManager` override in `AndroidModule.kt:90`). Not `RepositoryModule`.
+
+- [ ] **Step 1: Write the failing test** (Robolectric + in-memory DB + a fake `PersonalDataApi`)
 
 Test that `setPosition` writes the Room projection row **and** enqueues a `SET_POSITION` outbox op (optimistic local-first), reading both back via the DAOs.
 
 ```kotlin
 @Test fun setPositionWritesProjectionAndOutbox() = runTest {
-    repo.setPosition(profileId = "p1", contentId = "c1", fileId = 7, positionSeconds = 90.0, atMs = 1000L)
+    repo.setPosition(profileId = "p1", contentId = "c1", fileId = 7, positionSeconds = 90.0, durationSeconds = 3600.0, atMs = 1000L)
     assertEquals(90.0, userItemStateDao.get("p1", "c1", 7)?.positionSeconds)
     assertEquals(1, dirtyOperationDao.nextBatch(10).count { it.opKind == "SET_POSITION" })
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**, then **Step 3: implement** `UserItemStatePort` (interface with `observeResume(...)`, `setPosition`, `setWatched`, `setRating`, `setFavorite`, `setTrackSelection`) and `RoomUserItemStateRepository` writing projection + outbox in one transaction (coalescing older ops via `DirtyOperationDao.coalesceOlderThan`). **Step 4:** bind it in DI, overriding the network-only `PersonalDataRepository`/resume path **for this slice only** (leave other repos untouched). Run tests green. **Step 5: commit.**
+- [ ] **Step 2: Run to verify it fails**, then **Step 3: implement** `UserItemStatePort` (interface in `shared/commonMain`: `observeResume(...)`, `setPosition`, `setWatched`, `setRating`, `setFavorite` — **no `setTrackSelection` in the synced port; track selection is a local-only projection write**) and `RoomUserItemStateRepository` (android-shared) writing projection + outbox in one transaction (coalescing older ops via `DirtyOperationDao.coalesceOlderThan`).
+
+- [ ] **Step 4: Repoint consumers + bind in the platform module.** Because the concrete repos are final, change the **resume/user-state consumers** (the ViewModels/use cases that today call `PersonalDataRepository`/`PlaybackRepository` for these paths) to depend on `UserItemStatePort`, and bind `RoomUserItemStateRepository` as the port in `androidModule` **and** `androidTvModule` (after `sharedModules()`). Limit the repointing to this slice; leave the other repositories' consumers untouched. Run tests green.
+
+- [ ] **Step 5: commit.**
 
 ```bash
-git commit -m "Strangler: Room-backed UserItemState port (optimistic local-first + outbox)"
+git commit -m "Strangler: Room-backed UserItemState port (optimistic local-first + outbox), bound in platform module"
 ```
 
 ---
@@ -405,9 +420,18 @@ git commit -m "Strangler: Room-backed UserItemState port (optimistic local-first
 - Create: `android-shared/.../data/sync/SyncEngine.kt` (+ test with a fake API)
 - Create: `android-shared/.../data/sync/SyncWorker.kt` (WorkManager, mirrors `DownloadWorker` patterns)
 
-- [ ] **Step 1: Write the failing test** — given outbox ops, `SyncEngine.drain()` sends each via the API in order, applies `ConflictPolicy` to the returned server state, updates `serverUpdatedAtMs`, and deletes acked ops; on send failure, increments `attemptCount` and stops (retry later). Use a fake API.
+**Sync reality (per Codex review):** today's mutation APIs return `Unit` (no server state on ack), and there is **no per-field `updated_at`** (only item-level progress `updatedAt` and rating `rated_at`). So `drain()` **cannot** conflict-resolve on the mutation ack. The implementable model is: **send op → on success, delete the op; conflict resolution happens on the READ/refresh path**, where a server GET (`listProgress`) is reconciled with local via `ConflictPolicy` using the timestamps that exist (progress `updatedAt`; furthest-position for resume). The op→API mapping uses the real method names:
 
-- [ ] **Step 2–3:** Run-fail, then implement `SyncEngine.drain()` (batch from `DirtyOperationDao.nextBatch`, map op→API call against `PersonalDataApi`/`PlaybackApi`, resolve conflict, persist, delete). **Graceful degrade:** if the server returns no per-field `updated_at`, treat server projection as authoritative after ack and **log a conflict line** (observability). **Step 4:** wrap in `SyncWorker` scheduled on connectivity (WorkManager constraints) and after each optimistic write. **Step 5:** run tests; commit.
+| Op | Server call |
+|---|---|
+| `SET_POSITION` | `PersonalDataApi.syncProgress(SyncProgressRequest([SyncProgressItem(mediaItemId, position, duration, forceOverwrite)]))` — **not** `PlaybackApi.updateProgress`, which needs a live `sessionId` and can't drain a restarted offline outbox |
+| `SET_WATCHED` | `markWatched(itemId)` / `markUnwatched(itemId)` |
+| `SET_RATING` | `setRating(itemId, value)` / `deleteRating(itemId)` |
+| `SET_FAVORITE` | `addFavorite(itemId)` / `removeFavorite(itemId)` |
+
+- [ ] **Step 1: Write the failing test** — given outbox ops, `SyncEngine.drain()` maps each to the correct API call (above) in order, deletes acked ops; on send failure, increments `attemptCount` and stops (retry later). Use a fake `PersonalDataApi`. Assert `SET_POSITION` routes to `syncProgress` (not a session call).
+
+- [ ] **Step 2–3:** Run-fail, then implement `SyncEngine.drain()` (batch from `DirtyOperationDao.nextBatch`, map op→`PersonalDataApi` call per the table, delete on ack). **Graceful degrade:** mutations return `Unit`, so after ack, a follow-up `listProgress` refresh reconciles the projection — `ConflictPolicy.localWins`/`furthest` applied on that read using progress `updatedAt`; watched/favorite (no timestamp) trust the server projection after ack; **log a conflict line** when local and server disagree (observability). **Step 4:** wrap in `SyncWorker` scheduled on connectivity (WorkManager constraints) and after each optimistic write. **Step 5:** run tests; commit.
 
 ```bash
 git commit -m "Sync engine + worker: drain outbox, resolve conflicts, refresh projection"
@@ -421,9 +445,11 @@ git commit -m "Sync engine + worker: drain outbox, resolve conflicts, refresh pr
 - Create: `android-shared/.../data/migration/LegacyImporter.kt` (+ test)
 - Modify: download enqueue/worker/delete paths for dual-write (`DownloadEnqueuer.kt`, `DownloadWorker.kt`, `DownloadsViewModel.kt`)
 
-- [ ] **Step 1: Write the failing test** — given fake sidecars (via `DownloadStorage.listAllSidecarsWithScope()` shape) and scoped-JSON progress (`EbookLocalStateStore.listAllProgress()`, `AudiobookPositionStore.listAll()`), `LegacyImporter.run()` upserts Room rows keyed by scope, records `legacy_imports`, is **idempotent** (second run inserts nothing new), validates bytes (missing → status `STALE`, not deleted), and creates outbox rows for local state newer than the last server projection.
+**Exact symbols (per Codex review):** `DownloadStorage.listAllSidecarsWithScope(): List<Triple<String, String, DownloadSidecar>>` (the two strings are `serverId`, `profileId`). Download fields live under **`sidecar.record.*`** (`record: DownloadRecord` with `id`, `contentId`, `mediaFileId`, `fileSize`, `bytesSent`, `status`); `sidecar.fileName` is **nullable**. Status is the `DownloadStatus` enum, wire values **lowercase** (`queued/downloading/completed/failed/cancelled`). `EbookLocalStateStore.listAllProgress(): List<ProgressEntry>` with a **nested** `snapshot: ProgressSnapshot`; `AudiobookPositionStore.listAll(): List<Entry>` with a **nested** `Snapshot`.
 
-- [ ] **Step 2–3:** Run-fail, then implement `LegacyImporter`: read sidecars (`DownloadStorage`), scoped JSON (`EbookLocalStateStore`/`AudiobookPositionStore`; add import-only walkers for ebook + audiobook **bookmarks** which lack global enumerators), map to entities (reuse `DownloadSidecar` fields, `ProgressSnapshot`), validate via `DownloadStorage.locateLocalMedia`/`exists`, write `LegacyImportEntity` (path+hash+mtime) so reruns skip unchanged. **Never delete legacy files.**
+- [ ] **Step 1: Write the failing test** — given fake `Triple(serverId, profileId, DownloadSidecar)` records and scoped-JSON `ProgressEntry`/`Entry` items, `LegacyImporter.run()` upserts Room rows keyed by `(serverId, profileId, record.mediaFileId)`, records `legacy_imports`, is **idempotent** (second run inserts nothing new), validates bytes (missing → status `"stale"`, not deleted), and creates outbox rows for local state newer than the last server projection.
+
+- [ ] **Step 2–3:** Run-fail, then implement `LegacyImporter`: read `listAllSidecarsWithScope()` (map `sidecar.record.*` + nullable `sidecar.fileName` → `DownloadEntity`), scoped JSON via `listAllProgress()`/`listAll()` (read the **nested** `snapshot`/`Snapshot`); add import-only walkers for ebook + audiobook **bookmarks** which lack global enumerators (`AudiobookBookmarksStore`/`EbookLocalStateStore` expose only scoped reads). Validate bytes via `DownloadStorage.locateLocalMedia`/`exists`. Write `LegacyImportEntity` (path+hash+mtime) so reruns skip unchanged. **Never delete legacy files.**
 
 - [ ] **Step 4: Dual-write + Room-first-read cutover** — Room-backed repos read Room first, fall back to legacy on miss and backfill in the same transaction; download enqueue/complete/fail/delete **write both** Room and the sidecar/JSON. Add a `// Track B dual-write` comment at each site.
 
@@ -450,9 +476,10 @@ git commit -m "Track B findings: offline round-trip + migration equivalence veri
 
 ---
 
-## Self-review notes
+## Self-review notes (revised per Codex Track B plan review)
 - Pure-logic deliverables (outbox coalescing, conflict policy) and Room DAO behavior (Robolectric in-memory) are full failing-test-first TDD.
-- Integration (strangler DI override, sync worker, dual-write, import) is implemented against the **existing** stores Codex identified (`DownloadStorage.listAllSidecarsWithScope`, `DownloadSidecar`, `EbookLocalStateStore`, `AudiobookPositionStore`, `EbookProgressSyncer`, `DownloadsViewModel` boot path) and proven by Task 7 device verification.
-- Scope is held to browse + resume + downloads + user-state (Codex's guard); other repositories stay network-first.
-- Server-contract risk (per-field `updated_at`/idempotency) is explicit with a graceful-degrade path; any server change goes via PR, not direct push.
-- Type consistency: scope key `(profileId, contentId, fileId)` and `coalesceKey` format are identical across entities, outbox, conflict policy, and repository.
+- **Corrections folded in from Codex's review** (all symbol claims verified against the tree): KSP uses the **`kspAndroid`** config (KMP module) + Robolectric/androidx-test-core added to `androidUnitTest`; DI override is in **`androidModule`/`androidTvModule`** after `sharedModules()` (not `RepositoryModule`), and because the concrete repos are **final**, migrated **consumers are repointed at `UserItemStatePort`** (a rebind alone can't intercept); the **outbox is limited to the four server-supported ops** (`SET_POSITION` via `syncProgress`, `SET_WATCHED`, `SET_RATING`, `SET_FAVORITE`); **`SET_TRACK_SELECTION` is local-only** (no server API) and **CFI stays with the existing `EbookProgressSyncer`**; sync resolves conflicts on the **read/refresh path** (mutations return `Unit`), using real method names and lowercase `DownloadStatus` wire values + `sidecar.record.*`.
+- Integration is implemented against the **existing** stores (`DownloadStorage.listAllSidecarsWithScope: List<Triple<String,String,DownloadSidecar>>`, `EbookLocalStateStore.listAllProgress: List<ProgressEntry>`, `AudiobookPositionStore.listAll: List<Entry>`, `EbookProgressSyncer`, `DownloadsViewModel` boot path) and proven by Task 7 device verification.
+- Scope held to browse + resume + downloads + user-state; other repositories stay network-first.
+- Server-contract risk (per-field `updated_at`/idempotency; no track-selection projection API) is explicit with a graceful-degrade path; any server change goes via PR, not direct push.
+- Type consistency: scope key `(profileId, contentId, fileId)` and `coalesceKey` format identical across entities, outbox, conflict policy, repository.

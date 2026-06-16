@@ -293,3 +293,213 @@ The fixtures cover baseline codecs, HDR10/DV, ASS/SSA, passthrough, transcode, a
 
 **4. Biggest risk and fix.**
 Biggest risk: the plan hardens pure selector logic while the real engine owner is still the MediaSession service, which always creates ExoPlayer and exposes only a `MediaController` to the UI. Selector/fallback/decision tests can pass while MPV is never selected in production, or while a "Media3 fallback" only wraps the same MPV session. Single most important fix: add an explicit Track A task before Tasks 3-4 to define and implement the engine ownership/switch boundary in `ContinuumPlaybackService` (or a dedicated playback-session coordinator): build ExoPlayer or `MpvPlayer` from the real `VideoPlaybackBackendRequest`, replace/rebind the `MediaSession` player on fallback, and emit requested/selected/actual engine decisions from that boundary.
+
+---
+
+## Track B decisions - Codex (2026-06-16)
+
+### 1. Room placement
+
+**Recommendation:** choose **(a) Room in `android-shared/androidMain`**. Keep the
+repository contracts consumed by common ViewModels in `shared/commonMain`, but
+turn only the Track-B strangled repositories into interfaces/ports there. Put
+Room entities, DAOs, database, sync engine, and Android repository implementations
+in `android-shared/src/androidMain`; those implementations compose the existing
+Ktor APIs plus Room. Do not choose Room-KMP now, and do not accelerate a data-only
+KMP teardown.
+
+**Reasoning:** Silo is Android-only, but D1 already settled that KMP teardown is
+later hygiene. Android-only Room gives the data foundation without the blast
+radius of moving source sets first. Room-KMP is viable, but it would put DAOs and
+entities in `commonMain` right before we intend to stop valuing KMP, adding KSP
+and multiplatform database ceremony for no product target. A partial data-layer
+teardown first is worse: it changes module shape and repository wiring before the
+offline behavior exists. The strangler cost is real but bounded: extract common
+interfaces for the first migrated repositories, rename or wrap today's API-only
+classes as network implementations, and override Koin bindings from the Android
+modules while the common repository module is retired incrementally.
+
+**Evidence:** `:shared` and `:android-shared` are KMP modules, with shared network
+deps in `commonMain` and Android deps in `androidMain`
+(`shared/build.gradle.kts:1-33`, `android-shared/build.gradle.kts:1-20`). The
+current repositories are commonMain concrete API wrappers, not local-first ports:
+`RepositoryModule` describes them as "stateless wrappers around API classes" and
+binds them directly (`shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt:34-58`);
+`CatalogRepository` delegates straight to `CatalogApi`
+(`shared/src/commonMain/kotlin/com/continuum/app/repository/CatalogRepository.kt:14-16,33-49`);
+`PersonalDataRepository` delegates writes straight to `PersonalDataApi`
+(`shared/src/commonMain/kotlin/com/continuum/app/repository/PersonalDataRepository.kt:13-15,76-106`).
+Existing durable local state is already Android-only
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:1-28`,
+`android-shared/src/androidMain/kotlin/com/continuum/app/common/store/ScopedJsonFileStore.kt:9-17`).
+Findroid and Voice both support the Android-side Room placement pattern:
+findroid's Room database is in its Android `data` module
+(`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/database/ServerDatabase.kt:24-52`);
+Voice keeps API-facing repository interfaces separate from a Room-backed impl
+(`/Users/jimcole/source/Voice/core/data/api/src/main/kotlin/voice/core/data/repo/BookRepository.kt:8-21`,
+`/Users/jimcole/source/Voice/core/data/impl/src/main/kotlin/voice/core/data/repo/BookRepositoryImpl.kt:15-20`,
+`/Users/jimcole/source/Voice/core/data/impl/src/main/kotlin/voice/core/data/repo/internals/PersistenceModule.kt:31-39`).
+
+**Biggest risk:** the interface extraction can sprawl if we try to convert all
+19 repositories at once. Limit Track B to the home/library browse + resume +
+downloads + user-state paths, then widen after the first offline round-trip works.
+
+### 2. Sync model
+
+**Recommendation:** use a **hybrid** model: Room is the local read source and
+optimistic write target; user mutations write both a projection row and a
+`dirty_operations` outbox row; sync drains idempotent operations, refreshes the
+server projection, and resolves conflicts by field policy. Do not use pure
+server-authoritative reads, because offline edits would disappear. Do not copy
+findroid's single dirty row as the whole design, because Silo needs ordered,
+typed replay for deletes, ratings, favorites, track selections, and CFI.
+
+**Findroid model:** findroid stores user data in Room with a `toBeSynced` dirty
+flag (`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/models/FindroidUserDataDto.kt:6-14`).
+Its offline repository updates local playback position, played state, and favorite
+state, then marks the row dirty
+(`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/repository/JellyfinRepositoryOfflineImpl.kt:232-295`).
+The online repository also writes local first and marks dirty only when the server
+call fails (`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/repository/JellyfinRepositoryImpl.kt:437-535`).
+`SyncWorker` later scans dirty user-data rows, sends `UpdateUserItemDataDto`, and
+clears the flag on success
+(`/Users/jimcole/source/findroid/core/src/main/java/dev/jdtech/jellyfin/work/SyncWorker.kt:72-93`).
+That is a dirty snapshot, not a general operation outbox; findroid's offline repo
+also has many empty/TODO paths
+(`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/repository/JellyfinRepositoryOfflineImpl.kt:43-115`).
+
+**Concrete Silo shape:**
+- Position: `user_item_state(position_seconds, duration_seconds, client_updated_at,
+  server_updated_at)` plus coalescing `SET_POSITION` outbox ops. Conflict: LWW by
+  authoritative update timestamp for current resume position; keep an optional
+  monotonic `furthest_position` if the server wants continue-watching ranking.
+- Watched: optimistic `watched` row plus `SET_WATCHED(bool)` op. Conflict: local
+  action wins until sync attempt; after ack, server projection wins because the
+  server resolves series/season aggregate writes to leaf items
+  (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:113-123`).
+- Track selections: per `(profileId, contentId, fileId)` row storing selected
+  audio/subtitle by stable fingerprint `(index, language, codec, title, forced)`,
+  not raw UI position alone. Conflict: client-owned LWW. Existing APIs carry
+  `audio_track_index` at start/change but do not persist subtitle choice
+  (`shared/src/commonMain/kotlin/com/continuum/app/model/playback/PlaybackModels.kt:100-114`,
+  `shared/src/commonMain/kotlin/com/continuum/app/network/api/PlaybackApi.kt:46-54`);
+  the UI currently applies subtitle choice locally
+  (`androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/PlayerViewModel.kt:611-645`,
+  `androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/PlayerScreen.kt:545-550`).
+- CFI / ebook progress: store current CFI/location, `progress`, `fileId`, and
+  timestamps. Conflict: current CFI is LWW; optional furthest-read progress is
+  max-monotonic. Silo already has local `ProgressSnapshot(location, progress,
+  updatedAtMs)` and a syncer that avoids regressing server progress
+  (`android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:11-17`,
+  `android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookProgressSyncer.kt:18-21,37-55`).
+- Ratings and favorites: `SET_RATING(value|null)` and `SET_FAVORITE(bool)` ops,
+  coalesced by `(profileId, contentId, op_kind)`. Conflict: client LWW until ack;
+  server projection wins after ack or hard rejection. Current APIs are set/delete
+  commands (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:19-41,92-111`).
+
+**Evidence:** Silo already has local-first write patterns for reader/audiobook
+position, but outside a unified DB
+(`androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ReaderViewModel.kt:392-410`,
+`android-shared/src/androidMain/kotlin/com/continuum/app/common/player/AudiobookPlayerViewModel.kt:673-690`).
+Audiobook resume already merges local/server by taking the furthest position
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/player/AudiobookPlayerViewModel.kt:698-718`).
+Voice shows Room is a good fit for media position/bookmark state with explicit
+entities and migrations
+(`/Users/jimcole/source/Voice/core/data/api/src/main/kotlin/voice/core/data/BookContent.kt:10-24`,
+`/Users/jimcole/source/Voice/core/data/api/src/main/kotlin/voice/core/data/Bookmark.kt:8-17`,
+`/Users/jimcole/source/Voice/core/data/impl/src/test/kotlin/voice/core/data/repo/internals/internals/DataBaseMigratorTest.kt:26-46`).
+
+**Biggest risk:** Silo's server APIs do not yet expose enough per-field
+`updated_at` or idempotency metadata for rigorous LWW. Track B must either add
+that server contract or degrade to "local optimistic, server projection after
+ack" with logged conflicts.
+
+### 3. Migration boundary
+
+**Recommendation:** make migration an idempotent Room import plus a temporary
+dual-write period. Room becomes the read projection only after it imports existing
+sidecars and scoped JSON files; legacy files are not deleted during Track B. For
+one release window, all download/status/progress writes update both Room and the
+legacy sidecar/JSON store, and legacy readers remain a fallback when Room lacks a
+row.
+
+**Downloads import:** scan `DownloadStorage.listAllSidecarsWithScope()`, which
+preserves `(serverId, profileId)` from the sidecar path
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:181-200`).
+For each sidecar, upsert a Room download row keyed by `(serverId, profileId,
+downloadRecord.id/mediaFileId)` with the full `DownloadSidecar` metadata:
+title/poster/fileName/container/mediaType/localUri/chapters are already in the
+sidecar (`shared/src/commonMain/kotlin/com/continuum/app/model/download/DownloadSidecar.kt:6-23,25-66`).
+Validate completed rows against real bytes using `locateLocalMedia`/`exists`
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:51-56,85-86`);
+if bytes are missing, import the row as stale/failed instead of deleting it. Keep
+the sidecar path/hash/mtime in a `legacy_imports` table so the import can rerun.
+This mirrors today's boot path, where DownloadsViewModel reloads sidecars, seeds
+the repository, and keeps disk-only records during server refresh
+(`androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadsViewModel.kt:225-233,361-373`,
+`shared/src/commonMain/kotlin/com/continuum/app/repository/DownloadsRepository.kt:18-23,49-94`).
+
+**Scoped JSON import:** import all scoped files under the paths defined by
+`ScopedJsonFileStore` (`serverId/profileId/contentId` with atomic JSON writes:
+`android-shared/src/androidMain/kotlin/com/continuum/app/common/store/ScopedJsonFileStore.kt:24-40`).
+Use existing enumerators where they exist:
+`EbookLocalStateStore.listAllProgress()`
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:55-82`)
+and `AudiobookPositionStore.listAll()`
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookPositionStore.kt:53-80`).
+Add import-only walkers for ebook bookmarks and audiobook bookmarks because the
+bookmark stores currently expose scoped reads/writes but no global enumerator
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:84-118`,
+`android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookBookmarksStore.kt:7-22`).
+Preserve local IDs, timestamps, and scope exactly; create outbox entries for any
+imported local progress/bookmark state that is newer than the last known server
+projection or has never been acknowledged.
+
+**Cutover rule:** new Room-backed repositories read Room first, then fall back to
+legacy storage on a miss and backfill Room in the same transaction. Download
+enqueue, worker completion/failure, and delete paths dual-write until counts and
+file validation match across Room and sidecars
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadEnqueuer.kt:241-263`,
+`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadWorker.kt:131-149,193-224`,
+`androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadsViewModel.kt:299-349`).
+Do not remove sidecars or JSON files until a later cleanup migration proves:
+Room row count equals valid legacy row count, every completed download resolves to
+bytes, and sync has no pending import-created outbox rows.
+
+**Biggest risk:** stale MediaStore URIs or malformed sidecars can produce false
+Room rows. The guardrail is to treat legacy data as source material, not garbage:
+validate bytes, record import errors, keep legacy files untouched, and keep the
+old offline resolver path available until the Room projection proves equivalent
+(`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/OfflineMediaResolver.kt:23-48`,
+`androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/navigation/MobileDownloadVisibility.kt:5-19`).
+
+## Track B plan review - Codex (2026-06-16)
+
+**Verdict:** good direction, but Task 4/5 are not implementable as written.
+
+1. Symbol/signature check:
+- `DownloadStorage.listAllSidecarsWithScope()` exists as `List<Triple<String, String, DownloadSidecar>>`; `locateLocalMedia(...)` and `exists(...)` also exist (`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:51`, `android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:85`, `android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:188`).
+- `DownloadSidecar` has sidecar fields plus nested `record`; `record` owns `id`, `contentId`, `mediaFileId`, `fileSize`, `bytesSent`, and `status` (`shared/src/commonMain/kotlin/com/continuum/app/model/download/DownloadSidecar.kt:26`, `shared/src/commonMain/kotlin/com/continuum/app/model/download/DownloadModels.kt:16`). Plan code must use `sidecar.record.*`; `fileName` is nullable, and real status wire values are lower-case `queued/downloading/completed/failed/cancelled`, not `QUEUED/RUNNING/COMPLETE` (`shared/src/commonMain/kotlin/com/continuum/app/model/download/DownloadSidecar.kt:39`, `shared/src/commonMain/kotlin/com/continuum/app/model/download/DownloadModels.kt:59`).
+- `EbookLocalStateStore.ProgressSnapshot` exists, but it is nested and `listAllProgress()` returns `List<ProgressEntry>` with `snapshot` nested, not snapshots directly (`android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:11`, `android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:47`, `android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:60`).
+- `AudiobookPositionStore.listAll()` exists and returns `List<Entry>` with nested `Snapshot` (`android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookPositionStore.kt:19`, `android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookPositionStore.kt:45`, `android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookPositionStore.kt:59`).
+- Bookmark global walkers really are missing; only scoped reads/writes exist (`android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:84`, `android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookBookmarksStore.kt:21`).
+- API write names/shapes are concrete: favorites are `addFavorite/removeFavorite`, watched is `markWatched/markUnwatched`, ratings are `setRating/deleteRating`, progress batch is `syncProgress(SyncProgressRequest)` returning `Unit`, and playback progress is session-scoped `updateProgress(sessionId, ProgressRequest)` (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:35`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:85`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:102`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:116`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PlaybackApi.kt:25`).
+
+2. Room/KSP feasibility:
+- Feasible in `android-shared/androidMain`: the module is KMP plus Android library, has an `androidTarget`, and already has `androidMain` / `androidUnitTest` source-set dependencies (`android-shared/build.gradle.kts:1`, `android-shared/build.gradle.kts:9`, `android-shared/build.gradle.kts:18`, `android-shared/build.gradle.kts:84`).
+- Gotcha: the current catalog/root has no KSP or Room aliases (`gradle/libs.versions.toml:93`, `build.gradle.kts:1`). In a KMP module, use the Android-target KSP configuration, e.g. `add("kspAndroid", libs.androidx.room.compiler)`, not generic `ksp(...)`. Also add Robolectric to `android-shared` tests and AndroidX test core for `ApplicationProvider`; `android-shared` currently has only kotlin-test/JUnit/coroutines-test in `androidUnitTest` (`android-shared/build.gradle.kts:84`).
+
+3. DI reachability:
+- `RepositoryModule` binds concrete repositories in `commonMain`: `PlaybackRepository`, `PersonalDataRepository`, and `DownloadsRepository` (`shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt:46`, `shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt:47`, `shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt:55`).
+- The real override point is the platform module loaded after `sharedModules()`: phone `androidModule` in `ContinuumApplication`, and TV `androidTvModule` in `ContinuumTvApplication` (`androidApp/src/androidMain/kotlin/com/continuum/app/android/ContinuumApplication.kt:31`, `androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ContinuumTvApplication.kt:28`). The existing `TokenManager` override comment documents this load-order pattern (`androidApp/src/androidMain/kotlin/com/continuum/app/android/di/AndroidModule.kt:90`).
+- Adding `UserItemStatePort` alone will not intercept current paths. Existing graph nodes consume concrete repos/use cases (`shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt:91`, `shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt:92`, `androidApp/src/androidMain/kotlin/com/continuum/app/android/di/AndroidModule.kt:161`, `androidApp/src/androidMain/kotlin/com/continuum/app/android/di/AndroidModule.kt:178`). Same-key concrete overrides are weak because `PersonalDataRepository.toggleFavorite`, `listProgress`, and `setRating` are final, and `PlaybackRepository` / `DownloadsRepository` are final classes (`shared/src/commonMain/kotlin/com/continuum/app/repository/PersonalDataRepository.kt:13`, `shared/src/commonMain/kotlin/com/continuum/app/repository/PersonalDataRepository.kt:36`, `shared/src/commonMain/kotlin/com/continuum/app/repository/PersonalDataRepository.kt:73`, `shared/src/commonMain/kotlin/com/continuum/app/repository/PersonalDataRepository.kt:91`, `shared/src/commonMain/kotlin/com/continuum/app/repository/PlaybackRepository.kt:13`, `shared/src/commonMain/kotlin/com/continuum/app/repository/DownloadsRepository.kt:33`).
+
+4. Sync/degrade against today's APIs:
+- `SyncEngine.drain()` cannot "apply ConflictPolicy to the returned server state" for most ops because mutation APIs return `Unit` (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:35`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:39`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:85`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:102`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:109`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:116`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:121`).
+- There is no per-field `updated_at`. Progress has item-level `updatedAt`; ratings have `rated_at`; favorites/watched expose no timestamp in these client API shapes (`shared/src/commonMain/kotlin/com/continuum/app/model/personal/PersonalDataModels.kt:104`, `shared/src/commonMain/kotlin/com/continuum/app/model/personal/PersonalDataModels.kt:151`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:21`, `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:115`). The implementable degrade is local optimistic until ack, then refresh and trust server projection for supported fields.
+- `PlaybackApi.updateProgress` cannot drain an offline resume outbox keyed by content/file after process restart because it needs a live `sessionId`; resume sync should use `PersonalDataApi.syncProgress` with `SyncProgressItem(mediaItemId, position, duration, forceOverwrite)` (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PlaybackApi.kt:25`, `shared/src/commonMain/kotlin/com/continuum/app/model/personal/PersonalDataModels.kt:118`).
+- `SET_TRACK_SELECTION` cannot round-trip today. `changeAudio` needs a live session and persists no server preference; subtitle selection has no API (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PlaybackApi.kt:46`, `shared/src/commonMain/kotlin/com/continuum/app/model/playback/PlaybackModels.kt:100`, `shared/src/commonMain/kotlin/com/continuum/app/model/playback/PlaybackModels.kt:116`). Keep track selection local-only or add a server projection API.
+
+5. Biggest risk / single fix:
+- Biggest correctness risk: Task 4/5 can build Room/outbox code that no real app path uses, then drain ops against APIs that cannot represent them.
+- Single most important fix: rewrite Task 4/5 before implementation so migrated consumers depend on explicit shared ports, Room-backed Android implementations are bound at `androidModule` / `androidTvModule`, and the outbox is limited to server-supported ops: `SET_POSITION` via `PersonalDataApi.syncProgress`, watched, rating, and favorite. Track selection stays local-only until the server has a real projection API.
