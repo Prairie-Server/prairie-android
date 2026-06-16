@@ -5,13 +5,15 @@ import kotlin.test.assertEquals
 
 class OutboxOperationTest {
     @Test
-    fun positionCoalesceKeyIncludesFileAndKind() {
+    fun positionCoalesceKeyIsContentLevel() {
         val op = OutboxOperation.setPosition(
-            profileId = "p1", contentId = "c1", fileId = 7,
+            profileId = "p1", contentId = "c1",
             positionSeconds = 30.0, durationSeconds = 3600.0, atMs = 1L,
         )
         assertEquals("SET_POSITION", op.kind)
-        assertEquals("p1|c1|7|SET_POSITION", op.coalesceKey)
+        // Content-level (no fileId): syncProgress is keyed by content id.
+        assertEquals("p1|c1|SET_POSITION", op.coalesceKey)
+        assertEquals(30.0, OutboxOperation.decodePositionPayload(op.payloadJson).first)
     }
 
     @Test

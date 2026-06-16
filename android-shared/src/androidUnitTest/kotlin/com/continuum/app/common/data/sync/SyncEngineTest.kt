@@ -155,6 +155,22 @@ class SyncEngineTest {
     }
 
     @Test
+    fun setPositionDrainsViaSyncProgress() = runTest {
+        db.dirtyOperationDao().insert(
+            op(
+                coalesceKey = "s1|p1|c1|${OutboxOperation.SET_POSITION}",
+                idempotencyKey = "i1",
+                opKind = OutboxOperation.SET_POSITION,
+                payload = OutboxOperation.encodePositionPayload(123.0, 3600.0),
+            ),
+        )
+        status = HttpStatusCode.OK
+        val result = engine().drainOnce()
+        assertEquals(1, result.synced)
+        assertEquals(0, db.dirtyOperationDao().count())
+    }
+
+    @Test
     fun noScopeDrainsNothing() = runTest {
         db.dirtyOperationDao().insert(op(idempotencyKey = "i1"))
         val noScopeEngine = SyncEngine(

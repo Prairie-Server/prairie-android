@@ -3,6 +3,8 @@ package com.continuum.app.common.data.sync
 import android.util.Log
 import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
+import com.continuum.app.model.personal.SyncProgressItem
+import com.continuum.app.model.personal.SyncProgressRequest
 import com.continuum.app.network.AuthScopeSnapshot
 import com.continuum.app.network.api.PersonalDataApi
 import com.continuum.app.repository.port.WriteOutcome
@@ -140,6 +142,27 @@ class SyncEngine(
             OutboxOperation.SET_RATING -> {
                 val rating = OutboxOperation.decodeRatingPayload(op.payloadJson)
                 if (rating == null) personalDataApi.deleteRating(contentId, scope) else personalDataApi.setRating(contentId, rating, scope)
+            }
+
+            OutboxOperation.SET_POSITION -> {
+                // Replay happens after the playback session is gone, so use the
+                // sessionless content-level sync. force_overwrite=false → the
+                // server takes GREATEST(position), so a stale offline replay
+                // never rewinds a further position from another device.
+                val (position, duration) = OutboxOperation.decodePositionPayload(op.payloadJson)
+                personalDataApi.syncProgress(
+                    SyncProgressRequest(
+                        items = listOf(
+                            SyncProgressItem(
+                                mediaItemId = contentId,
+                                position = position,
+                                duration = duration ?: 0.0,
+                                forceOverwrite = false,
+                            ),
+                        ),
+                    ),
+                    scope,
+                )
             }
 
             else -> {

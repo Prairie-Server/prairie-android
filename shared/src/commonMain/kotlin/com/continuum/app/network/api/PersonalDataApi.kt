@@ -84,8 +84,12 @@ class PersonalDataApi(private val client: HttpClient) {
         client.get("/api/v1/progress")
     }
 
-    suspend fun syncProgress(request: SyncProgressRequest): ApiResult<Unit> = safeApiCall {
+    suspend fun syncProgress(
+        request: SyncProgressRequest,
+        scope: AuthScopeSnapshot? = null,
+    ): ApiResult<Unit> = safeApiCall {
         client.post("/api/v1/sync/progress") {
+            scope?.let { authScope(it) }
             contentType(ContentType.Application.Json)
             setBody(request)
         }

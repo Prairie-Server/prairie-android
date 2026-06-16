@@ -3,7 +3,10 @@ package com.continuum.app.common.data.sync
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 
 /**
  * A typed, coalescible entry for the offline-first sync outbox (Track B).
@@ -34,14 +37,15 @@ data class OutboxOperation(
         fun setPosition(
             profileId: String,
             contentId: String,
-            fileId: Int,
             positionSeconds: Double,
             durationSeconds: Double?,
             atMs: Long,
         ): OutboxOperation = OutboxOperation(
             kind = SET_POSITION,
-            coalesceKey = "$profileId|$contentId|$fileId|$SET_POSITION",
-            payloadJson = """{"position":$positionSeconds,"duration":${durationSeconds ?: "null"}}""",
+            // Content-level: syncProgress is keyed by content id, so positions for
+            // an item collapse to the latest regardless of which file produced them.
+            coalesceKey = "$profileId|$contentId|$SET_POSITION",
+            payloadJson = encodePositionPayload(positionSeconds, durationSeconds),
             createdAtMs = atMs,
         )
 
@@ -65,5 +69,17 @@ data class OutboxOperation(
         /** Rating payload is the int value, or null for "clear rating". */
         fun decodeRatingPayload(payloadJson: String): Int? =
             json.parseToJsonElement(payloadJson).let { (it as JsonPrimitive).intOrNull }
+
+        /** Position payload is `{"position":<sec>,"duration":<sec|null>}`. */
+        fun encodePositionPayload(positionSeconds: Double, durationSeconds: Double?): String =
+            """{"position":$positionSeconds,"duration":${durationSeconds ?: "null"}}"""
+
+        /** Decodes [encodePositionPayload] → (positionSeconds, durationSeconds?). */
+        fun decodePositionPayload(payloadJson: String): Pair<Double, Double?> {
+            val obj = json.parseToJsonElement(payloadJson).jsonObject
+            val position = (obj.getValue("position") as JsonPrimitive).double
+            val duration = (obj["duration"] as? JsonPrimitive)?.doubleOrNull
+            return position to duration
+        }
     }
 }

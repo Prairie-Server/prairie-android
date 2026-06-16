@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.db.entity.ContentItemStateEntity
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
+import com.continuum.app.common.data.db.entity.UserItemStateEntity
 import com.continuum.app.common.data.sync.OutboxOperation
 import com.continuum.app.common.data.sync.OutboxSyncScheduler
 import com.continuum.app.network.AuthScopeSnapshot
@@ -42,6 +43,7 @@ class RoomUserItemStateRepository(
 ) : UserItemStatePort {
 
     private val contentDao = db.contentItemStateDao()
+    private val userStateDao = db.userItemStateDao()
     private val outboxDao = db.dirtyOperationDao()
 
     override suspend fun recordWatched(contentId: String, watched: Boolean): OutboxHandle =
@@ -62,6 +64,65 @@ class RoomUserItemStateRepository(
         ) {
             it.copy(ratingValue = rating)
         }
+
+    override suspend fun recordPosition(
+        contentId: String,
+        fileId: Int,
+        positionSeconds: Double,
+        durationSeconds: Double?,
+    ) {
+        // Reject values that would enqueue invalid JSON and poison the drain
+        // (a NaN/Infinity/negative would parse-fail after claim and retry forever).
+        if (contentId.isBlank() || !positionSeconds.isFinite() || positionSeconds < 0.0) return
+        val safeDuration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
+
+        val snapshot = snapshotProvider() ?: return
+        val serverId = snapshot.serverId
+        val profileId = snapshot.profileId ?: return
+        val nowMs = now()
+
+        db.withTransaction {
+            // File-level local projection for resume (preserve track/cfi fields).
+            val existing = userStateDao.get(serverId, profileId, contentId, fileId)
+            val row = existing?.copy(
+                positionSeconds = positionSeconds,
+                durationSeconds = safeDuration,
+                clientUpdatedAtMs = nowMs,
+            ) ?: UserItemStateEntity(
+                serverId = serverId,
+                profileId = profileId,
+                contentId = contentId,
+                fileId = fileId,
+                positionSeconds = positionSeconds,
+                durationSeconds = safeDuration,
+                audioFingerprint = null,
+                subtitleFingerprint = null,
+                cfi = null,
+                readProgress = null,
+                clientUpdatedAtMs = nowMs,
+                serverUpdatedAtMs = null,
+            )
+            userStateDao.upsert(row)
+
+            // Content-level outbox op: syncProgress is keyed by content id, so the
+            // coalesce key omits fileId — all pending positions for the item
+            // collapse to the latest.
+            outboxDao.enqueueCoalescing(
+                DirtyOperationEntity(
+                    opKind = OutboxOperation.SET_POSITION,
+                    serverId = serverId,
+                    profileId = profileId,
+                    targetContentId = contentId,
+                    targetFileId = fileId,
+                    coalesceKey = "$serverId|$profileId|$contentId|${OutboxOperation.SET_POSITION}",
+                    idempotencyKey = idGenerator(),
+                    payloadJson = OutboxOperation.encodePositionPayload(positionSeconds, safeDuration),
+                    createdAtMs = nowMs,
+                    nextAttemptAtMs = nowMs,
+                ),
+            )
+        }
+    }
 
     override suspend fun resolve(handle: OutboxHandle, outcome: WriteOutcome) {
         if (handle.opId < 0) return

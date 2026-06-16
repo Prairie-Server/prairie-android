@@ -27,6 +27,22 @@ interface UserItemStatePort {
 
     /** Reconcile the enqueued op with the inline network result. */
     suspend fun resolve(handle: OutboxHandle, outcome: WriteOutcome)
+
+    /**
+     * Durably record a playback position for offline-safe resume + sync. Unlike
+     * the mutations above there is no inline network call to [resolve]: the write
+     * persists a file-level local projection (for resume) and enqueues a single
+     * content-level position op that the sync engine drains (furthest-position-
+     * wins on the server). Safe to call on every progress tick — repeated writes
+     * for the same item coalesce to the latest. No-op on the default port.
+     */
+    suspend fun recordPosition(
+        contentId: String,
+        fileId: Int,
+        positionSeconds: Double,
+        durationSeconds: Double?,
+    ) {
+    }
 }
 
 /**

@@ -103,6 +103,40 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun recordPositionWritesFileProjectionAndContentCoalescedOp() = runTest {
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 123.0, durationSeconds = 3600.0)
+
+        // File-level local projection for resume.
+        val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
+        assertEquals(123.0, row?.positionSeconds)
+        assertEquals(3600.0, row?.durationSeconds)
+
+        // Single content-level position op (coalesce key omits fileId).
+        val op = db.dirtyOperationDao().dueBatch("s1", "p1", nowMs = 2000L, limit = 10).single()
+        assertEquals(OutboxOperation.SET_POSITION, op.opKind)
+        assertEquals("s1|p1|c1|${OutboxOperation.SET_POSITION}", op.coalesceKey)
+        assertEquals(7, op.targetFileId)
+    }
+
+    @Test
+    fun recordPositionCoalescesToLatestPerContent() = runTest {
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 10.0, durationSeconds = 3600.0)
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 99.0, durationSeconds = 3600.0)
+        assertEquals(1, db.dirtyOperationDao().count())
+        val op = db.dirtyOperationDao().dueBatch("s1", "p1", nowMs = 2000L, limit = 10).single()
+        assertEquals(99.0, OutboxOperation.decodePositionPayload(op.payloadJson).first)
+    }
+
+    @Test
+    fun recordPositionRejectsNonFinitePosition() = runTest {
+        repo.recordPosition("c1", fileId = 7, positionSeconds = Double.NaN, durationSeconds = 3600.0)
+        repo.recordPosition("c1", fileId = 7, positionSeconds = -5.0, durationSeconds = 3600.0)
+        // No projection row, no outbox op — invalid values can't poison the drain.
+        assertNull(db.userItemStateDao().get("s1", "p1", "c1", 7))
+        assertEquals(0, db.dirtyOperationDao().count())
+    }
+
+    @Test
     fun handleCarriesScopeForInlinePinning() = runTest {
         val handle = repo.recordFavorite("c1", favorite = true)
         assertEquals("s1", handle.scope?.serverId)
