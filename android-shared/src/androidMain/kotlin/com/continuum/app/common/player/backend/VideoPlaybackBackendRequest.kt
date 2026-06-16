@@ -10,4 +10,10 @@ data class VideoPlaybackBackendRequest(
     val preference: VideoPlaybackBackendPreference = VideoPlaybackBackendPreference.Auto,
     val hasHardContainer: Boolean = false,
     val hasStyledSubtitles: Boolean = false,
+    // Route/session intent — any of these forces Media3 under Auto, because Cast,
+    // DRM, and external/secondary displays are paths where ExoPlayer is the
+    // correct/only engine and MPV's direct rendering does not apply.
+    val isCasting: Boolean = false,
+    val isDrmProtected: Boolean = false,
+    val isExternalDisplay: Boolean = false,
 )

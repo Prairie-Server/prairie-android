@@ -65,4 +65,22 @@ class VideoPlaybackBackendSelectorTest {
             VideoPlaybackBackendSelector.select(VideoPlaybackBackendRequest()),
         )
     }
+
+    @Test
+    fun autoForcesMedia3WhenCasting() {
+        val request = VideoPlaybackBackendRequest(isCasting = true, hasHardContainer = true)
+        assertEquals(VideoPlaybackBackendKind.Media3, VideoPlaybackBackendSelector.select(request))
+    }
+
+    @Test
+    fun autoForcesMedia3WhenDrmProtected() {
+        val request = VideoPlaybackBackendRequest(isDrmProtected = true, hasStyledSubtitles = true)
+        assertEquals(VideoPlaybackBackendKind.Media3, VideoPlaybackBackendSelector.select(request))
+    }
+
+    @Test
+    fun autoForcesMedia3OnExternalDisplay() {
+        val request = VideoPlaybackBackendRequest(isExternalDisplay = true, hasHardContainer = true)
+        assertEquals(VideoPlaybackBackendKind.Media3, VideoPlaybackBackendSelector.select(request))
+    }
 }
