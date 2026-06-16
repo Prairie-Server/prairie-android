@@ -1,6 +1,7 @@
 package com.continuum.app.repository.port
 
 import com.continuum.app.model.catalog.CatalogResponse
+import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.network.ApiResult
@@ -28,6 +29,10 @@ interface CatalogCachePort {
     /** Cache a library's resolved "Recommended" sections (for the offline landing tab). */
     suspend fun cacheLibrarySections(libraryId: Int, sections: List<ResolvedSection>) {}
     suspend fun getCachedLibrarySections(libraryId: Int): List<ResolvedSection>? = null
+
+    /** Cache an item's detail page (tap-a-title-offline). */
+    suspend fun cacheItemDetail(contentId: String, detail: ItemDetail) {}
+    suspend fun getCachedItemDetail(contentId: String): ItemDetail? = null
 }
 
 /** Network-only default. */

@@ -793,3 +793,7 @@ Repository-level cache-with-fallback (vs Home's VM-SWR) because the library list
 ### Track B — library Recommended-sections cache (closes the offline-Libraries gap, 2026-06-16)
 
 Follow-up to the library cache: `SectionRepository.getLibrarySections` now caches the resolved sections (key `library-sections:{id}` in the generic catalog_cache table) and serves them on `canServeCache()` (NetworkError/5xx). Same repo-level fallback as browse; `getLibrarySections` returns a fully-resolved `SectionsResponse` in one call, so `LibrariesScreen.loadRecommended` is unchanged. No schema change (reuses v3 table). Device-validated: airplane-mode cold-start → Libraries Recommended rendered fully from cache (Continue Watching/Recently Added/Recently Released), no error. With this, offline Libraries works end-to-end (list + Recommended + Browse grid all cached). `SectionRepositoryCacheTest` locks the contract. Codex: no must-fix.
+
+### Track B — offline ITEM DETAIL cache (2026-06-16)
+
+`CatalogRepository.getItemDetail` now caches on success + serves cached on `canServeCache()` (NetworkError/5xx) — same repo-level fallback as browse, key `item-detail:{contentId}` in the generic catalog_cache table, no schema change. So tapping a title offline renders its detail page (movies fully; series header/body, episode lists deferred). `CatalogRepositoryDetailCacheTest` locks the contract. Codex: committable, no findings. (Not device-driven this slice — identical mechanism to the device-validated home/library/sections caches.)

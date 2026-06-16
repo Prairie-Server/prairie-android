@@ -1,0 +1,62 @@
+package com.continuum.app.repository
+
+import com.continuum.app.model.catalog.ItemDetail
+import com.continuum.app.network.ApiResult
+import com.continuum.app.network.ContinuumJson
+import com.continuum.app.network.api.CatalogApi
+import com.continuum.app.repository.port.CatalogCachePort
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/** Locks the cache-with-fallback contract on [CatalogRepository.getItemDetail]. */
+class CatalogRepositoryDetailCacheTest {
+
+    private class FakeCache(val preset: ItemDetail?) : CatalogCachePort {
+        var cachedId: String? = null
+        override suspend fun cacheItemDetail(contentId: String, detail: ItemDetail) { cachedId = contentId }
+        override suspend fun getCachedItemDetail(contentId: String): ItemDetail? = preset
+    }
+
+    private fun repo(status: HttpStatusCode, body: String, cache: CatalogCachePort): CatalogRepository {
+        val client = HttpClient(
+            MockEngine { respond(body, status, headersOf(HttpHeaders.ContentType, "application/json")) },
+        ) {
+            install(ContentNegotiation) { json(ContinuumJson) }
+        }
+        return CatalogRepository(CatalogApi(client), cache)
+    }
+
+    @Test
+    fun cachesOnSuccess() = runTest {
+        val cache = FakeCache(preset = null)
+        val result = repo(HttpStatusCode.OK, """{"content_id":"c1","type":"movie","title":"A"}""", cache)
+            .getItemDetail("c1")
+        assertTrue(result is ApiResult.Success)
+        assertEquals("c1", cache.cachedId)
+    }
+
+    @Test
+    fun servesCacheOnServer5xx() = runTest {
+        val cache = FakeCache(preset = ItemDetail(contentId = "c1", type = "movie", title = "Cached"))
+        val result = repo(HttpStatusCode.BadGateway, "{}", cache).getItemDetail("c1")
+        assertTrue(result is ApiResult.Success)
+        assertEquals("Cached", result.data.title)
+    }
+
+    @Test
+    fun doesNotServeCacheOn4xx() = runTest {
+        val cache = FakeCache(preset = ItemDetail(contentId = "c1", type = "movie", title = "Cached"))
+        val result = repo(HttpStatusCode.NotFound, "{}", cache).getItemDetail("c1")
+        assertTrue(result is ApiResult.Error)
+    }
+}

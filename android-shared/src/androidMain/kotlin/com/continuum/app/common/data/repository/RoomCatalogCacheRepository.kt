@@ -3,6 +3,7 @@ package com.continuum.app.common.data.repository
 import com.continuum.app.common.data.db.SiloDatabase
 import com.continuum.app.common.data.db.entity.CatalogCacheEntity
 import com.continuum.app.model.catalog.CatalogResponse
+import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.network.AuthScopeSnapshot
@@ -42,6 +43,12 @@ class RoomCatalogCacheRepository(
     override suspend fun getCachedLibrarySections(libraryId: Int): List<ResolvedSection>? =
         get(librarySectionsKey(libraryId))?.let { runCatching { json.decodeFromString<List<ResolvedSection>>(it) }.getOrNull() }
 
+    override suspend fun cacheItemDetail(contentId: String, detail: ItemDetail) =
+        put(itemDetailKey(contentId), json.encodeToString(detail))
+
+    override suspend fun getCachedItemDetail(contentId: String): ItemDetail? =
+        get(itemDetailKey(contentId))?.let { runCatching { json.decodeFromString<ItemDetail>(it) }.getOrNull() }
+
     private suspend fun put(cacheKey: String, jsonStr: String) {
         val snapshot = snapshotProvider() ?: return
         val profileId = snapshot.profileId ?: return
@@ -66,5 +73,6 @@ class RoomCatalogCacheRepository(
         const val KEY_LIBRARIES = "libraries"
         fun libraryKey(libraryId: Int) = "library:$libraryId"
         fun librarySectionsKey(libraryId: Int) = "library-sections:$libraryId"
+        fun itemDetailKey(contentId: String) = "item-detail:$contentId"
     }
 }

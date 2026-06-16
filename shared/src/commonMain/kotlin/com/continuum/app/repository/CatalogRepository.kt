@@ -77,9 +77,18 @@ class CatalogRepository(
     suspend fun getFilters(libraryId: Int? = null): ApiResult<CatalogFiltersResponse> =
         catalogApi.getFilters(libraryId)
 
-    /** Fetches full metadata for a single catalog item. */
-    suspend fun getItemDetail(contentId: String): ApiResult<ItemDetail> =
-        catalogApi.getItemDetail(contentId)
+    /** Fetches full metadata for a single catalog item (offline: last cached detail). */
+    suspend fun getItemDetail(contentId: String): ApiResult<ItemDetail> {
+        val result = catalogApi.getItemDetail(contentId)
+        if (result is ApiResult.Success) {
+            catalogCache.cacheItemDetail(contentId, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedItemDetail(contentId)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
 
     /** Fetches playback-oriented detail (versions, user progress, intro/credits markers). */
     suspend fun getWatchDetail(contentId: String): ApiResult<WatchDetail> =
