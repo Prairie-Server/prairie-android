@@ -41,7 +41,10 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import android.os.Bundle
+import com.continuum.app.common.player.backend.PlaybackEngineCommand
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
@@ -358,6 +361,26 @@ fun PlayerScreen(
                 playMethod = playMethod,
                 startPositionMs = mediaSpec.startPositionMs,
                 nowMs = SystemClock.elapsedRealtime(),
+            )
+        }
+        // Tell the playback service which engine to own for this media (Track A
+        // Task 0). ASS/SSA subtitles route to MPV (libass fidelity); the service
+        // resolves device-floor + route intent and rebinds + transfers state, so
+        // the order relative to mount is safe.
+        mediaController?.let { controller ->
+            val engineRequest = VideoPlaybackBackendRequest(
+                contentId = contentId,
+                fileId = activeFileId ?: initialFileId,
+                playMethod = mediaSpec.playMethod,
+                formFactor = VideoPlaybackFormFactor.Mobile,
+                hasStyledSubtitles = uiState.subtitleTracks.orEmpty()
+                    .any { it.codec?.lowercase() in setOf("ass", "ssa") },
+            )
+            controller.sendCustomCommand(
+                SessionCommand(PlaybackEngineCommand.SET_ENGINE, Bundle.EMPTY),
+                Bundle().apply {
+                    putString(PlaybackEngineCommand.ARG_REQUEST_JSON, PlaybackEngineCommand.encode(engineRequest))
+                },
             )
         }
         backend.mount(mediaSpec)

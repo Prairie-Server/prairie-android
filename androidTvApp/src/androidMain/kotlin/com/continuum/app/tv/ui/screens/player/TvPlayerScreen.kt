@@ -59,7 +59,9 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import android.os.Bundle
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -72,6 +74,7 @@ import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.common.player.VideoPlayerMediaSpec
+import com.continuum.app.common.player.backend.PlaybackEngineCommand
 import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
 import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
 import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
@@ -537,6 +540,25 @@ fun TvPlayerScreen(
                 playMethod = method,
                 startPositionMs = mediaSpec.startPositionMs,
                 nowMs = SystemClock.elapsedRealtime(),
+            )
+        }
+        // Tell the playback service which engine to own for this media (Track A
+        // Task 0). ASS/SSA subtitles route to MPV (libass fidelity); the service
+        // resolves device-floor + route intent and rebinds + transfers state.
+        mediaController?.let { controller ->
+            val engineRequest = VideoPlaybackBackendRequest(
+                contentId = contentId,
+                fileId = preferredFileId,
+                playMethod = method,
+                formFactor = VideoPlaybackFormFactor.Tv,
+                hasStyledSubtitles = state.subtitleUrls
+                    .any { it.codec?.lowercase() in setOf("ass", "ssa") },
+            )
+            controller.sendCustomCommand(
+                SessionCommand(PlaybackEngineCommand.SET_ENGINE, Bundle.EMPTY),
+                Bundle().apply {
+                    putString(PlaybackEngineCommand.ARG_REQUEST_JSON, PlaybackEngineCommand.encode(engineRequest))
+                },
             )
         }
         backend.mount(mediaSpec)

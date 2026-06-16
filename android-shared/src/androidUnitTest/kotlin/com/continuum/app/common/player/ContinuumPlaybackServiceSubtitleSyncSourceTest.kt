@@ -12,7 +12,9 @@ class ContinuumPlaybackServiceSubtitleSyncSourceTest {
     @Test
     fun subtitleSyncChangesReparseCurrentMediaItemAtSamePosition() {
         assertTrue(
-            source.contains("reparseCurrentMediaItemAtCurrentPosition(player, offsetMs)"),
+            // Call site now sources the engine from activePlayer (engine-swap support);
+            // the reparse still reprepares the current item to rebuild sidecar cues.
+            source.contains("reparseCurrentMediaItemAtCurrentPosition(p, offsetMs)"),
             "subtitle sync changes must reprepare the current item so parsed sidecar cue timestamps are rebuilt",
         )
         assertTrue(source.contains("player.setMediaItems(mediaItems, currentIndex, positionMs)"))
