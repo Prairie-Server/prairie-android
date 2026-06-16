@@ -98,6 +98,13 @@ val androidTvModule = module {
             syncScheduler = get(),
         )
     }
+    single<com.continuum.app.repository.port.HomeCachePort> {
+        val tokenManager: TokenManager = get()
+        com.continuum.app.common.data.repository.RoomHomeCacheRepository(
+            db = get(),
+            snapshotProvider = { tokenManager.snapshotCurrentScope() },
+        )
+    }
     single {
         val tokenManager: TokenManager = get()
         com.continuum.app.common.data.sync.SyncEngine(
@@ -233,7 +240,7 @@ val androidTvModule = module {
     viewModel { AdminStatsViewModel(get()) }
 
     // Content ViewModels
-    viewModel { HomeViewModel(get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get()) }
     viewModel { com.continuum.app.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { RequestsViewModel(get()) }

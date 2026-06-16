@@ -1,17 +1,20 @@
 package com.continuum.app.common.data.db
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.continuum.app.common.data.db.dao.ContentItemStateDao
 import com.continuum.app.common.data.db.dao.DirtyOperationDao
 import com.continuum.app.common.data.db.dao.DownloadDao
+import com.continuum.app.common.data.db.dao.HomeCacheDao
 import com.continuum.app.common.data.db.dao.LegacyImportDao
 import com.continuum.app.common.data.db.dao.UserItemStateDao
 import com.continuum.app.common.data.db.entity.ContentItemStateEntity
 import com.continuum.app.common.data.db.entity.DirtyOperationEntity
 import com.continuum.app.common.data.db.entity.DownloadEntity
+import com.continuum.app.common.data.db.entity.HomeCacheEntity
 import com.continuum.app.common.data.db.entity.LegacyImportEntity
 import com.continuum.app.common.data.db.entity.UserItemStateEntity
 
@@ -19,10 +22,10 @@ import com.continuum.app.common.data.db.entity.UserItemStateEntity
  * The offline-first store for Silo (Track B). Source of truth for the
  * home/library browse + resume + downloads + user-state paths.
  *
- * Schema v1 ships with **no auto migrations** (per Codex review): the exported
- * schema under `android-shared/schemas` is the baseline. From v2 onward, prefer
- * Room auto migrations for additive/rename changes and manual migrations for
- * any data transform, validated with `MigrationTestHelper`.
+ * v2 adds [HomeCacheEntity] via a Room **auto migration** (additive table, so it
+ * preserves the existing outbox/projection data on upgrade). From here, prefer
+ * auto migrations for additive/rename changes and manual migrations for any data
+ * transform, validated with `MigrationTestHelper`.
  *
  * No `@TypeConverters` are declared — every entity field is a primitive,
  * String, or JSON-encoded String (e.g. [DownloadEntity.chaptersJson]).
@@ -34,9 +37,11 @@ import com.continuum.app.common.data.db.entity.UserItemStateEntity
         DirtyOperationEntity::class,
         DownloadEntity::class,
         LegacyImportEntity::class,
+        HomeCacheEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 abstract class SiloDatabase : RoomDatabase() {
     abstract fun userItemStateDao(): UserItemStateDao
@@ -44,6 +49,7 @@ abstract class SiloDatabase : RoomDatabase() {
     abstract fun dirtyOperationDao(): DirtyOperationDao
     abstract fun downloadDao(): DownloadDao
     abstract fun legacyImportDao(): LegacyImportDao
+    abstract fun homeCacheDao(): HomeCacheDao
 
     companion object {
         const val NAME = "silo.db"

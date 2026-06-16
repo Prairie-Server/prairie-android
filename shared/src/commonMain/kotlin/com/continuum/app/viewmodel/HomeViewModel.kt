@@ -8,6 +8,8 @@ import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.model.section.SectionItem
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.SectionRepository
+import com.continuum.app.repository.port.HomeCachePort
+import com.continuum.app.repository.port.NoOpHomeCachePort
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +34,9 @@ data class HomeUiState(
 class HomeViewModel(
     private val sectionRepository: SectionRepository,
     private val mediaActions: MediaActionsCoordinator,
+    // Track B: offline home cache. Defaults to no-op so commonMain/tests stay
+    // network-only; the Android platform module binds a Room-backed cache.
+    private val homeCache: HomeCachePort = NoOpHomeCachePort,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -43,7 +48,14 @@ class HomeViewModel(
 
     fun loadSections() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            // Stale-while-revalidate: serve the cached home instantly (offline-
+            // capable), then refresh from the network below.
+            val cached = homeCache.getCachedHome()
+            if (cached != null && cached.sections.isNotEmpty()) {
+                _uiState.update { it.copy(isLoading = false, sections = cached.sections, error = null) }
+            } else {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            }
             fetchSections()
         }
     }
@@ -57,32 +69,44 @@ class HomeViewModel(
     }
 
     private suspend fun fetchSections() {
+        // Whether we already have something to show (cached or prior fetch) — if a
+        // refresh fails we keep it rather than replacing it with a blocking error.
+        val hadSections = _uiState.value.sections.isNotEmpty()
         when (val result = sectionRepository.getHomeSections()) {
             is ApiResult.Success -> {
                 val sections = result.data.sections
-                val resolved: List<ResolvedSection> = sections.map { section ->
+                val resolvedPairs: List<Pair<ResolvedSection, Boolean>> = sections.map { section ->
                     viewModelScope.async {
-                        val itemsResult = sectionRepository.getHomeSectionItems(section.id)
-                        when (itemsResult) {
-                            is ApiResult.Success -> itemsResult.data.section ?: section
-                            else -> section
+                        when (val itemsResult = sectionRepository.getHomeSectionItems(section.id)) {
+                            is ApiResult.Success -> (itemsResult.data.section ?: section) to true
+                            else -> section to false
                         }
                     }
-                }.awaitAll().filter { it.items.isNotEmpty() }
+                }.awaitAll()
+                val resolved = resolvedPairs.map { it.first }.filter { it.items.isNotEmpty() }
+                // Don't persist a partially-resolved home over a good cached one.
+                val fullyResolved = resolvedPairs.all { it.second }
 
                 _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        sections = resolved,
-                        error = null,
-                    )
+                    // Only replace what's shown when the fetch fully resolved (or there
+                    // was nothing yet) — a partial refresh must not clobber a good Home.
+                    if (fullyResolved || !hadSections) {
+                        it.copy(isLoading = false, sections = resolved, error = null)
+                    } else {
+                        it.copy(isLoading = false, error = null)
+                    }
+                }
+                if (fullyResolved) {
+                    homeCache.cacheHome(resolved)
                 }
             }
             is ApiResult.Error -> {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        error = result.message.ifBlank { "Failed to load home sections" },
+                        // Keep cached/prior sections on a failed refresh; only block
+                        // with an error when there's nothing to show.
+                        error = if (hadSections) null else result.message.ifBlank { "Failed to load home sections" },
                     )
                 }
             }
@@ -90,7 +114,7 @@ class HomeViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        error = "Network error. Check your connection.",
+                        error = if (hadSections) null else "Network error. Check your connection.",
                     )
                 }
             }

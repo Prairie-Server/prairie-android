@@ -112,6 +112,13 @@ val androidModule = module {
             syncScheduler = get(),
         )
     }
+    single<com.continuum.app.repository.port.HomeCachePort> {
+        val tokenManager: TokenManager = get()
+        com.continuum.app.common.data.repository.RoomHomeCacheRepository(
+            db = get(),
+            snapshotProvider = { tokenManager.snapshotCurrentScope() },
+        )
+    }
     single {
         val tokenManager: TokenManager = get()
         com.continuum.app.common.data.sync.SyncEngine(
@@ -216,7 +223,7 @@ val androidModule = module {
             outboxSyncScheduler = get(),
         )
     }
-    viewModel { HomeViewModel(get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get()) }
     viewModel { MainHeaderViewModel(get()) }
     viewModel { LibrariesViewModel(get(), get(), get()) }
     viewModel { ReadingHubViewModel(get(), get(), get()) }
