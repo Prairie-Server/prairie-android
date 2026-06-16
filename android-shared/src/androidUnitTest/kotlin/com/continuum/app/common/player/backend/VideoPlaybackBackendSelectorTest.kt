@@ -83,4 +83,13 @@ class VideoPlaybackBackendSelectorTest {
         val request = VideoPlaybackBackendRequest(isExternalDisplay = true, hasHardContainer = true)
         assertEquals(VideoPlaybackBackendKind.Media3, VideoPlaybackBackendSelector.select(request))
     }
+
+    @Test
+    fun autoFallsBackToMedia3BelowMpvDeviceFloor() {
+        val request = VideoPlaybackBackendRequest(
+            hasHardContainer = true,
+            mpvSupportedOnDevice = false,
+        )
+        assertEquals(VideoPlaybackBackendKind.Media3, VideoPlaybackBackendSelector.select(request))
+    }
 }

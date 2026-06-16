@@ -8,6 +8,8 @@ object VideoPlaybackBackendSelector {
             VideoPlaybackBackendPreference.Media3 -> VideoPlaybackBackendKind.Media3
             VideoPlaybackBackendPreference.Mpv -> VideoPlaybackBackendKind.Mpv
             VideoPlaybackBackendPreference.Auto -> when {
+                // Device floor: below the MPV-enable floor, always Media3.
+                !request.mpvSupportedOnDevice -> VideoPlaybackBackendKind.Media3
                 // Route/session intent: ExoPlayer is the correct engine here.
                 request.isCasting -> VideoPlaybackBackendKind.Media3
                 request.isDrmProtected -> VideoPlaybackBackendKind.Media3

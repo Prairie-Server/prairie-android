@@ -16,4 +16,8 @@ data class VideoPlaybackBackendRequest(
     val isCasting: Boolean = false,
     val isDrmProtected: Boolean = false,
     val isExternalDisplay: Boolean = false,
+    // Device-class floor result (computed at the call site from Build.VERSION +
+    // Build.SUPPORTED_ABIS via MpvDeviceFloor). Default true so pure/unit call
+    // sites keep prior behavior; production call sites pass the real value.
+    val mpvSupportedOnDevice: Boolean = true,
 )
