@@ -276,6 +276,34 @@ fun ItemDetailScreen(
                             "S${ep.seasonNumber}·E${ep.episodeNumber}"
                         }
                         val episodeDownloadRecords by viewModel.downloads.collectAsState()
+                        // Series-level roll-up across ALL seasons (state.allEpisodeFileIds
+                        // is loaded in the background): ✓ only when every episode is
+                        // downloaded; a partial fraction otherwise.
+                        val seriesDownloadState = remember(
+                            episodeDownloadRecords,
+                            state.allEpisodeFileIds,
+                            state.allEpisodeIdsComplete,
+                        ) {
+                            val ids = state.allEpisodeFileIds
+                            if (ids.isEmpty()) {
+                                DetailDownloadState()
+                            } else {
+                                val downloaded = ids.count {
+                                    detailDownloadStateForFile(it, episodeDownloadRecords).isDownloaded
+                                }
+                                // ✓ only when every season loaded AND every episode is
+                                // downloaded; otherwise show a partial fraction.
+                                val allDone = state.allEpisodeIdsComplete && downloaded == ids.size
+                                DetailDownloadState(
+                                    isDownloaded = allDone,
+                                    progress = if (!allDone && downloaded > 0) {
+                                        downloaded.toFloat() / ids.size
+                                    } else {
+                                        null
+                                    },
+                                )
+                            }
+                        }
 
                         SeriesDetailContent(
                             detail = detail,
@@ -322,6 +350,7 @@ fun ItemDetailScreen(
                                     records = episodeDownloadRecords,
                                 )
                             },
+                            seriesDownloadState = seriesDownloadState,
                             onWatchTogether = {
                                 onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null)
                             },

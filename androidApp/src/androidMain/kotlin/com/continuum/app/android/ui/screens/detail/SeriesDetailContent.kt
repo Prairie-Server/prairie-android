@@ -65,6 +65,9 @@ fun SeriesDetailContent(
     onSeasonDownloadClick: ((Int) -> Unit)? = null,
     onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
     episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
+    /** Series-level roll-up across ALL seasons: isDownloaded when every episode
+     *  is downloaded, progress = downloaded/total fraction while partial. */
+    seriesDownloadState: DetailDownloadState = DetailDownloadState(),
     onWatchTogether: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -125,8 +128,8 @@ fun SeriesDetailContent(
                     downloadSlot = onSeriesDownloadClick?.let { click ->
                         {
                             DownloadCircleButton(
-                                isDownloaded = false,
-                                progress = null,
+                                isDownloaded = seriesDownloadState.isDownloaded,
+                                progress = seriesDownloadState.progress,
                                 onClick = click,
                             )
                         }

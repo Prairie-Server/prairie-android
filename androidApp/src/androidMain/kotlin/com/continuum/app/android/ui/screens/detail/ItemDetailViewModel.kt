@@ -34,6 +34,14 @@ data class ItemDetailUiState(
     val selectedSeasonNumber: Int = 1,
     val episodes: List<EpisodeListItem> = emptyList(),
     val isLoadingEpisodes: Boolean = false,
+    /** First-file ids of EVERY episode across ALL seasons (loaded once for the
+     *  series-level downloaded roll-up — the per-season `episodes` only covers
+     *  the selected season). Empty until the background load completes. */
+    val allEpisodeFileIds: List<Int> = emptyList(),
+    /** True only when EVERY season's episodes loaded successfully — the series
+     *  hero may show ✓ only then (a failed season would shrink the denominator
+     *  and falsely complete the roll-up). */
+    val allEpisodeIdsComplete: Boolean = false,
     val isFavorite: Boolean = false,
     val isInWatchlist: Boolean = false,
     val userRating: Int? = null,
@@ -259,9 +267,30 @@ class ItemDetailViewModel(
                     if (selectedSeason != null) {
                         loadEpisodes(seriesId, selectedSeason.seasonNumber)
                     }
+                    loadAllEpisodeFileIds(seriesId, seasons)
                 }
                 else -> { /* Season load failure is non-critical */ }
             }
+        }
+    }
+
+    /** Loads every season's episodes once to compute the series-level downloaded
+     *  roll-up (✓ only when ALL episodes are downloaded). Best-effort: a season
+     *  that fails to load just contributes no ids. Episode reads are cache-backed. */
+    private fun loadAllEpisodeFileIds(seriesId: String, seasons: List<Season>) {
+        viewModelScope.launch {
+            val fileIds = mutableListOf<Int>()
+            var complete = true
+            for (season in seasons) {
+                when (val r = catalogRepository.getEpisodes(seriesId, season.seasonNumber)) {
+                    is ApiResult.Success -> r.data.episodes.forEach { ep ->
+                        ep.files.firstOrNull()?.fileId?.let { fileIds += it }
+                    }
+                    // A season we couldn't load means we can't prove series-completeness.
+                    else -> complete = false
+                }
+            }
+            _uiState.update { it.copy(allEpisodeFileIds = fileIds, allEpisodeIdsComplete = complete) }
         }
     }
 
