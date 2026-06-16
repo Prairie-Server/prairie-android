@@ -43,9 +43,12 @@ import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.repository.SubtitlesRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -1286,6 +1289,24 @@ class PlayerViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        // Guarantee the final resume position is persisted on teardown. onExit's
+        // write runs in viewModelScope, which is cancelling here — so AWAIT one
+        // last write under NonCancellable (brief local Room write off the main
+        // thread). Without this, exiting while playing could lose the last spot.
+        val cid = _uiState.value.contentId.takeIf { it.isNotBlank() }
+        val fid = currentFileId()
+        if (cid != null && fid != null) {
+            runCatching {
+                runBlocking(NonCancellable + Dispatchers.IO) {
+                    userItemStatePort.recordPosition(
+                        cid,
+                        fid,
+                        _uiState.value.position,
+                        _uiState.value.duration.takeIf { it > 0.0 },
+                    )
+                }
+            }
+        }
         controlsHideJob?.cancel()
         introObserverJob?.cancel()
         lifecycleObserverJob?.cancel()
