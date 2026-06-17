@@ -162,6 +162,19 @@ fun TvMainShell(
         }
     }
 
+    // Secondary routes (reached FROM another screen — Settings -> Favorites/
+    // Watchlist/History/Collections/Requests, Requests -> MyRequests, profile ->
+    // Inbox) push onto the current route instead of flattening to the tab root,
+    // so Back returns to the parent screen (e.g. Settings) rather than Home.
+    val navigateToSecondary: (String) -> Unit = { route ->
+        if (route != currentRoute) {
+            nestedNav.navigate(route) {
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
     val moveFocusToContent: (String) -> Unit = { route ->
         profileMenuOpen = false
         if (route == TvMainRoute.Search.route) {
@@ -197,7 +210,7 @@ fun TvMainShell(
     // lands on the inbox rather than lingering on the (now-hidden) menu.
     val openInbox: () -> Unit = {
         profileMenuOpen = false
-        navigateToRoute(TvMainRoute.Inbox.route)
+        navigateToSecondary(TvMainRoute.Inbox.route)
         moveFocusToContent(TvMainRoute.Inbox.route)
     }
 
@@ -349,7 +362,7 @@ fun TvMainShell(
                 composable(TvMainRoute.Requests.route) {
                     TvRequestsScreen(
                         onOpenLibraryItem = onOpenItemDetail,
-                        onOpenMyRequests = { navigateToRoute(TvMainRoute.MyRequests.route) },
+                        onOpenMyRequests = { navigateToSecondary(TvMainRoute.MyRequests.route) },
                         onInitialContentFocus = { profileMenuOpen = false },
                     )
                 }
@@ -385,12 +398,12 @@ fun TvMainShell(
                 }
                 composable(TvMainRoute.Settings.route) {
                     TvSettingsScreen(
-                        onNavigateToFavorites = { navigateToRoute(TvMainRoute.Favorites.route) },
-                        onNavigateToWatchlist = { navigateToRoute(TvMainRoute.Watchlist.route) },
-                        onNavigateToHistory = { navigateToRoute(TvMainRoute.History.route) },
-                        onNavigateToCollections = { navigateToRoute(TvMainRoute.Collections.route) },
+                        onNavigateToFavorites = { navigateToSecondary(TvMainRoute.Favorites.route) },
+                        onNavigateToWatchlist = { navigateToSecondary(TvMainRoute.Watchlist.route) },
+                        onNavigateToHistory = { navigateToSecondary(TvMainRoute.History.route) },
+                        onNavigateToCollections = { navigateToSecondary(TvMainRoute.Collections.route) },
                         onNavigateToRequests = {
-                            navigateToRoute(TvMainRoute.Requests.route)
+                            navigateToSecondary(TvMainRoute.Requests.route)
                             moveFocusToContent(TvMainRoute.Requests.route)
                         },
                         onSignedOut = onSignedOut,
