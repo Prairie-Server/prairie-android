@@ -1,5 +1,14 @@
 package com.continuum.app.network
 
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
+import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.http.encodeURLParameter
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -38,4 +47,105 @@ fun decodePlaybackFrame(json: Json, raw: String): PlaybackRealtimeEvent? {
         }
         else -> null
     }
+}
+
+/**
+ * Per-session control socket. One [connect] = one connection to
+ * `/api/v1/playback/sessions/{session_id}/control/ws`, authenticated by query
+ * string (token + profile, matching [DefaultWatchTogetherRealtimeClient]). The
+ * returned flow emits [PlaybackRealtimeEvent.Opened] once the socket is live,
+ * then decoded frames, and ends with [PlaybackRealtimeEvent.Closed]; reconnect
+ * with backoff is the controller's job. [sendHello]/[sendAck]/[sendResult]
+ * write on the open session.
+ */
+interface PlaybackRealtimeClient {
+    fun connect(sessionId: String): Flow<PlaybackRealtimeEvent>
+    suspend fun sendHello(sessionId: String)
+    suspend fun sendAck(sessionId: String, commandId: String)
+    suspend fun sendResult(sessionId: String, commandId: String, status: String, error: String? = null)
+}
+
+class DefaultPlaybackRealtimeClient(
+    private val client: HttpClient,
+    private val tokenManager: TokenManager,
+    private val json: Json = ContinuumJson,
+) : PlaybackRealtimeClient {
+
+    private var session: DefaultClientWebSocketSession? = null
+
+    override fun connect(sessionId: String): Flow<PlaybackRealtimeEvent> = callbackFlow {
+        val token = tokenManager.getAccessToken()
+        // The control socket is auth-only (the server mounts it outside
+        // RequireProfile — it authorizes by user + session ownership), so a
+        // missing profile must NOT block the connection. Only the access token
+        // is required; profile params are sent as optional extras.
+        if (token.isNullOrBlank()) {
+            trySend(PlaybackRealtimeEvent.Closed("missing_auth"))
+            close()
+            return@callbackFlow
+        }
+        val profileId = tokenManager.getProfileId()
+        val profileToken = tokenManager.getProfileToken()
+        val url = buildString {
+            append("/api/v1/playback/sessions/")
+            append(sessionId.encodeURLParameter())
+            append("/control/ws?token=").append(token.encodeURLParameter())
+            if (!profileId.isNullOrBlank()) {
+                append("&profile_id=").append(profileId.encodeURLParameter())
+            }
+            if (!profileToken.isNullOrBlank()) {
+                append("&profile_token=").append(profileToken.encodeURLParameter())
+            }
+        }
+        try {
+            client.webSocket(urlString = url) {
+                session = this
+                // R2: signal open AFTER the session is assigned, so the
+                // controller's hello can't race ahead of a live socket.
+                trySend(PlaybackRealtimeEvent.Opened)
+                try {
+                    for (frame in incoming) {
+                        if (frame !is Frame.Text) continue
+                        decodePlaybackFrame(json, frame.readText())?.let { trySend(it) }
+                    }
+                } finally {
+                    session = null
+                }
+            }
+            trySend(PlaybackRealtimeEvent.Closed())
+        } catch (e: Throwable) {
+            session = null
+            trySend(PlaybackRealtimeEvent.Closed(e.message))
+        } finally {
+            close()
+        }
+        awaitClose { }
+    }
+
+    private suspend fun sendText(text: String) { session?.send(Frame.Text(text)) }
+
+    override suspend fun sendHello(sessionId: String) = sendText(
+        json.encodeToString(
+            PlaybackHelloEnvelope.serializer(),
+            PlaybackHelloEnvelope(
+                sessionId = sessionId,
+                client = HelloClient(),
+                capabilities = HelloCapabilities(PlaybackCommandNames.Supported),
+            ),
+        ),
+    )
+
+    override suspend fun sendAck(sessionId: String, commandId: String) = sendText(
+        json.encodeToString(
+            PlaybackAckEnvelope.serializer(),
+            PlaybackAckEnvelope(commandId = commandId, sessionId = sessionId),
+        ),
+    )
+
+    override suspend fun sendResult(sessionId: String, commandId: String, status: String, error: String?) = sendText(
+        json.encodeToString(
+            PlaybackResultEnvelope.serializer(),
+            PlaybackResultEnvelope(commandId = commandId, sessionId = sessionId, status = status, error = error),
+        ),
+    )
 }
