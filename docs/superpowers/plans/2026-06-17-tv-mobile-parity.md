@@ -62,7 +62,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P6.3 In-player Auto-play-next toggle (TV)**.
 - [ ] **P6.4 Next-Episode prompt overlay (TV)**.
 - [ ] **P6.5 Media Info sheet (TV detail)** — video/audio/subtitle track details.
-- [ ] **P6.6 Subtitle search / AI-translate language list (TV)** — use full LanguageNames list.
+- [~] **P6.6 Subtitle search / AI-translate language list (TV)** — effectively at parity: TvSubtitleLanguageOptions already has 28 common languages; marginal diff vs mobile, not pursued.
 - [ ] **P6.7 Version picker keeps every file (TV)** — stop collapsing files by quality key.
 - [ ] **P6.8 Direct episode play (TV)** — Select on episode plays; separate affordance opens detail.
 - [ ] **P6.9 Series-level Watch Together (TV)** — on next/playable episode.
