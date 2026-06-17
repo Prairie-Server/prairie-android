@@ -101,6 +101,11 @@ private fun ItemDetail.assembleFacts(): List<FactRow> {
     countries.takeIf { it.isNotEmpty() }?.let {
         out += FactRow("Country", it.take(3).joinToString(", "))
     }
+    // Full genre list (the hero eyebrow only shows the first two); mirrors the
+    // phone's "Genres" details row.
+    genres.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.let {
+        out += FactRow("Genres", it.joinToString(", "))
+    }
     formattedDate(releaseDate)?.let { out += FactRow("Released", it) }
     formattedDate(firstAirDate)?.let { out += FactRow("First Aired", it) }
     formattedDate(lastAirDate)?.let { out += FactRow("Last Aired", it) }
