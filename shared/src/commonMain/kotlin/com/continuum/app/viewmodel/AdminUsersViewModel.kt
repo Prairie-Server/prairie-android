@@ -3,6 +3,7 @@ package com.continuum.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.admin.AdminUser
+import com.continuum.app.model.admin.UpdateUserRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.errorMessage
 import com.continuum.app.repository.AdminRepository
@@ -64,6 +65,37 @@ class AdminUsersViewModel(
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> _uiState.update {
                     it.copy(message = result.errorMessage("Failed to delete user"))
+                }
+            }
+        }
+    }
+
+    /** Update a user's role ("admin"/"user") via the admin update endpoint. */
+    fun setRole(id: Int, role: String) {
+        viewModelScope.launch {
+            when (val result = repository.updateUser(id, UpdateUserRequest(role = role))) {
+                is ApiResult.Success -> _uiState.update { s ->
+                    s.copy(users = s.users.map { if (it.id == id) result.data else it }, message = "Role updated")
+                }
+                is ApiResult.Error, is ApiResult.NetworkError -> _uiState.update {
+                    it.copy(message = result.errorMessage("Failed to update role"))
+                }
+            }
+        }
+    }
+
+    /** Enable or disable a user account. */
+    fun setEnabled(id: Int, enabled: Boolean) {
+        viewModelScope.launch {
+            when (val result = repository.updateUser(id, UpdateUserRequest(enabled = enabled))) {
+                is ApiResult.Success -> _uiState.update { s ->
+                    s.copy(
+                        users = s.users.map { if (it.id == id) result.data else it },
+                        message = if (enabled) "User enabled" else "User disabled",
+                    )
+                }
+                is ApiResult.Error, is ApiResult.NetworkError -> _uiState.update {
+                    it.copy(message = result.errorMessage("Failed to update user"))
                 }
             }
         }

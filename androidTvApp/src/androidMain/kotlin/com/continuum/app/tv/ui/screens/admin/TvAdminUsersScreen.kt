@@ -112,22 +112,62 @@ fun TvAdminUsersScreen(
     actionsTarget?.let { user ->
         TvOptionDialog(
             title = user.username,
-            options = listOf(
-                TvDialogOption(
-                    key = "delete",
-                    title = "Delete user",
-                    subtitle = "Permanently remove this account",
-                    onClick = {
-                        actionsTarget = null
-                        pendingDelete = user
-                    },
-                ),
-                TvDialogOption(
-                    key = "cancel",
-                    title = "Cancel",
-                    onClick = { actionsTarget = null },
-                ),
-            ),
+            options = buildList {
+                if (user.role == "admin") {
+                    add(
+                        TvDialogOption(
+                            key = "role-user",
+                            title = "Make standard user",
+                            subtitle = "Remove admin privileges",
+                            onClick = {
+                                actionsTarget = null
+                                viewModel.setRole(user.id, "user")
+                            },
+                        ),
+                    )
+                } else {
+                    add(
+                        TvDialogOption(
+                            key = "role-admin",
+                            title = "Make admin",
+                            subtitle = "Grant admin privileges",
+                            onClick = {
+                                actionsTarget = null
+                                viewModel.setRole(user.id, "admin")
+                            },
+                        ),
+                    )
+                }
+                add(
+                    TvDialogOption(
+                        key = "enabled",
+                        title = if (user.enabled) "Disable user" else "Enable user",
+                        subtitle = if (user.enabled) "Block sign-in for this account" else "Allow sign-in again",
+                        onClick = {
+                            actionsTarget = null
+                            viewModel.setEnabled(user.id, !user.enabled)
+                        },
+                    ),
+                )
+                add(
+                    TvDialogOption(
+                        key = "delete",
+                        title = "Delete user",
+                        subtitle = "Permanently remove this account",
+                        onClick = {
+                            actionsTarget = null
+                            pendingDelete = user
+                        },
+                    ),
+                )
+                add(
+                    TvDialogOption(
+                        key = "cancel",
+                        title = "Cancel",
+                        onClick = { actionsTarget = null },
+                    ),
+                )
+            },
             onDismiss = { actionsTarget = null },
         )
     }
