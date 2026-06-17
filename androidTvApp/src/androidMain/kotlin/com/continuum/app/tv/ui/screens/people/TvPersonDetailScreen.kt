@@ -207,7 +207,11 @@ private fun PersonHeader(person: Person) {
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = 0.78f),
                     lineHeight = 30.sp,
-                    maxLines = 6,
+                    // TV can't D-pad-scroll an inner text box and the auto-focus
+                    // lands on the grid below, so keep the bio to a viewport-sized
+                    // block (more than the old 6-line clip, but not so tall it
+                    // pushes the filmography off-screen or strands the bio's top).
+                    maxLines = 12,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

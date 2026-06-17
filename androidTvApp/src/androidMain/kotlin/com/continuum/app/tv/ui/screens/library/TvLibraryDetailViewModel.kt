@@ -39,7 +39,9 @@ enum class TvLibrarySortOption(val label: String, val wireValue: String) {
 data class TvLibraryBrowseFilter(
     val genre: String? = null,
     val namePrefix: String? = null,
-    val sort: String = TvLibrarySortOption.Title.wireValue,
+    // Default to newest-first (added_at), matching the global browse + the
+    // shared CatalogRepository's default; TV previously diverged with Title.
+    val sort: String = TvLibrarySortOption.DateAdded.wireValue,
     val yearMin: Int? = null,
     val yearMax: Int? = null,
 )

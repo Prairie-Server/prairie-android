@@ -493,6 +493,7 @@ fun TvMainShell(
                         },
                         onManageSessions = { navigateToSecondary(TvMainRoute.ManageSessions.route) },
                         onPairDevice = onPairDevice,
+                        onManageServers = onSwitchServer,
                         onSignedOut = onSignedOut,
                         onSwitchProfile = onSwitchProfile,
                         onInitialContentFocus = { profileMenuOpen = false },
