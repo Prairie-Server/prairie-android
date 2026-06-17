@@ -23,9 +23,9 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 ## Phase 2 — Player HIGH
 - [x] **P2.1 Playback speed (TV)** — HUD Video pane Speed presets 0.5–3× (click-committed HudClickChip), wired to onSetPlaybackSpeed. Commit fd8ba79.
 - [x] **P2.2 Sleep timer (TV)** — HUD Video pane: preset chips (15m/30m/45m/1h/1h30m) when idle; "Sleeping in Xm Ys" + Cancel when armed. Wired to onStartSleepTimer/onCancelSleepTimer.
-- [ ] **P2.3 Quality / version switching (TV)** — implement the no-op video-selection callback (TvPlayerScreen.kt:849). Mobile: QualitySelector (resolution/HDR/codecs/size).
+- [ ] **P2.3 Quality / version switching (TV)** — DEFERRED (device-test required): not UI-only; switching quality re-mounts the player on a new stream. Needs real-media on-device verification. Implement in a device-test session.
+  - [~] **P2.5 Server-side audio switching (TV)** — DEFERRED (device-test required): transcoded audio is baked in; needs server changeAudio + re-mount, validated against transcoded media on-device.
 - [x] **P2.4 In-player subtitle style editor (TV)** — new TvSubtitleStyleDialog (size/font/text color/bg style+color/opacity/outline+color/position), opened from the subtitle menu; modal (Back closes, suppresses player keys + autohide), captures focus. Wired to onSetSubtitleAppearance.
-- [ ] **P2.5 Server-side audio switching (TV)** — TV `onSelectAudio` should call the playback session `changeAudio` (not just local track), matching PlayerViewModel:664. [verify transcode vs direct]
 
 ## Phase 3 — Detail HIGH
 - [ ] **P3.1 Audio pre-selector (TV detail)** — add pre-playback Audio picker to the detail action row/overflow. Mobile: MediaSelectors:148.
