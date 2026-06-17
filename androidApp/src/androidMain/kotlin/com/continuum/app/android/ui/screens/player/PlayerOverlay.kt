@@ -8,7 +8,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -174,6 +177,16 @@ fun PlayerOverlay(
             contentAlignment = Alignment.TopStart,
         ) {
             PlayerNoticeOverlay(notice = notice)
+        }
+
+        // F2: pass-out "Still watching?" prompt — shown instead of auto-advancing
+        // once the consecutive-auto-advance streak hits the threshold.
+        if (state.stillWatchingPrompt) {
+            StillWatchingPrompt(
+                nextEpisodeLabel = state.nextEpisodeLabel,
+                onContinue = viewModel::onStillWatchingContinue,
+                onStop = viewModel::onStillWatchingStop,
+            )
         }
 
         // Remote-control "display_message" toast (top-center), shown for a few
@@ -525,5 +538,46 @@ private fun SleepTimerChip(remainingSeconds: Int) {
             color = Color.White,
             fontSize = 13.sp,
         )
+    }
+}
+
+@Composable
+private fun StillWatchingPrompt(
+    nextEpisodeLabel: String?,
+    onContinue: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .zIndex(11f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Still watching?", style = MaterialTheme.typography.titleLarge)
+                nextEpisodeLabel?.let { label ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Up next: $label",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(onClick = onStop) { Text("Stop") }
+                    Button(onClick = onContinue) { Text("Continue") }
+                }
+            }
+        }
     }
 }

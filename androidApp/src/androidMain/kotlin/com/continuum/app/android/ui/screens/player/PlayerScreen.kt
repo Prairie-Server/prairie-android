@@ -505,6 +505,9 @@ fun PlayerScreen(
                     viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
                     if (playbackState == Player.STATE_ENDED) {
                         viewModel.onPlayingChanged(false)
+                        // F2 fallback: auto-advance / prompt if no credits marker
+                        // fired the trigger first.
+                        viewModel.onApproachingEnd()
                     }
                 }
 
