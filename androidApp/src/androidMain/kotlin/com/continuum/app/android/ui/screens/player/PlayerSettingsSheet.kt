@@ -193,7 +193,7 @@ fun PlayerSettingsSheet(
                 DelaySpinnerRow(
                     label = "Subtitle delay",
                     valueMs = subtitleDelayMs,
-                    stepMs = 100,
+                    stepMs = 50,
                     minMs = -10000,
                     maxMs = 10000,
                     onChange = onSetSubtitleDelay,
@@ -473,9 +473,9 @@ private fun isSameSpeed(a: Double, b: Double): Boolean = kotlin.math.abs(a - b) 
 /**
  * iOS-style range spinner row: label on the left, [− value +] on the right.
  * Tap − / + to step by [stepMs]; value clamps to [[minMs], [maxMs]]. Mirrors
- * iOS phone's `RangeSpinner` rendered in the Sync section of
- * `PlayerSettingsSheet.swift:262-292` (audio: ±5000 / step 50; subtitle:
- * ±10000 / step 100).
+ * iOS phone's `RangeSpinner` (Sync section of `PlayerSettingsSheet.swift`).
+ * Android uses a 50 ms step for BOTH audio (±5000) and subtitle (±10000)
+ * delay — finer than iOS's 100 ms subtitle step — and the TV client matches.
  */
 @Composable
 private fun DelaySpinnerRow(

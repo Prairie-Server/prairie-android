@@ -146,9 +146,11 @@ class TvPlayerControlsUsabilityTest {
             syncIndex < listIndex,
             "subtitle sync controls must not be buried below long subtitle track lists",
         )
-        assertTrue(subtitleMenuSource.contains("Subtitle Sync"))
-        assertTrue(subtitleMenuSource.contains("Advance subtitles"))
-        assertTrue(subtitleMenuSource.contains("Delay subtitles"))
+        // Title + signed current-offset readout (the old descriptive
+        // "Advance/Delay subtitles by X ms" Text was removed — that removal is
+        // asserted precisely in dedicatedSubtitleSyncUsesCompactLayoutInsteadOfLargeCard).
+        assertTrue(subtitleMenuSource.contains("Subtitle delay"))
+        assertTrue(subtitleMenuSource.contains("subtitleSyncCompactValue(valueMs)"))
     }
 
     @Test
@@ -165,7 +167,7 @@ class TvPlayerControlsUsabilityTest {
 
     @Test
     fun dedicatedSubtitleSyncStepperUsesOnePredictableStepSize() {
-        assertTrue(subtitleMenuSource.contains("private const val SUBTITLE_SYNC_STEP_MS = 100"))
+        assertTrue(subtitleMenuSource.contains("private const val SUBTITLE_SYNC_STEP_MS = 50"))
         assertTrue(subtitleMenuSource.contains("onChange(valueMs - SUBTITLE_SYNC_STEP_MS)"))
         assertTrue(subtitleMenuSource.contains("onChange(valueMs + SUBTITLE_SYNC_STEP_MS)"))
     }
@@ -187,8 +189,9 @@ class TvPlayerControlsUsabilityTest {
             .substringAfter("private fun SubtitleSyncStrip")
             .substringBefore("@Composable\nprivate fun SubtitleDelayStepperRow")
 
-        assertTrue(syncBlock.contains("Subtitle Sync"))
-        assertTrue(syncBlock.contains("subtitleSyncLabel(valueMs)"))
+        assertTrue(syncBlock.contains("Subtitle delay"))
+        assertTrue(syncBlock.contains("SubtitleDelayStepperRow("))
+        assertFalse(syncBlock.contains("subtitleSyncLabel(valueMs)"))
         assertFalse(syncBlock.contains("subtitleSyncDescription"))
         assertFalse(syncBlock.contains("RoundedCornerShape(18.dp)"))
         assertFalse(syncBlock.contains(".padding(16.dp)"))

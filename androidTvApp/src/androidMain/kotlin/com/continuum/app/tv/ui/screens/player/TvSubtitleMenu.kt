@@ -50,7 +50,7 @@ import androidx.tv.material3.Text
 import com.continuum.app.tv.ui.theme.Spacing
 import kotlinx.coroutines.delay
 
-private const val SUBTITLE_SYNC_STEP_MS = 100
+private const val SUBTITLE_SYNC_STEP_MS = 50
 
 @Composable
 fun TvSubtitleMenu(
@@ -281,25 +281,15 @@ private fun SubtitleSyncStrip(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Subtitle Sync",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = subtitleSyncLabel(valueMs),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        // Title only — the stepper center shows the CURRENT signed offset (e.g.
+        // "+50 ms" / "−50 ms" / "0 ms"). We intentionally drop the old
+        // "Advance/Delay subtitles by X" wording so the control reads as a
+        // current-state readout, matching the phone's Subtitle delay spinner.
+        Text(
+            text = "Subtitle delay",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         SubtitleDelayStepperRow(
             valueMs = valueMs,
             onChange = onChange,
@@ -344,14 +334,6 @@ private fun SubtitleDelayStepperRow(
             contentDescription = "Delay subtitles",
             onClick = { onChange(valueMs + SUBTITLE_SYNC_STEP_MS) },
         )
-    }
-}
-
-private fun subtitleSyncLabel(valueMs: Int): String {
-    return when {
-        valueMs < 0 -> "Advance subtitles by ${-valueMs} ms"
-        valueMs > 0 -> "Delay subtitles by $valueMs ms"
-        else -> "In sync"
     }
 }
 
@@ -401,9 +383,10 @@ private fun SubtitleDelayStepButton(
     }
 }
 
+// Signed current offset — matches the phone's formatDelayMs (true minus sign).
 private fun subtitleSyncCompactValue(valueMs: Int): String =
     when {
         valueMs > 0 -> "+$valueMs ms"
-        valueMs < 0 -> "$valueMs ms"
+        valueMs < 0 -> "−${-valueMs} ms"
         else -> "0 ms"
     }

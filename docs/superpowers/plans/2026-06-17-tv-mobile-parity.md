@@ -13,11 +13,12 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 
 ---
 
-## Phase 1 — Player Sync controls (user-requested; both clients) — DO FIRST
-- [ ] **P1.1 Subtitle delay (TV)** — TvSubtitleMenu: replace "Subtitle Sync / Advance|Delay subtitles by X / +100ms" with a label + **signed current offset** (`formatDelayMs`) spinner; step **50 ms**. Mobile ref: PlayerSettingsSheet `DelaySpinnerRow` + `formatDelayMs`.
-- [ ] **P1.2 Subtitle delay step (mobile)** — PlayerSettingsSheet subtitle `DelaySpinnerRow` stepMs 100 → **50**.
-- [ ] **P1.3 Audio delay (TV)** — make TV audio delay show signed current offset; align step to 50 (decide: keep −50/−10/reset/+10/+50 multi-button OR mobile single −/+50). Mobile audio step already 50.
-- [ ] **P1.4** Verify both delays still apply through SubtitleOffsetHolder / DelayAudioProcessor after UI change.
+## Phase 1 — Player Sync controls (user-requested; both clients) — DONE (commit pending)
+- [x] **P1.1 Subtitle delay (TV)** — TvSubtitleMenu: title "Subtitle delay" + signed current offset in the stepper center ("+50 ms"/"−50 ms"/"0 ms"); removed the "Advance/Delay subtitles by X" wording + `subtitleSyncLabel`; step **50 ms**.
+- [x] **P1.2 Subtitle delay step (mobile)** — PlayerSettingsSheet subtitle `DelaySpinnerRow` stepMs 100 → **50** (+ doc comment).
+- [~] **P1.3 Audio delay (TV)** — reviewed, KEPT as-is: already shows current value ("Audio delay: X ms") and already steps 50 ms (plus finer −10/+10/Reset). Richer than mobile's single ±50 spinner; not a gap, so no downgrade. (Mobile audio already 50.)
+- [x] **P1.4** Verified: delays still apply unchanged — subtitle via SubtitleOffsetHolder reparse, audio via DelayAudioProcessor; only the UI display/step changed.
+- Tests: updated TvPlayerControlsUsabilityTest (step 50, "Subtitle delay", subtitleSyncLabel removed) — green.
 
 ## Phase 2 — Player HIGH
 - [ ] **P2.1 Playback speed (TV)** — add speed control to HUD/side-panel; wire `TvPlayerViewModel.onSetPlaybackSpeed` + `playbackSpeedFlow`. Mobile: PlayerSettingsSheet speed presets 0.5–3x.
