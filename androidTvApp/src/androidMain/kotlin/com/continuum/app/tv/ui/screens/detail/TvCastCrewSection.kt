@@ -64,6 +64,7 @@ fun TvCastCrewSection(
     firstItemFocusRequester: FocusRequester? = null,
     firstItemCardModifier: Modifier = Modifier,
     onDirectionDown: (() -> Boolean)? = null,
+    onDirectionUp: (() -> Boolean)? = null,
     onCastMemberClick: (CastMember) -> Unit = {},
 ) {
     if (cast.isEmpty()) return
@@ -84,12 +85,16 @@ fun TvCastCrewSection(
                     }
                 }
                 .then(
-                    if (onDirectionDown != null) {
+                    if (onDirectionDown != null || onDirectionUp != null) {
                         Modifier.onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
-                                onDirectionDown()
-                            } else {
+                            if (event.type != KeyEventType.KeyDown) {
                                 false
+                            } else {
+                                when (event.key) {
+                                    Key.DirectionDown -> onDirectionDown?.invoke() ?: false
+                                    Key.DirectionUp -> onDirectionUp?.invoke() ?: false
+                                    else -> false
+                                }
                             }
                         }
                     } else {

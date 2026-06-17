@@ -42,6 +42,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,6 +81,7 @@ internal fun TvDetailEpisodeRail(
     onEpisodeSelected: (EpisodeListItem) -> Unit,
     modifier: Modifier = Modifier,
     currentContentId: String? = null,
+    onDirectionUp: (() -> Boolean)? = null,
 ) {
     if (episodes.isEmpty()) return
 
@@ -106,6 +112,19 @@ internal fun TvDetailEpisodeRail(
     LazyRow(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (onDirectionUp != null) {
+                    Modifier.onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                            onDirectionUp()
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .focusGroup()
             .then(
                 if (currentIndex != null) {

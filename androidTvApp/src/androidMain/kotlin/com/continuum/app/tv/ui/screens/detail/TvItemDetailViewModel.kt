@@ -27,8 +27,10 @@ data class TvItemDetailUiState(
     // User state toggles.
     val isFavorite: Boolean = false,
     val inWatchlist: Boolean = false,
+    val isWatched: Boolean = false,
     val isTogglingFavorite: Boolean = false,
     val isTogglingWatchlist: Boolean = false,
+    val isTogglingWatched: Boolean = false,
     val userRating: Int? = null,
     val isTogglingRating: Boolean = false,
     // Series navigation (only relevant when detail.type == "series").
@@ -103,6 +105,7 @@ class TvItemDetailViewModel(
                             isLoading = false,
                             detail = detail,
                             userRating = detail.userRating,
+                            isWatched = detail.userData?.played == true,
                             error = null,
                         )
                     }
@@ -178,6 +181,24 @@ class TvItemDetailViewModel(
                 }
             } else {
                 _uiState.update { it.copy(isTogglingWatchlist = false) }
+            }
+        }
+    }
+
+    fun onToggleWatched() {
+        val current = _uiState.value
+        if (current.isTogglingWatched) return
+        val target = !current.isWatched
+        _uiState.update { it.copy(isTogglingWatched = true, isWatched = target) }
+        viewModelScope.launch {
+            val result = personalDataRepository.setWatched(contentId, target)
+            if (result !is ApiResult.Success) {
+                // Roll back on error.
+                _uiState.update {
+                    it.copy(isTogglingWatched = false, isWatched = !target)
+                }
+            } else {
+                _uiState.update { it.copy(isTogglingWatched = false) }
             }
         }
     }
