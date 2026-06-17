@@ -12,6 +12,19 @@
 
 ---
 
+## Execution status (2026-06-17)
+
+**Done + Codex-reviewed + committed (all unit tests green, both apps launch clean):**
+- **F1 skip-back-on-resume — COMPLETE (mobile + TV).** Task 1 (`applyResumeRewind` b9ea8c9), Task 2 (both starters, R1 intent, 5fe12b6), B1 (TV covered by Task 2).
+- **F3 remote session control — COMPLETE (mobile + TV).** Tasks 6/7/9 (models/decoder/dispatcher 01b9e05), 8 (socket client cd92cd6), 12 (DI factory 4afef1d), 10/11/13 (mobile controller 95ee49e), B6/B7 (TV controller + WT-authority gate 56fe7a9). Includes R2 (hello-on-Opened) + R3 (seek aliases).
+- **F2 foundations.** Task 3 (`AutoPlayGuard` 99825ef), B3 (`nextEpisodeAfter` resolver 6187512).
+
+**Remaining = device-test session only** (needs real playback on a visible screen; the Shield screencaps black):
+- **F2 completion** — there is NO next-episode auto-advance on EITHER client yet (both are manual), so Tasks 4/5 (mobile gate + "Still watching?") and B4/B5 (TV auto-advance + gate + prompt) must BUILD auto-advance, then gate it with `AutoPlayGuard`, then verify. B2 (thread seriesId/season/episode into `Ready`) is the un-started plumbing B4 needs.
+- **Live verification** — F1 actual start positions (direct vs transcode), F3 command application (pause/seek/stop/message against the service-owned player), Task 14 smoke test.
+
+---
+
 ## ⚠ Revisions from Codex review (apply these OVER the base tasks below)
 
 These correct real bugs Codex found in the original tasks — they affect **mobile too**, not just TV. Apply them as you execute the referenced tasks.
@@ -59,7 +72,7 @@ TV coverage is specified in **Part B — TV coverage** at the end of this doc.
 
 # Feature 1 — Skip-back-on-resume
 
-### Task 1: Pure resume-rewind helper
+### Task 1: Pure resume-rewind helper  ✅ done (b9ea8c9, Codex-reviewed — +non-finite guards)
 
 **Files:**
 - Modify: `shared/src/commonMain/kotlin/com/continuum/app/model/playback/PlaybackStartPosition.kt`
