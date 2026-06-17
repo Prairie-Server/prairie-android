@@ -87,17 +87,22 @@ class PersonDetailViewModel(
         loadItems(filter)
     }
 
+    private var itemsGeneration = 0
+
     private fun loadItems(filter: PersonMediaFilter) {
+        val gen = ++itemsGeneration
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingItems = true) }
-            when (
-                val result = catalogRepository.getPersonItems(
-                    personId = personId,
-                    mediaType = filter.mediaType,
-                    offset = 0,
-                    limit = 60,
-                )
-            ) {
+            val result = catalogRepository.getPersonItems(
+                personId = personId,
+                mediaType = filter.mediaType,
+                offset = 0,
+                limit = 60,
+            )
+            // Drop a stale response from a superseded filter selection so a
+            // slower earlier load can't overwrite the newer one's results.
+            if (gen != itemsGeneration) return@launch
+            when (result) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(
