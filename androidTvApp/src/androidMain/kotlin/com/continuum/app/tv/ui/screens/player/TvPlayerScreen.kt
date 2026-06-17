@@ -280,6 +280,7 @@ fun TvPlayerScreen(
 
     BackHandler(enabled = true) {
         when {
+            state.showSubtitleStyleDialog -> viewModel.closeSubtitleStyleDialog()
             state.showSubtitleMenu -> viewModel.closeSubtitleMenu()
             state.hudOpen -> viewModel.closeHUD()
             showLeaveDialog -> showLeaveDialog = false
@@ -307,7 +308,9 @@ fun TvPlayerScreen(
             if (playerState.streamUrl == null || playerState.isLoading || playerState.error != null) {
                 return@handler false
             }
-            if (playerState.hudOpen || playerState.showSubtitleMenu || latestShowLeaveDialog) {
+            if (playerState.hudOpen || playerState.showSubtitleMenu ||
+                playerState.showSubtitleStyleDialog || latestShowLeaveDialog
+            ) {
                 return@handler false
             }
 
@@ -669,8 +672,11 @@ fun TvPlayerScreen(
         state.isPaused,
         state.hudOpen,
         state.showSubtitleMenu,
+        state.showSubtitleStyleDialog,
     ) {
-        if (state.showControls && !state.isPaused && !state.hudOpen && !state.showSubtitleMenu) {
+        if (state.showControls && !state.isPaused && !state.hudOpen &&
+            !state.showSubtitleMenu && !state.showSubtitleStyleDialog
+        ) {
             delay(CONTROLS_AUTO_HIDE_MS)
             viewModel.setControlsVisible(false)
         }
@@ -733,7 +739,9 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showControls && !state.hudOpen && !state.showSubtitleMenu) {
+                if (state.showControls && !state.hudOpen && !state.showSubtitleMenu &&
+                    !state.showSubtitleStyleDialog
+                ) {
                     // In a room, transport authority gates what the local
                     // member may drive: a guest who can't seek gets a disabled
                     // scrubber + skip; play/pause only under guest_play_pause.
@@ -904,7 +912,22 @@ fun TvPlayerScreen(
                             } else {
                                 null
                             },
+                            onSubtitleStyle = {
+                                viewModel.closeSubtitleMenu()
+                                viewModel.openSubtitleStyleDialog()
+                            },
                             onDismiss = viewModel::closeSubtitleMenu,
+                            modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
+                        )
+                    }
+                }
+
+                if (state.showSubtitleStyleDialog) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        TvSubtitleStyleDialog(
+                            appearance = subtitleAppearance,
+                            onUpdate = viewModel::onSetSubtitleAppearance,
+                            onDismiss = viewModel::closeSubtitleStyleDialog,
                             modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
                         )
                     }

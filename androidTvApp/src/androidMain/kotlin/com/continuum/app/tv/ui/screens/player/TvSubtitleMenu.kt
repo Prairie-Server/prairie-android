@@ -61,6 +61,7 @@ fun TvSubtitleMenu(
     onPaneShown: () -> Unit,
     onSearchSubtitles: (() -> Unit)?,
     onTranslateWithAi: (() -> Unit)?,
+    onSubtitleStyle: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -155,6 +156,9 @@ fun TvSubtitleMenu(
                 }
                 if (onTranslateWithAi != null) {
                     SubtitleActionRow(label = "Translate with AI", onClick = onTranslateWithAi)
+                }
+                if (onSubtitleStyle != null) {
+                    SubtitleActionRow(label = "Subtitle style", onClick = onSubtitleStyle)
                 }
             }
 

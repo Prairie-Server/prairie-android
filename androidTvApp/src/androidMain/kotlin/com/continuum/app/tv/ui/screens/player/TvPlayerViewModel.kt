@@ -358,6 +358,7 @@ class TvPlayerViewModel(
         // the screen renders the Popups above the open HUD.
         val showSubtitleSearchDialog: Boolean = false,
         val showAiTranslateDialog: Boolean = false,
+        val showSubtitleStyleDialog: Boolean = false,
         // Overlay visibility (Phase E — driven by the screen but stored here
         // so the overlay can react to play/pause state changes).
         val showControls: Boolean = true,
@@ -899,6 +900,14 @@ class TvPlayerViewModel(
 
     fun closeSubtitleSearchDialog() {
         _uiState.update { it.copy(showSubtitleSearchDialog = false) }
+    }
+
+    fun openSubtitleStyleDialog() {
+        _uiState.update { it.copy(showSubtitleStyleDialog = true) }
+    }
+
+    fun closeSubtitleStyleDialog() {
+        _uiState.update { it.copy(showSubtitleStyleDialog = false) }
     }
 
     fun openAiTranslateDialog() {
