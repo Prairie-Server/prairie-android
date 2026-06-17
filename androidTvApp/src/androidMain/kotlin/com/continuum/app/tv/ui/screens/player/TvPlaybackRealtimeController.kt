@@ -1,4 +1,4 @@
-package com.continuum.app.android.ui.screens.player
+package com.continuum.app.tv.ui.screens.player
 
 import com.continuum.app.network.PlaybackRealtimeClient
 import com.continuum.app.network.PlaybackRealtimeEvent
@@ -13,17 +13,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Binds the per-session playback control socket to [PlayerViewModel] for the
- * lifetime of a player screen. Active whenever a playback [sessionId] exists.
- * Applies remote commands via the VM's remote-control surface and acks/results
- * each one. Socket loss does not interrupt playback — the loop reconnects with
- * capped backoff; hello is sent on the [PlaybackRealtimeEvent.Opened] event so
- * the server marks the connection control-ready (R2).
+ * Binds the per-session playback control socket to [TvPlayerViewModel] for the
+ * lifetime of a player screen — the TV twin of the mobile PlaybackRealtimeController.
+ * Reuses the shared client + decoder + dispatcher; sends hello on
+ * [PlaybackRealtimeEvent.Opened] (R2), acks/results each command, and applies it
+ * via the VM's remote-control surface. Socket loss never interrupts playback —
+ * the loop reconnects with capped backoff.
  */
-class PlaybackRealtimeController(
+class TvPlaybackRealtimeController(
     private val sessionId: String,
     private val client: PlaybackRealtimeClient,
-    private val viewModel: PlayerViewModel,
+    private val viewModel: TvPlayerViewModel,
     private val scope: CoroutineScope,
 ) {
     private companion object {
@@ -49,10 +49,8 @@ class PlaybackRealtimeController(
                 } catch (e: CancellationException) {
                     throw e // screen left / sessionId changed — stop the loop
                 } catch (_: Throwable) {
-                    // A send failed during a close race etc. — don't let the
-                    // controller die; fall through to the backoff + reconnect.
+                    // A send failed during a close race etc. — reconnect, don't die.
                 }
-                // socket closed / errored; back off and retry.
                 delay(backoff)
                 backoff = (backoff * 2).coerceAtMost(BACKOFF_MAX_MS)
             }
@@ -66,8 +64,8 @@ class PlaybackRealtimeController(
         // transport commands while in a room so an admin can't desync members.
         val gated = action.isTransport && viewModel.remoteTransportSuppressed
         val status = if (action is PlaybackAction.Reject || gated) STATUS_REJECTED else STATUS_COMPLETED
-        // Send the result BEFORE applying: a Stop tears the screen down (which
-        // cancels this coroutine), so applying first could drop the result.
+        // Result BEFORE applying — a Stop tears the screen down (cancelling this
+        // coroutine), so applying first could drop the result.
         client.sendResult(sessionId, cmd.commandId, status)
         if (!gated) applyAction(action)
     }
@@ -84,10 +82,9 @@ class PlaybackRealtimeController(
         }
     }
 
-    private fun handleServerEvent(event: PlaybackRealtimeEvent.ServerEvent) {
+    private suspend fun handleServerEvent(event: PlaybackRealtimeEvent.ServerEvent) {
         when (event.name) {
-            "subtitle_ready" -> viewModel.refreshSubtitles()
-            // markers_updated / chapter_thumbnail_ready handled by existing flows.
+            "subtitle_ready" -> viewModel.refreshSubtitles(autoSelectSubtitleId = null)
             else -> { /* ignore */ }
         }
     }

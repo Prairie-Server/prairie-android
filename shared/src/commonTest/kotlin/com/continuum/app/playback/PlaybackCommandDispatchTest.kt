@@ -5,6 +5,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlaybackCommandDispatchTest {
     private val json = Json
@@ -58,5 +60,17 @@ class PlaybackCommandDispatchTest {
     @Test fun nonFiniteSeekIsRejected() {
         // JSON has no NaN/Infinity literal; a quoted "Infinity" must not seek.
         assertEquals(PlaybackAction.Reject, decidePlaybackAction(cmd("seek", """{"position_seconds":"Infinity"}""")))
+    }
+
+    @Test fun transportActionsAreFlaggedForWatchTogetherGating() {
+        assertTrue(PlaybackAction.Pause.isTransport)
+        assertTrue(PlaybackAction.Unpause.isTransport)
+        assertTrue(PlaybackAction.TogglePlayPause.isTransport)
+        assertTrue(PlaybackAction.SeekTo(1.0).isTransport)
+        assertTrue(PlaybackAction.Stop.isTransport)
+        // Informational / no-op actions are NOT transport (allowed during WT).
+        assertFalse(PlaybackAction.ShowMessage("hi").isTransport)
+        assertFalse(PlaybackAction.Ignore.isTransport)
+        assertFalse(PlaybackAction.Reject.isTransport)
     }
 }

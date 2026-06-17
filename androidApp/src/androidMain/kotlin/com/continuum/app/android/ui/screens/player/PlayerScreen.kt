@@ -166,6 +166,11 @@ fun PlayerScreen(
             scope = this, // cancelled when sessionId changes / screen leaves
         ).start()
     }
+    // Tell the VM about WT membership so the control socket gates transport
+    // (the room is authoritative); the VM's start request always has roomId=null.
+    LaunchedEffect(roomId) {
+        viewModel.setInWatchTogetherRoom(!roomId.isNullOrBlank())
+    }
     // A remote "stop"/"terminate" command tears the screen down like a back press.
     LaunchedEffect(Unit) {
         viewModel.remoteStopRequests.collect {

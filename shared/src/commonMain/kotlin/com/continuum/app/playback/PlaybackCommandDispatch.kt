@@ -18,6 +18,19 @@ sealed interface PlaybackAction {
 }
 
 /**
+ * True for actions that drive the player's transport. These are gated while a
+ * Watch Together room is active (the room is authoritative for transport, so an
+ * admin command must not desync members); informational actions like
+ * [PlaybackAction.ShowMessage] are not transport and are always allowed.
+ */
+val PlaybackAction.isTransport: Boolean
+    get() = this is PlaybackAction.Pause ||
+        this is PlaybackAction.Unpause ||
+        this is PlaybackAction.TogglePlayPause ||
+        this is PlaybackAction.SeekTo ||
+        this is PlaybackAction.Stop
+
+/**
  * Pure mapping from a realtime command to a player action. Unsupported or
  * malformed commands map to [PlaybackAction.Reject]; informational commands we
  * accept but do nothing about map to [PlaybackAction.Ignore].

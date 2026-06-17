@@ -683,6 +683,13 @@ class PlayerViewModel(
 
     // ---- Remote-control adapters (PlaybackRealtimeController calls these) ----
     // Thin wrappers over existing transport; no new playback logic.
+    // The VM's start request always carries roomId=null, so WT membership is
+    // set by the screen (which owns roomId) for remote-transport gating.
+    private var inWatchTogetherRoom = false
+    fun setInWatchTogetherRoom(value: Boolean) { inWatchTogetherRoom = value }
+    /** True while in a Watch Together room — remote transport is gated (the room is authoritative). */
+    val remoteTransportSuppressed: Boolean get() = inWatchTogetherRoom
+
     fun remotePause() { _uiState.update { it.copy(isPaused = true) } }
     fun remoteUnpause() { _uiState.update { it.copy(isPaused = false) } }
     fun remoteTogglePlayPause() { onPlayPause() }

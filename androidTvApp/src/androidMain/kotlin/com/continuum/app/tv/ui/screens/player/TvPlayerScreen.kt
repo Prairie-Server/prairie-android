@@ -45,6 +45,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.zIndex
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -148,6 +151,13 @@ fun TvPlayerScreen(
     // swap. Mirrors phone PlayerScreen. The MediaController is kept for transport.
     val sessionPlayer by activePlayerHolder.player.collectAsState()
     val notice by viewModel.notice.collectAsState()
+    val remoteMessage by viewModel.remoteMessage.collectAsState()
+    LaunchedEffect(remoteMessage?.id) {
+        if (remoteMessage != null) {
+            kotlinx.coroutines.delay(5_000)
+            viewModel.clearRemoteMessage()
+        }
+    }
     val sessionState by viewModel.sessionState.collectAsState()
     val introSkipState by viewModel.introSkipState.collectAsState()
     val subtitleAppearance by viewModel.subtitleAppearance.collectAsState()
@@ -204,6 +214,20 @@ fun TvPlayerScreen(
         .collectAsState()
     var showLeaveDialog by remember { mutableStateOf(false) }
 
+    // Per-session playback control socket (admin remote control). Bound for the
+    // lifetime of a sessionId; reconnects on its own and never interrupts
+    // playback. Separate from the Watch Together socket above.
+    val playbackRealtimeClient: com.continuum.app.network.PlaybackRealtimeClient = koinInject()
+    LaunchedEffect(state.sessionId) {
+        val id = state.sessionId ?: return@LaunchedEffect
+        TvPlaybackRealtimeController(
+            sessionId = id,
+            client = playbackRealtimeClient,
+            viewModel = viewModel,
+            scope = this, // cancelled when sessionId changes / screen leaves
+        ).start()
+    }
+
     // Connect a MediaController to the ContinuumPlaybackService. Async —
     // downstream effects gate on a non-null controller.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
@@ -241,6 +265,10 @@ fun TvPlayerScreen(
                 latestOnExit()
             }
         }
+    }
+    // A remote "stop"/"terminate" command tears the screen down like a Back press.
+    LaunchedEffect(Unit) {
+        viewModel.remoteStopRequests.collect { stopPlaybackAndExit() }
     }
     val applyTvSubtitleSelection: (Int, Boolean) -> Unit = { idx, dismiss ->
         val selectedTrack = state.subtitleTracks
@@ -992,6 +1020,33 @@ fun TvPlayerScreen(
             contentAlignment = Alignment.TopStart,
         ) {
             TvPlayerNoticeOverlay(notice = notice)
+        }
+
+        // Remote-control "display_message" toast (top-center), shown a few
+        // seconds regardless of controls visibility.
+        remoteMessage?.let { message ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 48.dp)
+                    .zIndex(10f),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = Color.Black.copy(alpha = 0.82f),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                ) {
+                    Text(
+                        text = message.text,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+            }
         }
 
         // Watch Together room indicator (top-end so it doesn't collide with

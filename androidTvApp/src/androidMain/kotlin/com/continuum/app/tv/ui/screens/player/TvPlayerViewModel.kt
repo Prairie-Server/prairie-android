@@ -92,6 +92,9 @@ enum class VideoFillMode {
     Stretch,
 }
 
+/** A transient remote "display_message"; [id] makes repeats re-trigger the toast. */
+data class RemoteMessage(val id: Long, val text: String)
+
 data class TvPlayerLaunchArgs(
     val contentId: String,
     val preferredFileId: Int? = null,
@@ -409,6 +412,18 @@ class TvPlayerViewModel(
 
     private val _seekRequests = MutableSharedFlow<Double>(extraBufferCapacity = 1)
     val seekRequests: SharedFlow<Double> = _seekRequests
+
+    // ---- Remote session-control surface (driven by TvPlaybackRealtimeController) ----
+    // Stop is screen-local (stopPlaybackAndExit) and the lifecycle `notice` is
+    // read-only, so expose thin channels here for the control socket to drive.
+    private val _remoteStopRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** Screen collects this and runs its teardown/exit. */
+    val remoteStopRequests: SharedFlow<Unit> = _remoteStopRequests
+
+    private var remoteMessageCounter = 0L
+    private val _remoteMessage = MutableStateFlow<RemoteMessage?>(null)
+    /** Server "display_message" to surface transiently; null = nothing. */
+    val remoteMessage: StateFlow<RemoteMessage?> = _remoteMessage.asStateFlow()
 
     /**
      * Transient player notice (server reconnecting, suspend warnings, etc.) emitted by
@@ -764,6 +779,20 @@ class TvPlayerViewModel(
         _uiState.update { it.copy(position = positionSec) }
         _seekRequests.tryEmit(positionSec)
     }
+
+    // ---- Remote-control adapters (TvPlaybackRealtimeController calls these) ----
+    /** True while in a Watch Together room — remote transport is gated (the room is authoritative). */
+    val remoteTransportSuppressed: Boolean get() = roomId != null
+
+    fun remotePause() = setPaused(true)
+    fun remoteUnpause() = setPaused(false)
+    fun remoteTogglePlayPause() = onPlayPause()
+    fun remoteSeek(positionSeconds: Double) = seekImmediate(positionSeconds)
+    fun remoteStop() { _remoteStopRequests.tryEmit(Unit) }
+    fun remoteDisplayMessage(message: String) {
+        _remoteMessage.value = RemoteMessage(++remoteMessageCounter, message)
+    }
+    fun clearRemoteMessage() { _remoteMessage.value = null }
 
     /**
      * Push the fresh list of audio / subtitle tracks up from the screen. Called
