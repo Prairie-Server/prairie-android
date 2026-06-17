@@ -76,8 +76,9 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [x] **P6.16 Admin session "Send message" (TV)** — "Send message" action in the session menu -> TvTextInputDialog -> control(Message, SessionControlRequest(message)).
 
 ## Phase 7 — LOW / polish
-- [ ] Combined audio+subtitle Tracks surface · subtitle provider warnings · WT room-indicator persistence · audiobook active-sleep-timer label + About/description · full genre tags in detail facts · Home/Library "See All" · Browse Release-Date naming · Browse Reset/Apply · Search media-type deep-link + library-derived filters · person bio scroll · WT copy/QR invite · ~~Account email/role display~~ (done) · "Manage Servers" settings row · Library default sort.
-- [ ] **Audiobook bookmarks (TV)** — (HIGH-tagged in audit but audiobook-domain; sequence with Phase 7 unless prioritized).
+- **Done:** ~~Account email/role display~~ (94c387f) · ~~"Manage Servers" settings row~~ (94c387f) · ~~person bio scroll~~ (raised clip to 12 lines, 94c387f) · ~~Library default sort~~ (added_at, 94c387f) · ~~Browse Reset~~ (75cd6b1; Apply is reactive on TV so no Apply button).
+- [ ] **Remaining LOW polish:** Combined audio+subtitle Tracks surface · subtitle provider warnings · WT room-indicator persistence · audiobook active-sleep-timer label + About/description · full genre tags in detail facts · Home/Library "See All" (needs new section-grid screen+route) · Browse Release-Date naming (server wire-name `release_date` vs phone `year` — needs server-contract decision/PR) · Search media-type deep-link + library-derived filters · WT copy/QR invite.
+- [x] **Audiobook bookmarks (TV)** — TvAudiobookBookmarksPanel over shared AudiobookPlayerViewModel: "Bookmark here" + list (OK jumps, long-press deletes); "Bookmarks" chip + AudiobookPanel.Bookmarks. Codex-reviewed (focus-return-after-delete). Commit 54a30e9.
 
 ---
 
