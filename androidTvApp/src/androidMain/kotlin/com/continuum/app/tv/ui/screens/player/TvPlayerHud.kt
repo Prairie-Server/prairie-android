@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.continuum.app.common.player.SleepTimerState
 import com.continuum.app.model.catalog.VersionChapter
 import com.continuum.app.tv.ui.theme.Spacing
 
@@ -86,6 +87,9 @@ fun TvPlayerHud(
     onVideoFillModeChanged: (VideoFillMode) -> Unit,
     playbackSpeed: Double,
     onPlaybackSpeedChanged: (Double) -> Unit,
+    sleepTimerState: SleepTimerState,
+    onStartSleepTimer: (Int) -> Unit,
+    onCancelSleepTimer: () -> Unit,
     audioDelayMs: Int,
     onAudioDelayChanged: (Int) -> Unit,
     hdrEnabled: Boolean,
@@ -162,6 +166,9 @@ fun TvPlayerHud(
                     onFillModeChanged = onVideoFillModeChanged,
                     playbackSpeed = playbackSpeed,
                     onPlaybackSpeedChanged = onPlaybackSpeedChanged,
+                    sleepTimerState = sleepTimerState,
+                    onStartSleepTimer = onStartSleepTimer,
+                    onCancelSleepTimer = onCancelSleepTimer,
                     videoTracks = videoTracks,
                     onSelectVideo = onSelectVideo,
                 )
@@ -349,6 +356,16 @@ private fun formatTvPlaybackSpeed(speed: Double): String {
  * matching tvOS video-gravity). When a stream advertises multiple video tracks
  * they're appended below as a secondary picker.
  */
+/** Sleep-timer presets (minutes) — mirrors the phone SleepTimerSheet. */
+private val SLEEP_TIMER_PRESETS = listOf(15, 30, 45, 60, 90)
+
+private fun formatSleepRemaining(totalSeconds: Int): String {
+    val s = totalSeconds.coerceAtLeast(0)
+    val m = s / 60
+    val sec = s % 60
+    return if (m > 0) "${m}m ${sec}s" else "${sec}s"
+}
+
 @Composable
 private fun HudVideoPane(
     hdrEnabled: Boolean,
@@ -357,6 +374,9 @@ private fun HudVideoPane(
     onFillModeChanged: (VideoFillMode) -> Unit,
     playbackSpeed: Double,
     onPlaybackSpeedChanged: (Double) -> Unit,
+    sleepTimerState: SleepTimerState,
+    onStartSleepTimer: (Int) -> Unit,
+    onCancelSleepTimer: () -> Unit,
     videoTracks: List<PlayerTrackEntry>,
     onSelectVideo: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -385,6 +405,44 @@ private fun HudVideoPane(
                     selected = kotlin.math.abs(playbackSpeed - speed) < 0.01,
                     onClick = { onPlaybackSpeedChanged(speed) },
                 )
+            }
+        }
+
+        // Sleep timer — preset chips when idle; remaining time + Cancel when armed.
+        Text(
+            text = "Sleep timer",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = Spacing.md),
+        )
+        val activeSleep = sleepTimerState as? SleepTimerState.Active
+        if (activeSleep != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Sleeping in ${formatSleepRemaining(activeSleep.remainingSeconds)}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
+                )
+                HudClickChip(label = "Cancel", selected = false, onClick = onCancelSleepTimer)
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                SLEEP_TIMER_PRESETS.forEach { minutes ->
+                    HudClickChip(
+                        label = if (minutes >= 60) "${minutes / 60}h${if (minutes % 60 != 0) " ${minutes % 60}m" else ""}" else "${minutes}m",
+                        selected = false,
+                        onClick = { onStartSleepTimer(minutes) },
+                    )
+                }
             }
         }
 
