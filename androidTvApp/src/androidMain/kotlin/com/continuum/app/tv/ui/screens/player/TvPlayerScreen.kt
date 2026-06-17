@@ -854,6 +854,8 @@ fun TvPlayerScreen(
                                 // so we surface the picker for visibility but no-op on tap.
                             },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
+                            playbackSpeed = playbackSpeed,
+                            onPlaybackSpeedChanged = viewModel::onSetPlaybackSpeed,
                             audioDelayMs = audioDelayMs,
                             onAudioDelayChanged = viewModel::onAudioDelayChanged,
                             hdrEnabled = hdrEnabled,

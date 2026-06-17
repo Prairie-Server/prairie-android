@@ -5,6 +5,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -82,6 +84,8 @@ fun TvPlayerHud(
     onSelectAudio: (Int) -> Unit,
     onSelectVideo: (Int) -> Unit,
     onVideoFillModeChanged: (VideoFillMode) -> Unit,
+    playbackSpeed: Double,
+    onPlaybackSpeedChanged: (Double) -> Unit,
     audioDelayMs: Int,
     onAudioDelayChanged: (Int) -> Unit,
     hdrEnabled: Boolean,
@@ -156,6 +160,8 @@ fun TvPlayerHud(
                     onHdrEnabledChanged = onHdrEnabledChanged,
                     fillMode = videoFillMode,
                     onFillModeChanged = onVideoFillModeChanged,
+                    playbackSpeed = playbackSpeed,
+                    onPlaybackSpeedChanged = onPlaybackSpeedChanged,
                     videoTracks = videoTracks,
                     onSelectVideo = onSelectVideo,
                 )
@@ -329,12 +335,19 @@ private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifi
     }
 }
 
+/** Playback-speed presets — mirrors the phone player (PlayerSettingsSheet). */
+private val PLAYBACK_SPEED_OPTIONS = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
+
+/** 1.0 -> "1", 1.25 -> "1.25", 1.5 -> "1.5" (trim trailing zeros). */
+private fun formatTvPlaybackSpeed(speed: Double): String {
+    if (speed % 1.0 == 0.0) return speed.toInt().toString()
+    return speed.toString().trimEnd('0').trimEnd('.')
+}
+
 /**
- * Video pane — HDR toggle (A.3d-hdr) + Fill mode toggle (Letterbox vs Zoom,
+ * Video pane — playback speed + HDR toggle + Fill mode (Letterbox vs Zoom,
  * matching tvOS video-gravity). When a stream advertises multiple video tracks
- * (rare; most adaptive streams expose a single logical video track), they're
- * appended below as a secondary picker so the existing track-selection
- * affordance isn't lost.
+ * they're appended below as a secondary picker.
  */
 @Composable
 private fun HudVideoPane(
@@ -342,6 +355,8 @@ private fun HudVideoPane(
     onHdrEnabledChanged: (Boolean) -> Unit,
     fillMode: VideoFillMode,
     onFillModeChanged: (VideoFillMode) -> Unit,
+    playbackSpeed: Double,
+    onPlaybackSpeedChanged: (Double) -> Unit,
     videoTracks: List<PlayerTrackEntry>,
     onSelectVideo: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -350,10 +365,34 @@ private fun HudVideoPane(
         modifier = modifier.fillMaxSize().padding(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
+        // Playback speed — mirrors the phone's Speed presets (0.5×–3×). Uses a
+        // click-committed chip (NOT the focus-committed HudOptionChip) so
+        // D-pad-traversing the 9 presets doesn't change speed on every chip.
+        Text(
+            text = "Speed",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            PLAYBACK_SPEED_OPTIONS.forEach { speed ->
+                HudClickChip(
+                    label = "${formatTvPlaybackSpeed(speed)}×",
+                    selected = kotlin.math.abs(playbackSpeed - speed) < 0.01,
+                    onClick = { onPlaybackSpeedChanged(speed) },
+                )
+            }
+        }
+
         Text(
             text = "HDR",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = Spacing.md),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             HudOptionChip(
@@ -452,6 +491,51 @@ private fun HudOptionChip(
             style = MaterialTheme.typography.titleSmall.copy(
                 fontWeight = FontWeight.SemiBold,
             ),
+        )
+    }
+}
+
+/**
+ * Like [HudOptionChip] but commits on explicit Select (click), NOT on focus —
+ * use for multi-option rows (e.g. the 9 speed presets) where focus-driven
+ * commit would change the value while the user is just traversing chips.
+ */
+@Composable
+private fun HudClickChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val bg = when {
+        isFocused -> Color.White.copy(alpha = 0.94f)
+        selected -> Color.White.copy(alpha = 0.18f)
+        else -> Color.White.copy(alpha = 0.06f)
+    }
+    val fg = when {
+        isFocused -> Color.Black
+        selected -> Color.White
+        else -> Color.White.copy(alpha = 0.72f)
+    }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.0f else 0.96f,
+        animationSpec = tween(120),
+        label = "hudClickChipScale",
+    )
+    Box(
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = fg,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
         )
     }
 }

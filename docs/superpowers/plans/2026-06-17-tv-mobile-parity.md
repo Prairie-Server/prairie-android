@@ -21,7 +21,8 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - Tests: updated TvPlayerControlsUsabilityTest (step 50, "Subtitle delay", subtitleSyncLabel removed) — green.
 
 ## Phase 2 — Player HIGH
-- [ ] **P2.1 Playback speed (TV)** — add speed control to HUD/side-panel; wire `TvPlayerViewModel.onSetPlaybackSpeed` + `playbackSpeedFlow`. Mobile: PlayerSettingsSheet speed presets 0.5–3x.
+- [x] **P2.1 Playback speed (TV)** [done] HUD Video pane Speed presets 0.5–3x, click-committed (HudClickChip), wired to onSetPlaybackSpeed.
+- [ ] ~P2.1-orig~ **P2.1 Playback speed (TV)** — add speed control to HUD/side-panel; wire `TvPlayerViewModel.onSetPlaybackSpeed` + `playbackSpeedFlow`. Mobile: PlayerSettingsSheet speed presets 0.5–3x.
 - [ ] **P2.2 Sleep timer (TV)** — add sleep-timer UI (start/cancel + countdown indicator) to the video player; VM already has `sleepTimerState`/`onStartSleepTimer`/`onCancelSleepTimer`. Mobile: SleepTimerSheet + chip.
 - [ ] **P2.3 Quality / version switching (TV)** — implement the no-op video-selection callback (TvPlayerScreen.kt:849). Mobile: QualitySelector (resolution/HDR/codecs/size).
 - [ ] **P2.4 In-player subtitle style editor (TV)** — port SubtitleStyleSheet controls (size/family/text color/bg style+color+opacity/outline/position) into a TV panel. VM/appearance already applied.
