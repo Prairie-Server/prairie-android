@@ -195,6 +195,7 @@ private fun TvDetailContent(
                         sourceTokens = TvDetailMetadata.sourceTokens(detail),
                         ratingChip = TvDetailMetadata.ratingChip(detail),
                         overview = detail.overview,
+                        tagline = detail.tagline,
                         factsLine = TvDetailMetadata.factsLine(detail),
                         starringText = TvDetailMetadata.starringText(detail),
                         actions = {

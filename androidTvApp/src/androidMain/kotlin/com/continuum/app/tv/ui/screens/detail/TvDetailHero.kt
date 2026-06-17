@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -19,43 +20,63 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import coil3.compose.AsyncImage
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.tv.ui.theme.DarkBackground
-import com.continuum.app.tv.ui.theme.HeroDimens
+import com.continuum.app.tv.ui.theme.DarkSurface
 import com.continuum.app.tv.ui.theme.Spacing
-import com.continuum.app.tv.ui.theme.heroDisplay
-import com.continuum.app.tv.ui.theme.heroMeta
-import com.continuum.app.tv.ui.theme.sectionEyebrow
+import com.continuum.app.tv.ui.theme.SuccessGreen
 
 /**
- * Tokens used by the hero facts row. Plain `Text` items get `·` separators
- * between them; `Chip` renders an outlined pill (e.g. 4K / HDR / ATMOS / CC).
+ * Tokens for the hero facts row, mirroring tvOS `TVHeroFactToken`.
+ *
+ * - [TextToken] plain text (year / runtime / ★rating); consecutive text
+ *   tokens get a "·" divider between them.
+ * - [Rating] a maturity/check token: green check icon + label.
+ * - [Chip] an outlined squared pill (4K / HDR / DOLBY VISION / ATMOS / CC).
  */
 internal sealed class TvHeroFactToken {
     data class TextToken(val value: String) : TvHeroFactToken()
+    data class Rating(val value: String) : TvHeroFactToken()
     data class Chip(val value: String) : TvHeroFactToken()
 }
 
 /**
  * Full-bleed cinematic hero for the Android TV detail screen. Mirrors the
- * tvOS `TVDetailHero` 1:1: a 720dp tall backdrop, a 4-stop horizontal
- * darkening on the left, a soft vertical fade into the rail body at the
- * bottom, a 1200dp-wide content column on the left, and a quiet
- * "Starring …" line on the right at mid-height.
+ * tvOS `TVDetailHero` 1:1.
  *
- * The action row is wrapped in `focusGroup()` so D-pad up from any rail
- * below lands cleanly back on whichever pill was previously focused.
+ * Layout = a `ZStack(bottomLeading)`: a near-full-viewport backdrop, a
+ * 4-stop horizontal darkening on the left, a soft vertical fade into the
+ * rail body at the bottom, then the bottom-anchored editorial + action
+ * column on the left, with a quiet right-side "Starring …" overlay floated
+ * at mid-height.
+ *
+ * Apple sizes the hero relative to the viewport (`heroHeight = 980` of a
+ * 1080-pt canvas ≈ 0.907×), so we compute the height as a fraction of the
+ * screen height rather than a fixed dp — see [HERO_HEIGHT_FRACTION].
+ *
+ * The action cluster is given the full hero width (leading-aligned) and
+ * wrapped in its own focus group so the selector row inside can stretch
+ * its own focus section full-width for Down navigation, and lower rails can
+ * move "up" into the cluster from a far-right card.
  */
 @Composable
 internal fun TvDetailHero(
@@ -68,12 +89,15 @@ internal fun TvDetailHero(
     sourceTokens: List<String>,
     ratingChip: String?,
     overview: String?,
+    tagline: String?,
     factsLine: List<TvHeroFactToken>,
     starringText: String?,
     actions: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val heroHeight = HeroDimens.Height
+    // heroHeight = 980 of a 1080-pt tvOS canvas ≈ 0.907 × viewport height.
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val heroHeight = screenHeight * HERO_HEIGHT_FRACTION
     val contentMaxWidth = 1200.dp
 
     Box(
@@ -81,17 +105,21 @@ internal fun TvDetailHero(
             .fillMaxWidth()
             .height(heroHeight),
     ) {
-        // Backdrop
-        ThumbhashImage(
-            url = backdropUrl,
-            thumbhash = backdropThumbhash,
-            contentDescription = title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+        // Backdrop (fill; else continuumSurface).
+        if (!backdropUrl.isNullOrEmpty() || !backdropThumbhash.isNullOrEmpty()) {
+            ThumbhashImage(
+                url = backdropUrl,
+                thumbhash = backdropThumbhash,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(DarkSurface))
+        }
 
         // Heavy left-side darkening — clears toward the right so the imagery
-        // breathes while text stays legible.
+        // breathes while text stays legible. (leading → trailing)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -106,7 +134,7 @@ internal fun TvDetailHero(
         )
 
         // Soft bottom fade that hands off into the rail body underneath, so a
-        // hint of the next rail peeks through the seam.
+        // hint of the next rail peeks through the seam. (top → bottom)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -120,33 +148,39 @@ internal fun TvDetailHero(
                 ),
         )
 
-        // Right-side starring overlay, placed in the upper hero band like tvOS.
+        // Right-side "Starring …" overlay, floated at mid-height.
+        // Apple anchors it via `.padding(.bottom, heroHeight * 0.45)` on a
+        // trailing overlay — we anchor to the bottom edge and lift it by the
+        // same fraction.
         starringText?.takeIf { it.isNotBlank() }?.let { line ->
             Text(
                 text = line,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Normal,
-                    fontSize = 18.sp,
-                    lineHeight = 22.sp,
-                ),
+                fontWeight = FontWeight.Normal,
+                fontSize = 24.sp,
+                lineHeight = 30.sp,
                 color = Color.White.copy(alpha = 0.8f),
                 textAlign = TextAlign.End,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                // Apple: `.overlay(alignment: .trailing)` (vertically CENTERED)
+                // + `.padding(.bottom, heroHeight*0.45)` lifting it up — so
+                // center-end, not bottom-end. + the trailing shadow.
+                style = TextStyle(
+                    shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 2f), blurRadius = 6f),
+                ),
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 124.dp, end = Spacing.safeArea + 32.dp)
-                    .widthIn(max = 260.dp),
+                    .align(Alignment.CenterEnd)
+                    .padding(end = Spacing.safeArea, bottom = heroHeight * 0.45f)
+                    .widthIn(max = 460.dp),
             )
         }
 
-        // Editorial column + action row in the tvOS title band.
+        // Bottom-anchored editorial column + action cluster.
         Column(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = Spacing.safeArea, end = Spacing.safeArea, top = 130.dp)
-                .widthIn(max = contentMaxWidth),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .align(Alignment.BottomStart)
+                .padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             EditorialColumn(
                 title = title,
@@ -156,13 +190,19 @@ internal fun TvDetailHero(
                 sourceTokens = sourceTokens,
                 ratingChip = ratingChip,
                 overview = overview,
+                tagline = tagline,
                 factsLine = factsLine,
+                contentMaxWidth = contentMaxWidth,
             )
 
+            // Full-width, leading-aligned focus container for the action +
+            // selector cluster (own focus section).
             Box(
                 modifier = Modifier
                     .padding(top = 8.dp)
+                    .fillMaxWidth()
                     .focusGroup(),
+                contentAlignment = Alignment.CenterStart,
             ) {
                 actions()
             }
@@ -179,42 +219,63 @@ private fun EditorialColumn(
     sourceTokens: List<String>,
     ratingChip: String?,
     overview: String?,
+    tagline: String?,
     factsLine: List<TvHeroFactToken>,
+    contentMaxWidth: androidx.compose.ui.unit.Dp,
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(22.dp),
+        modifier = Modifier.widthIn(max = contentMaxWidth),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         if (!eyebrow.isNullOrBlank()) {
             HeroEyebrowPill(text = eyebrow)
         }
 
-        TitleBlock(
-            title = title,
-            seriesTitle = seriesTitle,
-            logoUrl = logoUrl,
-        )
+        Box(modifier = Modifier.padding(top = if (eyebrow.isNullOrBlank()) 0.dp else 4.dp)) {
+            TitleBlock(
+                title = title,
+                seriesTitle = seriesTitle,
+                logoUrl = logoUrl,
+            )
+        }
 
         if (sourceTokens.isNotEmpty() || !ratingChip.isNullOrBlank()) {
             SourceRow(tokens = sourceTokens, ratingChip = ratingChip)
         }
 
+        // Synopsis slot.
+        //
+        // TODO(Task 6): replace this clamped Text with the focusable
+        // `TvExpandableSynopsis(overview = overview, tagline = tagline)` —
+        // it owns the focus ring, OK-to-expand, and tagline reveal. Until
+        // then we render a plain 3-line-clamped overview matching the
+        // collapsed appearance (26sp white@0.82, lineSpacing 8, maxWidth
+        // 1200). `tagline` is already threaded through so T6 swaps cleanly.
         overview?.takeIf { it.isNotBlank() }?.let { line ->
-            Text(
-                text = line,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.82f),
-                fontSize = 18.sp,
-                lineHeight = 24.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 700.dp),
-            )
+            HeroSynopsis(overview = line)
         }
 
         if (factsLine.isNotEmpty()) {
             FactsRow(tokens = factsLine)
         }
     }
+}
+
+@Composable
+private fun HeroSynopsis(overview: String) {
+    // Collapsed appearance of `TVExpandableSynopsis`: 26sp white@0.82,
+    // lineSpacing 8, maxWidth 1200, clamped to 3 lines. The focusable
+    // wrapper/expand behavior arrives in Task 6.
+    Text(
+        text = overview,
+        fontWeight = FontWeight.Normal,
+        fontSize = 26.sp,
+        lineHeight = 34.sp,
+        color = Color.White.copy(alpha = 0.82f),
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.widthIn(max = 1200.dp),
+    )
 }
 
 @Composable
@@ -231,8 +292,12 @@ private fun TitleBlock(
             model = logoUrl,
             contentDescription = title,
             contentScale = ContentScale.Fit,
+            alignment = Alignment.BottomStart,
+            // Reserve the framed logo area (Apple frames it maxHeight 220) so a
+            // loading/failed logo can't measure as 0 and collapse the editorial
+            // stack. Fixed height + Fit keeps the logo's aspect within it.
             modifier = Modifier
-                .height(180.dp)
+                .height(220.dp)
                 .widthIn(max = 620.dp),
         )
         else -> HeroTextTitle(title = title)
@@ -245,15 +310,17 @@ private fun HeroTextTitle(title: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = parts.first.uppercase(),
-            style = heroDisplay,
+            style = heroDisplayHero,
             color = Color.White,
             maxLines = 2,
         )
         parts.second?.let { sub ->
             Text(
                 text = sub.uppercase(),
-                style = MaterialTheme.typography.displayMedium.copy(
+                style = heroDisplayHero.copy(
                     fontWeight = FontWeight.ExtraBold,
+                    fontSize = 40.sp,
+                    lineHeight = 44.sp,
                     letterSpacing = 1.5.sp,
                 ),
                 color = Color.White.copy(alpha = 0.95f),
@@ -266,19 +333,19 @@ private fun HeroTextTitle(title: String) {
 @Composable
 private fun EpisodeHierarchyTitle(seriesTitle: String, episodeTitle: String) {
     val parts = remember(episodeTitle) { splitDisplayTitle(episodeTitle) }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = seriesTitle.uppercase(),
-            style = heroDisplay,
+            style = heroDisplayHero,
             color = Color.White,
             maxLines = 2,
         )
         Text(
             text = parts.first,
-            style = MaterialTheme.typography.headlineLarge.copy(
+            style = heroDisplayHero.copy(
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 24.sp,
-                lineHeight = 28.sp,
+                fontSize = 50.sp,
+                lineHeight = 54.sp,
             ),
             color = Color.White.copy(alpha = 0.94f),
             maxLines = 2,
@@ -286,10 +353,11 @@ private fun EpisodeHierarchyTitle(seriesTitle: String, episodeTitle: String) {
         parts.second?.let { sub ->
             Text(
                 text = sub.uppercase(),
-                style = MaterialTheme.typography.headlineMedium.copy(
+                style = heroDisplayHero.copy(
                     fontWeight = FontWeight.ExtraBold,
+                    fontSize = 32.sp,
+                    lineHeight = 36.sp,
                     letterSpacing = 1.2.sp,
-                    fontSize = 20.sp,
                 ),
                 color = Color.White.copy(alpha = 0.82f),
                 maxLines = 2,
@@ -315,7 +383,10 @@ private fun HeroEyebrowPill(text: String) {
     ) {
         Text(
             text = text,
-            style = sectionEyebrow,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 18.sp,
+            lineHeight = 22.sp,
+            letterSpacing = 1.2.sp,
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -327,25 +398,27 @@ private fun HeroEyebrowPill(text: String) {
 private fun SourceRow(tokens: List<String>, ratingChip: String?) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         tokens.forEachIndexed { index, token ->
             if (index > 0) {
                 Text(
                     text = "·",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 24.sp,
                     color = Color.White.copy(alpha = 0.5f),
                 )
             }
             Text(
                 text = token,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium),
+                fontWeight = FontWeight.Medium,
+                fontSize = 26.sp,
                 color = Color.White.copy(alpha = 0.92f),
                 maxLines = 1,
             )
         }
         if (!ratingChip.isNullOrBlank()) {
-            Spacer(modifier = Modifier.width(2.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             RatingChip(text = ratingChip)
         }
     }
@@ -355,24 +428,44 @@ private fun SourceRow(tokens: List<String>, ratingChip: String?) {
 private fun FactsRow(tokens: List<TvHeroFactToken>) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         tokens.forEachIndexed { index, token ->
             val previous = tokens.getOrNull(index - 1)
             if (index > 0 && token is TvHeroFactToken.TextToken && previous is TvHeroFactToken.TextToken) {
                 Text(
                     text = "·",
-                    style = heroMeta,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 22.sp,
                     color = Color.White.copy(alpha = 0.45f),
                 )
             }
             when (token) {
                 is TvHeroFactToken.TextToken -> Text(
                     text = token.value,
-                    style = heroMeta,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 22.sp,
                     color = Color.White.copy(alpha = 0.88f),
                     maxLines = 1,
                 )
+                is TvHeroFactToken.Rating -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = SuccessGreen.copy(alpha = 0.9f),
+                        modifier = Modifier.height(18.dp),
+                    )
+                    Text(
+                        text = token.value,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 22.sp,
+                        color = Color.White.copy(alpha = 0.88f),
+                        maxLines = 1,
+                    )
+                }
                 is TvHeroFactToken.Chip -> QualityChip(text = token.value)
             }
         }
@@ -388,15 +481,13 @@ private fun RatingChip(text: String) {
                 color = Color.White.copy(alpha = 0.7f),
                 shape = RoundedCornerShape(5.dp),
             )
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.8.sp,
-                fontSize = 16.sp,
-            ),
+            fontWeight = FontWeight.Black,
+            fontSize = 20.sp,
+            letterSpacing = 1.0.sp,
             color = Color.White,
             maxLines = 1,
         )
@@ -412,15 +503,13 @@ private fun QualityChip(text: String) {
                 color = Color.White.copy(alpha = 0.65f),
                 shape = RoundedCornerShape(4.dp),
             )
-            .padding(horizontal = 5.dp, vertical = 2.dp),
+            .padding(horizontal = 9.dp, vertical = 4.dp),
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.8.sp,
-                fontSize = 16.sp,
-            ),
+            fontWeight = FontWeight.Black,
+            fontSize = 16.sp,
+            letterSpacing = 1.0.sp,
             color = Color.White,
             maxLines = 1,
         )
@@ -439,3 +528,26 @@ private fun splitDisplayTitle(raw: String): Pair<String, String?> {
     }
     return raw to null
 }
+
+/** heroHeight = 980 of a 1080-pt tvOS canvas ≈ 0.907. */
+private const val HERO_HEIGHT_FRACTION = 0.907f
+
+/**
+ * Hero display title — primary line. Mirrors tvOS `TVHeroTitle`'s
+ * `.system(size: 92, weight: .black).width(.compressed)`. Android has no
+ * `.compressed` system font, so we use the heaviest available weight
+ * (Black) at the same 92sp with tightened tracking + line height to
+ * approximate the compressed wordmark; tuned on emulator (Task 9). Kept
+ * local so the shared `heroDisplay` token (58sp) used by the home/featured
+ * carousels stays unchanged.
+ */
+private val heroDisplayHero = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.Black,
+    fontSize = 92.sp,
+    lineHeight = 92.sp,
+    letterSpacing = (-1).sp,
+    // Apple shadows the hero title (black@0.55, r16, y4) for legibility on
+    // bright backdrops. Inherited by the subtitle/episode `.copy()` variants.
+    shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 4f), blurRadius = 16f),
+)
