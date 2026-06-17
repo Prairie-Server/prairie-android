@@ -74,6 +74,7 @@ import com.continuum.app.tv.ui.screens.admin.TvAdminLogsScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminScansScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminSessionsScreen
+import com.continuum.app.tv.ui.screens.admin.TvAdminUserEditScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminUsersScreen
 import com.continuum.app.tv.ui.screens.browse.TvBrowseScreen
 import com.continuum.app.tv.ui.screens.calendar.TvCalendarScreen
@@ -185,6 +186,17 @@ fun TvMainShell(
                 launchSingleTop = true
                 restoreState = true
             }
+        }
+    }
+
+    // Parameterized form routes (e.g. AdminUserEdit) must NOT restore a saved
+    // entry: all query variants share one destination id, so restoreState could
+    // resurrect a stale entry (and its idempotent-loaded ViewModel) with the
+    // wrong userId. Always start a fresh entry for these.
+    val navigateToForm: (String) -> Unit = { route ->
+        nestedNav.navigate(route) {
+            launchSingleTop = false
+            restoreState = false
         }
     }
 
@@ -522,7 +534,30 @@ fun TvMainShell(
                     TvAdminScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
                 }
                 composable(TvMainRoute.AdminUsers.route) {
-                    TvAdminUsersScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
+                    TvAdminUsersScreen(
+                        onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
+                        onCreateUser = { navigateToForm(TvMainRoute.AdminUserEdit().route) },
+                        onEditUser = { id -> navigateToForm(TvMainRoute.AdminUserEdit(id).route) },
+                    )
+                }
+                composable(
+                    route = TvMainRoute.AdminUserEdit.ROUTE,
+                    arguments = listOf(
+                        navArgument(TvMainRoute.AdminUserEdit.ARG_USER_ID) {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        },
+                    ),
+                ) { entry ->
+                    val userId = entry.arguments
+                        ?.getString(TvMainRoute.AdminUserEdit.ARG_USER_ID)
+                        ?.toIntOrNull()
+                    TvAdminUserEditScreen(
+                        userId = userId,
+                        onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
+                        onSaved = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
+                    )
                 }
                 composable(TvMainRoute.AdminSessions.route) {
                     TvAdminSessionsScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })

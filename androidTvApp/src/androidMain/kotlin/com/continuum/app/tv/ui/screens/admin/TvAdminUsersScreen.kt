@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,6 +61,8 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun TvAdminUsersScreen(
     onBack: () -> Unit,
+    onCreateUser: () -> Unit = {},
+    onEditUser: (userId: Int) -> Unit = {},
     viewModel: AdminUsersViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -92,15 +95,12 @@ fun TvAdminUsersScreen(
                 onRetry = viewModel::load,
             )
 
-            state.users.isEmpty() -> TvErrorScreen(
-                message = "No users found.",
-            )
-
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item { AddUserRow(onClick = onCreateUser) }
                 items(state.users, key = { it.id }) { user ->
                     UserRow(user = user, onClick = { actionsTarget = user })
                 }
@@ -113,6 +113,18 @@ fun TvAdminUsersScreen(
         TvOptionDialog(
             title = user.username,
             options = buildList {
+                add(
+                    TvDialogOption(
+                        key = "edit",
+                        title = "Edit user",
+                        subtitle = "Role, access, quotas & password",
+                        onClick = {
+                            val id = user.id
+                            actionsTarget = null
+                            onEditUser(id)
+                        },
+                    ),
+                )
                 if (user.role == "admin") {
                     add(
                         TvDialogOption(
@@ -225,6 +237,40 @@ private fun Header(title: String, subtitle: String?) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun AddUserRow(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 960.dp)
+            .height(72.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PersonAdd,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
+            )
+            Text(
+                text = "Add user",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
