@@ -1,5 +1,14 @@
 # TV → Mobile Parity — Implementation & Tracking Plan
 
+> **AUTONOMOUS MODE (2026-06-17):** User is away; complete ALL unchecked items
+> non-stop, self-directed. Per item: implement → compile → Codex-review → fix →
+> commit locally (author rxwatcher, **NO push**) → tick box + SHA here. Commit
+> per item/small-cluster so compaction never loses work. Playback-decode-path
+> items (P2.3, P2.5, P3 track pre-select) can't be device-verified here (Shield
+> screencap is black) — implement carefully, Codex-review hard, commit, and tag
+> "⚠ NEEDS DEVICE VERIFICATION". Bank safe UI/nav items first. Final report when
+> all boxes ticked.
+
 **Goal:** bring Android **TV** to full feature parity with Android **mobile** (the gold standard) in every way except **ebooks** and **downloads**.
 
 **Source of truth:** `docs/superpowers/specs/2026-06-17-tv-mobile-parity-audit.md` (Codex + Claude reconciled audit, file-referenced). Codex full transcript: `/tmp/codex_parity_result.md`.
