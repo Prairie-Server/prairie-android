@@ -116,7 +116,8 @@ fun TvTextInputDialog(
                             Text(text = "Cancel", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Button(
-                            onClick = { if (allowBlank || text.isNotBlank()) onConfirm(text) },
+                            onClick = { if (!isBusy && (allowBlank || text.isNotBlank())) onConfirm(text) },
+                            enabled = !isBusy,
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
                         ) {
                             Text(

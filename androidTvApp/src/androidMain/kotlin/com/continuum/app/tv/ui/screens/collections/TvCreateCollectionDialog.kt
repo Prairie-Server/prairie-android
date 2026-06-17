@@ -35,19 +35,22 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.continuum.app.tv.ui.components.TvFilterChip
 import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
 
 /**
  * Dialog for creating a new user collection. Contains a [OutlinedTextField]
- * bound to a local name state and a Create button that calls back with the
- * entered name. The parent owns the loading / error state — we just render
- * whatever it tells us.
+ * bound to a local name state, a Manual/Smart type selector (mirroring the
+ * phone's CreateCollectionSheet), and a Create button. The parent owns the
+ * loading / error / selected-type state — we just render and call back.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvCreateCollectionDialog(
     isCreating: Boolean,
     errorMessage: String?,
+    selectedType: String,
+    onTypeChanged: (String) -> Unit,
     onDismiss: () -> Unit,
     onCreate: (name: String) -> Unit,
 ) {
@@ -99,6 +102,32 @@ fun TvCreateCollectionDialog(
                             .fillMaxWidth()
                             .height(82.dp),
                     )
+                    Text(
+                        text = "Type",
+                        style = TvCreateCollectionTextStyles.FieldLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TvFilterChip(
+                            text = "Manual",
+                            selected = selectedType == "manual",
+                            onClick = { onTypeChanged("manual") },
+                        )
+                        TvFilterChip(
+                            text = "Smart",
+                            selected = selectedType == "smart",
+                            onClick = { onTypeChanged("smart") },
+                        )
+                    }
+                    Text(
+                        text = if (selectedType == "smart") {
+                            "Automatically populated by rules."
+                        } else {
+                            "Manually add and organize items."
+                        },
+                        style = TvCreateCollectionTextStyles.Error.copy(fontWeight = FontWeight.Normal),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (errorMessage != null) {
                         Text(
                             text = errorMessage,
@@ -121,7 +150,8 @@ fun TvCreateCollectionDialog(
                             Text(text = "Cancel", style = TvCreateCollectionTextStyles.Button)
                         }
                         Button(
-                            onClick = { onCreate(name) },
+                            onClick = { if (!isCreating && name.isNotBlank()) onCreate(name) },
+                            enabled = !isCreating,
                             contentPadding = PaddingValues(
                                 horizontal = 32.dp,
                                 vertical = 12.dp,

@@ -373,7 +373,7 @@ val androidTvModule = module {
         TvCollectionDetailViewModel(
             collectionRepository = get(),
             collectionId = params.get(),
-            title = params.get(),
+            initialTitle = params.get(),
         )
     }
 

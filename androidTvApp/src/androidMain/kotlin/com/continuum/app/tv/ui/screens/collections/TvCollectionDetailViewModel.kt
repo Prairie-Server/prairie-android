@@ -3,6 +3,7 @@ package com.continuum.app.tv.ui.screens.collections
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.model.personal.UpdateCollectionRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CollectionRepository
 import com.continuum.app.tv.ui.util.visibleOnTv
@@ -14,24 +15,35 @@ import kotlinx.coroutines.launch
 
 /**
  * ViewModel for an individual collection's item grid. Receives `collectionId`
- * and `title` via Koin `parametersOf()` at construction time.
+ * and `title` via Koin `parametersOf()` at construction time. Reached only for
+ * the user's own collections (the user grid), so rename/delete are available
+ * (mirrors the phone's manageable detail).
  */
 class TvCollectionDetailViewModel(
     private val collectionRepository: CollectionRepository,
     private val collectionId: String,
-    val title: String,
+    initialTitle: String,
 ) : ViewModel() {
 
     data class UiState(
+        val name: String = "",
         val isLoading: Boolean = true,
         val isLoadingMore: Boolean = false,
         val items: List<BrowseItem> = emptyList(),
         val hasMore: Boolean = false,
         val total: Int = 0,
         val error: String? = null,
+        val showRenameDialog: Boolean = false,
+        val isRenaming: Boolean = false,
+        val renameError: String? = null,
+        val showDeleteConfirm: Boolean = false,
+        val isDeleting: Boolean = false,
+        val deleteError: String? = null,
+        /** Set once the collection is deleted so the screen can pop back. */
+        val deleted: Boolean = false,
     )
 
-    private val _uiState = MutableStateFlow(UiState())
+    private val _uiState = MutableStateFlow(UiState(name = initialTitle))
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     private val pageSize = 40
@@ -52,6 +64,59 @@ class TvCollectionDetailViewModel(
     }
 
     fun retry() = load(reset = true)
+
+    // --- Rename / delete (manageable user collections) ---
+
+    fun showRenameDialog() = _uiState.update { it.copy(showRenameDialog = true, renameError = null) }
+    fun hideRenameDialog() = _uiState.update { it.copy(showRenameDialog = false, renameError = null) }
+
+    fun rename(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(renameError = "Name is required") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRenaming = true, renameError = null) }
+            when (val r = collectionRepository.updateCollection(
+                collectionId,
+                UpdateCollectionRequest(name = trimmed),
+            )) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(name = r.data.name, isRenaming = false, showRenameDialog = false)
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(isRenaming = false, renameError = r.message.ifBlank { "Failed to rename" })
+                }
+                is ApiResult.NetworkError -> _uiState.update {
+                    it.copy(isRenaming = false, renameError = "Network error")
+                }
+            }
+        }
+    }
+
+    fun showDeleteConfirm() = _uiState.update { it.copy(showDeleteConfirm = true, deleteError = null) }
+    fun hideDeleteConfirm() = _uiState.update { it.copy(showDeleteConfirm = false, deleteError = null) }
+
+    fun delete() {
+        if (_uiState.value.isDeleting) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDeleting = true, deleteError = null) }
+            when (val r = collectionRepository.deleteCollection(collectionId)) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(isDeleting = false, showDeleteConfirm = false, deleted = true)
+                }
+                // Keep the confirm dialog open and surface the reason rather than
+                // closing silently (the grid behind may still show items).
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(isDeleting = false, deleteError = r.message.ifBlank { "Failed to delete" })
+                }
+                is ApiResult.NetworkError -> _uiState.update {
+                    it.copy(isDeleting = false, deleteError = "Network error")
+                }
+            }
+        }
+    }
 
     private fun load(reset: Boolean) {
         if (reset) rawLoaded = 0
