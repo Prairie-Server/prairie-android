@@ -276,6 +276,8 @@ fun PlayerScreen(
             initialAudioTrackIndex = initialAudioTrackIndex,
             initialSubtitleTrackIndex = initialSubtitleTrackIndex,
             resumePositionOverride = resumePositionOverride,
+            // Watch Together's synced anchor must land exactly — don't nudge it back.
+            suppressResumeRewind = !roomId.isNullOrBlank(),
         )
     }
 

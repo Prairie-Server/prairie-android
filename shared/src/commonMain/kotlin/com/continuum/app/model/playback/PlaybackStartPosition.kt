@@ -31,6 +31,13 @@ fun resolvePlaybackStartPosition(
 const val MinResumeForRewindSeconds: Double = 30.0
 
 /**
+ * Default skip-back-on-resume amount. A per-device setting can override this
+ * later (R4: the `player.resume_rewind_seconds` key is not server-registered
+ * yet and there is no UI, so the value is fixed for now).
+ */
+const val DefaultResumeRewindSeconds: Double = 7.0
+
+/**
  * Skip-back-on-resume: when resuming a partially-watched item, begin a few
  * seconds before the saved position to re-establish context.
  *

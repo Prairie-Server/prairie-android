@@ -11,8 +11,10 @@ import com.continuum.app.common.player.video.VideoPlaybackStarter
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.WatchDetail
+import com.continuum.app.model.playback.DefaultResumeRewindSeconds
 import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlaybackSessionResponse
+import com.continuum.app.model.playback.applyResumeRewind
 import com.continuum.app.model.playback.resolvePlaybackStartPosition
 import com.continuum.app.model.playback.resolvePlaybackStartRequestPosition
 import com.continuum.app.network.ApiResult
@@ -62,9 +64,24 @@ class MobileVideoPlaybackStarter(
             val accessToken = playbackSessionManager.getAccessToken()
                 ?: return failure(request.contentId, "Not authenticated")
             val capabilities = capabilityDetector.detect()
-            val startRequestPosition = resolvePlaybackStartRequestPosition(
-                overridePosition = request.resumePositionOverride,
-                detailPosition = watchDetail.userData?.positionSeconds,
+            // Skip-back-on-resume: nudge a genuine resume back a few seconds.
+            // Suppressed for Start Over / retry (request flag) and Watch Together
+            // (roomId — all participants must land on the synced anchor). The same
+            // rewound value drives BOTH the server seek and the player start, so
+            // a transcode cut and the player position never disagree.
+            val suppressRewind = request.suppressResumeRewind || request.roomId != null
+            fun rewound(position: Double?): Double? = position?.let {
+                applyResumeRewind(
+                    resolvedStartPosition = it,
+                    isExplicitOverride = suppressRewind,
+                    rewindSeconds = DefaultResumeRewindSeconds,
+                )
+            }
+            val startRequestPosition = rewound(
+                resolvePlaybackStartRequestPosition(
+                    overridePosition = request.resumePositionOverride,
+                    detailPosition = watchDetail.userData?.positionSeconds,
+                ),
             )
 
             val session = when (
@@ -115,7 +132,13 @@ class MobileVideoPlaybackStarter(
             }
 
             val startPos = resolvePlaybackStartPosition(
-                overridePosition = request.resumePositionOverride,
+                // For a resume, follow the server's actual cut (resolved.position)
+                // so the player can't seek before a transcode's start; only honor
+                // an exact override when rewind is suppressed (Start Over / WT /
+                // retry). We already sent the rewound seek above, so a transcode's
+                // resolved.position reflects the rewind; direct-play rewind then
+                // depends on the server echoing it (device-verify).
+                overridePosition = if (suppressRewind) request.resumePositionOverride else null,
                 sessionPosition = resolved.position,
                 detailPosition = watchDetail.userData?.positionSeconds,
             )

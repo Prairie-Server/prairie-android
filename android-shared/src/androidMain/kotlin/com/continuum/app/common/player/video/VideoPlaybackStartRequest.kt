@@ -6,4 +6,11 @@ data class VideoPlaybackStartRequest(
     val roomId: String?,
     val resumePositionOverride: Double?,
     val audioTrackIndex: Int? = null,
+    /**
+     * Suppresses skip-back-on-resume for starts that are NOT a resume — Start
+     * Over, retry, or any commanded position that should land exactly. (Watch
+     * Together is detected separately via [roomId].) Default false = a normal
+     * resume, which gets the rewind.
+     */
+    val suppressResumeRewind: Boolean = false,
 )

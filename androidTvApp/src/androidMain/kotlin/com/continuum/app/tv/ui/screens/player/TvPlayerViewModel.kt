@@ -531,6 +531,9 @@ class TvPlayerViewModel(
     private fun loadContent(
         startPositionOverride: Double? = null,
         preferredFileIdOverride: Int? = null,
+        // True for retry: re-load at the current position without nudging back
+        // (a normal first resume keeps the default false so it gets the rewind).
+        suppressResumeRewind: Boolean = false,
     ) {
         introAutoSkipController.reset()
 
@@ -544,6 +547,7 @@ class TvPlayerViewModel(
                         roomId = roomId,
                         resumePositionOverride = startPositionOverride,
                         audioTrackIndex = initialAudioTrackIndex,
+                        suppressResumeRewind = suppressResumeRewind,
                     ),
                 )) {
                     is VideoPlayerUiState.Ready -> {
@@ -1307,7 +1311,8 @@ class TvPlayerViewModel(
             if (staleSessionId != null) {
                 runCatching { playbackSessionManager.stopSession(staleSessionId) }
             }
-            loadContent(startPositionOverride = resumeAt)
+            // Retry resumes exactly where it failed — no skip-back nudge.
+            loadContent(startPositionOverride = resumeAt, suppressResumeRewind = true)
         }
     }
 

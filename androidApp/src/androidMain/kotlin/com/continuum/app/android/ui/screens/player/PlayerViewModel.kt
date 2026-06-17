@@ -314,6 +314,10 @@ class PlayerViewModel(
         initialAudioTrackIndex: Int? = null,
         initialSubtitleTrackIndex: Int? = null,
         resumePositionOverride: Double? = null,
+        // True for Watch Together (the synced anchor must land exactly — no
+        // skip-back nudge). The request's roomId is always null on mobile, so WT
+        // can't be inferred from it the way the TV starter does.
+        suppressResumeRewind: Boolean = false,
     ) {
         // A fresh load resets any in-flight intro countdown / cancellation memory.
         introAutoSkipController.reset()
@@ -338,6 +342,7 @@ class PlayerViewModel(
                         roomId = null,
                         resumePositionOverride = resumePositionOverride,
                         audioTrackIndex = initialAudioTrackIndex,
+                        suppressResumeRewind = suppressResumeRewind,
                     ),
                 )) {
                     is VideoPlayerUiState.Ready -> applyCoordinatorStateToUi(
