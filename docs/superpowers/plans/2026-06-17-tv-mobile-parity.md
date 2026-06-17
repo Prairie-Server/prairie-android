@@ -67,7 +67,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P6.8 Direct episode play (TV)** — Select on episode plays; separate affordance opens detail.
 - [ ] **P6.9 Series-level Watch Together (TV)** — on next/playable episode.
 - [ ] **P6.10 Home hero Play/Resume action (TV)**.
-- [ ] **P6.11 Browse sort order asc/desc (TV)**.
+- [x] **P6.11 Browse sort order asc/desc (TV)** — added Order section (Descending/Ascending) to the browse filter sheet + onOrderChanged VM setter.
 - [ ] **P6.12 Settings: theme preference (TV)** — System/Dark/Light.
 - [ ] **P6.13 Settings: default audio language (TV)**.
 - [x] **P6.14 Settings: full subtitle language list (TV)** — added ko/zh/pt/it/ru to match mobile's 10.

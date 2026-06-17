@@ -97,6 +97,11 @@ class TvBrowseViewModel(
         updateFilter(_uiState.value.filter.copy(sort = sort.wireValue))
     }
 
+    /** Sort direction — "desc" or "asc" (phone parity). */
+    fun onOrderChanged(order: String) {
+        updateFilter(_uiState.value.filter.copy(order = order))
+    }
+
     fun resetFilters() {
         updateFilter(TvBrowseFilter())
     }

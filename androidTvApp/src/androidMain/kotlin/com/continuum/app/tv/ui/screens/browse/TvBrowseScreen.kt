@@ -210,6 +210,25 @@ fun TvBrowseScreen(
                         )
                     }
                 }
+
+                // --- Order (phone parity) ---
+                FilterSectionHeader("Order")
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    FilterChoiceChip(
+                        label = "Descending",
+                        selected = state.filter.order == "desc",
+                        onClick = { viewModel.onOrderChanged("desc") },
+                    )
+                    FilterChoiceChip(
+                        label = "Ascending",
+                        selected = state.filter.order == "asc",
+                        onClick = { viewModel.onOrderChanged("asc") },
+                    )
+                }
             }
         }
     }
