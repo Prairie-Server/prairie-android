@@ -61,7 +61,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [x] **P6.2 In-player Auto-skip-intro toggle (TV)** — On/Off in HUD Video pane (onSetAutoSkipIntro).
 - [x] **P6.3 In-player Auto-play-next toggle (TV)** — On/Off in HUD Video pane (onSetAutoPlayNext).
 - [ ] **P6.4 Next-Episode prompt overlay (TV)**.
-- [ ] **P6.5 Media Info sheet (TV detail)** — video/audio/subtitle track details.
+- [x] **P6.5 Media Info sheet (TV detail)** — new TvMediaInfoDialog (resolution/codecs/HDR/container/size + audio/subtitle track lists) opened from the detail More menu (now available for movies too, not just episodes); rendered as a focusable Popup (dismissOnBackPress).
 - [~] **P6.6 Subtitle search / AI-translate language list (TV)** — effectively at parity: TvSubtitleLanguageOptions already has 28 common languages; marginal diff vs mobile, not pursued.
 - [ ] **P6.7 Version picker keeps every file (TV)** — stop collapsing files by quality key.
 - [ ] **P6.8 Direct episode play (TV)** — Select on episode plays; separate affordance opens detail.

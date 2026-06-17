@@ -322,7 +322,9 @@ private fun HeroActionRow(
     val hasResume = resumePosition != null
     val hasVersionPicker = remember(detail.versions) { detail.versions.hasTvVersionChoices() }
     val qualitySummary = remember(detail.versions) { detail.versionSummaryLabel() }
-    val hasOverflowMenu = detail.type == "episode" && detail.seriesId != null
+    var mediaInfoOpen by remember(detail.contentId) { mutableStateOf(false) }
+    val hasOverflowMenu = (detail.type == "episode" && detail.seriesId != null) ||
+        detail.versions.isNotEmpty()
     val selectedFileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -421,8 +423,8 @@ private fun HeroActionRow(
     }
 
     if (moreOpen && hasOverflowMenu) {
-        detail.seriesId?.let { seriesId ->
-            val options = buildList {
+        val options = buildList {
+            detail.seriesId?.let { seriesId ->
                 add(
                     TvDialogOption(
                         key = "series",
@@ -448,12 +450,32 @@ private fun HeroActionRow(
                     )
                 }
             }
-            TvOptionDialog(
-                title = "More Actions",
-                options = options,
-                onDismiss = { moreOpen = false },
-            )
+            if (detail.versions.isNotEmpty()) {
+                add(
+                    TvDialogOption(
+                        key = "media-info",
+                        title = "Media info",
+                        subtitle = null,
+                        onClick = {
+                            moreOpen = false
+                            mediaInfoOpen = true
+                        },
+                    ),
+                )
+            }
         }
+        TvOptionDialog(
+            title = "More Actions",
+            options = options,
+            onDismiss = { moreOpen = false },
+        )
+    }
+
+    if (mediaInfoOpen) {
+        TvMediaInfoDialog(
+            versions = detail.versions,
+            onDismiss = { mediaInfoOpen = false },
+        )
     }
 
     if (ratingOpen) {
