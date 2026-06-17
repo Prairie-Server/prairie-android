@@ -358,6 +358,7 @@ val androidTvModule = module {
             subtitlesRepository = get(),
             userItemStatePort = get(),
             outboxSyncScheduler = get(),
+            catalogRepository = get(),
             launchArgs = params.get<TvPlayerLaunchArgs>(),
         )
     }

@@ -36,6 +36,7 @@ import com.continuum.app.model.subtitles.SubtitleSearchRequest
 import com.continuum.app.model.subtitles.SubtitleTranslateRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.errorMessage
+import com.continuum.app.playback.nextEpisodeAfter
 import com.continuum.app.repository.SubtitlesRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -95,6 +96,15 @@ enum class VideoFillMode {
 /** A transient remote "display_message"; [id] makes repeats re-trigger the toast. */
 data class RemoteMessage(val id: Long, val text: String)
 
+/** The resolved next episode for auto-advance / "Up next". */
+data class NextEpisodeState(
+    val contentId: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val title: String?,
+    val stillUrl: String?,
+)
+
 data class TvPlayerLaunchArgs(
     val contentId: String,
     val preferredFileId: Int? = null,
@@ -104,7 +114,17 @@ data class TvPlayerLaunchArgs(
     val initialAudioTrackIndex: Int? = null,
     /** Pre-selected subtitle track index (null = auto, -1 = Off). */
     val initialSubtitleTrackIndex: Int? = null,
+    /**
+     * How many consecutive auto-advances led to this playback (0 = a manual
+     * start). The player re-mounts per episode, so the pass-out streak rides
+     * the route instead of living in the VM. When it reaches PASSOUT_THRESHOLD,
+     * the next credits-reached shows "Still watching?" instead of auto-advancing.
+     */
+    val autoAdvanceCount: Int = 0,
 )
+
+/** Emitted to ask the screen to navigate to the next episode (auto-advance / Continue). */
+data class PlayNextRequest(val contentId: String, val autoAdvanceCount: Int)
 
 /**
  * Snapshot of player statistics surfaced in the HUD's Stats pane.
@@ -260,6 +280,8 @@ class TvPlayerViewModel(
     // Track B: durable offline-safe position (resume + outbox sync).
     private val userItemStatePort: com.continuum.app.repository.port.UserItemStatePort,
     private val outboxSyncScheduler: com.continuum.app.common.data.sync.OutboxSyncScheduler,
+    // Next-episode resolution for auto-advance (F2).
+    private val catalogRepository: com.continuum.app.repository.CatalogRepository,
     private val launchArgs: TvPlayerLaunchArgs,
 ) : ViewModel() {
 
@@ -267,6 +289,10 @@ class TvPlayerViewModel(
         private const val TAG = "TvPlayerViewModel"
         // Record a durable position roughly every 10s of content time.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
+        // Pass-out protection: after this many CONSECUTIVE auto-advances, prompt
+        // "Still watching?" instead of auto-advancing. (Fixed for now — no server
+        // key / UI yet, same as the resume-rewind constant.)
+        private const val PASSOUT_THRESHOLD = 3
     }
 
     private var lastRecordedKey: String? = null
@@ -395,6 +421,15 @@ class TvPlayerViewModel(
         // renders this directly; the scrubber maps the same list to its
         // lightweight ChapterInfo for tick rendering.
         val chapters: List<VersionChapter> = emptyList(),
+        // Next-episode auto-advance (F2). seriesId/season/episode come from the
+        // Ready state; nextEpisode is resolved from the season/episode lists once
+        // playback starts. stillWatchingPrompt gates auto-advance after a run of
+        // consecutive auto-plays (pass-out protection).
+        val seriesId: String? = null,
+        val seasonNumber: Int? = null,
+        val episodeNumber: Int? = null,
+        val nextEpisode: NextEpisodeState? = null,
+        val stillWatchingPrompt: Boolean = false,
         // Live player statistics — reduced from [PlaybackAnalyticsListener.Event]s
         // by [reducePlayerStats]. Always non-null so the HUD Stats pane has a
         // snapshot to read; populates field-by-field as events arrive.
@@ -424,6 +459,13 @@ class TvPlayerViewModel(
     private val _remoteMessage = MutableStateFlow<RemoteMessage?>(null)
     /** Server "display_message" to surface transiently; null = nothing. */
     val remoteMessage: StateFlow<RemoteMessage?> = _remoteMessage.asStateFlow()
+
+    // ---- Next-episode auto-advance (F2) ----
+    private val autoAdvanceCount: Int = launchArgs.autoAdvanceCount
+    private var autoAdvanceHandled = false // once-per-item guard
+    private val _playNextRequests = MutableSharedFlow<PlayNextRequest>(extraBufferCapacity = 1)
+    /** Screen collects this and navigates to the next episode's player. */
+    val playNextRequests: SharedFlow<PlayNextRequest> = _playNextRequests
 
     /**
      * Transient player notice (server reconnecting, suspend warnings, etc.) emitted by
@@ -590,9 +632,16 @@ class TvPlayerViewModel(
                                 intro = result.intro,
                                 credits = result.credits,
                                 chapters = result.chapters,
+                                seriesId = result.seriesId,
+                                seasonNumber = result.seasonNumber,
+                                episodeNumber = result.episodeNumber,
+                                // Cleared until re-resolved for the new item.
+                                nextEpisode = null,
+                                stillWatchingPrompt = false,
                             )
                         }
                         startIntroAutoSkipObserver()
+                        resolveNextEpisode()
                     }
                     is VideoPlayerUiState.Error -> fail(result.message)
                     is VideoPlayerUiState.Loading -> Unit
@@ -719,11 +768,19 @@ class TvPlayerViewModel(
 
         val positionSec = positionMs / 1000.0
         val durationSec = durationMs / 1000.0
+        val previousPosition = _uiState.value.position
         _uiState.update {
             it.copy(
                 position = positionSec,
                 duration = if (durationSec > 0) durationSec else it.duration,
             )
+        }
+        // F2: auto-advance / prompt when playback CROSSES the credits point —
+        // only on the transition from before to after, so resuming an episode
+        // whose saved position is already inside the credits doesn't instantly
+        // skip to the next one (a seek into credits also won't trigger it).
+        _uiState.value.credits?.start?.let { creditsStart ->
+            if (previousPosition < creditsStart && positionSec >= creditsStart) onApproachingEnd()
         }
         // Forward to the lifecycle so its 10s reporter has a fresh sample.
         sessionLifecycle.reportPosition(
@@ -793,6 +850,86 @@ class TvPlayerViewModel(
         _remoteMessage.value = RemoteMessage(++remoteMessageCounter, message)
     }
     fun clearRemoteMessage() { _remoteMessage.value = null }
+
+    // ---- Next-episode auto-advance (F2) ----
+
+    /**
+     * Resolve the next episode for this item (no-op for movies). Pools the
+     * current season's episodes plus the next REGULAR season's (specials are
+     * excluded, per the resolver's playback-order contract) and finds the
+     * immediate next via [nextEpisodeAfter].
+     */
+    private fun resolveNextEpisode() {
+        val state = _uiState.value
+        val seriesId = state.seriesId ?: return
+        val curSeason = state.seasonNumber ?: return
+        val curEpisode = state.episodeNumber ?: return
+        viewModelScope.launch {
+            // Current season MUST load — otherwise the pool could contain only
+            // the next season and we'd skip the rest of this one. Bail (no
+            // auto-advance) on failure.
+            val currentSeasonEpisodes =
+                (catalogRepository.getEpisodes(seriesId, curSeason) as? ApiResult.Success)
+                    ?.data?.episodes ?: return@launch
+            val pool = currentSeasonEpisodes.toMutableList()
+            // Next regular season is best-effort — its failure just means no
+            // cross-season rollover, never a skip within the current season.
+            val nextRegularSeason = (catalogRepository.getSeasons(seriesId) as? ApiResult.Success)
+                ?.data?.seasons
+                ?.filter { !it.isSpecials && it.seasonNumber > curSeason }
+                ?.minByOrNull { it.seasonNumber }
+            if (nextRegularSeason != null) {
+                (catalogRepository.getEpisodes(seriesId, nextRegularSeason.seasonNumber) as? ApiResult.Success)
+                    ?.data?.episodes?.let { pool += it }
+            }
+            val next = nextEpisodeAfter(pool, curSeason, curEpisode) ?: return@launch
+            _uiState.update {
+                it.copy(
+                    nextEpisode = NextEpisodeState(
+                        contentId = next.contentId,
+                        seasonNumber = next.seasonNumber,
+                        episodeNumber = next.episodeNumber,
+                        title = next.title,
+                        stillUrl = next.stillUrl,
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * Called by the screen when the credits point is reached (primary) or the
+     * stream ends (fallback). Auto-advances to the next episode, or — once the
+     * consecutive-auto-advance streak hits [PASSOUT_THRESHOLD] — shows the
+     * "Still watching?" prompt instead. Once-per-item.
+     */
+    fun onApproachingEnd() {
+        if (autoAdvanceHandled) return
+        // Watch Together is authoritative — never auto-advance a room member
+        // (it would silently leave/desync the room). Mirrors the remote-control
+        // transport gate.
+        if (roomId != null) return
+        val next = _uiState.value.nextEpisode ?: return
+        if (!autoPlayNextEnabled.value) return
+        autoAdvanceHandled = true
+        if (autoAdvanceCount >= PASSOUT_THRESHOLD) {
+            _uiState.update { it.copy(stillWatchingPrompt = true) }
+        } else {
+            _playNextRequests.tryEmit(PlayNextRequest(next.contentId, autoAdvanceCount + 1))
+        }
+    }
+
+    /** User tapped "Continue" on the prompt — play next and reset the streak. */
+    fun onStillWatchingContinue() {
+        val next = _uiState.value.nextEpisode ?: return
+        _uiState.update { it.copy(stillWatchingPrompt = false) }
+        _playNextRequests.tryEmit(PlayNextRequest(next.contentId, autoAdvanceCount = 0))
+    }
+
+    /** User tapped "Stop" (or dismissed) — stay on the finished episode. */
+    fun onStillWatchingStop() {
+        _uiState.update { it.copy(stillWatchingPrompt = false) }
+    }
 
     /**
      * Push the fresh list of audio / subtitle tracks up from the screen. Called

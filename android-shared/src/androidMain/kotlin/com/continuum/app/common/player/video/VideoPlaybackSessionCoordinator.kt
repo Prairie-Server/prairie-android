@@ -27,6 +27,9 @@ class VideoPlaybackSessionCoordinator(
                 intro = result.intro,
                 credits = result.credits,
                 chapters = result.chapters,
+                seriesId = result.seriesId,
+                seasonNumber = result.seasonNumber,
+                episodeNumber = result.episodeNumber,
             )
             is VideoPlaybackStartResult.Error -> VideoPlayerUiState.Error(
                 contentId = result.contentId,

@@ -82,6 +82,8 @@ sealed class TvRoute(val route: String) {
         val audioTrackIndex: Int? = null,
         /** Pre-selected subtitle track index (0-based; -1 = Off). */
         val subtitleTrackIndex: Int? = null,
+        /** Consecutive auto-advance count for pass-out protection (0 = manual start). */
+        val autoAdvanceCount: Int = 0,
     ) : TvRoute(
         buildString {
             append("player/$contentId")
@@ -90,6 +92,7 @@ sealed class TvRoute(val route: String) {
                 if (roomId != null) add("roomId=${roomId.routeEncode()}")
                 if (audioTrackIndex != null) add("audioTrackIndex=$audioTrackIndex")
                 if (subtitleTrackIndex != null) add("subtitleTrackIndex=$subtitleTrackIndex")
+                if (autoAdvanceCount > 0) add("autoAdvanceCount=$autoAdvanceCount")
                 VideoPlayerRouteArgs.encodeResumePosition(resumePositionSeconds)?.let { value ->
                     add("${VideoPlayerRouteArgs.RESUME_POSITION}=$value")
                 }
@@ -100,12 +103,13 @@ sealed class TvRoute(val route: String) {
         companion object {
             const val ROUTE = "player/{contentId}?fileId={fileId}&roomId={roomId}" +
                 "&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}" +
-                "&resumePosition={resumePosition}"
+                "&autoAdvanceCount={autoAdvanceCount}&resumePosition={resumePosition}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
             const val ARG_ROOM_ID = "roomId"
             const val ARG_AUDIO_TRACK_INDEX = "audioTrackIndex"
             const val ARG_SUBTITLE_TRACK_INDEX = "subtitleTrackIndex"
+            const val ARG_AUTO_ADVANCE_COUNT = "autoAdvanceCount"
             const val ARG_RESUME_POSITION = VideoPlayerRouteArgs.RESUME_POSITION
         }
     }

@@ -179,6 +179,9 @@ class MobileVideoPlaybackStarter(
                 intro = watchDetail.intro,
                 credits = watchDetail.credits,
                 chapters = version.chapters.orEmpty(),
+                seriesId = watchDetail.seriesId,
+                seasonNumber = watchDetail.seasonNumber,
+                episodeNumber = watchDetail.episodeNumber,
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error loading content", e)

@@ -44,6 +44,10 @@ sealed interface VideoPlayerUiState {
         val intro: TimeRange? = null,
         val credits: TimeRange? = null,
         val chapters: List<VersionChapter> = emptyList(),
+        // Episode context for next-episode auto-advance (null for movies).
+        val seriesId: String? = null,
+        val seasonNumber: Int? = null,
+        val episodeNumber: Int? = null,
     ) : VideoPlayerUiState {
         override val hasPlayableMedia: Boolean = true
 

@@ -120,6 +120,11 @@ fun TvPlayerScreen(
     // applied client-side once the player's tracks land.
     initialAudioTrackIndex: Int? = null,
     initialSubtitleTrackIndex: Int? = null,
+    // Consecutive auto-advance count (pass-out protection); 0 = manual start.
+    autoAdvanceCount: Int = 0,
+    // Navigate to the next episode (auto-advance / "Continue"), carrying the
+    // updated streak count.
+    onPlayNext: (contentId: String, autoAdvanceCount: Int) -> Unit = { _, _ -> },
     // Scope the ViewModel key by fileId too so switching 4K <-> 1080p on
     // the detail screen and replaying actually spins up a fresh player
     // session instead of reusing the cached one bound to the first fileId.
@@ -134,6 +139,7 @@ fun TvPlayerScreen(
                     resumePositionOverride = resumePositionOverride,
                     initialAudioTrackIndex = initialAudioTrackIndex,
                     initialSubtitleTrackIndex = initialSubtitleTrackIndex,
+                    autoAdvanceCount = autoAdvanceCount,
                 ),
             )
         },
@@ -269,6 +275,20 @@ fun TvPlayerScreen(
     // A remote "stop"/"terminate" command tears the screen down like a Back press.
     LaunchedEffect(Unit) {
         viewModel.remoteStopRequests.collect { stopPlaybackAndExit() }
+    }
+    // F2: auto-advance / Continue navigates to the next episode's player,
+    // carrying the updated pass-out streak count. popUpTo the current player so
+    // Back doesn't walk back through a chain of auto-played episodes.
+    LaunchedEffect(Unit) {
+        viewModel.playNextRequests.collect { req ->
+            exitRequested = true
+            mediaController?.let { c -> c.pause(); c.stop(); c.clearMediaItems() }
+            // AWAIT the old session stop before navigating: the lifecycle is a
+            // singleton, so a late stop() could clobber the next episode's freshly
+            // adopted session, and popUpTo would otherwise cancel it mid-flight.
+            viewModel.stopSessionForExit()
+            onPlayNext(req.contentId, req.autoAdvanceCount)
+        }
     }
     val applyTvSubtitleSelection: (Int, Boolean) -> Unit = { idx, dismiss ->
         val selectedTrack = state.subtitleTracks
@@ -507,6 +527,9 @@ fun TvPlayerScreen(
                     // state which the player can't observe (server-outage
                     // probe loop runs out-of-band).
                     viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
+                    // F2 fallback: if the stream ends without a credits marker
+                    // having fired the trigger, auto-advance / prompt now.
+                    if (playbackState == Player.STATE_ENDED) viewModel.onApproachingEnd()
                 }
                 override fun onTracksChanged(tracks: Tracks) {
                     val audio = extractTrackEntries(tracks, C.TRACK_TYPE_AUDIO)
@@ -1082,6 +1105,18 @@ fun TvPlayerScreen(
             )
         }
 
+        // F2: pass-out "Still watching?" prompt — shown instead of auto-advancing
+        // once the consecutive-auto-advance streak hits the threshold.
+        if (state.stillWatchingPrompt) {
+            TvStillWatchingDialog(
+                nextEpisodeLabel = state.nextEpisode?.let { ep ->
+                    "S${ep.seasonNumber}·E${ep.episodeNumber}${ep.title?.let { " — $it" }.orEmpty()}"
+                },
+                onContinue = viewModel::onStillWatchingContinue,
+                onStop = viewModel::onStillWatchingStop,
+            )
+        }
+
         // Intro auto-skip banner (bottom-end, above the transport cluster).
         // Only shown when the idle overlay is up — otherwise the banner would
         // float on top of unrelated chrome (HUD, menus). The banner itself
@@ -1348,6 +1383,57 @@ private fun TvRoomIndicator(
  * the subtitle search dialog). "Close room for everyone" tears the room down
  * for all members (server broadcasts room_closed); "Keep watching" resumes.
  */
+@Composable
+private fun TvStillWatchingDialog(
+    nextEpisodeLabel: String?,
+    onContinue: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val continueFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { continueFocus.requestFocus() } }
+    BackHandler(enabled = true) { onStop() }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.Black.copy(alpha = 0.92f))
+                .padding(40.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            androidx.tv.material3.Text(
+                text = "Still watching?",
+                color = Color.White,
+                style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
+            )
+            nextEpisodeLabel?.let { label ->
+                androidx.tv.material3.Text(
+                    text = "Up next: $label",
+                    color = Color.White.copy(alpha = 0.80f),
+                    style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                )
+            }
+            TvDialogActionRow(
+                title = "Continue",
+                onClick = onContinue,
+                modifier = Modifier
+                    .width(360.dp)
+                    .focusRequester(continueFocus),
+            )
+            TvDialogActionRow(
+                title = "Stop",
+                onClick = onStop,
+                modifier = Modifier.width(360.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun TvRoomCloseConfirmDialog(
     onClose: () -> Unit,

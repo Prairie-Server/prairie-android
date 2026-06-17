@@ -446,6 +446,11 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(TvRoute.Player.ARG_AUTO_ADVANCE_COUNT) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(TvRoute.Player.ARG_RESUME_POSITION) {
                     type = NavType.StringType
                     nullable = true
@@ -470,6 +475,9 @@ fun TvAppNavigation(
             val resumePositionOverride = VideoPlayerRouteArgs.parseResumePosition(
                 backStack.arguments?.getString(TvRoute.Player.ARG_RESUME_POSITION),
             )
+            val autoAdvanceCount = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_AUTO_ADVANCE_COUNT)
+                ?.toIntOrNull() ?: 0
             TvPlayerScreen(
                 contentId = contentId,
                 preferredFileId = preferredFileId,
@@ -477,6 +485,16 @@ fun TvAppNavigation(
                 resumePositionOverride = resumePositionOverride,
                 initialAudioTrackIndex = audioTrackIndex,
                 initialSubtitleTrackIndex = subtitleTrackIndex,
+                autoAdvanceCount = autoAdvanceCount,
+                onPlayNext = { nextContentId, nextCount ->
+                    // Replace the current player in the back stack so an
+                    // auto-played chain doesn't pile up episodes behind Back.
+                    navController.navigate(
+                        TvRoute.Player(contentId = nextContentId, autoAdvanceCount = nextCount).route,
+                    ) {
+                        popUpTo(TvRoute.Player.ROUTE) { inclusive = true }
+                    }
+                },
                 onExit = { navController.popBackStack() },
             )
         }
