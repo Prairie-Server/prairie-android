@@ -266,6 +266,7 @@ val androidTvModule = module {
     viewModel { com.continuum.app.viewmodel.AdminUsersViewModel(get()) }
     viewModel { com.continuum.app.tv.ui.screens.admin.TvAdminSessionsViewModel(get()) }
     viewModel { com.continuum.app.tv.ui.screens.admin.TvAdminScansViewModel(get(), get()) }
+    viewModel { com.continuum.app.tv.ui.screens.admin.TvAdminLogsViewModel(get()) }
     viewModel { com.continuum.app.tv.ui.screens.settings.TvManageSessionsViewModel(get()) }
     viewModel { params ->
         com.continuum.app.viewmodel.RequestDetailViewModel(get(), params.get(), params.get())

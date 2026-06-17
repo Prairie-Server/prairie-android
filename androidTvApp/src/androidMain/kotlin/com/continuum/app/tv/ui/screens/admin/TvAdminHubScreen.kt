@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.People
@@ -48,7 +49,8 @@ import androidx.tv.material3.Text
  * Entry to admin is already gated by the Settings surface
  * ([TvSettingsViewModel.UiState.adminVisible] = acting-admin + client policy),
  * so this hub does not re-run the gate; it is only reachable when admin is
- * visible. Logs and Scans are a follow-up phase — see the disabled rows below.
+ * visible. All sub-sections (Dashboard / Users / Sessions / Scans / Logs) route
+ * to their TV screens.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -57,6 +59,7 @@ fun TvAdminHubScreen(
     onOpenUsers: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenScans: () -> Unit,
+    onOpenLogs: () -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -125,6 +128,14 @@ fun TvAdminHubScreen(
                     title = "Scans",
                     subtitle = "Rescan libraries for new media",
                     onClick = onOpenScans,
+                )
+            }
+            item {
+                HubRow(
+                    icon = Icons.AutoMirrored.Filled.Article,
+                    title = "Logs",
+                    subtitle = "App & audit logs",
+                    onClick = onOpenLogs,
                 )
             }
             item { Spacer(Modifier.height(24.dp)) }

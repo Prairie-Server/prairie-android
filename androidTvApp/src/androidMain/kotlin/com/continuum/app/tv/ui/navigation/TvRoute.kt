@@ -213,6 +213,7 @@ sealed class TvMainRoute(val route: String) {
     data object AdminUsers : TvMainRoute("main/admin/users")
     data object AdminSessions : TvMainRoute("main/admin/sessions")
     data object AdminScans : TvMainRoute("main/admin/scans")
+    data object AdminLogs : TvMainRoute("main/admin/logs")
     data object ManageSessions : TvMainRoute("main/settings/sessions")
 
     /** Request detail for a discover/search result (tmdb id + media type). */
