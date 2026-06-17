@@ -251,6 +251,16 @@ fun TvMainShell(
         }
     }
 
+    // When focus is handed back to the top menu (Up at the top content row, or
+    // closing the profile panel), the scroll-driven fade may have slid the menu
+    // off-screen (visibility 0). Snap it back to fully visible first so we don't
+    // focus an invisible bar. Guarded on >0 so it never runs on first compose.
+    LaunchedEffect(menuFocusRequest) {
+        if (menuFocusRequest > 0 && menuVisibility.value < 1f) {
+            menuVisibility.animateTo(1f)
+        }
+    }
+
     LaunchedEffect(currentRoute, visibleDestinations, mediaCapabilities) {
         // Only media-root tabs are eligible for the "tab no longer visible"
         // redirect. Non-tab routes (Settings, Inbox, Favorites, …) map to null
@@ -288,7 +298,11 @@ fun TvMainShell(
                             if (!moved) {
                                 menuFocusRequest++
                             }
-                            !moved
+                            // Always consume: we performed the move (or routed
+                            // to the menu) ourselves in the preview phase.
+                            // Returning !moved let the default focus system run
+                            // a second moveFocus(Up), skipping a row.
+                            true
                         }
                         ev.type == KeyEventType.KeyUp &&
                                 (ev.key == Key.Back || ev.key == Key.Escape) -> {

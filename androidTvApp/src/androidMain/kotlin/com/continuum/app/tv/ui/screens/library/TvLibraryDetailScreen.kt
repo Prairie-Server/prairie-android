@@ -225,9 +225,19 @@ private fun RecommendedTab(
                         heroHeight = HeroDimens.HomeHeight,
                         autoFocus = !initialFocusRequested,
                         initialFocusRequester = heroFocusRequester,
-                        downFocusRequester = firstRowFocusRequester,
+                        // Only wire `down` when the first row exists to attach
+                        // the requester; otherwise Down resolves to an
+                        // unattached FocusRequester and crashes.
+                        downFocusRequester = firstRowFocusRequester
+                            .takeIf { firstRowId != null },
+                        // Consume Down only when there's no row to move to;
+                        // when a row exists, return false so the focus system
+                        // falls through to focusProperties.down (the attached
+                        // firstRowFocusRequester). Returning true here used to
+                        // swallow Down before focusProperties.down could act,
+                        // dead-ending the hero whenever rows existed.
                         onDirectionDown = {
-                            firstRowId != null
+                            firstRowId == null
                         },
                         onAutoFocusClaimed = {
                             initialFocusRequested = true

@@ -164,7 +164,14 @@ private fun TvHomeContent(
                             autoFocus = !initialFocusRequested,
                             focusRequest = focusRequest,
                             initialFocusRequester = heroFocusRequester,
-                            downFocusRequester = firstRowFocusRequester,
+                            // Only wire `down` when a first row actually
+                            // exists to attach the requester — otherwise the
+                            // focus system would resolve Down to an unattached
+                            // FocusRequester and crash. When rows exist the
+                            // imperative onDirectionDown path moves focus, so
+                            // this is belt-and-suspenders either way.
+                            downFocusRequester = firstRowFocusRequester
+                                .takeIf { firstRowId != null },
                             onDirectionDown = ::requestFirstRowFocus,
                             onAutoFocusClaimed = {
                                 initialFocusRequested = true
