@@ -151,7 +151,6 @@ private fun TvDetailContent(
     onOpenPerson: (personId: Int) -> Unit,
 ) {
     val playFocus = remember { FocusRequester() }
-    val firstEpisodeFocus = remember { FocusRequester() }
     val firstCastFocus = remember { FocusRequester() }
     val firstSimilarFocus = remember { FocusRequester() }
     val detailsFocus = remember { FocusRequester() }
@@ -216,7 +215,6 @@ private fun TvDetailContent(
                             detail = detail,
                             state = state,
                             showsSeasonChips = showsSeasonChips,
-                            firstEpisodeFocus = firstEpisodeFocus,
                             onReturnToHero = {
                                 coroutineScope.launch {
                                     listState.animateScrollToItem(0)
@@ -231,19 +229,12 @@ private fun TvDetailContent(
                                     onItemDetail(season.contentId)
                                 }
                             },
-                            // P6.8: OK plays/resumes the episode directly;
-                            // long-press opens its detail page.
+                            // tvOS parity: OK navigates to the episode's own
+                            // detail page (version pick / mark watched / play)
+                            // rather than launching playback directly.
                             onEpisodeSelected = { episode ->
-                                onPlay(
-                                    episode.contentId,
-                                    null,
-                                    null,
-                                    null,
-                                    "episode",
-                                    episode.resumePositionSeconds(),
-                                )
+                                onItemDetail(episode.contentId)
                             },
-                            onEpisodeLongPress = { onItemDetail(it.contentId) },
                         )
                     }
                 }
@@ -619,11 +610,9 @@ private fun EpisodesSection(
     detail: ItemDetail,
     state: TvItemDetailUiState,
     showsSeasonChips: Boolean,
-    firstEpisodeFocus: FocusRequester,
     onReturnToHero: () -> Boolean,
     onSeasonSelected: (com.continuum.app.model.catalog.Season) -> Unit,
     onEpisodeSelected: (EpisodeListItem) -> Unit,
-    onEpisodeLongPress: (EpisodeListItem) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Row(
@@ -664,8 +653,6 @@ private fun EpisodesSection(
             episodes = state.episodes,
             currentContentId = detail.contentId.takeIf { detail.type == "episode" },
             onEpisodeSelected = onEpisodeSelected,
-            onEpisodeLongPress = onEpisodeLongPress,
-            firstItemFocusRequester = firstEpisodeFocus,
         )
     }
 }
@@ -725,21 +712,6 @@ private fun ItemDetail.resumePositionSeconds(): Double? {
     val pos = user.positionSeconds ?: return null
     val dur = user.durationSeconds ?: return null
     if (pos <= 30 || dur <= 0 || pos >= dur - 5) return null
-    return pos
-}
-
-/**
- * Resume position for a direct episode play (P6.8). Same policy as the movie
- * hero / phone's playbackResumePosition: finite, >30s in, not finished, not
- * near the end. Returns null (= start / let session decide) otherwise.
- */
-private fun EpisodeListItem.resumePositionSeconds(): Double? {
-    val user = userData ?: return null
-    if (user.played) return null
-    val pos = user.positionSeconds ?: return null
-    if (!pos.isFinite() || pos <= 30) return null
-    val dur = user.durationSeconds
-    if (dur != null && dur > 0 && pos >= dur - 5) return null
     return pos
 }
 

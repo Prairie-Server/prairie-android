@@ -1,8 +1,12 @@
 package com.continuum.app.tv.ui.screens.detail
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,14 +27,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -39,35 +47,35 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Border
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Glow
 import androidx.tv.material3.Icon
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.EpisodeListItem
-import com.continuum.app.tv.ui.theme.ContinuumBlueGlow
+import com.continuum.app.tv.ui.theme.ContinuumOnSurface
+import com.continuum.app.tv.ui.theme.ContinuumSecondaryText
 import com.continuum.app.tv.ui.theme.DarkSurfaceElevated
 import com.continuum.app.tv.ui.theme.ProgressFill
 import com.continuum.app.tv.ui.theme.Spacing
 
 /**
- * Horizontal episode rail used on the series and episode detail screens. Each
- * card is a 16:9 still topped by an episode-number eyebrow and a 2-line title
- * snippet. Pressing OK plays (or resumes) the episode directly; long-pressing
- * opens the episode's own detail page (parity with the phone's tap-to-play).
+ * Horizontal rail of episode cards for the series/season/episode detail
+ * screens — a direct port of tvOS `TVEpisodeRail`. Pressing OK on a card
+ * navigates to that episode's own detail page (where the user picks a
+ * version, marks watched and starts playback); the rail is a browsing
+ * surface, NOT a direct play launcher.
+ *
+ * When `currentContentId` is non-null the matching card is highlighted
+ * (white 2dp ring + full-color title), scrolled to the horizontal center
+ * on first appearance, and made the default focus target so d-padding down
+ * into the rail lands on the episode the user is already viewing.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun TvDetailEpisodeRail(
     episodes: List<EpisodeListItem>,
     onEpisodeSelected: (EpisodeListItem) -> Unit,
-    onEpisodeLongPress: (EpisodeListItem) -> Unit,
     modifier: Modifier = Modifier,
     currentContentId: String? = null,
-    firstItemFocusRequester: FocusRequester? = null,
 ) {
     if (episodes.isEmpty()) return
 
@@ -75,94 +83,117 @@ internal fun TvDetailEpisodeRail(
     val currentIndex = remember(currentContentId, episodes) {
         episodes.indexOfFirst { it.contentId == currentContentId }.takeIf { it >= 0 }
     }
+    // Default focus target: the current episode if present. Mirrors tvOS
+    // `defaultFocus(..., priority: .userInitiated)` so d-pad entry into the
+    // rail lands on the current episode rather than the first card.
+    val defaultFocusRequester = remember { FocusRequester() }
 
+    // Auto-center the current episode on first appearance (parity with the
+    // tvOS `proxy.scrollTo(id, anchor: .center)` on appear). Same true-center
+    // approach as TvSeasonPicker: bring the item into view, then nudge by the
+    // delta between the item center and the viewport center.
     LaunchedEffect(currentContentId, episodes.size) {
         val target = currentIndex ?: return@LaunchedEffect
-        listState.animateScrollToItem(target)
+        listState.scrollToItem(target)
+        val info = listState.layoutInfo
+        val item = info.visibleItemsInfo.firstOrNull { it.index == target }
+            ?: return@LaunchedEffect
+        val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+        val itemCenter = item.offset + item.size / 2f
+        listState.animateScrollBy(itemCenter - viewportCenter)
     }
 
     LazyRow(
         modifier = modifier
             .fillMaxWidth()
-            .focusGroup(),
+            .focusGroup()
+            .then(
+                if (currentIndex != null) {
+                    Modifier.focusProperties { enter = { defaultFocusRequester } }
+                } else {
+                    Modifier
+                },
+            ),
         state = listState,
         contentPadding = PaddingValues(
             horizontal = Spacing.safeArea,
-            vertical = 16.dp,
+            vertical = 32.dp,
         ),
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(36.dp),
     ) {
         items(episodes, key = { it.contentId }) { episode ->
+            val isCurrent = episode.contentId == currentContentId
             TvDetailEpisodeCard(
                 episode = episode,
-                isCurrent = episode.contentId == currentContentId,
+                isCurrent = isCurrent,
                 onClick = { onEpisodeSelected(episode) },
-                onLongClick = { onEpisodeLongPress(episode) },
-                focusRequester = firstItemFocusRequester
-                    ?.takeIf { episode.contentId == episodes.first().contentId },
+                modifier = if (isCurrent) {
+                    Modifier.focusRequester(defaultFocusRequester)
+                } else {
+                    Modifier
+                },
             )
         }
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvDetailEpisodeCard(
     episode: EpisodeListItem,
     isCurrent: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    focusRequester: FocusRequester?,
+    modifier: Modifier = Modifier,
 ) {
-    val cardWidth = 360.dp
-    val stillHeight = 200.dp
-    val shape = RoundedCornerShape(10.dp)
+    val cardWidth = 460.dp
+    val stillHeight = 260.dp
+    val cornerRadius = 10.dp
+    val shape = RoundedCornerShape(cornerRadius)
+
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
+    // Scale + shadow only — no TV Material focus halo. The white ring on the
+    // still (driven by isFocused below) is the focus cue. Matches tvOS
+    // `EpisodeCardStyle`.
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.04f else 1f,
+        animationSpec = tween(durationMillis = 180),
+        label = "episodeCardScale",
+    )
+
     Column(
-        modifier = Modifier.width(cardWidth),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = modifier
+            .width(cardWidth)
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Surface(
-            onClick = onClick,
-            onLongClick = onLongClick,
-            interactionSource = interactionSource,
-            shape = ClickableSurfaceDefaults.shape(shape = shape),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = DarkSurfaceElevated,
-                contentColor = Color.White,
-                focusedContainerColor = DarkSurfaceElevated,
-                focusedContentColor = Color.White,
-            ),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
-            border = ClickableSurfaceDefaults.border(
-                border = Border(
-                    border = BorderStroke(
-                        width = if (isCurrent) 2.dp else 0.dp,
-                        color = if (isCurrent) Color.White.copy(alpha = 0.7f) else Color.Transparent,
-                    ),
-                    shape = shape,
-                ),
-                focusedBorder = Border(
-                    border = BorderStroke(3.dp, Color.White.copy(alpha = 0.95f)),
-                    shape = shape,
-                ),
-            ),
-            glow = ClickableSurfaceDefaults.glow(
-                focusedGlow = Glow(
-                    elevationColor = ContinuumBlueGlow,
-                    elevation = 18.dp,
-                ),
-            ),
+        // Still
+        Box(
             modifier = Modifier
                 .width(cardWidth)
                 .height(stillHeight)
+                .shadow(
+                    elevation = if (isFocused) 18.dp else 8.dp,
+                    shape = shape,
+                    ambientColor = Color.Black,
+                    spotColor = Color.Black,
+                )
+                .clip(shape)
+                .background(DarkSurfaceElevated)
                 .then(
-                    if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
+                    when {
+                        isFocused -> Modifier.border(3.dp, Color.White.copy(alpha = 0.9f), shape)
+                        isCurrent -> Modifier.border(2.dp, Color.White.copy(alpha = 0.7f), shape)
+                        else -> Modifier
+                    },
                 ),
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            if (!episode.stillUrl.isNullOrBlank()) {
                 ThumbhashImage(
                     url = episode.stillUrl,
                     thumbhash = episode.stillThumbhash,
@@ -170,50 +201,60 @@ private fun TvDetailEpisodeCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.Movie,
+                    contentDescription = null,
+                    tint = ContinuumSecondaryText,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .align(Alignment.Center),
+                )
+            }
 
-                if (episode.userData?.played == true) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.35f)),
+            if (episode.userData?.played == true) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f)),
+                )
+                Box(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .align(Alignment.TopEnd),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp),
                     )
+                }
+            }
+
+            episode.progressFraction()?.let { fraction ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .align(Alignment.BottomStart)
+                        .background(Color.Black.copy(alpha = 0.6f)),
+                ) {
                     Box(
                         modifier = Modifier
-                            .padding(12.dp)
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                            .align(Alignment.TopEnd),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-
-                episode.progressFraction()?.let { fraction ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxWidth(fraction)
                             .height(5.dp)
-                            .align(Alignment.BottomStart)
-                            .background(Color.Black.copy(alpha = 0.6f)),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(fraction)
-                                .height(5.dp)
-                                .background(ProgressFill),
-                        )
-                    }
+                            .background(ProgressFill),
+                    )
                 }
             }
         }
 
+        // Text block — spacing 6
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -221,11 +262,10 @@ private fun TvDetailEpisodeCard(
             ) {
                 Text(
                     text = episodeEyebrow(episode),
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.0.sp,
-                    ),
-                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.0.sp,
+                    color = ContinuumOnSurface.copy(alpha = 0.55f),
                     maxLines = 1,
                 )
                 if (isCurrent) {
@@ -235,27 +275,33 @@ private fun TvDetailEpisodeCard(
 
             Text(
                 text = episode.title ?: "Episode ${episode.episodeNumber}",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                color = if (isFocused || isCurrent) {
-                    Color.White
-                } else {
-                    Color.White.copy(alpha = 0.92f)
+                fontSize = 26.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = when {
+                    isCurrent -> ContinuumOnSurface
+                    isFocused -> ContinuumOnSurface
+                    else -> ContinuumOnSurface.copy(alpha = 0.92f)
                 },
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
 
             episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-                Spacer(modifier = Modifier.height(2.dp))
+                // tvOS uses lineLimit(3, reservesSpace: true). Reserve a fixed
+                // 3-line height (20sp line + 3sp spacing ≈ 23sp/line) and pad
+                // the top by 4dp so single/empty descriptions don't shift the
+                // card metrics.
                 Text(
                     text = overview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = ContinuumSecondaryText,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 22.sp,
+                    lineHeight = 23.sp,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .height((23 * 3).dp),
                 )
             }
         }
@@ -272,11 +318,9 @@ private fun NowViewingTag() {
     ) {
         Text(
             text = "NOW VIEWING",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.1.sp,
-                fontSize = 16.sp,
-            ),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.6.sp,
             color = Color.Black,
         )
     }
