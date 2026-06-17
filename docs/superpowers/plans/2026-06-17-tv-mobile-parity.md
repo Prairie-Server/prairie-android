@@ -96,8 +96,13 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
   **REMAINING for fresh-context sessions** (one big screen per session, Codex-review hard):
   Phase 4 — P4.1 AdminLogs (App/Audit tabs+filters+pagination, biggest), P4.3 admin user create/edit FORM
   (check AdminUsersViewModel for create/update methods first; fields role/enabled/library-access/max streams/transcodes/profiles),
-  P4.4 Request Detail screen+route (+P4.5 my-requests-open), P4.6 Pair Device (route+silo://device deeplinks+DevicePairingScreen+settings row),
-  P4.7 Manage Sessions (user's OWN sessions — check shared API for list/revoke-own-session first).
+  P4.4 Request Detail (+P4.5) — DE-RISKED: shared RequestDetailViewModel(RequestsRepository, mediaType:String, tmdbId:Int)
+    is reusable (load/submitRequest); render state.detail: RequestMediaDetail (hero/overview/recommendations/request+status
+    actions — read RequestMediaDetail fields + mobile RequestDetailScreen content). Add parameterized TvRoute.RequestDetail
+    (mediaType+tmdbId, mirror TvRoute.Player arg pattern), DI viewModel{params-> RequestDetailViewModel(get(), params.get(), params.get())},
+    nav composable in TvMainShell, and wire navigation from TvRequestsScreen result cards + TvMyRequestsScreen rows (P4.5).
+  P4.6 Pair Device (route+silo://device deeplinks+DevicePairingScreen+settings row).
+  [DONE P4.7 Manage Sessions — shared AuthRepository getSessions/deleteSession.]
   Phase 5 — P5.1–5.4 collection groups CRUD + card actions (check shared collections repo for group APIs).
   Playback-path ⚠device — P3.x, P6.4/7/8/9/10. Phase 7 LOW remnants.
   TEMPLATE for new admin/list screens: TvAdminScansViewModel/Screen (commit 05fd826) — VM mirrors phone VM,
