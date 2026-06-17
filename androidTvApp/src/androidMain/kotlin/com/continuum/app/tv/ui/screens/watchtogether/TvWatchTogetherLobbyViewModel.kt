@@ -63,20 +63,15 @@ class TvWatchTogetherLobbyViewModel(
     fun closeRoom() = viewModelScope.launch { repository.closeRoom() }
 
     /**
-     * Leave the room. A host (one who can manage the room) closes it for everyone
-     * first so guests get an immediate `room_closed` instead of waiting for the
-     * server's host-left timeout; a guest just tears down its own WS. Either way
-     * we reset the shared repo state.
+     * Leave the room: tear down our own WS and reset shared repo state. Matches
+     * mobile — leaving does NOT close the room for everyone. A host closes the
+     * room explicitly via [closeRoom] (and stays on the lobby until the server's
+     * `room_closed` broadcast reactively backs them out); otherwise the server's
+     * host-left timeout reaps it. Closing on leave used to race the closeRoom
+     * network call against viewModelScope cancellation during screen dispose.
      */
-    fun leave(closeRoom: Boolean) {
-        if (closeRoom) {
-            viewModelScope.launch {
-                runCatching { repository.closeRoom() }
-                repository.reset()
-            }
-        } else {
-            repository.reset()
-        }
+    fun leave() {
+        repository.reset()
     }
 
     override fun onCleared() {

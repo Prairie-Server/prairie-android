@@ -124,15 +124,19 @@ fun TvWatchTogetherLobbyScreen(
     // down locally and back out; do NOT re-issue closeRoom.
     LaunchedEffect(closedReason) {
         if (closedReason != null) {
-            viewModel.leave(closeRoom = false)
+            viewModel.leave()
             onBack()
         }
     }
 
-    // User-initiated leave: a host closes the room for everyone, a guest just
-    // drops its own connection.
+    // User-initiated leave just drops our own connection and exits — matching
+    // mobile, where leaving the lobby never closes the room. A host closes the
+    // room for everyone via the explicit "Close room" action (below), which
+    // stays on screen until the server's room_closed broadcast reactively backs
+    // us out. (Auto-closing here raced the closeRoom call against viewModelScope
+    // cancellation on dispose, so the room often never actually closed.)
     BackHandler(enabled = true) {
-        viewModel.leave(closeRoom = canManage)
+        viewModel.leave()
         onBack()
     }
 
@@ -222,6 +226,10 @@ fun TvWatchTogetherLobbyScreen(
                         onPrevious = { viewModel.updatePolicy(nextPolicy(snapshot.guestControlPolicy).wire) },
                         onNext = { viewModel.updatePolicy(nextPolicy(snapshot.guestControlPolicy).wire) },
                     )
+                    // Explicit host close — mirrors mobile's "Close" action.
+                    // Stays on screen; the room_closed broadcast then drives the
+                    // back-out via the closedReason effect above.
+                    CloseRoomButton(onClick = viewModel::closeRoom)
                 }
 
                 Text(
@@ -424,6 +432,42 @@ private fun RowAction(text: String, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelLarge,
             color = if (isFocused) FocusedContent else Color.White,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+    }
+}
+
+/**
+ * Host-only "Close room for everyone" action — the TV equivalent of mobile's
+ * "Close" button. Clicking closes the room server-side while staying on the
+ * lobby; the resulting room_closed broadcast drives the back-out reactively.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CloseRoomButton(onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(12.dp)
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF7A2620).copy(alpha = 0.42f),
+            contentColor = Color(0xFFFFB4A9),
+            focusedContainerColor = Color(0xFFB3261E),
+            focusedContentColor = Color.White,
+            pressedContainerColor = Color(0xFFB3261E),
+            pressedContentColor = Color.White,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        modifier = Modifier.then(
+            if (isFocused) Modifier.border(2.dp, Color.White.copy(alpha = 0.98f), shape) else Modifier,
+        ),
+    ) {
+        Text(
+            text = "Close room for everyone",
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
         )
     }
 }
