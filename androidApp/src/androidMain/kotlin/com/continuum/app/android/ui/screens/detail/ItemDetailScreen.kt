@@ -237,7 +237,8 @@ fun ItemDetailScreen(
                             isInWatchlist = state.isInWatchlist,
                             selectedVersionIndex = selectedBookVersionIndex,
                             onVersionSelected = { viewModel.selectVersion(it) },
-                            canReadSelectedVersion = selectedBookVersion?.isInAppReadableEbookVersion() == true,
+                            canReadSelectedVersion = selectedBookVersion
+                                ?.isInAppReadableEbookVersion(state.kindleConversionAvailable) == true,
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
                             onReadClick = { fileId -> onBookReadClick(detail.contentId, fileId) },
@@ -258,7 +259,7 @@ fun ItemDetailScreen(
                             },
                             onOpenExternalClick = selectedBookVersion
                                 ?.takeIf {
-                                    !it.isInAppReadableEbookVersion() &&
+                                    !it.isInAppReadableEbookVersion(state.kindleConversionAvailable) &&
                                         downloadState.isDownloaded &&
                                         selectedBookLocalDownload != null
                                 }

@@ -258,7 +258,7 @@ val androidModule = module {
     }
     viewModel { params ->
         ItemDetailViewModel(
-            get(), get(), get(), get(), params.get(),
+            get(), get(), get(), get(), get(), params.get(),
             getOrNull<com.continuum.app.repository.port.UserItemStatePort>() ?: com.continuum.app.repository.port.NoOpUserItemStatePort,
         )
     }

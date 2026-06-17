@@ -3,11 +3,37 @@ package com.continuum.app.repository
 import com.continuum.app.model.ebook.SaveEbookAnnotationRequest
 import com.continuum.app.model.ebook.SaveEbookProgressRequest
 import com.continuum.app.model.ebook.SaveEbookReaderConfigRequest
+import com.continuum.app.network.ApiResult
 import com.continuum.app.network.api.EbookReaderApi
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class EbookReaderRepository(private val api: EbookReaderApi) {
+    // Session-cached Kindle->EPUB capability. This repo is a DI singleton, so the
+    // result is shared across the detail and reader screens and fetched at most
+    // once per session. Defaults to false on any error (old server / offline).
+    private var cachedKindleConversion: Boolean? = null
+    private val capabilityMutex = Mutex()
+
     fun readPath(contentId: String, fileId: Int): String =
         api.readPath(contentId, fileId)
+
+    suspend fun getConversionCapability() =
+        api.getConversionCapability()
+
+    suspend fun isKindleConversionAvailable(): Boolean {
+        cachedKindleConversion?.let { return it }
+        return capabilityMutex.withLock {
+            cachedKindleConversion ?: run {
+                val enabled = when (val r = api.getConversionCapability()) {
+                    is ApiResult.Success -> r.data.enabled
+                    else -> false
+                }
+                cachedKindleConversion = enabled
+                enabled
+            }
+        }
+    }
 
     suspend fun getProgress(contentId: String) =
         api.getProgress(contentId)

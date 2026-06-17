@@ -125,6 +125,19 @@ fun FileVersion.ebookFormatDisplayName(): String =
 fun FileVersion.isInAppReadableEbookVersion(): Boolean =
     ebookFormatKey().orEmpty().isInAppReadableEbookFormat()
 
+/** True for mobi/azw/azw3 — the formats the server can convert to EPUB. */
+fun FileVersion.isKindleConvertibleEbookVersion(): Boolean =
+    ebookFormatKey() in kindleConvertibleFormats
+
+/**
+ * In-app readability that accounts for server-side Kindle->EPUB conversion:
+ * when [kindleConversionAvailable], a mobi/azw/azw3 file reads in-app (the
+ * server serves it as EPUB). Use this for the detail "Read" affordance so the
+ * entry point and the reader agree.
+ */
+fun FileVersion.isInAppReadableEbookVersion(kindleConversionAvailable: Boolean): Boolean =
+    isInAppReadableEbookVersion() || (kindleConversionAvailable && isKindleConvertibleEbookVersion())
+
 fun FileVersion.bookFormatFromEbookVersion(): BookFormat {
     val formatFromKey = BookFormat.fromWire(ebookFormatKey())
     return if (formatFromKey != BookFormat.Unknown) {
@@ -193,6 +206,38 @@ private fun FileVersion.readerTargetOrNull(): ReaderVersionTarget? {
         version = this,
         support = support,
         format = bookFormatFromEbookVersion(),
+    )
+}
+
+/** Kindle-family formats the server can convert to EPUB on the fly. */
+private val kindleConvertibleFormats = setOf("mobi", "azw", "azw3")
+
+/** True when this target is a Kindle-family file currently routed external-only
+ *  — i.e. a candidate for server-side EPUB conversion. Use it to gate the
+ *  capability probe so non-Kindle reads don't fetch it. */
+fun ReaderVersionTarget.isKindleConvertibleExternal(): Boolean =
+    support.readMode == EbookReadMode.ExternalOnly && support.key in kindleConvertibleFormats
+
+/**
+ * When the server advertises Kindle->EPUB conversion ([available]), promote a
+ * Kindle-family [ReaderVersionTarget] from external-only to in-app: the read
+ * endpoint returns EPUB bytes, so the effective render [format] becomes
+ * [BookFormat.Epub] and it flows through the normal reflowable reader. The
+ * underlying file id is unchanged (the server converts that file). No-op for
+ * non-Kindle targets, already-in-app targets, or when conversion is off.
+ */
+fun ReaderVersionTarget.promotedForKindleConversion(available: Boolean): ReaderVersionTarget {
+    if (!available) return this
+    val key = support.key ?: return this
+    if (key !in kindleConvertibleFormats || support.readMode != EbookReadMode.ExternalOnly) {
+        return this
+    }
+    return copy(
+        support = support.copy(
+            readMode = EbookReadMode.InApp,
+            reason = "${support.displayName} is converted to EPUB by the server and read in Silo.",
+        ),
+        format = BookFormat.Epub,
     )
 }
 

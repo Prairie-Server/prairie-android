@@ -18,7 +18,9 @@ import com.continuum.app.model.ebook.SaveEbookProgressRequest
 import com.continuum.app.model.ebook.chooseReaderVersion
 import com.continuum.app.model.ebook.ebookPageNumberFromProgressLocation
 import com.continuum.app.model.ebook.ebookProgressPercentForPage
+import com.continuum.app.model.ebook.isKindleConvertibleExternal
 import com.continuum.app.model.ebook.localBookmarkAnnotation
+import com.continuum.app.model.ebook.promotedForKindleConversion
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.ServerRegistry
 import com.continuum.app.repository.CatalogRepository
@@ -112,8 +114,8 @@ class ReaderViewModel(
             when (val r = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
                     val d = r.data
-                    val target = chooseReaderVersion(d.versions, requestedFileId)
-                    if (target == null) {
+                    val chosen = chooseReaderVersion(d.versions, requestedFileId)
+                    if (chosen == null) {
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -124,6 +126,13 @@ class ReaderViewModel(
                         }
                         return@launch
                     }
+                    // When the server advertises Kindle->EPUB conversion, a mobi/azw/azw3
+                    // file is read in-app: /read returns EPUB bytes the reflowable reader
+                    // renders. Only probe the capability for a Kindle external-only target
+                    // (not for every epub/pdf open).
+                    val conversionAvailable = chosen.isKindleConvertibleExternal() &&
+                        ebookReaderRepository.isKindleConversionAvailable()
+                    val target = chosen.promotedForKindleConversion(conversionAvailable)
                     val version = target.version
                     val (serverId, profileId) = resolveScope()
                     val offlineMedia = offlineMediaResolver.findLocalMedia(
@@ -137,10 +146,13 @@ class ReaderViewModel(
                     val displaySettings = loadDisplaySettings()
                     shouldSuppressInitialPageChange = readerState.progressLocation != null
                     val format = target.format
-                    val fileUrl = if (target.support.canReadInApp) {
-                        offlineMedia?.fileUrl ?: ebookReaderRepository.readPath(d.contentId, version.fileId)
-                    } else {
-                        offlineMedia?.fileUrl
+                    val fileUrl = when {
+                        // Promoted Kindle must come from the server (which converts it to
+                        // EPUB); a locally-downloaded original is raw MOBI, not EPUB.
+                        conversionAvailable -> ebookReaderRepository.readPath(d.contentId, version.fileId)
+                        target.support.canReadInApp ->
+                            offlineMedia?.fileUrl ?: ebookReaderRepository.readPath(d.contentId, version.fileId)
+                        else -> offlineMedia?.fileUrl
                     }
                     val error = if (
                         target.support.readMode == EbookReadMode.ExternalOnly &&

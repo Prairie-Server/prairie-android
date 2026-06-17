@@ -12,6 +12,11 @@ import java.io.OutputStream
 import java.net.URI
 import java.security.MessageDigest
 
+/** Server marks a failed Kindle->EPUB conversion with this header on the raw
+ *  fallback body, so the reader must not cache it as the converted format. */
+private const val EBOOK_CONVERSION_HEADER = "X-Silo-Ebook-Conversion"
+private const val EBOOK_CONVERSION_FAILED = "failed"
+
 /** SHA-1 cache key for a reader URL — the one shared copy of the helper
  *  the readers previously duplicated five times. */
 internal fun readerCacheKey(url: String): String {
@@ -94,6 +99,11 @@ internal suspend fun resolveReaderFile(
         val req = Request.Builder().url(requestUrl).build()
         okHttp.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) error("HTTP ${resp.code} fetching reader file")
+            // Kindle->EPUB conversion serves the raw original with this header on
+            // failure. Never cache that body as the expected (EPUB) format.
+            if (resp.header(EBOOK_CONVERSION_HEADER) == EBOOK_CONVERSION_FAILED) {
+                error("Server could not convert this book for in-app reading")
+            }
             val body = resp.body ?: error("Empty body fetching reader file")
             body.byteStream().copyTo(out)
         }

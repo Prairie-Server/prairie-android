@@ -214,4 +214,42 @@ class EbookVersionSelectionTest {
         assertTrue("fb2".isInAppReadableEbookFormat())
         assertTrue("fbz".isInAppReadableEbookFormat())
     }
+
+    @Test
+    fun `kindle promotion makes mobi in-app epub when conversion available`() {
+        val target = chooseReaderVersion(
+            listOf(FileVersion(fileId = 9, fileName = "book.mobi", container = "mobi")),
+            requestedFileId = null,
+        )
+        assertEquals(EbookReadMode.ExternalOnly, target?.support?.readMode)
+
+        val promoted = target!!.promotedForKindleConversion(available = true)
+        assertEquals(EbookReadMode.InApp, promoted.support.readMode)
+        assertTrue(promoted.support.canReadInApp)
+        assertEquals(BookFormat.Epub, promoted.format)
+        assertEquals(9, promoted.version.fileId) // file id unchanged; server converts that file
+    }
+
+    @Test
+    fun `kindle promotion is a no-op when conversion unavailable`() {
+        val target = chooseReaderVersion(
+            listOf(FileVersion(fileId = 1, fileName = "book.azw3", container = "azw3")),
+            requestedFileId = null,
+        )!!
+        val promoted = target.promotedForKindleConversion(available = false)
+        assertEquals(EbookReadMode.ExternalOnly, promoted.support.readMode)
+        assertEquals(target.format, promoted.format)
+    }
+
+    @Test
+    fun `kindle promotion does not touch non-kindle in-app formats`() {
+        val target = chooseReaderVersion(
+            listOf(FileVersion(fileId = 2, fileName = "book.epub", container = "epub")),
+            requestedFileId = null,
+        )!!
+        val promoted = target.promotedForKindleConversion(available = true)
+        assertEquals(BookFormat.Epub, promoted.format)
+        assertEquals(EbookReadMode.InApp, promoted.support.readMode)
+        assertEquals(2, promoted.version.fileId)
+    }
 }

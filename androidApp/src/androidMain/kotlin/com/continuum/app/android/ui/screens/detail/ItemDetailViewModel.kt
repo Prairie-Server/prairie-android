@@ -12,8 +12,10 @@ import com.continuum.app.model.catalog.sortedForDisplay
 import com.continuum.app.model.download.DownloadRecord
 import com.continuum.app.model.download.statusEnum
 import com.continuum.app.network.ApiResult
+import com.continuum.app.model.catalog.isBookLikeItemType
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.DownloadsRepository
+import com.continuum.app.repository.EbookReaderRepository
 import com.continuum.app.repository.PersonalDataRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,6 +54,8 @@ data class ItemDetailUiState(
     val hasExplicitVersionSelection: Boolean = false,
     val hasExplicitAudioSelection: Boolean = false,
     val hasExplicitSubtitleSelection: Boolean = false,
+    /** Server converts Kindle (mobi/azw/azw3) to EPUB, so they read in-app. */
+    val kindleConversionAvailable: Boolean = false,
 )
 
 /**
@@ -65,6 +69,7 @@ class ItemDetailViewModel(
     private val personalDataRepository: PersonalDataRepository,
     private val downloadsRepository: DownloadsRepository,
     private val downloadEnqueuer: DownloadEnqueuer,
+    private val ebookReaderRepository: EbookReaderRepository,
     savedStateHandle: SavedStateHandle,
     private val userItemState: com.continuum.app.repository.port.UserItemStatePort =
         com.continuum.app.repository.port.NoOpUserItemStatePort,
@@ -216,6 +221,15 @@ class ItemDetailViewModel(
                     // For series, load seasons
                     if (detail.type == "series") {
                         loadSeasons(detail.contentId)
+                    }
+                    // For books, learn whether the server converts Kindle formats to
+                    // EPUB, so the "Read" affordance can offer mobi/azw/azw3 in-app.
+                    if (isBookLikeItemType(detail.type)) {
+                        viewModelScope.launch {
+                            if (ebookReaderRepository.isKindleConversionAvailable()) {
+                                _uiState.update { it.copy(kindleConversionAvailable = true) }
+                            }
+                        }
                     }
                 }
                 is ApiResult.Error -> {

@@ -2,6 +2,7 @@ package com.continuum.app.network.api
 
 import com.continuum.app.model.ebook.EbookAnnotation
 import com.continuum.app.model.ebook.EbookAnnotationListResponse
+import com.continuum.app.model.ebook.EbookConversionCapability
 import com.continuum.app.model.ebook.EbookReaderConfig
 import com.continuum.app.model.ebook.EbookReaderProgress
 import com.continuum.app.model.ebook.SaveEbookAnnotationRequest
@@ -24,6 +25,10 @@ import io.ktor.http.encodeURLPathPart
 open class EbookReaderApi(private val client: HttpClient) {
     fun readPath(contentId: String, fileId: Int): String =
         "/api/v1/ebooks/${contentId.encodeURLPathPart()}/files/$fileId/read"
+
+    open suspend fun getConversionCapability(): ApiResult<EbookConversionCapability> = safeApiCall {
+        client.get("/api/v1/ebooks/capability")
+    }
 
     open suspend fun getProgress(
         contentId: String,
