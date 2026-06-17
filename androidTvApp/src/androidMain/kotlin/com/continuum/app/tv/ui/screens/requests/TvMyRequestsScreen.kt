@@ -47,6 +47,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun TvMyRequestsScreen(
     onOpenLibraryItem: (contentId: String) -> Unit = {},
+    onOpenRequestDetail: (mediaType: String, tmdbId: Int) -> Unit = { _, _ -> },
     onInitialContentFocus: () -> Unit = {},
     viewModel: MyRequestsViewModel = koinViewModel(),
 ) {
@@ -102,8 +103,13 @@ fun TvMyRequestsScreen(
                 itemsIndexed(visibleRequests, key = { _, request -> request.id }) { index, request ->
                     TvRequestListCard(
                         request = request,
-                        onClick = request.libraryContentId?.let { contentId ->
-                            { onOpenLibraryItem(contentId) }
+                        onClick = {
+                            // In-library items open library detail; everything else
+                            // opens the request detail (phone parity — rows are always
+                            // actionable, not only when a library item exists).
+                            val contentId = request.libraryContentId
+                            if (contentId != null) onOpenLibraryItem(contentId)
+                            else onOpenRequestDetail(request.mediaType, request.tmdbId)
                         },
                         focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                         trailing = {

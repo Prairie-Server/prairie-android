@@ -413,6 +413,9 @@ fun TvMainShell(
                 composable(TvMainRoute.MyRequests.route) {
                     TvMyRequestsScreen(
                         onOpenLibraryItem = onOpenItemDetail,
+                        onOpenRequestDetail = { mt, id ->
+                            navigateToSecondary(TvMainRoute.RequestDetail(mt, id).route)
+                        },
                         onInitialContentFocus = { profileMenuOpen = false },
                     )
                 }
