@@ -37,7 +37,9 @@ import com.continuum.app.model.subtitles.SubtitleTranslateRequest
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.errorMessage
 import com.continuum.app.repository.SubtitlesRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,6 +52,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Renderable audio or subtitle track pulled out of ExoPlayer's current
@@ -654,6 +657,10 @@ class TvPlayerViewModel(
                     )
                     _uiState.update {
                         it.copy(
+                            // Clear any error the failing direct item set: a successful
+                            // fallback must not stay hidden behind the error screen
+                            // (which renders before streamUrl).
+                            error = null,
                             sessionId = fallback.sessionId,
                             playMethod = fallback.playMethod,
                             streamUrl = fallback.streamUrl,
@@ -1217,14 +1224,64 @@ class TvPlayerViewModel(
         viewModelScope.launch { stopSessionForExit() }
     }
 
+    /**
+     * Surfaces a player runtime error (decoder init, source, network/401 after
+     * prepare). Without this the screen can sit on a stale spinner instead of
+     * an actionable error. The error UI offers [retry].
+     */
+    fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = error.localizedMessage?.takeIf { msg -> msg.isNotBlank() }
+                    ?: "Playback failed. Please try again.",
+            )
+        }
+    }
+
+    /** Reload the current content from the last known position (error-screen retry). */
+    fun retry() {
+        val resumeAt = _uiState.value.position.takeIf { it > 0.0 }
+        val staleSessionId = _uiState.value.sessionId
+        viewModelScope.launch {
+            // Stop the previous server session first so a retry can't orphan it
+            // until timeout (loadContent's adoptActiveSession replaces local
+            // reporter state but does not stop the old server session).
+            if (staleSessionId != null) {
+                runCatching { playbackSessionManager.stopSession(staleSessionId) }
+            }
+            loadContent(startPositionOverride = resumeAt)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
+        // Guarantee the final resume position is persisted on teardown. The
+        // periodic write runs in viewModelScope, which is cancelling here — so
+        // AWAIT one last write under NonCancellable (a brief local Room write off
+        // the main thread). Mirrors phone PlayerViewModel.onCleared; without it,
+        // exiting while playing loses the last spot.
+        val cid = contentId.takeIf { it.isNotBlank() }
+        val fid = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId
+        if (cid != null && fid != null) {
+            runCatching {
+                runBlocking(NonCancellable + Dispatchers.IO) {
+                    userItemStatePort.recordPosition(
+                        cid,
+                        fid,
+                        _uiState.value.position,
+                        _uiState.value.duration.takeIf { it > 0.0 },
+                    )
+                }
+            }
+        }
         introObserveJob?.cancel()
         lifecycleObserveJob?.cancel()
         introAutoSkipController.reset()
         val sessionId = _uiState.value.sessionId
         if (sessionId != null) {
-            // Fire-and-forget stop; VM is already being cleared so we can't await.
+            // Best-effort session stop; viewModelScope is cancelling so this may
+            // not complete — the NonCancellable write above already persisted progress.
             viewModelScope.launch { sessionLifecycle.stop() }
         }
     }

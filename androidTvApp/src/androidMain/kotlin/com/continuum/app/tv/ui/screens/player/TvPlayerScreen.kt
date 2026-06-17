@@ -251,7 +251,20 @@ fun TvPlayerScreen(
             MoreExecutors.directExecutor(),
         )
         onDispose {
-            mediaController?.release()
+            // Stop + clear the service player before releasing the controller.
+            // Releasing alone only disconnects this client; the session player in
+            // ContinuumPlaybackService keeps running (background playback after
+            // leaving the screen). MainTvActivity declares configChanges, so this
+            // dispose only fires on a real screen exit, not a config change.
+            // Mirrors phone PlayerScreen's dispose.
+            mediaController?.let { controller ->
+                runCatching {
+                    controller.pause()
+                    controller.stop()
+                    controller.clearMediaItems()
+                }
+                controller.release()
+            }
             mediaController = null
             if (!future.isDone) future.cancel(true)
         }
@@ -421,6 +434,7 @@ fun TvPlayerScreen(
             val preflight = PlaybackPreflightListener(
                 detector = capabilityDetector,
                 onUnsupported = { verdict -> viewModel.onUnsupportedPlayback(verdict) },
+                onError = { error -> viewModel.onPlayerError(error) },
             )
             controller.addListener(preflight)
             onDispose { controller.removeListener(preflight) }
@@ -674,7 +688,7 @@ fun TvPlayerScreen(
             state.isLoading -> TvLoadingScreen()
             state.error != null -> TvErrorScreen(
                 message = state.error!!,
-                onRetry = null,
+                onRetry = { viewModel.retry() },
             )
             state.streamUrl != null -> {
                 val controller = mediaController
