@@ -96,7 +96,18 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
   + HUD Video-pane scroll fix. P1.3/P6.6 assessed [~]. P2.3/P2.5 deferred ⚠device.
   Player launches clean on Shield after all player changes.
 - **RESUME HERE (autonomous):** P6.13 + P6.2/P6.3 are now DONE. Remaining unchecked, suggested order:
-  - DONE since: P6.1 (e3c7e38). All small/contained safe wins are now banked.
+  - DONE since: P6.1 (e3c7e38), P6.5 (f2d18f6). 
+  - DE-RISKED findings for fast resume:
+    * P6.16 admin session message: CONTAINED — TvAdminSessionsScreen `control(sessionId, action, SessionControlRequest)`
+      already accepts a message (SessionControlRequest.message; SessionControlAction.Message exists). Just add a
+      "Send message" TvDialogOption to the actions menu (~line 254) + a text dialog → control(id, Message,
+      SessionControlRequest(message=text)). Text dialog: reuse TvCreateCollectionDialog's OutlinedTextField+Popup pattern.
+    * P6.15 server rename: ServerRegistry.rename(serverId, name) exists + TvServerListViewModel; add a rename action +
+      the same text-dialog pattern (TvCreateCollectionDialog).
+    * P6.7 version-picker keep-all: do WITH P3 (coupled — collapse exists because TV detail lacks audio/sub pre-selectors).
+    * P6.8/P6.9/P6.10 (direct episode play / series WT / home-hero play): coupled to the playback-launch path
+      (onPlay(contentId,fileId,itemType,resume) in TvItemDetailScreen) — need file resolution; do with care, device-test.
+    * P6.12 theme: TV likely lacks System/Dark/Light theming infra — scope before building (may be large).
   - REMAINING (all are LARGER multi-file builds — start each with fresh context, Codex-review, commit per item):
     * Moderate: P6.10 home hero Play/Resume (hero card play button + launch), P6.8 direct episode play (episode-row
       Select plays; long-press/separate affordance opens detail), P6.9 series-level WatchTogether, P6.4 next-episode
