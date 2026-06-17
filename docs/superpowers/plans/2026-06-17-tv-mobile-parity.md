@@ -77,7 +77,8 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 
 ## Phase 7 — LOW / polish
 - **Done:** ~~Account email/role display~~ (94c387f) · ~~"Manage Servers" settings row~~ (94c387f) · ~~person bio scroll~~ (raised clip to 12 lines, 94c387f) · ~~Library default sort~~ (added_at, 94c387f) · ~~Browse Reset~~ (75cd6b1; Apply is reactive on TV so no Apply button).
-- [ ] **Remaining LOW polish:** Combined audio+subtitle Tracks surface · subtitle provider warnings · WT room-indicator persistence · audiobook active-sleep-timer label + About/description · full genre tags in detail facts · Home/Library "See All" (needs new section-grid screen+route) · Browse Release-Date naming (server wire-name `release_date` vs phone `year` — needs server-contract decision/PR) · Search media-type deep-link + library-derived filters · WT copy/QR invite.
+- **Done (this pass):** ~~active sleep-timer label~~ (97cee1f) · ~~full genre tags in detail facts~~ (e6c091d) · ~~Home/Library "See All"~~ (2f01097, routes to Browse like phone) · ~~Browse Release-Date naming~~ (2f01097, → `year`) · ~~Search library-derived filters~~ (2f01097) · ~~WT QR invite~~ (2f01097) · ~~audiobook About/description~~ (44db294) · ~~subtitle provider warnings~~ (44db294).
+- **N/A (not a real parity gap):** Combined audio+subtitle Tracks surface — TV already has complete audio selection (HUD Audio pane) + subtitle selection (TvSubtitleMenu), just in separate surfaces vs the phone's one sheet; functionally at parity, not worth a player reorg. · WT room-indicator persistence — the phone has no persistent shell badge either (only in-player transport gating, which the TV room binding already does).
 - [x] **Audiobook bookmarks (TV)** — TvAudiobookBookmarksPanel over shared AudiobookPlayerViewModel: "Bookmark here" + list (OK jumps, long-press deletes); "Bookmarks" chip + AudiobookPanel.Bookmarks. Codex-reviewed (focus-return-after-delete). Commit 54a30e9.
 
 ---
