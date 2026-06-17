@@ -52,7 +52,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -156,7 +155,6 @@ private fun TvDetailContent(
     val firstCastFocus = remember { FocusRequester() }
     val firstSimilarFocus = remember { FocusRequester() }
     val detailsFocus = remember { FocusRequester() }
-    val aboutFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val isAudiobook = isAudiobookItemType(detail.type)
@@ -170,7 +168,6 @@ private fun TvDetailContent(
     val showsSeasonChips = detail.type in setOf("series", "season", "episode") && state.seasons.size > 1
     val showsSimilarRail = detail.type != "episode" && state.moreLikeThis.isNotEmpty()
     val showsDetailsSection = remember(detail) { detail.hasTvDetailFacts() }
-    val showsAboutSection = !detail.overview.isNullOrBlank() || !detail.tagline.isNullOrBlank()
 
     Box(
         modifier = Modifier
@@ -260,7 +257,6 @@ private fun TvDetailContent(
                             onDirectionDown = {
                                 when {
                                     showsDetailsSection -> runCatching { detailsFocus.requestFocus() }.isSuccess
-                                    showsAboutSection -> runCatching { aboutFocus.requestFocus() }.isSuccess
                                     else -> false
                                 }
                             },
@@ -278,17 +274,6 @@ private fun TvDetailContent(
                             modifier = Modifier
                                 .padding(horizontal = Spacing.safeArea)
                                 .focusRequester(detailsFocus),
-                        )
-                    }
-                }
-
-                if (showsAboutSection) {
-                    item(key = "about") {
-                        AboutSection(
-                            detail = detail,
-                            modifier = Modifier
-                                .padding(horizontal = Spacing.safeArea)
-                                .focusRequester(aboutFocus),
                         )
                     }
                 }
@@ -731,52 +716,6 @@ private fun Modifier.focusableDetailSection(): Modifier {
         )
         .focusable(interactionSource = interactionSource)
         .padding(16.dp)
-}
-
-@Composable
-private fun AboutSection(
-    detail: ItemDetail,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .widthIn(max = 1400.dp)
-            .focusableDetailSection(),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
-    ) {
-        TvDetailSectionHeader(
-            eyebrow = "About",
-            title = aboutTitle(detail),
-        )
-
-        if (!detail.tagline.isNullOrBlank()) {
-            Text(
-                text = detail.tagline!!,
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontStyle = FontStyle.Italic,
-                    fontWeight = FontWeight.Normal,
-                    fontSize = 30.sp,
-                ),
-                color = Color.White.copy(alpha = 0.85f),
-            )
-        }
-
-        if (!detail.overview.isNullOrBlank()) {
-            Text(
-                text = detail.overview!!,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.82f),
-                lineHeight = 35.sp,
-            )
-        }
-    }
-}
-
-private fun aboutTitle(detail: ItemDetail): String = when (detail.type.lowercase()) {
-    "movie" -> "The Movie"
-    "series" -> "The Series"
-    "episode" -> "Episode"
-    else -> detail.type.replaceFirstChar { it.titlecase() }
 }
 
 // MARK: - Helpers

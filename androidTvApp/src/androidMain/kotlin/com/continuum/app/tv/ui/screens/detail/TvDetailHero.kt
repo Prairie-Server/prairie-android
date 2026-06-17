@@ -243,39 +243,17 @@ private fun EditorialColumn(
             SourceRow(tokens = sourceTokens, ratingChip = ratingChip)
         }
 
-        // Synopsis slot.
-        //
-        // TODO(Task 6): replace this clamped Text with the focusable
-        // `TvExpandableSynopsis(overview = overview, tagline = tagline)` —
-        // it owns the focus ring, OK-to-expand, and tagline reveal. Until
-        // then we render a plain 3-line-clamped overview matching the
-        // collapsed appearance (26sp white@0.82, lineSpacing 8, maxWidth
-        // 1200). `tagline` is already threaded through so T6 swaps cleanly.
+        // Synopsis slot — the hero's only text focus stop. A focusable leaf
+        // that clamps the overview to 3 lines and, on OK/Select, expands to
+        // the full overview with the tagline revealed above it.
         overview?.takeIf { it.isNotBlank() }?.let { line ->
-            HeroSynopsis(overview = line)
+            TvExpandableSynopsis(overview = line, tagline = tagline)
         }
 
         if (factsLine.isNotEmpty()) {
             FactsRow(tokens = factsLine)
         }
     }
-}
-
-@Composable
-private fun HeroSynopsis(overview: String) {
-    // Collapsed appearance of `TVExpandableSynopsis`: 26sp white@0.82,
-    // lineSpacing 8, maxWidth 1200, clamped to 3 lines. The focusable
-    // wrapper/expand behavior arrives in Task 6.
-    Text(
-        text = overview,
-        fontWeight = FontWeight.Normal,
-        fontSize = 26.sp,
-        lineHeight = 34.sp,
-        color = Color.White.copy(alpha = 0.82f),
-        maxLines = 3,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.widthIn(max = 1200.dp),
-    )
 }
 
 @Composable
