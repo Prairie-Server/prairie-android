@@ -60,6 +60,7 @@ fun TvSettingsScreen(
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCollections: () -> Unit = {},
+    onNavigateToBrowse: () -> Unit = {},
     onNavigateToRequests: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
     onSignedOut: () -> Unit = {},
@@ -172,6 +173,7 @@ fun TvSettingsScreen(
 
         item {
             LibraryShortcutsSection(
+                onNavigateToBrowse = onNavigateToBrowse,
                 onNavigateToFavorites = onNavigateToFavorites,
                 onNavigateToWatchlist = onNavigateToWatchlist,
                 onNavigateToHistory = onNavigateToHistory,
@@ -385,6 +387,7 @@ private fun NotificationsSection(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun LibraryShortcutsSection(
+    onNavigateToBrowse: () -> Unit,
     onNavigateToFavorites: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
     onNavigateToHistory: () -> Unit,
@@ -393,6 +396,7 @@ private fun LibraryShortcutsSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(title = "Library")
+        SettingsRowAction(label = "Browse", onClick = onNavigateToBrowse)
         SettingsRowAction(label = "Favorites", onClick = onNavigateToFavorites)
         SettingsRowAction(label = "Watchlist", onClick = onNavigateToWatchlist)
         SettingsRowAction(label = "Watch history", onClick = onNavigateToHistory)

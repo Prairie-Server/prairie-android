@@ -67,6 +67,8 @@ import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.tv.ui.navigation.TvMainRoute
 import com.continuum.app.tv.ui.screens.notifications.TvInboxScreen
+import com.continuum.app.tv.ui.screens.browse.TvBrowseScreen
+import com.continuum.app.tv.ui.screens.calendar.TvCalendarScreen
 import com.continuum.app.tv.ui.screens.collections.TvCollectionsScreen
 import com.continuum.app.tv.ui.screens.home.TvHomeScreen
 import com.continuum.app.tv.ui.screens.libraries.TvLibrariesScreen
@@ -212,6 +214,13 @@ fun TvMainShell(
         profileMenuOpen = false
         navigateToSecondary(TvMainRoute.Inbox.route)
         moveFocusToContent(TvMainRoute.Inbox.route)
+    }
+
+    // Open the full Calendar (upcoming releases by week) from the profile menu.
+    val openCalendar: () -> Unit = {
+        profileMenuOpen = false
+        navigateToSecondary(TvMainRoute.Calendar.route)
+        moveFocusToContent(TvMainRoute.Calendar.route)
     }
 
     // Scroll-driven visibility for the top menu bar. Mirrors Apple's
@@ -402,6 +411,10 @@ fun TvMainShell(
                         onNavigateToWatchlist = { navigateToSecondary(TvMainRoute.Watchlist.route) },
                         onNavigateToHistory = { navigateToSecondary(TvMainRoute.History.route) },
                         onNavigateToCollections = { navigateToSecondary(TvMainRoute.Collections.route) },
+                        onNavigateToBrowse = {
+                            navigateToSecondary(TvMainRoute.Browse.route)
+                            moveFocusToContent(TvMainRoute.Browse.route)
+                        },
                         onNavigateToRequests = {
                             navigateToSecondary(TvMainRoute.Requests.route)
                             moveFocusToContent(TvMainRoute.Requests.route)
@@ -419,6 +432,18 @@ fun TvMainShell(
                                 nestedNav.popBackStack()
                             }
                         },
+                    )
+                }
+                composable(TvMainRoute.Calendar.route) {
+                    TvCalendarScreen(
+                        onOpenItemDetail = onOpenItemDetail,
+                        onInitialContentFocus = { profileMenuOpen = false },
+                    )
+                }
+                composable(TvMainRoute.Browse.route) {
+                    TvBrowseScreen(
+                        onOpenItemDetail = onOpenItemDetail,
+                        onInitialContentFocus = { profileMenuOpen = false },
                     )
                 }
             }
@@ -453,6 +478,7 @@ fun TvMainShell(
             )
             TvProfileActionsPanel(
                 onNotifications = openInbox,
+                onCalendar = openCalendar,
                 onSettings = closeMenuAnd {
                     navigateToRoute(TvMainRoute.Settings.route)
                     moveFocusToContent(TvMainRoute.Settings.route)
@@ -515,6 +541,7 @@ private fun TvRootDestination.toRoute(): String = when (this) {
 @Composable
 private fun TvProfileActionsPanel(
     onNotifications: () -> Unit,
+    onCalendar: () -> Unit,
     onSettings: () -> Unit,
     onSwitchProfile: () -> Unit,
     onSwitchServer: () -> Unit,
@@ -550,6 +577,7 @@ private fun TvProfileActionsPanel(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         ProfileActionRow(label = "Notifications", focusRequester = firstFocus, onClick = onNotifications)
+        ProfileActionRow(label = "Calendar", onClick = onCalendar)
         ProfileActionRow(label = "Switch Profile", onClick = onSwitchProfile)
         ProfileActionRow(label = "Settings", onClick = onSettings)
         ProfileActionRow(label = "Switch Server", onClick = onSwitchServer)

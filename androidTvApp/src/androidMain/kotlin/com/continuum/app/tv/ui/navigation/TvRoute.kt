@@ -131,6 +131,14 @@ sealed class TvRoute(val route: String) {
     data object Watchlist : TvRoute("watchlist")
     data object History : TvRoute("history")
 
+    // --- Person detail (immersive; opened from a cast/crew card) ---
+    data class PersonDetail(val personId: Int) : TvRoute("person/$personId") {
+        companion object {
+            const val ROUTE = "person/{personId}"
+            const val ARG_PERSON_ID = "personId"
+        }
+    }
+
     // --- Collections ---
     data object Collections : TvRoute("collections")
     data class CollectionDetail(val collectionId: String, val title: String) :
@@ -168,6 +176,12 @@ sealed class TvMainRoute(val route: String) {
     data object Favorites : TvMainRoute("main/favorites")
     data object Watchlist : TvMainRoute("main/watchlist")
     data object History : TvMainRoute("main/history")
+
+    /** Upcoming releases by week — opened from the profile menu. */
+    data object Calendar : TvMainRoute("main/calendar")
+
+    /** Global cross-library catalog browse — opened from Settings. */
+    data object Browse : TvMainRoute("main/browse")
 
 }
 

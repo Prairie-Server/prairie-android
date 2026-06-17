@@ -1,0 +1,561 @@
+package com.continuum.app.tv.ui.screens.browse
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
+import com.continuum.app.tv.ui.components.TvCardWidth
+import com.continuum.app.tv.ui.components.TvCatalogEmptyState
+import com.continuum.app.tv.ui.components.TvErrorScreen
+import com.continuum.app.tv.ui.components.TvFilterSheet
+import com.continuum.app.tv.ui.components.TvMediaCard
+import com.continuum.app.tv.ui.components.rememberTvBrowseItemCardActions
+import com.continuum.app.tv.ui.shell.TvTopMenuLayout
+import com.continuum.app.tv.ui.theme.Spacing
+import org.koin.compose.viewmodel.koinViewModel
+
+/**
+ * Android TV global Browse surface — the cross-library counterpart to
+ * `BrowseScreen` on the phone. Unlike the per-library
+ * [com.continuum.app.tv.ui.screens.library.TvLibraryDetailScreen] Library tab,
+ * this browses the entire catalog and adds a content-rating filter dimension.
+ *
+ * The screen mirrors the library Library-tab grid closely: a big-letter header,
+ * a filter entry row of active-filter pills, a 6-column poster grid with
+ * snapshot-stable pagination (load-more within 8 rows of the end), and a
+ * [TvFilterSheet] containing Genre / Content Rating / Sort chip groups.
+ *
+ * Reached as a secondary destination inside the top-menu shell (opened from
+ * Settings, like Collections / Favorites). [onOpenItemDetail] navigates to the
+ * immersive item detail screen.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TvBrowseScreen(
+    onOpenItemDetail: (contentId: String) -> Unit,
+    onInitialContentFocus: () -> Unit = {},
+    viewModel: TvBrowseViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectAsState()
+    var showFilterSheet by remember { mutableStateOf(false) }
+
+    val firstItemFocusRequester = remember { FocusRequester() }
+    var initialFocusRequested by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.items.isNotEmpty()) {
+        onInitialContentFocus()
+        // Only consume the one-shot focus once there's a real target — otherwise
+        // a slow first load (empty here) would permanently skip grid focus.
+        if (initialFocusRequested || state.items.isEmpty()) return@LaunchedEffect
+        kotlinx.coroutines.delay(120)
+        runCatching { firstItemFocusRequester.requestFocus() }
+        initialFocusRequested = true
+    }
+
+    val sortLabel = TvBrowseSortOption.fromWire(state.filter.sort).label
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (state.error != null && state.items.isEmpty()) {
+                BrowseHeader(
+                    subtitle = browseSubtitle(state),
+                    sortLabel = sortLabel,
+                    filter = state.filter,
+                    onOpenFilters = { showFilterSheet = true },
+                    modifier = Modifier.padding(
+                        top = TvTopMenuLayout.contentTopInset,
+                        start = Spacing.safeArea,
+                        end = Spacing.safeArea,
+                    ),
+                )
+                TvErrorScreen(
+                    message = state.error.orEmpty(),
+                    onRetry = viewModel::retry,
+                    modifier = Modifier.padding(
+                        start = Spacing.safeArea,
+                        end = Spacing.safeArea,
+                    ),
+                )
+            } else {
+                BrowseGrid(
+                    state = state,
+                    sortLabel = sortLabel,
+                    onItemClick = onOpenItemDetail,
+                    onLoadMore = viewModel::loadMore,
+                    onOpenFilters = { showFilterSheet = true },
+                    firstItemFocusRequester = firstItemFocusRequester,
+                )
+            }
+        }
+
+        TvFilterSheet(
+            visible = showFilterSheet,
+            onDismiss = { showFilterSheet = false },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                // --- Genre ---
+                FilterSectionHeader("Genre")
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    FilterChoiceChip(
+                        label = "All",
+                        selected = state.filter.genre == null,
+                        onClick = { viewModel.onGenreChanged(null) },
+                    )
+                    state.genres.forEach { genre ->
+                        FilterChoiceChip(
+                            label = genre,
+                            selected = state.filter.genre == genre,
+                            onClick = { viewModel.onGenreChanged(genre) },
+                        )
+                    }
+                }
+
+                // --- Content rating (the dimension the library browse lacks) ---
+                if (state.contentRatings.isNotEmpty()) {
+                    FilterSectionHeader("Content Rating")
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        FilterChoiceChip(
+                            label = "All",
+                            selected = state.filter.contentRating == null,
+                            onClick = { viewModel.onContentRatingChanged(null) },
+                        )
+                        state.contentRatings.forEach { rating ->
+                            FilterChoiceChip(
+                                label = rating,
+                                selected = state.filter.contentRating == rating,
+                                onClick = { viewModel.onContentRatingChanged(rating) },
+                            )
+                        }
+                    }
+                }
+
+                // --- Sort ---
+                FilterSectionHeader("Sort")
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    TvBrowseSortOption.entries.forEach { option ->
+                        FilterChoiceChip(
+                            label = option.label,
+                            selected = state.filter.sort == option.wireValue,
+                            onClick = { viewModel.onSortChanged(option) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrowseGrid(
+    state: TvBrowseViewModel.UiState,
+    sortLabel: String,
+    onItemClick: (String) -> Unit,
+    onLoadMore: () -> Unit,
+    onOpenFilters: () -> Unit,
+    firstItemFocusRequester: FocusRequester,
+) {
+    val gridState: LazyGridState = rememberLazyGridState()
+
+    val nearEnd by remember(
+        gridState,
+        state.hasMore,
+        state.items.size,
+        state.loading,
+        state.loadingMore,
+    ) {
+        derivedStateOf {
+            if (!state.hasMore || state.loading || state.loadingMore) {
+                false
+            } else {
+                val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()
+                // Load-more within 8 rows of the end; grid is 6 columns wide.
+                state.items.isNotEmpty() &&
+                    lastVisible != null &&
+                    lastVisible.index >= state.items.size -
+                        (BrowseGridLoadMoreRowsThreshold * BrowseGridColumns)
+            }
+        }
+    }
+
+    LaunchedEffect(nearEnd) {
+        if (nearEnd) onLoadMore()
+    }
+
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Fixed(BrowseGridColumns),
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(BrowseGridItemSpacing),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
+        contentPadding = PaddingValues(
+            start = Spacing.safeArea,
+            top = TvTopMenuLayout.contentTopInset,
+            end = Spacing.md,
+            bottom = Spacing.xxxl,
+        ),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+            BrowseHeader(
+                subtitle = browseSubtitle(state),
+                sortLabel = sortLabel,
+                filter = state.filter,
+                onOpenFilters = onOpenFilters,
+            )
+        }
+
+        if (state.loading && state.items.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
+                InlineLoadingState()
+            }
+        } else if (state.items.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
+                TvCatalogEmptyState(message = "No titles match the current filters.")
+            }
+        } else {
+            itemsIndexed(
+                state.items,
+                key = { _, item -> item.contentId },
+            ) { index, item ->
+                val (actions, userState) = rememberTvBrowseItemCardActions(item)
+                TvMediaCard(
+                    title = item.title,
+                    posterUrl = item.posterUrl,
+                    posterThumbhash = item.posterThumbhash,
+                    year = item.year.takeIf { it > 0 },
+                    userState = userState,
+                    width = TvCardWidth,
+                    fillWidth = true,
+                    onClick = { onItemClick(item.contentId) },
+                    focusRequester = firstItemFocusRequester.takeIf { index == 0 },
+                    modifier = Modifier.fillMaxWidth(),
+                    actions = actions,
+                )
+            }
+        }
+
+        if (state.loadingMore) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "loading-more") {
+                InlineLoadingState(verticalPadding = 24.dp)
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Header
+// ============================================================================
+
+@Composable
+private fun BrowseHeader(
+    subtitle: String,
+    sortLabel: String,
+    filter: TvBrowseFilter,
+    onOpenFilters: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "Browse",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 64.sp,
+                lineHeight = 68.sp,
+                letterSpacing = (-1.6).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White.copy(alpha = 0.6f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        FilterRow(
+            filter = filter,
+            sortLabel = sortLabel,
+            onOpenFilters = onOpenFilters,
+        )
+    }
+}
+
+// ============================================================================
+// Filter row
+// ============================================================================
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilterRow(
+    filter: TvBrowseFilter,
+    sortLabel: String,
+    onOpenFilters: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FlowRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = Spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        FilterEntryButton(label = "Filter", onClick = onOpenFilters)
+
+        if (filter.genre != null) {
+            ActiveFilterPill(label = "Genre: ${filter.genre}")
+        }
+        if (filter.contentRating != null) {
+            ActiveFilterPill(label = "Rating: ${filter.contentRating}")
+        }
+        ActiveFilterPill(label = "Sort: $sortLabel")
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun FilterEntryButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val container = if (isFocused) Color.White.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.08f)
+    val foreground = if (isFocused) Color.Black else Color.White
+
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = container,
+            contentColor = foreground,
+            focusedContainerColor = Color.White.copy(alpha = 0.94f),
+            focusedContentColor = Color.Black,
+            pressedContainerColor = Color.White.copy(alpha = 0.94f),
+            pressedContentColor = Color.Black,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.025f),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
+                shape = RoundedCornerShape(12.dp),
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(0.dp, Color.Transparent),
+                shape = RoundedCornerShape(12.dp),
+            ),
+        ),
+        modifier = modifier,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = foreground,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun ActiveFilterPill(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .background(
+                color = Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(999.dp),
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.06f),
+                shape = RoundedCornerShape(999.dp),
+            )
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White.copy(alpha = 0.85f),
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun FilterSectionHeader(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.titleMedium,
+        color = Color.White.copy(alpha = 0.7f),
+        fontWeight = FontWeight.SemiBold,
+    )
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun FilterChoiceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val container = when {
+        isFocused -> Color.White.copy(alpha = 0.94f)
+        selected -> Color.White.copy(alpha = 0.22f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    val foreground = when {
+        isFocused -> Color.Black
+        selected -> Color.White
+        else -> Color.White.copy(alpha = 0.85f)
+    }
+
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = container,
+            contentColor = foreground,
+            focusedContainerColor = Color.White.copy(alpha = 0.94f),
+            focusedContentColor = Color.Black,
+            pressedContainerColor = Color.White.copy(alpha = 0.94f),
+            pressedContentColor = Color.Black,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (selected) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.06f),
+                ),
+                shape = RoundedCornerShape(12.dp),
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(0.dp, Color.Transparent),
+                shape = RoundedCornerShape(12.dp),
+            ),
+        ),
+        modifier = modifier,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = foreground,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+@Composable
+private fun InlineLoadingState(verticalPadding: androidx.compose.ui.unit.Dp = 48.dp) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = verticalPadding),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(color = Color.White)
+    }
+}
+
+private fun browseSubtitle(state: TvBrowseViewModel.UiState): String {
+    val parts = buildList {
+        state.filter.genre?.let { add(it) }
+        state.filter.contentRating?.let { add(it) }
+        if (state.items.isNotEmpty()) {
+            add("${state.items.size}${if (state.hasMore) "+" else ""} titles")
+        }
+    }
+    return parts.joinToString(" · ").ifBlank { "Everything across your libraries" }
+}
+
+private const val BrowseGridColumns = 6
+private val BrowseGridItemSpacing = 40.dp
+private const val BrowseGridLoadMoreRowsThreshold = 8

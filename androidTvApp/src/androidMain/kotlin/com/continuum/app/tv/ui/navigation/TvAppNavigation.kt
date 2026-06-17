@@ -18,6 +18,7 @@ import com.continuum.app.tv.ui.screens.auth.TvLoginScreen
 import com.continuum.app.tv.ui.screens.auth.TvServerSetupScreen
 import com.continuum.app.tv.ui.screens.collections.TvCollectionDetailScreen
 import com.continuum.app.tv.ui.screens.detail.TvItemDetailScreen
+import com.continuum.app.tv.ui.screens.people.TvPersonDetailScreen
 import com.continuum.app.tv.ui.screens.library.TvLibraryCollectionDetailScreen
 import com.continuum.app.tv.ui.screens.player.TvPlayerScreen
 import com.continuum.app.tv.ui.screens.profiles.TvProfileSelectionScreen
@@ -263,6 +264,25 @@ fun TvAppNavigation(
                         TvRoute.WatchTogetherLobby(roomId = snapshot.roomId).route
                     }
                     navController.navigate(target)
+                },
+                onOpenPerson = { personId ->
+                    navController.navigate(TvRoute.PersonDetail(personId).route)
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = TvRoute.PersonDetail.ROUTE,
+            arguments = listOf(
+                navArgument(TvRoute.PersonDetail.ARG_PERSON_ID) { type = NavType.IntType },
+            ),
+        ) { backStack ->
+            val personId = backStack.arguments?.getInt(TvRoute.PersonDetail.ARG_PERSON_ID) ?: 0
+            TvPersonDetailScreen(
+                personId = personId,
+                onOpenItemDetail = { itemContentId ->
+                    navController.navigate(TvRoute.ItemDetail(itemContentId).route)
                 },
                 onBack = { navController.popBackStack() },
             )

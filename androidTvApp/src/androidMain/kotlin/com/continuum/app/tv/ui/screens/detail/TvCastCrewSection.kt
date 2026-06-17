@@ -64,6 +64,7 @@ fun TvCastCrewSection(
     firstItemFocusRequester: FocusRequester? = null,
     firstItemCardModifier: Modifier = Modifier,
     onDirectionDown: (() -> Boolean)? = null,
+    onCastMemberClick: (CastMember) -> Unit = {},
 ) {
     if (cast.isEmpty()) return
     val photoSize = 200.dp
@@ -108,6 +109,7 @@ fun TvCastCrewSection(
                     photoSize = photoSize,
                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                     cardModifier = if (index == 0) firstItemCardModifier else Modifier,
+                    onClick = { onCastMemberClick(member) },
                 )
             }
         }
@@ -121,6 +123,7 @@ private fun TvCastCard(
     photoSize: Dp,
     focusRequester: FocusRequester?,
     cardModifier: Modifier,
+    onClick: () -> Unit = {},
 ) {
     val shape = CircleShape
     val cardFocus = continuumCardDefaults(shape = shape, focusedScale = 1.06f)
@@ -132,7 +135,7 @@ private fun TvCastCard(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Card(
-            onClick = {},
+            onClick = onClick,
             interactionSource = interactionSource,
             shape = CardDefaults.shape(shape = shape),
             scale = cardFocus.scale,

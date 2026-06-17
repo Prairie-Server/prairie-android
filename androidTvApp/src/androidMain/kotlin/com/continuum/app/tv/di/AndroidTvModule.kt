@@ -271,6 +271,13 @@ val androidTvModule = module {
             todayProvider = { java.time.LocalDate.now().toString() },
         )
     }
+    viewModel { com.continuum.app.tv.ui.screens.browse.TvBrowseViewModel(get()) }
+    viewModel { params ->
+        com.continuum.app.tv.ui.screens.people.TvPersonDetailViewModel(
+            catalogRepository = get(),
+            personId = params.get(),
+        )
+    }
     viewModel { TvLibrariesViewModel(get(), get(), get()) }
     viewModel { params ->
         TvLibraryDetailViewModel(
