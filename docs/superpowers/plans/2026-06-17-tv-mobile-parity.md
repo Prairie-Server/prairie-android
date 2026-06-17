@@ -93,9 +93,16 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - 2026-06-17 (SESSION TALLY, ~36 commits ahead, NOT pushed): DONE = P1, P2.1/2.2/2.4, P6.1/2/3/5/11/13/14/15/16,
   P7 account email+role, + HUD scroll fix + reusable TvTextInputDialog + TvMediaInfoDialog + TvSubtitleStyleDialog.
   N/A = P6.12 theme (TV dark-by-design), orientation-lock, combined Favorites&Watchlist. DEFERRED ⚠device = P2.3, P2.5.
-  **REMAINING for fresh-context sessions:** Phase 4 (BIG: AdminLogs/AdminScans/user-edit/RequestDetail/PairDevice/
-  ManageSessions — new screens+routes+DI), Phase 5 (collection groups CRUD), playback-path ⚠device (P3.x, P6.4/7/8/9/10),
-  Phase 7 LOW remnants. Build big screens one per session; Codex-review hard; tag playback items NEEDS-DEVICE-VERIFICATION.
+  **REMAINING for fresh-context sessions** (one big screen per session, Codex-review hard):
+  Phase 4 — P4.1 AdminLogs (App/Audit tabs+filters+pagination, biggest), P4.3 admin user create/edit FORM
+  (check AdminUsersViewModel for create/update methods first; fields role/enabled/library-access/max streams/transcodes/profiles),
+  P4.4 Request Detail screen+route (+P4.5 my-requests-open), P4.6 Pair Device (route+silo://device deeplinks+DevicePairingScreen+settings row),
+  P4.7 Manage Sessions (user's OWN sessions — check shared API for list/revoke-own-session first).
+  Phase 5 — P5.1–5.4 collection groups CRUD + card actions (check shared collections repo for group APIs).
+  Playback-path ⚠device — P3.x, P6.4/7/8/9/10. Phase 7 LOW remnants.
+  TEMPLATE for new admin/list screens: TvAdminScansViewModel/Screen (commit 05fd826) — VM mirrors phone VM,
+  screen = Header + LazyColumn of Cards -> TvOptionDialog; wire TvRoute (TvMainRoute) + TvMainShell composable +
+  AndroidTvModule viewModel{} + TvAdminHubScreen entry. Text entry: TvTextInputDialog. Dialogs over detail: focusable Popup.
 - 2026-06-17: audit complete (Codex + Claude). Plan created. Starting Phase 1.
 - 2026-06-17: DONE + committed (no push): P1 (17c7ca6), P2.1 (fd8ba79), P2.2 (08b1b09),
   P2.4 (a749aff), P6.14 (346aafc), P6.11 (1b3ba35), P6.13 (97c4758), P6.2/P6.3 (7524f52),
