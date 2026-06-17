@@ -229,6 +229,16 @@ fun TvBrowseScreen(
                         onClick = { viewModel.onOrderChanged("asc") },
                     )
                 }
+
+                // --- Reset (phone parity) ---
+                // Filters apply reactively as chips are picked, so there's no
+                // Apply; Reset clears back to defaults in one action.
+                FilterSectionHeader("Reset")
+                FilterChoiceChip(
+                    label = "Reset filters",
+                    selected = false,
+                    onClick = { viewModel.resetFilters() },
+                )
             }
         }
     }
