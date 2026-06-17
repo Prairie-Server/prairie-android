@@ -96,9 +96,19 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
   + HUD Video-pane scroll fix. P1.3/P6.6 assessed [~]. P2.3/P2.5 deferred ⚠device.
   Player launches clean on Shield after all player changes.
 - **RESUME HERE (autonomous):** P6.13 + P6.2/P6.3 are now DONE. Remaining unchecked, suggested order:
-  - Next: P6.7 version-picker keep-all-files, P6.1 aspect Fit/Fill/Stretch, P6.10 home hero Play/Resume,
-    P6.8 direct episode play, P6.9 series WT, P6.4 next-episode prompt, P6.5 media-info sheet, P6.12 theme,
-    P6.15 server rename (needs TV text dialog), P6.16 admin session message (text dialog).
+  - DONE since: P6.1 (e3c7e38). All small/contained safe wins are now banked.
+  - REMAINING (all are LARGER multi-file builds — start each with fresh context, Codex-review, commit per item):
+    * Moderate: P6.10 home hero Play/Resume (hero card play button + launch), P6.8 direct episode play (episode-row
+      Select plays; long-press/separate affordance opens detail), P6.9 series-level WatchTogether, P6.4 next-episode
+      prompt overlay, P6.5 Media Info sheet (new TV dialog), P6.15 server rename + P6.16 admin session message
+      (both need a TV text-entry dialog — check TvServerSetupScreen URL entry for a reusable field), P6.12 theme
+      (TV may lack theming infra — scope first), P6.7 version-picker keep-all (do WITH P3 pre-selectors).
+    * Large new screens+routes+DI: Phase 5 collections groups (P5.1–5.4); Phase 4 (P4.1 AdminLogs, P4.2 AdminScans,
+      P4.3 admin user create/edit, P4.4 Request Detail, P4.5 my-requests open, P4.6 Pair Device + deep links,
+      P4.7 Manage Sessions).
+    * Playback-decode-path ⚠NEEDS DEVICE VERIFICATION: Phase 3 (P3.1/3.2 detail pre-selectors + P3.3 route args),
+      P2.3 quality switching, P2.5 server audio switching.
+    * Phase 7 LOW/polish + audiobook bookmarks.
   1. P6.13 default audio language (TV settings) — CONFIRMED contained: audio-language is a LOCAL shared setting
      (`playerSettingsStore.audioLanguageFlow` / `setAudioLanguage`, android-shared), NOT a profile/server field.
      Mirror mobile SettingsViewModel (audioLanguageLabel/audioLanguageWireValue) — add a picker to TV settings.
