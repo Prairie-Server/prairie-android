@@ -96,6 +96,19 @@ val repositoryModule = module {
         )
     }
 
+    // Per-session playback control socket (admin remote control). Parallel to
+    // the watch-together realtime client — same HttpClient + query-param auth.
+    // FACTORY, not single: the client holds one mutable socket session, so each
+    // player-screen controller must get its own instance (mirrors how the WT
+    // repository mints a fresh client per connect) — a shared singleton would
+    // let a second player clobber the first's socket.
+    factory<com.continuum.app.network.PlaybackRealtimeClient> {
+        com.continuum.app.network.DefaultPlaybackRealtimeClient(
+            client = get(),
+            tokenManager = get(),
+        )
+    }
+
     // Domain use cases
     single { GetHomeDataUseCase(get(), get()) }
     single { ManagePlaybackUseCase(get(), get()) }
