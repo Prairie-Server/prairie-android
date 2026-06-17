@@ -68,6 +68,7 @@ import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.tv.ui.navigation.TvMainRoute
 import com.continuum.app.tv.ui.screens.notifications.TvInboxScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminHubScreen
+import com.continuum.app.tv.ui.screens.admin.TvAdminScansScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminSessionsScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminUsersScreen
@@ -482,6 +483,7 @@ fun TvMainShell(
                         onOpenDashboard = { navigateToSecondary(TvMainRoute.AdminDashboard.route) },
                         onOpenUsers = { navigateToSecondary(TvMainRoute.AdminUsers.route) },
                         onOpenSessions = { navigateToSecondary(TvMainRoute.AdminSessions.route) },
+                        onOpenScans = { navigateToSecondary(TvMainRoute.AdminScans.route) },
                         onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
                     )
                 }
@@ -493,6 +495,9 @@ fun TvMainShell(
                 }
                 composable(TvMainRoute.AdminSessions.route) {
                     TvAdminSessionsScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
+                }
+                composable(TvMainRoute.AdminScans.route) {
+                    TvAdminScansScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
                 }
             }
         }

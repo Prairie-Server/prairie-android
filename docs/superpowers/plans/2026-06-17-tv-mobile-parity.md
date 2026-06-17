@@ -43,7 +43,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 
 ## Phase 4 — Admin / Requests / Auth HIGH
 - [ ] **P4.1 Admin Logs (TV)** — port AdminLogsScreen (App/Audit tabs, filters, search, component filter, pagination, expandable rows) + route + hub entry.
-- [ ] **P4.2 Admin Scans (TV)** — port AdminScansScreen (scan-all, per-library scan, cancel) + route + hub entry.
+- [x] **P4.2 Admin Scans (TV)** — TvAdminScansViewModel + TvAdminScansScreen (Scan-all + per-library scan/cancel via AdminRepository) + route/DI/hub entry. Per-library busy guard prevents duplicate in-flight requests.
 - [ ] **P4.3 Admin create/edit user (TV)** — replace deferred delete-only with create FAB + edit form (role/enabled/library access/max streams/transcodes/profiles).
 - [ ] **P4.4 Request Detail (TV)** — add RequestDetail route + screen (hero metadata, overview, recommendations, request/library/status actions). Mobile: RequestDetailScreen.
 - [ ] **P4.5 My Requests open non-library rows (TV)** — rows should open Request Detail even without a library item.

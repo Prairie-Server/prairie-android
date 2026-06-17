@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.runtime.Composable
@@ -55,6 +56,7 @@ fun TvAdminHubScreen(
     onOpenDashboard: () -> Unit,
     onOpenUsers: () -> Unit,
     onOpenSessions: () -> Unit,
+    onOpenScans: () -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -115,6 +117,14 @@ fun TvAdminHubScreen(
                     title = "Sessions",
                     subtitle = "Now playing & controls",
                     onClick = onOpenSessions,
+                )
+            }
+            item {
+                HubRow(
+                    icon = Icons.Filled.Refresh,
+                    title = "Scans",
+                    subtitle = "Rescan libraries for new media",
+                    onClick = onOpenScans,
                 )
             }
             item { Spacer(Modifier.height(24.dp)) }
