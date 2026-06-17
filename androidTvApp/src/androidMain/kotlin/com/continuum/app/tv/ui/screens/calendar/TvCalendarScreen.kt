@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,7 +65,12 @@ import com.continuum.app.tv.ui.theme.FocusedContainer
 import com.continuum.app.tv.ui.theme.FocusedContent
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.theme.sectionEyebrow
+import com.continuum.app.model.personal.UserLibrary
+import com.continuum.app.network.ApiResult
+import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.viewmodel.CalendarViewModel
+import androidx.compose.runtime.produceState
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -93,6 +99,17 @@ fun TvCalendarScreen(
     viewModel: CalendarViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Library list for the per-library filter — same source the phone Calendar
+    // uses (PersonalDataRepository.listUserLibraries). Only surfaced when the
+    // user has more than one library, matching the phone.
+    val personalDataRepository: PersonalDataRepository = koinInject()
+    val libraries by produceState(initialValue = emptyList<UserLibrary>()) {
+        value = when (val result = personalDataRepository.listUserLibraries()) {
+            is ApiResult.Success -> result.data
+            else -> emptyList()
+        }
+    }
 
     // First focusable element of the screen is the Prev-week button so D-pad
     // lands on the nav rail; gate the jump so a silent re-emission doesn't yank
@@ -146,6 +163,14 @@ fun TvCalendarScreen(
             selected = state.filter,
             onSelect = viewModel::setFilter,
         )
+
+        if (libraries.size > 1) {
+            LibraryRail(
+                libraries = libraries,
+                selectedLibraryId = state.libraryId,
+                onSelect = viewModel::setLibrary,
+            )
+        }
 
         when {
             // Unconditional (phone parity): the shared VM keeps the old week's
@@ -306,6 +331,45 @@ private fun FilterRail(
                 text = label,
                 selected = selected == value,
                 onClick = { onSelect(value) },
+            )
+        }
+    }
+}
+
+/**
+ * Per-library filter rail — an "All libraries" chip plus one chip per library,
+ * shown only when the user has more than one library. Mirrors the phone
+ * Calendar's library dropdown but as a D-pad-friendly chip rail (consistent
+ * with [FilterRail]). Selecting drives the shared VM's `setLibrary`.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LibraryRail(
+    libraries: List<UserLibrary>,
+    selectedLibraryId: Int?,
+    onSelect: (Int?) -> Unit,
+) {
+    // LazyRow (not a plain Row) so a long library list scrolls horizontally and
+    // D-pad focus brings off-screen chips into view instead of dead-ending.
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusGroup(),
+        contentPadding = PaddingValues(horizontal = Spacing.safeArea, vertical = Spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        item(key = "all-libraries") {
+            TvFilterChip(
+                text = "All libraries",
+                selected = selectedLibraryId == null,
+                onClick = { onSelect(null) },
+            )
+        }
+        items(libraries, key = { it.id }) { library ->
+            TvFilterChip(
+                text = library.name,
+                selected = selectedLibraryId == library.id,
+                onClick = { onSelect(library.id) },
             )
         }
     }
