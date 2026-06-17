@@ -45,8 +45,8 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P4.1 Admin Logs (TV)** — port AdminLogsScreen (App/Audit tabs, filters, search, component filter, pagination, expandable rows) + route + hub entry.
 - [x] **P4.2 Admin Scans (TV)** — TvAdminScansViewModel + TvAdminScansScreen (Scan-all + per-library scan/cancel via AdminRepository) + route/DI/hub entry. Per-library busy guard prevents duplicate in-flight requests.
 - [~] **P4.3 Admin edit user (TV)** — added setRole/setEnabled to shared AdminUsersViewModel; TV user dialog now has Make-admin/Make-user + Enable/Disable (via updateUser). FULL create-user + library-access/limits form still DEFERRED (multi-field form follow-up).
-- [ ] **P4.4 Request Detail (TV)** — add RequestDetail route + screen (hero metadata, overview, recommendations, request/library/status actions). Mobile: RequestDetailScreen.
-- [ ] **P4.5 My Requests open non-library rows (TV)** — rows should open Request Detail even without a library item.
+- [x] **P4.4 Request Detail (TV)** — parameterized route RequestDetail(mediaType,tmdbId) + DI(params) + TvRequestDetailScreen (reuses shared RequestDetailViewModel; title/meta/genres/overview + Request button[disabled while submitting]/status); reachable from TvRequestsScreen non-actionable taps. (Recommendations rail + poster art = follow-up.)
+- [~] **P4.5 My Requests open non-library rows (TV)** — TvRequestsScreen non-actionable taps now open Request Detail; wiring TvMyRequestsScreen rows to RequestDetail is a small follow-up.
 - [ ] **P4.6 Pair Device (TV)** — route + `silo://device`/`continuum://device` deep links + DevicePairingScreen + Settings row. Mobile: DevicePairingScreen.
 - [x] **P4.7 Manage Sessions (TV)** — TvManageSessionsViewModel/Screen (own sessions via AuthRepository getSessions/deleteSession) + route/DI; "Manage sessions" row in Settings Account.
 

@@ -215,6 +215,15 @@ sealed class TvMainRoute(val route: String) {
     data object AdminScans : TvMainRoute("main/admin/scans")
     data object ManageSessions : TvMainRoute("main/settings/sessions")
 
+    /** Request detail for a discover/search result (tmdb id + media type). */
+    data class RequestDetail(val mediaType: String, val tmdbId: Int) :
+        TvMainRoute("main/request/$mediaType/$tmdbId") {
+        companion object {
+            const val ROUTE = "main/request/{mediaType}/{tmdbId}"
+            const val ARG_MEDIA_TYPE = "mediaType"
+            const val ARG_TMDB_ID = "tmdbId"
+        }
+    }
 }
 
 private fun String.routeEncode(): String =

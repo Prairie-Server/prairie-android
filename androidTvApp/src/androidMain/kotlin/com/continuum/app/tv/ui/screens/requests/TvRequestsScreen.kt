@@ -87,6 +87,7 @@ private val requestMediaFilters = listOf(
 fun TvRequestsScreen(
     onOpenLibraryItem: (contentId: String) -> Unit,
     onOpenMyRequests: () -> Unit,
+    onOpenRequestDetail: (mediaType: String, tmdbId: Int) -> Unit = { _, _ -> },
     onInitialContentFocus: () -> Unit = {},
     viewModel: RequestsViewModel = koinViewModel(),
     searchViewModel: RequestSearchViewModel = koinViewModel(),
@@ -124,10 +125,10 @@ fun TvRequestsScreen(
         when {
             item.canOpenLibraryDetail() -> onOpenLibraryItem(item.libraryContentId.orEmpty())
             item.canRequest() -> pendingRequest = item
-            else -> {
-                actionMessage = item.nonActionableMessage()
-                actionError = null
-            }
+            // Non-actionable (already requested / pending / unavailable): open the
+            // request detail so the user can see metadata + current status, instead
+            // of just a one-shot message (phone parity).
+            else -> onOpenRequestDetail(item.mediaType, item.tmdbId)
         }
     }
 

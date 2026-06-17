@@ -47,8 +47,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.Border
@@ -82,6 +84,7 @@ import com.continuum.app.tv.ui.screens.personal.TvHistoryScreen
 import com.continuum.app.tv.ui.screens.personal.TvWatchlistScreen
 import com.continuum.app.tv.ui.screens.recommendations.TvRecommendationsScreen
 import com.continuum.app.tv.ui.screens.requests.TvMyRequestsScreen
+import com.continuum.app.tv.ui.screens.requests.TvRequestDetailScreen
 import com.continuum.app.tv.ui.screens.requests.TvRequestsScreen
 import com.continuum.app.tv.ui.screens.search.TvSearchScreen
 import com.continuum.app.tv.ui.screens.settings.TvManageSessionsScreen
@@ -401,6 +404,9 @@ fun TvMainShell(
                     TvRequestsScreen(
                         onOpenLibraryItem = onOpenItemDetail,
                         onOpenMyRequests = { navigateToSecondary(TvMainRoute.MyRequests.route) },
+                        onOpenRequestDetail = { mt, id ->
+                            navigateToSecondary(TvMainRoute.RequestDetail(mt, id).route)
+                        },
                         onInitialContentFocus = { profileMenuOpen = false },
                     )
                 }
@@ -408,6 +414,19 @@ fun TvMainShell(
                     TvMyRequestsScreen(
                         onOpenLibraryItem = onOpenItemDetail,
                         onInitialContentFocus = { profileMenuOpen = false },
+                    )
+                }
+                composable(
+                    route = TvMainRoute.RequestDetail.ROUTE,
+                    arguments = listOf(
+                        navArgument(TvMainRoute.RequestDetail.ARG_MEDIA_TYPE) { type = NavType.StringType },
+                        navArgument(TvMainRoute.RequestDetail.ARG_TMDB_ID) { type = NavType.IntType },
+                    ),
+                ) { entry ->
+                    TvRequestDetailScreen(
+                        mediaType = entry.arguments?.getString(TvMainRoute.RequestDetail.ARG_MEDIA_TYPE).orEmpty(),
+                        tmdbId = entry.arguments?.getInt(TvMainRoute.RequestDetail.ARG_TMDB_ID) ?: 0,
+                        onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
                     )
                 }
                 composable(TvMainRoute.Collections.route) {
