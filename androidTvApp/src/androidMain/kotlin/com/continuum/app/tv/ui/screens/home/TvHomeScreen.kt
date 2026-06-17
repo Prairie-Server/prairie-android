@@ -54,6 +54,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun TvHomeScreen(
     onItemClick: (contentId: String) -> Unit,
+    onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit = { _, _, _ -> },
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
     viewModel: HomeViewModel = koinViewModel(),
@@ -76,6 +77,7 @@ fun TvHomeScreen(
             sections = visibleSections,
             upcomingItems = upcomingItems,
             onItemClick = onItemClick,
+            onPlayItem = onPlayItem,
             onInitialContentFocus = onInitialContentFocus,
             focusRequest = focusRequest,
             onSetWatched = viewModel::setWatched,
@@ -91,6 +93,7 @@ private fun TvHomeContent(
     sections: List<ResolvedSection>,
     upcomingItems: List<SectionItem> = emptyList(),
     onItemClick: (String) -> Unit,
+    onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit = { _, _, _ -> },
     onInitialContentFocus: () -> Unit,
     focusRequest: Int,
     onSetWatched: (String, Boolean) -> Unit = { _, _ -> },
@@ -160,6 +163,15 @@ private fun TvHomeContent(
                         TvHomeHeroCarousel(
                             items = section.items,
                             onItemClick = onItemClick,
+                            onPlayItem = { item ->
+                                // A series has no single playable file — open its
+                                // detail to pick an episode; movies/episodes play.
+                                if (item.type.equals("series", ignoreCase = true)) {
+                                    onItemClick(item.contentId)
+                                } else {
+                                    onPlayItem(item.contentId, item.type, item.heroResumePositionSeconds())
+                                }
+                            },
                             heroHeight = HeroDimens.HomeHeight,
                             autoFocus = !initialFocusRequested,
                             focusRequest = focusRequest,
@@ -251,4 +263,18 @@ private fun ResolvedSection.isProgressRow(): Boolean {
         type.contains("in_progress") ||
         type.contains("next_up") ||
         type.contains("up_next")
+}
+
+/**
+ * Resume position for a Play action launched from the home hero (P6.10). Same
+ * policy as the detail hero / phone's playbackResumePosition: finite, >30s in,
+ * not finished, not near the end. null = start / let the session decide.
+ */
+private fun SectionItem.heroResumePositionSeconds(): Double? {
+    if (userState?.played == true) return null
+    val pos = positionSeconds ?: return null
+    if (!pos.isFinite() || pos <= 30) return null
+    val dur = durationSeconds
+    if (dur != null && dur > 0 && pos >= dur - 5) return null
+    return pos
 }

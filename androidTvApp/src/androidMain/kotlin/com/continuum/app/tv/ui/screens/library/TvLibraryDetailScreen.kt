@@ -222,6 +222,9 @@ private fun RecommendedTab(
                     TvHomeHeroCarousel(
                         items = section.items,
                         onItemClick = onItemClick,
+                        // The library hero keeps OK = open detail (no separate
+                        // play affordance here); long-press also opens detail.
+                        onPlayItem = { onItemClick(it.contentId) },
                         heroHeight = HeroDimens.HomeHeight,
                         autoFocus = !initialFocusRequested,
                         initialFocusRequester = heroFocusRequester,

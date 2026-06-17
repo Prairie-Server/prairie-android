@@ -7,8 +7,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -77,6 +78,7 @@ private val HOME_HERO_INDICATOR_HEIGHT = 13.dp
 fun TvHomeHeroCarousel(
     items: List<SectionItem>,
     onItemClick: (contentId: String) -> Unit,
+    onPlayItem: (SectionItem) -> Unit = {},
     modifier: Modifier = Modifier,
     heroHeight: Dp = 300.dp,
     heroCardWidthFraction: Float = 0.82f,
@@ -172,7 +174,10 @@ fun TvHomeHeroCarousel(
                             activeIndex = index
                         }
                     },
-                    onClick = { onItemClick(item.contentId) },
+                    // OK plays/resumes (primary CTA, like the phone hero's Play
+                    // button); long-press opens detail (the phone's Info).
+                    onClick = { onPlayItem(item) },
+                    onLongClick = { onItemClick(item.contentId) },
                 )
             }
         }
@@ -187,13 +192,14 @@ fun TvHomeHeroCarousel(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun TvHomeHeroCard(
     item: SectionItem,
     active: Boolean,
     onFocused: () -> Unit,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
@@ -271,10 +277,11 @@ private fun TvHomeHeroCard(
                 }
             }
             .focusable(interactionSource = interactionSource)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,
+                onLongClick = onLongClick,
             ),
     ) {
         ThumbhashImage(

@@ -110,6 +110,7 @@ fun TvMainShell(
     onSwitchProfile: () -> Unit,
     onSwitchServer: () -> Unit,
     onPairDevice: () -> Unit,
+    onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit,
 ) {
     val nestedNav = rememberNavController()
     val currentEntry by nestedNav.currentBackStackEntryAsState()
@@ -377,6 +378,7 @@ fun TvMainShell(
                 composable(TvMainRoute.Video.route) {
                     TvHomeScreen(
                         onItemClick = onOpenItemDetail,
+                        onPlayItem = onPlayItem,
                         onInitialContentFocus = { profileMenuOpen = false },
                         focusRequest = contentFocusRequest,
                     )
@@ -384,6 +386,7 @@ fun TvMainShell(
                 composable(TvMainRoute.Home.route) {
                     TvHomeScreen(
                         onItemClick = onOpenItemDetail,
+                        onPlayItem = onPlayItem,
                         onInitialContentFocus = { profileMenuOpen = false },
                         focusRequest = contentFocusRequest,
                     )

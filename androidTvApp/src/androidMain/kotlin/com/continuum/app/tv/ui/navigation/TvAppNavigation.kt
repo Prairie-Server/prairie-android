@@ -286,6 +286,16 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
+                onPlayItem = { playContentId, itemType, resumePositionSeconds ->
+                    navController.navigate(
+                        tvPlayDestinationFor(
+                            itemType = itemType,
+                            contentId = playContentId,
+                            fileId = null,
+                            resumePositionSeconds = resumePositionSeconds,
+                        ),
+                    )
+                },
             )
         }
 
