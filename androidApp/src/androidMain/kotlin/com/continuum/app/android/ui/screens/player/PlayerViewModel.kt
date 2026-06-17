@@ -754,6 +754,28 @@ class PlayerViewModel(
     }
     fun clearRemoteMessage() { _remoteMessage.value = null }
 
+    /**
+     * Remote `set_audio_track` / `set_subtitle_track`. Validate the index against
+     * the live track list so a bogus remote index is a no-op rather than (for
+     * subtitles) silently turning captions off — only an explicit -1 disables.
+     */
+    fun remoteSelectAudio(index: Int) {
+        if (index in _uiState.value.audioTracks.indices) onSelectAudio(index)
+    }
+    fun remoteSelectSubtitle(index: Int) {
+        if (index == -1 || index in _uiState.value.subtitleTracks.indices) onSelectSubtitle(index)
+    }
+
+    /**
+     * Adopt server-recomputed intro/credits ranges (a `markers_updated` event).
+     * The intro auto-skip observer and the credits-based F2 trigger read these
+     * from UiState, so updating them takes effect immediately. Passing `null`
+     * clears a marker the server says no longer applies.
+     */
+    fun applyUpdatedMarkers(intro: TimeRange?, credits: TimeRange?) {
+        _uiState.update { it.copy(intro = intro, credits = credits) }
+    }
+
     /** Select a subtitle track (-1 to disable). */
     fun onSelectSubtitle(index: Int) {
         _uiState.update { it.copy(selectedSubtitleIndex = index) }

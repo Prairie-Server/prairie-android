@@ -62,6 +62,45 @@ class PlaybackCommandDispatchTest {
         assertEquals(PlaybackAction.Reject, decidePlaybackAction(cmd("seek", """{"position_seconds":"Infinity"}""")))
     }
 
+    @Test fun setAudioTrackReadsAudioTrackIndex() {
+        assertEquals(
+            PlaybackAction.SetAudioTrack(2),
+            decidePlaybackAction(cmd("set_audio_track", """{"audio_track_index":2}""")),
+        )
+    }
+
+    @Test fun setAudioTrackReadsIndexAlias() {
+        assertEquals(
+            PlaybackAction.SetAudioTrack(1),
+            decidePlaybackAction(cmd("set_audio_track", """{"index":1}""")),
+        )
+    }
+
+    @Test fun setSubtitleTrackReadsSubtitleTrackIndex() {
+        assertEquals(
+            PlaybackAction.SetSubtitleTrack(3),
+            decidePlaybackAction(cmd("set_subtitle_track", """{"subtitle_track_index":3}""")),
+        )
+    }
+
+    @Test fun setSubtitleTrackNegativeOneMeansOff() {
+        assertEquals(
+            PlaybackAction.SetSubtitleTrack(-1),
+            decidePlaybackAction(cmd("set_subtitle_track", """{"subtitle_track_index":-1}""")),
+        )
+    }
+
+    @Test fun trackCommandWithMissingIndexIsRejected() {
+        assertEquals(PlaybackAction.Reject, decidePlaybackAction(cmd("set_audio_track", """{}""")))
+    }
+
+    @Test fun trackCommandWithQuotedIndexIsRejected() {
+        assertEquals(
+            PlaybackAction.Reject,
+            decidePlaybackAction(cmd("set_subtitle_track", """{"subtitle_track_index":"2"}""")),
+        )
+    }
+
     @Test fun transportActionsAreFlaggedForWatchTogetherGating() {
         assertTrue(PlaybackAction.Pause.isTransport)
         assertTrue(PlaybackAction.Unpause.isTransport)
@@ -72,5 +111,8 @@ class PlaybackCommandDispatchTest {
         assertFalse(PlaybackAction.ShowMessage("hi").isTransport)
         assertFalse(PlaybackAction.Ignore.isTransport)
         assertFalse(PlaybackAction.Reject.isTransport)
+        // Track selection is per-client → NOT transport (allowed during WT).
+        assertFalse(PlaybackAction.SetAudioTrack(0).isTransport)
+        assertFalse(PlaybackAction.SetSubtitleTrack(-1).isTransport)
     }
 }

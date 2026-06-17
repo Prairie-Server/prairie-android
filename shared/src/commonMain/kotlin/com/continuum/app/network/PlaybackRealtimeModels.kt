@@ -22,13 +22,15 @@ object PlaybackCommandNames {
 
     /**
      * What this client advertises in hello + actually handles. Only advertise
-     * commands we act on — `set_volume`/`play_media`/track commands are NOT
-     * advertised (the dispatcher rejects them) so the server won't issue a
-     * volume command we'd silently no-op.
+     * commands we act on — `set_volume`/`play_media` are NOT advertised (the
+     * dispatcher rejects them) so the server won't issue a command we'd silently
+     * no-op. Track commands ARE advertised: they re-select the audio/subtitle
+     * track by index (per-client, so they're not gated by Watch Together).
      */
     val Supported = listOf(
         Pause, Unpause, PlayPause, Seek, Stop, Terminate,
         DisplayMessage, ServerRestarting, ServerShuttingDown,
+        SetAudioTrack, SetSubtitleTrack,
     )
 }
 

@@ -37,6 +37,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -683,9 +686,55 @@ fun TvPlayerScreen(
             val selectedTrack = viewModel.uiState.value.subtitleTracks
                 .firstOrNull { it.index == idx }
                 ?.toVideoTrackEntry()
+            // idx == -1 (disable) yields a null track, which selectSubtitle treats
+            // as "turn off"; an unknown idx also yields null and is a safe no-op.
             if (backend.selectSubtitle(selectedTrack)) {
                 viewModel.onSubtitleSelectionApplied(idx)
             }
+        }
+    }
+
+    // Remote set_audio_track / set_subtitle_track. These latch in the VM (a
+    // remote command can arrive before the backend attaches OR before Media3
+    // reports its tracks via onTracksChanged), so we combine the latched index
+    // with the live track list: while tracks are empty the latch is held; once
+    // they're reported the index applies if it matches, or is dropped if not.
+    // A non-empty audioTracks is the "tracks have loaded" signal (Media3 reports
+    // all groups together).
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        combine(
+            viewModel.pendingRemoteAudioIndex,
+            viewModel.uiState.map { it.audioTracks }.distinctUntilChanged(),
+        ) { idx, tracks -> idx to tracks }.collect { (idx, tracks) ->
+            if (idx == null) return@collect
+            if (tracks.isEmpty()) return@collect // not reported yet — keep latched
+            tracks.firstOrNull { it.index == idx }
+                ?.toVideoTrackEntry()
+                ?.let { backend.selectAudioTrack(it) }
+            viewModel.clearPendingRemoteAudio(idx) // applied or no-match → consume
+        }
+    }
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        combine(
+            viewModel.pendingRemoteSubtitleIndex,
+            viewModel.uiState.map { it.audioTracks.isNotEmpty() }.distinctUntilChanged(),
+        ) { idx, tracksReady -> idx to tracksReady }.collect { (idx, tracksReady) ->
+            if (idx == null) return@collect
+            if (idx == -1) {
+                // Disable doesn't depend on the track list — apply immediately.
+                backend.selectSubtitle(null)
+                viewModel.onSubtitleSelectionApplied(-1)
+                viewModel.clearPendingRemoteSubtitle(idx)
+                return@collect
+            }
+            if (!tracksReady) return@collect // wait for tracks to be reported
+            viewModel.uiState.value.subtitleTracks
+                .firstOrNull { it.index == idx }
+                ?.toVideoTrackEntry()
+                ?.let { if (backend.selectSubtitle(it)) viewModel.onSubtitleSelectionApplied(idx) }
+            viewModel.clearPendingRemoteSubtitle(idx) // applied or no-match → consume
         }
     }
 

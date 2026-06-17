@@ -495,6 +495,24 @@ class TvPlayerViewModel(
     private val _subtitleSelectRequests = MutableSharedFlow<Int>(extraBufferCapacity = 1)
     val subtitleSelectRequests: SharedFlow<Int> = _subtitleSelectRequests
 
+    // Remote track-selection latches. A remote command can land before the
+    // screen's video backend attaches OR before Media3 reports its tracks
+    // (onTracksChanged), yet the controller already reported the command
+    // "completed" — so we must not drop it. A StateFlow retains the last
+    // requested index; the screen combines it with the live track list and
+    // applies the moment a matching track exists (dropping it only once tracks
+    // are loaded but contain no match). `null` = nothing pending. The raw index
+    // is latched WITHOUT validation here precisely because the track list may
+    // not be populated yet.
+    private val _pendingRemoteAudioIndex = MutableStateFlow<Int?>(null)
+    val pendingRemoteAudioIndex: StateFlow<Int?> = _pendingRemoteAudioIndex.asStateFlow()
+    private val _pendingRemoteSubtitleIndex = MutableStateFlow<Int?>(null)
+    val pendingRemoteSubtitleIndex: StateFlow<Int?> = _pendingRemoteSubtitleIndex.asStateFlow()
+    // compareAndSet so a command arriving during the suspending apply isn't
+    // clobbered by the clear of the one we just handled.
+    fun clearPendingRemoteAudio(applied: Int) { _pendingRemoteAudioIndex.compareAndSet(applied, null) }
+    fun clearPendingRemoteSubtitle(applied: Int) { _pendingRemoteSubtitleIndex.compareAndSet(applied, null) }
+
     // ---- Player settings flows (per-profile, DataStore-backed) -----------------
     val playbackSpeed: StateFlow<Double> = playerSettingsStore.playbackSpeedFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0)
@@ -850,6 +868,25 @@ class TvPlayerViewModel(
         _remoteMessage.value = RemoteMessage(++remoteMessageCounter, message)
     }
     fun clearRemoteMessage() { _remoteMessage.value = null }
+
+    // Track selection on TV applies through the player backend (held by the
+    // screen). Switching audio re-selects among the CURRENT stream's audio
+    // groups (mirrors the TV audio menu); it does not trigger a server-side
+    // audio re-mux the way mobile does. The screen validates the index against
+    // the live track list at apply time, so a bogus remote index ends up a no-op
+    // rather than (for subtitles) silently turning captions off — only an
+    // explicit -1 disables subtitles.
+    fun remoteSelectAudio(index: Int) { _pendingRemoteAudioIndex.value = index }
+    fun remoteSelectSubtitle(index: Int) { _pendingRemoteSubtitleIndex.value = index }
+
+    /**
+     * Adopt server-recomputed intro/credits ranges (a `markers_updated` event).
+     * Skip-intro and the credits-based F2 trigger read these from UiState, so the
+     * update takes effect immediately; `null` clears a marker the server dropped.
+     */
+    fun applyUpdatedMarkers(intro: TimeRange?, credits: TimeRange?) {
+        _uiState.update { it.copy(intro = intro, credits = credits) }
+    }
 
     // ---- Next-episode auto-advance (F2) ----
 

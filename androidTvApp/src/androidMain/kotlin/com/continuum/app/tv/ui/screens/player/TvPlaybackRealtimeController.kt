@@ -3,6 +3,7 @@ package com.continuum.app.tv.ui.screens.player
 import com.continuum.app.network.PlaybackRealtimeClient
 import com.continuum.app.network.PlaybackRealtimeEvent
 import com.continuum.app.playback.PlaybackAction
+import com.continuum.app.playback.decodeMarkersUpdate
 import com.continuum.app.playback.decidePlaybackAction
 import com.continuum.app.playback.isTransport
 import kotlinx.coroutines.CancellationException
@@ -78,6 +79,8 @@ class TvPlaybackRealtimeController(
             is PlaybackAction.SeekTo -> viewModel.remoteSeek(action.positionSeconds)
             is PlaybackAction.ShowMessage -> viewModel.remoteDisplayMessage(action.message)
             is PlaybackAction.Stop -> viewModel.remoteStop()
+            is PlaybackAction.SetAudioTrack -> viewModel.remoteSelectAudio(action.index)
+            is PlaybackAction.SetSubtitleTrack -> viewModel.remoteSelectSubtitle(action.index)
             is PlaybackAction.Ignore, is PlaybackAction.Reject -> Unit
         }
     }
@@ -85,6 +88,11 @@ class TvPlaybackRealtimeController(
     private suspend fun handleServerEvent(event: PlaybackRealtimeEvent.ServerEvent) {
         when (event.name) {
             "subtitle_ready" -> viewModel.refreshSubtitles(autoSelectSubtitleId = null)
+            "markers_updated" -> {
+                val markers = decodeMarkersUpdate(event)
+                viewModel.applyUpdatedMarkers(markers.intro, markers.credits)
+            }
+            // chapter_thumbnail_ready: no scrubber-thumbnail UI yet → nothing to update.
             else -> { /* ignore */ }
         }
     }
