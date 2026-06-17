@@ -19,6 +19,13 @@ import androidx.compose.ui.unit.dp
 private val qualityOptions = listOf("Auto", "Original", "1080p", "720p", "480p")
 private val languageOptions = listOf("Default", "English", "Spanish", "French", "German", "Japanese", "Korean", "Chinese", "Portuguese", "Italian", "Russian")
 
+// Discrete choices for the two behavior settings (0 = off). Dropdown idiom
+// matches the rest of this section; the label↔value maps below convert.
+private val resumeRewindOptions = listOf(0, 3, 5, 7, 10, 15, 20, 30)
+private val passOutThresholdOptions = listOf(0, 2, 3, 4, 5)
+private fun resumeRewindLabel(seconds: Int) = if (seconds <= 0) "Off" else "${seconds}s"
+private fun passOutThresholdLabel(count: Int) = if (count <= 0) "Off" else count.toString()
+
 /**
  * Playback settings section with quality preference, audio language,
  * and auto-skip toggles.
@@ -29,10 +36,14 @@ fun PlaybackSettings(
     audioLanguage: String,
     autoSkipIntro: Boolean,
     autoSkipCredits: Boolean,
+    resumeRewindSeconds: Int,
+    passOutThreshold: Int,
     onQualityChanged: (String) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onResumeRewindSecondsChanged: (Int) -> Unit,
+    onPassOutThresholdChanged: (Int) -> Unit,
     onResetPlaybackOverrides: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -63,6 +74,24 @@ fun PlaybackSettings(
             label = "Auto-Skip Credits",
             checked = autoSkipCredits,
             onCheckedChange = onAutoSkipCreditsChanged,
+        )
+
+        SettingsDropdownRow(
+            label = "Resume Skip-Back",
+            value = resumeRewindLabel(resumeRewindSeconds),
+            options = resumeRewindOptions.map(::resumeRewindLabel),
+            onOptionSelected = { label ->
+                onResumeRewindSecondsChanged(resumeRewindOptions.first { resumeRewindLabel(it) == label })
+            },
+        )
+
+        SettingsDropdownRow(
+            label = "Still-Watching Prompt After",
+            value = passOutThresholdLabel(passOutThreshold),
+            options = passOutThresholdOptions.map(::passOutThresholdLabel),
+            onOptionSelected = { label ->
+                onPassOutThresholdChanged(passOutThresholdOptions.first { passOutThresholdLabel(it) == label })
+            },
         )
 
         SettingsActionRow(

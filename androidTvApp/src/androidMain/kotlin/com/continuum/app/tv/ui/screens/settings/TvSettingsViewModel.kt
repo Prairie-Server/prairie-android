@@ -65,6 +65,10 @@ class TvSettingsViewModel(
         val autoPlayNext: Boolean = true,
         val autoSkipIntro: Boolean = false,
         val autoSkipCredits: Boolean = false,
+        // Seconds to skip back on resume (0 = off); consecutive auto-advances
+        // before the "Still watching?" prompt (0 = off).
+        val resumeRewindSeconds: Int = 7,
+        val passOutThreshold: Int = 3,
         // Notifications (in-app). The section is hidden entirely unless the
         // server reports in-app notifications are enabled AND preferences
         // load — so no toggles (least of all push) ever render otherwise.
@@ -164,6 +168,8 @@ class TvSettingsViewModel(
                 playerSettingsStore.autoSkipCreditsFlow,
                 playerSettingsStore.subtitleAppearanceFlow,
                 playerSettingsStore.audioLanguageFlow,
+                playerSettingsStore.resumeRewindSecondsFlow,
+                playerSettingsStore.passOutThresholdFlow,
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val quality = values[0] as String
@@ -177,7 +183,9 @@ class TvSettingsViewModel(
                 val appearance = values[4] as SubtitleAppearance
                 @Suppress("UNCHECKED_CAST")
                 val audioLang = values[5] as String
-                Snapshot(quality, autoPlay, skipIntro, skipCredits, appearance, audioLang)
+                val rewind = values[6] as Int
+                val threshold = values[7] as Int
+                Snapshot(quality, autoPlay, skipIntro, skipCredits, appearance, audioLang, rewind, threshold)
             }.collect { snap ->
                 _uiState.update {
                     it.copy(
@@ -187,6 +195,8 @@ class TvSettingsViewModel(
                         autoSkipCredits = snap.skipCredits,
                         subtitleSize = snap.appearance.fontSize.toTvSubtitleSize(),
                         audioLanguage = snap.audioLanguage,
+                        resumeRewindSeconds = snap.resumeRewindSeconds,
+                        passOutThreshold = snap.passOutThreshold,
                     )
                 }
             }
@@ -347,6 +357,14 @@ class TvSettingsViewModel(
         viewModelScope.launch { playerSettingsStore.setAutoSkipCredits(value) }
     }
 
+    fun onResumeRewindSecondsChanged(value: Int) {
+        viewModelScope.launch { playerSettingsStore.setResumeRewindSeconds(value) }
+    }
+
+    fun onPassOutThresholdChanged(value: Int) {
+        viewModelScope.launch { playerSettingsStore.setPassOutThreshold(value) }
+    }
+
     /**
      * Clear every server-side device override for this device. Mirrors
      * iOS tvOS "Reset Playback Overrides" (TVSettingsView.swift:137).
@@ -454,5 +472,7 @@ class TvSettingsViewModel(
         val skipCredits: Boolean,
         val appearance: SubtitleAppearance,
         val audioLanguage: String,
+        val resumeRewindSeconds: Int,
+        val passOutThreshold: Int,
     )
 }

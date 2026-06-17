@@ -126,10 +126,14 @@ fun SettingsScreen(
                     audioLanguage = state.audioLanguage,
                     autoSkipIntro = state.autoSkipIntro,
                     autoSkipCredits = state.autoSkipCredits,
+                    resumeRewindSeconds = state.resumeRewindSeconds,
+                    passOutThreshold = state.passOutThreshold,
                     onQualityChanged = viewModel::setDefaultQuality,
                     onAudioLanguageChanged = viewModel::setAudioLanguage,
                     onAutoSkipIntroChanged = viewModel::setAutoSkipIntro,
                     onAutoSkipCreditsChanged = viewModel::setAutoSkipCredits,
+                    onResumeRewindSecondsChanged = viewModel::setResumeRewindSeconds,
+                    onPassOutThresholdChanged = viewModel::setPassOutThreshold,
                     onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
                 )
             }

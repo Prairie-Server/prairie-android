@@ -143,6 +143,8 @@ fun TvSettingsScreen(
                 onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
                 onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
                 onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
+                onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
+                onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
                 onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
             )
         }
@@ -253,6 +255,8 @@ private fun PlaybackSection(
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
+    onResumeRewindSecondsChanged: (Int) -> Unit,
+    onPassOutThresholdChanged: (Int) -> Unit,
     onResetPlaybackOverrides: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -304,12 +308,46 @@ private fun PlaybackSection(
             onCheckedChange = onAutoSkipCreditsChanged,
         )
 
+        Text(
+            text = "Resume Skip-Back",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(ResumeRewindOptions, key = { it }) { sec ->
+                TvFilterChip(
+                    text = if (sec <= 0) "Off" else "${sec}s",
+                    selected = state.resumeRewindSeconds == sec,
+                    onClick = { onResumeRewindSecondsChanged(sec) },
+                )
+            }
+        }
+
+        Text(
+            text = "Still-Watching Prompt After",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(PassOutThresholdOptions, key = { it }) { count ->
+                TvFilterChip(
+                    text = if (count <= 0) "Off" else "$count",
+                    selected = state.passOutThreshold == count,
+                    onClick = { onPassOutThresholdChanged(count) },
+                )
+            }
+        }
+
         SettingsRowAction(
             label = "Reset Playback Overrides",
             onClick = onResetPlaybackOverrides,
         )
     }
 }
+
+// Discrete choices for the F1/F2 behavior settings (0 = off).
+private val ResumeRewindOptions = listOf(0, 3, 5, 7, 10, 15, 20, 30)
+private val PassOutThresholdOptions = listOf(0, 2, 3, 4, 5)
 
 // Audio-language options mirror the phone: the stored value IS the display
 // name (Default => "" locally), persisted to playerSettingsStore.audioLanguage.

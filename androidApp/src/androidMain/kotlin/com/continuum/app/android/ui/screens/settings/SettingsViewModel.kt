@@ -62,6 +62,10 @@ data class SettingsUiState(
     val audioLanguage: String = "Default",
     val autoSkipIntro: Boolean = false,
     val autoSkipCredits: Boolean = false,
+    // Seconds to skip back on resume (0 = off); consecutive auto-advances
+    // before the "Still watching?" prompt (0 = off).
+    val resumeRewindSeconds: Int = 7,
+    val passOutThreshold: Int = 3,
 
     // Downloads
     val downloadsWifiOnly: Boolean = true,
@@ -96,6 +100,7 @@ class SettingsViewModel(
     init {
         loadUserInfo()
         observePlayerSettings()
+        observePlaybackBehaviorSettings()
         observeNotifications()
         _uiState.update { it.copy(theme = themeManager.themePreference.value) }
     }
@@ -171,6 +176,27 @@ class SettingsViewModel(
 
     fun setDownloadsWifiOnly(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setDownloadsWifiOnly(value) }
+    }
+
+    // Separate from observePlayerSettings() because combine() has no typed
+    // overload past 5 flows — these two local-only Int settings get their own.
+    private fun observePlaybackBehaviorSettings() {
+        combine(
+            playerSettingsStore.resumeRewindSecondsFlow,
+            playerSettingsStore.passOutThresholdFlow,
+        ) { rewind, threshold -> rewind to threshold }
+            .onEach { (rewind, threshold) ->
+                _uiState.update { it.copy(resumeRewindSeconds = rewind, passOutThreshold = threshold) }
+            }
+            .launchIn(viewModelScope)
+    }
+
+    fun setResumeRewindSeconds(value: Int) {
+        viewModelScope.launch { playerSettingsStore.setResumeRewindSeconds(value) }
+    }
+
+    fun setPassOutThreshold(value: Int) {
+        viewModelScope.launch { playerSettingsStore.setPassOutThreshold(value) }
     }
 
     // -- Notifications (in-app) --
