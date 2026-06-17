@@ -112,11 +112,16 @@ fun TvPlayerScreen(
     // binds this player to the synced room for the lifetime of the screen.
     roomId: String? = null,
     resumePositionOverride: Double? = null,
+    // Pre-playback track selections chosen on the detail screen (null = auto;
+    // subtitle -1 = Off). Audio goes to the server session start; subtitle is
+    // applied client-side once the player's tracks land.
+    initialAudioTrackIndex: Int? = null,
+    initialSubtitleTrackIndex: Int? = null,
     // Scope the ViewModel key by fileId too so switching 4K <-> 1080p on
     // the detail screen and replaying actually spins up a fresh player
     // session instead of reusing the cached one bound to the first fileId.
     viewModel: TvPlayerViewModel = koinViewModel(
-        key = "tv-player-$contentId-${preferredFileId ?: "auto"}-${roomId ?: "solo"}-${resumePositionOverride ?: "server"}",
+        key = "tv-player-$contentId-${preferredFileId ?: "auto"}-${roomId ?: "solo"}-${resumePositionOverride ?: "server"}-${initialAudioTrackIndex ?: "a"}-${initialSubtitleTrackIndex ?: "s"}",
         parameters = {
             parametersOf(
                 TvPlayerLaunchArgs(
@@ -124,6 +129,8 @@ fun TvPlayerScreen(
                     preferredFileId = preferredFileId,
                     roomId = roomId,
                     resumePositionOverride = resumePositionOverride,
+                    initialAudioTrackIndex = initialAudioTrackIndex,
+                    initialSubtitleTrackIndex = initialSubtitleTrackIndex,
                 ),
             )
         },

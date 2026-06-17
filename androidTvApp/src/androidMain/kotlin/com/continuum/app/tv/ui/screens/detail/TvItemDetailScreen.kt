@@ -64,8 +64,10 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.continuum.app.model.catalog.AudioTrack
 import com.continuum.app.model.catalog.EpisodeListItem
 import com.continuum.app.model.catalog.ItemDetail
+import com.continuum.app.model.catalog.SubtitleTrack
 import com.continuum.app.model.catalog.isAudiobookItemType
 import com.continuum.app.model.watchtogether.RoomSnapshot
 import com.continuum.app.tv.ui.components.TvDialogOption
@@ -90,7 +92,7 @@ import org.koin.core.parameter.parametersOf
 fun TvItemDetailScreen(
     contentId: String,
     seasonNumber: Int? = null,
-    onPlay: (contentId: String, fileId: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
@@ -144,7 +146,7 @@ private fun TvDetailContent(
     detail: ItemDetail,
     state: TvItemDetailUiState,
     viewModel: TvItemDetailViewModel,
-    onPlay: (contentId: String, fileId: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
@@ -305,7 +307,7 @@ private fun HeroActionRow(
     state: TvItemDetailUiState,
     viewModel: TvItemDetailViewModel,
     playFocus: FocusRequester,
-    onPlay: (contentId: String, fileId: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchTogether: (RoomSnapshot) -> Unit,
@@ -323,9 +325,19 @@ private fun HeroActionRow(
     val hasVersionPicker = remember(detail.versions) { detail.versions.hasTvVersionChoices() }
     val qualitySummary = remember(detail.versions) { detail.versionSummaryLabel() }
     var mediaInfoOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var audioPickerOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var subtitlePickerOpen by remember(detail.contentId) { mutableStateOf(false) }
     val hasOverflowMenu = (detail.type == "episode" && detail.seriesId != null) ||
         detail.versions.isNotEmpty()
     val selectedFileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
+    // Tracks for the currently-selected version drive the pre-playback pickers.
+    val selectedVersion = remember(detail.versions, selectedFileId) {
+        detail.versions.firstOrNull { it.fileId == selectedFileId } ?: detail.versions.firstOrNull()
+    }
+    val audioTracks = selectedVersion?.audioTracks.orEmpty()
+    val subtitleTracks = selectedVersion?.subtitleTracks.orEmpty()
+    val hasAudioChoices = audioTracks.size > 1
+    val hasSubtitleChoices = subtitleTracks.isNotEmpty()
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
@@ -340,7 +352,13 @@ private fun HeroActionRow(
                 },
                 icon = Icons.Filled.PlayArrow,
                 variant = TvPillVariant.Filled,
-                onClick = { onPlay(detail.contentId, selectedFileId, detail.type, resumePosition) },
+                onClick = {
+                    onPlay(
+                        detail.contentId, selectedFileId,
+                        state.selectedAudioIndex, state.selectedSubtitleIndex,
+                        detail.type, resumePosition,
+                    )
+                },
                 focusRequester = playFocus,
                 modifier = Modifier.widthIn(min = 185.dp),
                 heightOverride = 52.dp,
@@ -352,7 +370,13 @@ private fun HeroActionRow(
                     label = "Start Over",
                     icon = Icons.Filled.Replay,
                     variant = TvPillVariant.Hollow,
-                    onClick = { onPlay(detail.contentId, selectedFileId, detail.type, 0.0) },
+                    onClick = {
+                        onPlay(
+                            detail.contentId, selectedFileId,
+                            state.selectedAudioIndex, state.selectedSubtitleIndex,
+                            detail.type, 0.0,
+                        )
+                    },
                 )
             }
 
@@ -450,6 +474,40 @@ private fun HeroActionRow(
                     )
                 }
             }
+            if (hasAudioChoices) {
+                add(
+                    TvDialogOption(
+                        key = "audio",
+                        title = "Audio",
+                        subtitle = tvAudioTrackLabel(
+                            audioTracks.firstOrNull { it.index == state.selectedAudioIndex },
+                        ) ?: "Default",
+                        onClick = {
+                            moreOpen = false
+                            audioPickerOpen = true
+                        },
+                    ),
+                )
+            }
+            if (hasSubtitleChoices) {
+                add(
+                    TvDialogOption(
+                        key = "subtitles",
+                        title = "Subtitles",
+                        subtitle = when (val idx = state.selectedSubtitleIndex) {
+                            -1 -> "Off"
+                            null -> "Auto"
+                            else -> tvSubtitleTrackLabel(
+                                subtitleTracks.firstOrNull { it.index == idx },
+                            ) ?: "Auto"
+                        },
+                        onClick = {
+                            moreOpen = false
+                            subtitlePickerOpen = true
+                        },
+                    ),
+                )
+            }
             if (detail.versions.isNotEmpty()) {
                 add(
                     TvDialogOption(
@@ -468,6 +526,59 @@ private fun HeroActionRow(
             title = "More Actions",
             options = options,
             onDismiss = { moreOpen = false },
+        )
+    }
+
+    if (audioPickerOpen) {
+        TvOptionDialog(
+            title = "Audio",
+            options = audioTracks.map { track ->
+                TvDialogOption(
+                    key = "audio-${track.index}",
+                    title = tvAudioTrackLabel(track) ?: "Audio ${track.index + 1}",
+                    subtitle = tvAudioTrackDetail(track),
+                    selected = state.selectedAudioIndex == track.index,
+                    onClick = {
+                        audioPickerOpen = false
+                        viewModel.onAudioTrackSelected(track.index)
+                    },
+                )
+            },
+            onDismiss = { audioPickerOpen = false },
+        )
+    }
+
+    if (subtitlePickerOpen) {
+        TvOptionDialog(
+            title = "Subtitles",
+            options = buildList {
+                add(
+                    TvDialogOption(
+                        key = "subtitle-off",
+                        title = "Off",
+                        selected = state.selectedSubtitleIndex == -1,
+                        onClick = {
+                            subtitlePickerOpen = false
+                            viewModel.onSubtitleTrackSelected(-1)
+                        },
+                    ),
+                )
+                subtitleTracks.forEach { track ->
+                    add(
+                        TvDialogOption(
+                            key = "subtitle-${track.index}",
+                            title = tvSubtitleTrackLabel(track) ?: "Track ${track.index + 1}",
+                            subtitle = tvSubtitleTrackDetail(track),
+                            selected = state.selectedSubtitleIndex == track.index,
+                            onClick = {
+                                subtitlePickerOpen = false
+                                viewModel.onSubtitleTrackSelected(track.index)
+                            },
+                        ),
+                    )
+                }
+            },
+            onDismiss = { subtitlePickerOpen = false },
         )
     }
 
@@ -774,4 +885,42 @@ private fun Double.formatHms(): String {
     } else {
         "$minutes:${seconds.toString().padStart(2, '0')}"
     }
+}
+
+// --- Pre-playback track labels (mirror the phone MediaSelectors labels) ---
+
+private fun tvAudioTrackLabel(track: AudioTrack?): String? = track?.let {
+    it.title?.takeIf { t -> t.isNotBlank() }
+        ?: it.language?.takeIf { l -> l.isNotBlank() }
+        ?: "Audio ${it.index + 1}"
+}
+
+private fun tvAudioTrackDetail(track: AudioTrack): String? {
+    val parts = listOfNotNull(
+        track.codec?.uppercase()?.takeIf { it.isNotBlank() },
+        track.channelLayout?.takeIf { it.isNotBlank() }
+            ?: track.channels?.let { "$it ch" },
+    )
+    val detail = parts.joinToString(" · ")
+    return if (track.isDefault) {
+        listOf(detail, "Default").filter { it.isNotBlank() }.joinToString(" · ")
+    } else {
+        detail.ifBlank { null }
+    }
+}
+
+private fun tvSubtitleTrackLabel(track: SubtitleTrack?): String? = track?.let {
+    it.title?.takeIf { t -> t.isNotBlank() }
+        ?: it.language?.takeIf { l -> l.isNotBlank() }
+        ?: "Track ${it.index + 1}"
+}
+
+private fun tvSubtitleTrackDetail(track: SubtitleTrack): String? {
+    val parts = listOfNotNull(
+        track.codec?.uppercase()?.takeIf { it.isNotBlank() },
+        if (track.forced) "Forced" else null,
+        if (track.external) "External" else null,
+        if (track.isDefault) "Default" else null,
+    )
+    return parts.joinToString(" · ").ifBlank { null }
 }

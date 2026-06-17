@@ -26,6 +26,26 @@ class TvPlayerRouteTest {
     }
 
     @Test
+    fun playerRouteIncludesTrackIndexesWhenPresent() {
+        val route = TvRoute.Player(
+            contentId = "movie-123",
+            audioTrackIndex = 2,
+            subtitleTrackIndex = -1,
+        ).route
+
+        assertContains(route, "audioTrackIndex=2")
+        assertContains(route, "subtitleTrackIndex=-1")
+    }
+
+    @Test
+    fun playerRouteOmitsTrackIndexesWhenAbsent() {
+        val route = TvRoute.Player(contentId = "movie-123").route
+
+        assertFalse(route.contains("audioTrackIndex="))
+        assertFalse(route.contains("subtitleTrackIndex="))
+    }
+
+    @Test
     fun playerRouteOmitsInvalidResumePosition() {
         val route = TvRoute.Player(
             contentId = "movie-123",
@@ -38,7 +58,7 @@ class TvPlayerRouteTest {
     @Test
     fun startOverPassesExplicitZeroResumePosition() {
         assertTrue(
-            detailSource.contains("onPlay(detail.contentId, selectedFileId, detail.type, 0.0)"),
+            detailSource.contains("detail.type, 0.0,"),
             "Start Over must pass an explicit 0.0 override; null falls back to stored progress",
         )
     }

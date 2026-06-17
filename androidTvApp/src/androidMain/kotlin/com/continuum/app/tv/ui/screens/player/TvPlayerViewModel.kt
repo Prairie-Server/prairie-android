@@ -97,6 +97,10 @@ data class TvPlayerLaunchArgs(
     val preferredFileId: Int? = null,
     val roomId: String? = null,
     val resumePositionOverride: Double? = null,
+    /** Pre-selected audio track index from the detail screen (null = auto). */
+    val initialAudioTrackIndex: Int? = null,
+    /** Pre-selected subtitle track index (null = auto, -1 = Off). */
+    val initialSubtitleTrackIndex: Int? = null,
 )
 
 /**
@@ -297,6 +301,13 @@ class TvPlayerViewModel(
     private val preferredFileId: Int? = launchArgs.preferredFileId
     private val roomId: String? = launchArgs.roomId
     private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
+
+    // Pre-playback track selections from the detail screen. Audio is sent to the
+    // server session start; subtitle is applied once the player's tracks land
+    // (see [applyInitialSubtitleIfPending]). Cleared after the first apply so a
+    // later user track change isn't overridden.
+    private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
+    private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
 
     data class UiState(
         val isLoading: Boolean = true,
@@ -530,6 +541,7 @@ class TvPlayerViewModel(
                         preferredFileId = preferredFileIdOverride ?: preferredFileId,
                         roomId = roomId,
                         resumePositionOverride = startPositionOverride,
+                        audioTrackIndex = initialAudioTrackIndex,
                     ),
                 )) {
                     is VideoPlayerUiState.Ready -> {
@@ -755,6 +767,7 @@ class TvPlayerViewModel(
     fun onTracksChanged(audio: List<PlayerTrackEntry>, subtitle: List<PlayerTrackEntry>) {
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
         resolvePendingSubtitleSelection(subtitle)
+        resolvePendingInitialSubtitle(subtitle)
     }
 
     fun onTracksChanged(
@@ -764,6 +777,37 @@ class TvPlayerViewModel(
     ) {
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle, videoTracks = video) }
         resolvePendingSubtitleSelection(subtitle)
+        resolvePendingInitialSubtitle(subtitle)
+    }
+
+    /**
+     * Apply the detail screen's pre-selected subtitle once the player's tracks
+     * land.
+     *
+     * -1 = Off: emitted immediately; the screen's collector finds no match and
+     * calls selectSubtitle(null), turning subtitles off.
+     *
+     * A positive value is the catalog subtitle track index. NOTE: that index
+     * space is not guaranteed identical to the player's flattened text-track
+     * ordinal (PlayerTrackEntry.index), so this is best-effort and must be
+     * verified on-device (embedded vs sidecar ordering). We consume the pending
+     * value on the FIRST tracks-changed that actually carries subtitle tracks —
+     * never lingering — so a later subtitle download/refresh can't make a stale
+     * pre-selection fire and fight the label-based auto-select path. If no track
+     * with that index is present we leave the preferred-language auto path alone.
+     */
+    private fun resolvePendingInitialSubtitle(subtitle: List<PlayerTrackEntry>) {
+        val index = pendingInitialSubtitleIndex ?: return
+        if (index == -1) {
+            pendingInitialSubtitleIndex = null
+            _subtitleSelectRequests.tryEmit(-1)
+            return
+        }
+        // Wait for the first non-empty track list, then consume regardless so we
+        // only act during initial load.
+        if (subtitle.isEmpty()) return
+        pendingInitialSubtitleIndex = null
+        if (subtitle.any { it.index == index }) _subtitleSelectRequests.tryEmit(index)
     }
 
     fun onSubtitleSelectionApplied(index: Int) {

@@ -315,13 +315,15 @@ fun TvAppNavigation(
                 // actually binds to that version instead of always defaulting
                 // to the server's first listed file (which for multi-version
                 // titles is often the lower-resolution encode).
-                onPlay = { playContentId, fileId, itemType, resumePositionSeconds ->
+                onPlay = { playContentId, fileId, audioTrackIndex, subtitleTrackIndex, itemType, resumePositionSeconds ->
                     navController.navigate(
                         tvPlayDestinationFor(
                             itemType = itemType,
                             contentId = playContentId,
                             fileId = fileId,
                             resumePositionSeconds = resumePositionSeconds,
+                            audioTrackIndex = audioTrackIndex,
+                            subtitleTrackIndex = subtitleTrackIndex,
                         ),
                     )
                 },
@@ -424,6 +426,16 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(TvRoute.Player.ARG_AUDIO_TRACK_INDEX) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(TvRoute.Player.ARG_SUBTITLE_TRACK_INDEX) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(TvRoute.Player.ARG_RESUME_POSITION) {
                     type = NavType.StringType
                     nullable = true
@@ -439,6 +451,12 @@ fun TvAppNavigation(
                 ?.toIntOrNull()
             val roomId = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_ROOM_ID)
+            val audioTrackIndex = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_AUDIO_TRACK_INDEX)
+                ?.toIntOrNull()
+            val subtitleTrackIndex = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_SUBTITLE_TRACK_INDEX)
+                ?.toIntOrNull()
             val resumePositionOverride = VideoPlayerRouteArgs.parseResumePosition(
                 backStack.arguments?.getString(TvRoute.Player.ARG_RESUME_POSITION),
             )
@@ -447,6 +465,8 @@ fun TvAppNavigation(
                 preferredFileId = preferredFileId,
                 roomId = roomId,
                 resumePositionOverride = resumePositionOverride,
+                initialAudioTrackIndex = audioTrackIndex,
+                initialSubtitleTrackIndex = subtitleTrackIndex,
                 onExit = { navController.popBackStack() },
             )
         }

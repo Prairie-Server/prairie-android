@@ -71,6 +71,9 @@ class TvVideoPlaybackStarter(
                     fileId = version.fileId,
                     profileId = profileId,
                     capabilities = capabilities,
+                    // Pre-selected audio track from the detail screen (null = let
+                    // the server choose its default); mirrors the phone starter.
+                    audioTrackIndex = request.audioTrackIndex,
                     qualityPreference = preferredQuality,
                     startPosition = startRequestPosition,
                 )

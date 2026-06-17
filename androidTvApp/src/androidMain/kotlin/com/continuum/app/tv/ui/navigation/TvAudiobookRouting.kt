@@ -27,13 +27,18 @@ fun tvPlayDestinationFor(
     contentId: String,
     fileId: Int?,
     resumePositionSeconds: Double?,
+    audioTrackIndex: Int? = null,
+    subtitleTrackIndex: Int? = null,
 ): String =
     if (isAudiobookItemType(itemType)) {
+        // Audiobooks have no audio/subtitle track selection — ignore the indexes.
         TvRoute.AudiobookPlayer(contentId, fileId).route
     } else {
         TvRoute.Player(
             contentId = contentId,
             fileId = fileId,
             resumePositionSeconds = resumePositionSeconds,
+            audioTrackIndex = audioTrackIndex,
+            subtitleTrackIndex = subtitleTrackIndex,
         ).route
     }

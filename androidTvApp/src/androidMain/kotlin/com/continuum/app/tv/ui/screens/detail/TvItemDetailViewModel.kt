@@ -39,6 +39,11 @@ data class TvItemDetailUiState(
     val episodesLoading: Boolean = false,
     // Version selection for multi-file items.
     val selectedFileId: Int? = null,
+    // Pre-playback track selection (null = use server/auto default). Subtitle
+    // index -1 means "Off". Reset whenever the version changes since each file
+    // has its own track lists.
+    val selectedAudioIndex: Int? = null,
+    val selectedSubtitleIndex: Int? = null,
     // Catalog-backed related shelf. This is a same-type / same-primary-genre
     // browse query until the server exposes an item-specific related endpoint.
     val moreLikeThis: List<SectionItem> = emptyList(),
@@ -215,7 +220,21 @@ class TvItemDetailViewModel(
     }
 
     fun onVersionSelected(fileId: Int?) {
-        _uiState.update { it.copy(selectedFileId = fileId) }
+        // Track indexes are file-specific; clear them so a stale index can't
+        // carry over to a different version's track list.
+        _uiState.update {
+            it.copy(selectedFileId = fileId, selectedAudioIndex = null, selectedSubtitleIndex = null)
+        }
+    }
+
+    /** Pre-select an audio track for the next Play (index into the version's audioTracks). */
+    fun onAudioTrackSelected(index: Int?) {
+        _uiState.update { it.copy(selectedAudioIndex = index) }
+    }
+
+    /** Pre-select a subtitle track for the next Play (-1 = Off, null = auto). */
+    fun onSubtitleTrackSelected(index: Int?) {
+        _uiState.update { it.copy(selectedSubtitleIndex = index) }
     }
 
     fun onSeasonSelected(seasonNumber: Int) {
