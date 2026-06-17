@@ -71,8 +71,8 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P6.12 Settings: theme preference (TV)** — System/Dark/Light.
 - [x] **P6.13 Settings: default audio language (TV)** — Audio Language picker in Playback section, wired to the shared playerSettingsStore.audioLanguageFlow/setAudioLanguage (local setting, like mobile).
 - [x] **P6.14 Settings: full subtitle language list (TV)** — added ko/zh/pt/it/ru to match mobile's 10.
-- [ ] **P6.15 Server rename (TV)**.
-- [ ] **P6.16 Admin session "Send message" (TV)**.
+- [x] **P6.15 Server rename (TV)** — Rename action (Edit icon) on each server row -> TvTextInputDialog -> ServerRegistry.rename.
+- [x] **P6.16 Admin session "Send message" (TV)** — "Send message" action in the session menu -> TvTextInputDialog -> control(Message, SessionControlRequest(message)).
 
 ## Phase 7 — LOW / polish
 - [ ] Combined audio+subtitle Tracks surface · subtitle provider warnings · WT room-indicator persistence · audiobook active-sleep-timer label + About/description · full genre tags in detail facts · Home/Library "See All" · Browse Release-Date naming · Browse Reset/Apply · Search media-type deep-link + library-derived filters · person bio scroll · WT copy/QR invite · Account email/role display · "Manage Servers" settings row · Library default sort.

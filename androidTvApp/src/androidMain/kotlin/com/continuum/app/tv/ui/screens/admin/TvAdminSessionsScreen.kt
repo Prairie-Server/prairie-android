@@ -43,6 +43,7 @@ import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
 import com.continuum.app.tv.ui.components.TvOptionDialog
+import com.continuum.app.tv.ui.components.TvTextInputDialog
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -160,6 +161,7 @@ fun TvAdminSessionsScreen(
     val state by viewModel.uiState.collectAsState()
     var actionsTarget by remember { mutableStateOf<AdminSession?>(null) }
     var terminateTarget by remember { mutableStateOf<AdminSession?>(null) }
+    var messageTarget by remember { mutableStateOf<AdminSession?>(null) }
 
     BackHandler(enabled = true) { onBack() }
 
@@ -254,6 +256,17 @@ fun TvAdminSessionsScreen(
             )
             add(
                 TvDialogOption(
+                    key = "message",
+                    title = "Send message",
+                    subtitle = "Show a message on this device",
+                    onClick = {
+                        actionsTarget = null
+                        messageTarget = session
+                    },
+                ),
+            )
+            add(
+                TvDialogOption(
                     key = "cancel",
                     title = "Cancel",
                     onClick = { actionsTarget = null },
@@ -287,6 +300,23 @@ fun TvAdminSessionsScreen(
                 ),
             ),
             onDismiss = { terminateTarget = null },
+        )
+    }
+
+    messageTarget?.let { session ->
+        TvTextInputDialog(
+            title = "Send message",
+            label = "Message to ${session.username}",
+            confirmLabel = "Send",
+            onConfirm = { text ->
+                viewModel.control(
+                    session.sessionId,
+                    SessionControlAction.Message,
+                    SessionControlRequest(message = text),
+                )
+                messageTarget = null
+            },
+            onDismiss = { messageTarget = null },
         )
     }
 }

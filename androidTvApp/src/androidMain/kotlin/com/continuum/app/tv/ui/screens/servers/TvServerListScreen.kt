@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +45,7 @@ import androidx.tv.material3.Text
 import com.continuum.app.model.server.ServerEntry
 import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvOptionDialog
+import com.continuum.app.tv.ui.components.TvTextInputDialog
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -64,6 +66,7 @@ fun TvServerListScreen(
     val state by viewModel.uiState.collectAsState()
     val firstFocus = remember { FocusRequester() }
     var confirmRemove by remember { mutableStateOf<ServerEntry?>(null) }
+    var renameTarget by remember { mutableStateOf<ServerEntry?>(null) }
 
     BackHandler(enabled = true) { onBack() }
 
@@ -123,6 +126,7 @@ fun TvServerListScreen(
                         isActive = entry.id == state.activeId,
                         isPending = entry.id == state.pendingSwitchToId,
                         onSelect = { viewModel.onSelect(entry.id) },
+                        onRename = { renameTarget = entry },
                         onRemove = { confirmRemove = entry },
                         modifier = rowModifier,
                     )
@@ -150,6 +154,21 @@ fun TvServerListScreen(
                 ),
             ),
             onDismiss = { confirmRemove = null },
+        )
+    }
+
+    renameTarget?.let { target ->
+        TvTextInputDialog(
+            title = "Rename server",
+            label = "Display name",
+            confirmLabel = "Save",
+            initialValue = target.displayName,
+            allowBlank = true,
+            onConfirm = { name ->
+                viewModel.onRename(target.id, name)
+                renameTarget = null
+            },
+            onDismiss = { renameTarget = null },
         )
     }
 }
@@ -194,6 +213,7 @@ private fun ServerRow(
     isActive: Boolean,
     isPending: Boolean,
     onSelect: () -> Unit,
+    onRename: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -247,6 +267,27 @@ private fun ServerRow(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+            }
+        }
+
+        Surface(
+            onClick = onRename,
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                focusedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                focusedContentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+        ) {
+            Box(
+                modifier = Modifier.size(width = 64.dp, height = 64.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Rename",
+                    modifier = Modifier.size(28.dp),
+                )
             }
         }
 

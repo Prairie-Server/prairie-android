@@ -84,4 +84,11 @@ class TvServerListViewModel(
             serverRegistry.remove(serverId)
         }
     }
+
+    /** Set a user override display name for a saved server (blank clears it). */
+    fun onRename(serverId: String, name: String) {
+        viewModelScope.launch {
+            serverRegistry.rename(serverId, name.trim().ifBlank { null })
+        }
+    }
 }
