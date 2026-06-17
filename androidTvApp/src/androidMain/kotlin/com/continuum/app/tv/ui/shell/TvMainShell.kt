@@ -276,7 +276,44 @@ fun TvMainShell(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            // Shell-level Back/Escape. Placed on the outer Box (an ancestor of
+            // BOTH the content layer and the top menu bar) so it fires no
+            // matter which has focus. When the menu is focused, Back returns to
+            // content instead of falling through to the activity and exiting.
+            .onPreviewKeyEvent { ev ->
+                if (ev.type == KeyEventType.KeyUp &&
+                    (ev.key == Key.Back || ev.key == Key.Escape)
+                ) {
+                    when {
+                        profileMenuOpen -> {
+                            profileMenuOpen = false
+                            menuFocusRequest++
+                            true
+                        }
+                        isMenuFocused -> {
+                            moveFocusToContent(currentRoute)
+                            true
+                        }
+                        // Pop within the inner NavHost when there's history to
+                        // pop. navigateToRoute uses popUpTo(start) { saveState }
+                        // so the back stack stays flat — typically [Home,
+                        // currentTab] — and this pops the current tab back to
+                        // Home through the standard Navigation Compose path,
+                        // restoring saved state (scroll, ViewModel) cleanly.
+                        nestedNav.previousBackStackEntry != null -> {
+                            nestedNav.popBackStack()
+                            true
+                        }
+                        // No inner history. Fall through so the activity's
+                        // OnBackPressedDispatcher finishes the activity (default
+                        // Android Back behavior at the root).
+                        else -> false
+                    }
+                } else {
+                    false
+                }
+            },
     ) {
         // Content layer — full-bleed, no left rail reserve. Up-arrow inside the
         // content's preview key handler routes focus to the menu when the user
@@ -304,39 +341,11 @@ fun TvMainShell(
                             // a second moveFocus(Up), skipping a row.
                             true
                         }
-                        ev.type == KeyEventType.KeyUp &&
-                                (ev.key == Key.Back || ev.key == Key.Escape) -> {
-                            when {
-                                profileMenuOpen -> {
-                                    profileMenuOpen = false
-                                    menuFocusRequest++
-                                    true
-                                }
-                                isMenuFocused -> {
-                                    moveFocusToContent(currentRoute)
-                                    true
-                                }
-                                // Pop within the inner NavHost when there's
-                                // history to pop. Because navigateToRoute
-                                // uses popUpTo(start) { saveState }, the
-                                // back stack stays flat — typically [Home,
-                                // currentTab] — so this pops the current
-                                // tab back to Home. popBackStack() goes
-                                // through the standard Navigation Compose
-                                // path so saved state (scroll, ViewModel)
-                                // is restored cleanly instead of triggering
-                                // a fresh navigate() like the old code did.
-                                nestedNav.previousBackStackEntry != null -> {
-                                    nestedNav.popBackStack()
-                                    true
-                                }
-                                // No inner history. Fall through so the
-                                // activity's OnBackPressedDispatcher can
-                                // finish the activity (default Android Back
-                                // behavior at root).
-                                else -> false
-                            }
-                        }
+                        // Back/Escape is handled on the OUTER shell Box (below)
+                        // so it fires regardless of whether focus is on content
+                        // or on the top menu bar (a sibling of this content Box,
+                        // not a descendant — so a handler here never sees Back
+                        // while the menu is focused).
                         else -> false
                     }
                 },
