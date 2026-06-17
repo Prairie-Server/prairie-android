@@ -153,6 +153,28 @@ fun PlayerScreen(
     val roomSnapshot by produceRoomSnapshotState(roomController)
     val roomClosedReason by produceRoomClosedState(roomController)
 
+    // Per-session playback control socket (admin remote control). Bound for the
+    // lifetime of a sessionId; the loop reconnects on its own and never
+    // interrupts playback. Separate from the Watch Together socket.
+    val playbackRealtimeClient: com.continuum.app.network.PlaybackRealtimeClient = koinInject()
+    LaunchedEffect(uiState.sessionId) {
+        val id = uiState.sessionId ?: return@LaunchedEffect
+        PlaybackRealtimeController(
+            sessionId = id,
+            client = playbackRealtimeClient,
+            viewModel = viewModel,
+            scope = this, // cancelled when sessionId changes / screen leaves
+        ).start()
+    }
+    // A remote "stop"/"terminate" command tears the screen down like a back press.
+    LaunchedEffect(Unit) {
+        viewModel.remoteStopRequests.collect {
+            exitRequested = true
+            viewModel.onExit()
+            navController.popBackStack()
+        }
+    }
+
     // room_closed (or server error) → leave the player back to detail.
     LaunchedEffect(roomClosedReason) {
         if (roomClosedReason != null && roomController != null) {

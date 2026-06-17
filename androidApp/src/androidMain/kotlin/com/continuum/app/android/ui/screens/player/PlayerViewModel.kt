@@ -74,6 +74,9 @@ import kotlinx.coroutines.withContext
  * [PlayerSettingsStore]. Intro auto-skip behavior (countdown ring, cancel,
  * one-shot fire) is owned by [IntroAutoSkipController].
  */
+/** A transient remote "display_message"; [id] makes repeats re-trigger the toast. */
+data class RemoteMessage(val id: Long, val text: String)
+
 class PlayerViewModel(
     private val videoPlaybackCoordinator: VideoPlaybackSessionCoordinator,
     private val catalogRepository: CatalogRepository,
@@ -197,6 +200,23 @@ class PlayerViewModel(
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
     )
     val immediateSeeks: kotlinx.coroutines.flow.SharedFlow<Double> = _immediateSeeks.asSharedFlow()
+
+    // ---- Remote session-control surface (driven by PlaybackRealtimeController) -----
+    // The control socket can stop the session and display a message; neither has a
+    // VM-owned channel today (teardown is screen-local, notice is lifecycle-owned),
+    // so expose thin ones here.
+    private val _remoteStopRequests = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+        replay = 0,
+        extraBufferCapacity = 1,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+    /** PlayerScreen collects this and tears the screen down (mirrors a back press). */
+    val remoteStopRequests: kotlinx.coroutines.flow.SharedFlow<Unit> = _remoteStopRequests.asSharedFlow()
+
+    private var remoteMessageCounter = 0L
+    private val _remoteMessage = MutableStateFlow<RemoteMessage?>(null)
+    /** A server "display_message" to surface transiently; null = nothing. */
+    val remoteMessage: StateFlow<RemoteMessage?> = _remoteMessage.asStateFlow()
 
     /** Intro auto-skip banner state. UI consumes this directly. */
     val introSkipState: StateFlow<IntroAutoSkipState> = introAutoSkipController.state
@@ -660,6 +680,20 @@ class PlayerViewModel(
         _uiState.update { it.copy(position = position) }
         _immediateSeeks.tryEmit(position)
     }
+
+    // ---- Remote-control adapters (PlaybackRealtimeController calls these) ----
+    // Thin wrappers over existing transport; no new playback logic.
+    fun remotePause() { _uiState.update { it.copy(isPaused = true) } }
+    fun remoteUnpause() { _uiState.update { it.copy(isPaused = false) } }
+    fun remoteTogglePlayPause() { onPlayPause() }
+    fun remoteSeek(positionSeconds: Double) { seekImmediate(positionSeconds) }
+    fun remoteStop() { _remoteStopRequests.tryEmit(Unit) }
+    // Carry a monotonic id so an identical message repeated within the toast
+    // window still re-triggers (StateFlow would dedup equal values otherwise).
+    fun remoteDisplayMessage(message: String) {
+        _remoteMessage.value = RemoteMessage(++remoteMessageCounter, message)
+    }
+    fun clearRemoteMessage() { _remoteMessage.value = null }
 
     /** Select a subtitle track (-1 to disable). */
     fun onSelectSubtitle(index: Int) {

@@ -23,6 +23,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -116,6 +117,14 @@ fun PlayerOverlay(
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val subtitleTools by viewModel.subtitleTools.collectAsState()
+    // Remote "display_message" from the control socket — show transiently.
+    val remoteMessage by viewModel.remoteMessage.collectAsState()
+    LaunchedEffect(remoteMessage?.id) {
+        if (remoteMessage != null) {
+            kotlinx.coroutines.delay(5_000)
+            viewModel.clearRemoteMessage()
+        }
+    }
 
     // Lazy one-shot AI status probe on first TracksSheet open (web parity).
     LaunchedEffect(tracksSheetVisible) {
@@ -165,6 +174,31 @@ fun PlayerOverlay(
             contentAlignment = Alignment.TopStart,
         ) {
             PlayerNoticeOverlay(notice = notice)
+        }
+
+        // Remote-control "display_message" toast (top-center), shown for a few
+        // seconds regardless of controls visibility. zIndex above the controls
+        // layer + WT badge so it's never obscured.
+        remoteMessage?.let { message ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 64.dp)
+                    .zIndex(10f),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.78f),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        text = message.text,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                }
+            }
         }
 
         // Watch Together room indicator (top-center). Member count + host-offline
