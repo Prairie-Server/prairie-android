@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.CheckCircle
@@ -644,12 +645,38 @@ private fun DetailsSection(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.focusable(),
+        modifier = modifier.focusableDetailSection(),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         TvDetailSectionHeader(eyebrow = "Info", title = "Details")
         TvDetailFactsTable(detail = detail)
     }
+}
+
+/**
+ * Makes an otherwise-inert detail text section focusable WITH a visible focused
+ * state (a subtle tinted background + hairline border). D-pad users land on
+ * Details/About to scroll them into view; without a visible state the focus
+ * reads as a dead end. A constant inner padding keeps layout stable so the
+ * content doesn't shift when the highlight appears.
+ */
+@Composable
+private fun Modifier.focusableDetailSection(): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(14.dp)
+    return this
+        .then(
+            if (isFocused) {
+                Modifier
+                    .background(Color.White.copy(alpha = 0.06f), shape)
+                    .border(1.dp, Color.White.copy(alpha = 0.30f), shape)
+            } else {
+                Modifier
+            },
+        )
+        .focusable(interactionSource = interactionSource)
+        .padding(16.dp)
 }
 
 @Composable
@@ -660,7 +687,7 @@ private fun AboutSection(
     Column(
         modifier = modifier
             .widthIn(max = 1400.dp)
-            .focusable(),
+            .focusableDetailSection(),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         TvDetailSectionHeader(

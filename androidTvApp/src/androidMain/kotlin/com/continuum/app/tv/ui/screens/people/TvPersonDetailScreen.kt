@@ -14,13 +14,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
@@ -35,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -51,12 +45,10 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.Person
-import com.continuum.app.tv.ui.components.TvCardWidth
 import com.continuum.app.tv.ui.components.TvCatalogEmptyState
+import com.continuum.app.tv.ui.components.TvCatalogGrid
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
-import com.continuum.app.tv.ui.components.TvMediaCard
-import com.continuum.app.tv.ui.components.rememberTvBrowseItemCardActions
 import com.continuum.app.tv.ui.theme.DarkSurfaceElevated
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
@@ -132,19 +124,28 @@ private fun TvPersonDetailContent(
         initialFocusRequested = true
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(PersonGridColumns),
+    // Shared catalog grid. Filmography is fetched in one shot (no pagination),
+    // so hasMore is false and onLoadMore is a no-op; isLoadingItems drives the
+    // in-grid loading footer. The portrait + filmography filter row ride along
+    // as the full-width header so they scroll with the posters.
+    TvCatalogGrid(
+        items = state.items,
+        isLoading = state.isLoadingItems,
+        hasMore = false,
+        onItemClick = onOpenItemDetail,
+        onLoadMore = {},
         modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(PersonGridItemSpacing),
-        verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
+        fixedColumnCount = PersonGridColumns,
         contentPadding = PaddingValues(
             start = Spacing.safeArea,
             top = Spacing.xxxl,
             end = Spacing.safeArea,
             bottom = Spacing.xxxl,
         ),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+        horizontalSpacing = PersonGridItemSpacing,
+        verticalSpacing = Spacing.sectionSpacing,
+        firstItemFocusRequester = firstItemFocusRequester,
+        header = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(28.dp),
@@ -156,40 +157,11 @@ private fun TvPersonDetailContent(
                     onSelect = onFilterSelected,
                 )
             }
-        }
-
-        when {
-            state.items.isEmpty() && state.isLoadingItems -> {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
-                    InlineMessage(text = "Loading…")
-                }
-            }
-            state.items.isEmpty() -> {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
-                    TvCatalogEmptyState(message = "No titles found.")
-                }
-            }
-            else -> itemsIndexed(
-                state.items,
-                key = { _, item -> item.contentId },
-            ) { index, item ->
-                val (actions, userState) = rememberTvBrowseItemCardActions(item)
-                TvMediaCard(
-                    title = item.title,
-                    posterUrl = item.posterUrl,
-                    posterThumbhash = item.posterThumbhash,
-                    year = item.year.takeIf { it > 0 },
-                    userState = userState,
-                    width = TvCardWidth,
-                    fillWidth = true,
-                    onClick = { onOpenItemDetail(item.contentId) },
-                    focusRequester = firstItemFocusRequester.takeIf { index == 0 },
-                    modifier = Modifier.fillMaxWidth(),
-                    actions = actions,
-                )
-            }
-        }
-    }
+        },
+        emptyState = {
+            TvCatalogEmptyState(message = "No titles found.")
+        },
+    )
 }
 
 // ============================================================================
@@ -403,22 +375,6 @@ private fun FilterChoiceChip(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        )
-    }
-}
-
-@Composable
-private fun InlineMessage(text: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(180.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.7f),
         )
     }
 }

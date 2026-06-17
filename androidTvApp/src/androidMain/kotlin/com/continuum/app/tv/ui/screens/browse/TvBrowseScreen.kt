@@ -14,12 +14,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -27,7 +21,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,12 +39,10 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.continuum.app.tv.ui.components.TvCardWidth
 import com.continuum.app.tv.ui.components.TvCatalogEmptyState
+import com.continuum.app.tv.ui.components.TvCatalogGrid
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvFilterSheet
-import com.continuum.app.tv.ui.components.TvMediaCard
-import com.continuum.app.tv.ui.components.rememberTvBrowseItemCardActions
 import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
@@ -123,6 +113,22 @@ fun TvBrowseScreen(
                         end = Spacing.safeArea,
                     ),
                 )
+            } else if (state.loading && state.items.isEmpty()) {
+                // Initial / post-filter load with nothing yet: keep the header
+                // visible and show a centered spinner (handled here rather than
+                // inside the grid so the grid never flashes its empty state).
+                BrowseHeader(
+                    subtitle = browseSubtitle(state),
+                    sortLabel = sortLabel,
+                    filter = state.filter,
+                    onOpenFilters = { showFilterSheet = true },
+                    modifier = Modifier.padding(
+                        top = TvTopMenuLayout.contentTopInset,
+                        start = Spacing.safeArea,
+                        end = Spacing.safeArea,
+                    ),
+                )
+                InlineLoadingState()
             } else {
                 BrowseGrid(
                     state = state,
@@ -218,91 +224,41 @@ private fun BrowseGrid(
     onOpenFilters: () -> Unit,
     firstItemFocusRequester: FocusRequester,
 ) {
-    val gridState: LazyGridState = rememberLazyGridState()
-
-    val nearEnd by remember(
-        gridState,
-        state.hasMore,
-        state.items.size,
-        state.loading,
-        state.loadingMore,
-    ) {
-        derivedStateOf {
-            if (!state.hasMore || state.loading || state.loadingMore) {
-                false
-            } else {
-                val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()
-                // Load-more within 8 rows of the end; grid is 6 columns wide.
-                state.items.isNotEmpty() &&
-                    lastVisible != null &&
-                    lastVisible.index >= state.items.size -
-                        (BrowseGridLoadMoreRowsThreshold * BrowseGridColumns)
-            }
-        }
-    }
-
-    LaunchedEffect(nearEnd) {
-        if (nearEnd) onLoadMore()
-    }
-
-    LazyVerticalGrid(
-        state = gridState,
-        columns = GridCells.Fixed(BrowseGridColumns),
+    // Shared catalog grid: pagination, focus-restorer, header + empty state.
+    // Initial/post-filter loading is handled by the caller (centered spinner),
+    // so here isLoading only drives the load-more footer. loadMoreThreshold is
+    // expressed in items (rows-from-end * column count) to preserve the prior
+    // trigger distance.
+    TvCatalogGrid(
+        items = state.items,
+        isLoading = state.loadingMore,
+        hasMore = state.hasMore,
+        onItemClick = onItemClick,
+        onLoadMore = onLoadMore,
         modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(BrowseGridItemSpacing),
-        verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
+        fixedColumnCount = BrowseGridColumns,
+        loadMoreThreshold = BrowseGridLoadMoreRowsThreshold * BrowseGridColumns,
         contentPadding = PaddingValues(
             start = Spacing.safeArea,
             top = TvTopMenuLayout.contentTopInset,
             end = Spacing.md,
             bottom = Spacing.xxxl,
         ),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+        horizontalSpacing = BrowseGridItemSpacing,
+        verticalSpacing = Spacing.sectionSpacing,
+        firstItemFocusRequester = firstItemFocusRequester,
+        header = {
             BrowseHeader(
                 subtitle = browseSubtitle(state),
                 sortLabel = sortLabel,
                 filter = state.filter,
                 onOpenFilters = onOpenFilters,
             )
-        }
-
-        if (state.loading && state.items.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
-                InlineLoadingState()
-            }
-        } else if (state.items.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
-                TvCatalogEmptyState(message = "No titles match the current filters.")
-            }
-        } else {
-            itemsIndexed(
-                state.items,
-                key = { _, item -> item.contentId },
-            ) { index, item ->
-                val (actions, userState) = rememberTvBrowseItemCardActions(item)
-                TvMediaCard(
-                    title = item.title,
-                    posterUrl = item.posterUrl,
-                    posterThumbhash = item.posterThumbhash,
-                    year = item.year.takeIf { it > 0 },
-                    userState = userState,
-                    width = TvCardWidth,
-                    fillWidth = true,
-                    onClick = { onItemClick(item.contentId) },
-                    focusRequester = firstItemFocusRequester.takeIf { index == 0 },
-                    modifier = Modifier.fillMaxWidth(),
-                    actions = actions,
-                )
-            }
-        }
-
-        if (state.loadingMore) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "loading-more") {
-                InlineLoadingState(verticalPadding = 24.dp)
-            }
-        }
-    }
+        },
+        emptyState = {
+            TvCatalogEmptyState(message = "No titles match the current filters.")
+        },
+    )
 }
 
 // ============================================================================
