@@ -91,3 +91,24 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 
 ## Progress log
 - 2026-06-17: audit complete (Codex + Claude). Plan created. Starting Phase 1.
+- 2026-06-17: DONE + committed (no push): P1 (17c7ca6), P2.1 (fd8ba79), P2.2 (08b1b09),
+  P2.4 (a749aff), P6.14 (346aafc), P6.11 (1b3ba35). P1.3/P6.6 assessed [~]. P2.3/P2.5 deferred ⚠device.
+- **RESUME HERE (autonomous):** remaining unchecked items, suggested order (bank safe first):
+  1. P6.13 default audio language (TV settings) — mirror the subtitle-language picker I added
+     (TvSettingsScreen `SubtitleLanguages` + TvSettingsViewModel `subtitleLanguage`/`onSubtitleLanguageChanged`/
+     UpdateProfileRequest). FIRST verify the Profile model + UpdateProfileRequest have an audio-language field;
+     if not, this needs a shared-model add (bigger). 
+  2. P6.2/P6.3 in-player auto-skip-intro + auto-play-next toggle chips in HUD Video pane (settings flows exist in
+     playerSettingsStore; expose flows+setters on TvPlayerViewModel, add HudClickChip toggles like Speed/Sleep).
+  3. P6.15 server rename — TvServerListViewModel + ServerRegistry.rename(serverId, name) exists; needs a TV
+     text-entry dialog (check for an existing TV text-input dialog to reuse; server SETUP screen has URL entry).
+  4. P6.5 Media Info sheet (TV detail), P6.10 home hero Play/Resume, P6.8 direct episode play, P6.9 series WT,
+     P6.7 version-picker keep-all, P6.4 next-episode prompt, P6.16 admin session message, P6.1 aspect Fit/Fill/Stretch,
+     P6.12 theme.
+  5. Phase 5 Collections groups (P5.1–5.4) — sizable: groups CRUD + card actions + create-type + detail rename/delete.
+  6. Phase 4 (P4.x) — biggest: port AdminLogs/AdminScans screens, admin user create/edit, Request Detail screen+route,
+     Pair Device route+deeplinks+settings row, Manage Sessions. New screens + routes + DI + nav.
+  7. Phase 3 (P3.x) + P2.3 + P2.5 — playback-decode-path; implement carefully, Codex-review hard, commit, tag
+     ⚠NEEDS DEVICE VERIFICATION (Shield screencap is black; can't validate real playback here).
+  7b. Phase 7 LOW/polish + audiobook bookmarks.
+  Cadence: trivial data/mirror edits → compile + commit (Codex light); substantive/risky → full Codex review.
