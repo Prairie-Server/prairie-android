@@ -90,6 +90,10 @@ fun TvPlayerHud(
     sleepTimerState: SleepTimerState,
     onStartSleepTimer: (Int) -> Unit,
     onCancelSleepTimer: () -> Unit,
+    autoSkipIntro: Boolean,
+    onAutoSkipIntroChanged: (Boolean) -> Unit,
+    autoPlayNext: Boolean,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
     audioDelayMs: Int,
     onAudioDelayChanged: (Int) -> Unit,
     hdrEnabled: Boolean,
@@ -169,6 +173,10 @@ fun TvPlayerHud(
                     sleepTimerState = sleepTimerState,
                     onStartSleepTimer = onStartSleepTimer,
                     onCancelSleepTimer = onCancelSleepTimer,
+                    autoSkipIntro = autoSkipIntro,
+                    onAutoSkipIntroChanged = onAutoSkipIntroChanged,
+                    autoPlayNext = autoPlayNext,
+                    onAutoPlayNextChanged = onAutoPlayNextChanged,
                     videoTracks = videoTracks,
                     onSelectVideo = onSelectVideo,
                 )
@@ -377,6 +385,10 @@ private fun HudVideoPane(
     sleepTimerState: SleepTimerState,
     onStartSleepTimer: (Int) -> Unit,
     onCancelSleepTimer: () -> Unit,
+    autoSkipIntro: Boolean,
+    onAutoSkipIntroChanged: (Boolean) -> Unit,
+    autoPlayNext: Boolean,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
     videoTracks: List<PlayerTrackEntry>,
     onSelectVideo: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -483,6 +495,30 @@ private fun HudVideoPane(
                 )
             }
         }
+
+        // In-player quick toggles for the per-profile auto behaviors (phone
+        // exposes these in the player settings sheet too, not just Settings).
+        Text(
+            text = "Auto-skip intro",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = Spacing.md),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            HudClickChip("On", autoSkipIntro) { onAutoSkipIntroChanged(true) }
+            HudClickChip("Off", !autoSkipIntro) { onAutoSkipIntroChanged(false) }
+        }
+        Text(
+            text = "Auto-play next episode",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = Spacing.md),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            HudClickChip("On", autoPlayNext) { onAutoPlayNextChanged(true) }
+            HudClickChip("Off", !autoPlayNext) { onAutoPlayNextChanged(false) }
+        }
+
         if (videoTracks.size > 1) {
             Text(
                 text = "Video track",

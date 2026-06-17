@@ -58,8 +58,8 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 
 ## Phase 6 — MEDIUM batch
 - [ ] **P6.1 Aspect options (TV)** — Fit/Fill/Stretch (+ persist). Mobile: AspectRow.
-- [ ] **P6.2 In-player Auto-skip-intro toggle (TV)**.
-- [ ] **P6.3 In-player Auto-play-next toggle (TV)**.
+- [x] **P6.2 In-player Auto-skip-intro toggle (TV)** — On/Off in HUD Video pane (onSetAutoSkipIntro).
+- [x] **P6.3 In-player Auto-play-next toggle (TV)** — On/Off in HUD Video pane (onSetAutoPlayNext).
 - [ ] **P6.4 Next-Episode prompt overlay (TV)**.
 - [ ] **P6.5 Media Info sheet (TV detail)** — video/audio/subtitle track details.
 - [~] **P6.6 Subtitle search / AI-translate language list (TV)** — effectively at parity: TvSubtitleLanguageOptions already has 28 common languages; marginal diff vs mobile, not pursued.
