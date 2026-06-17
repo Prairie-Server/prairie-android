@@ -68,7 +68,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P6.9 Series-level Watch Together (TV)** — on next/playable episode.
 - [ ] **P6.10 Home hero Play/Resume action (TV)**.
 - [x] **P6.11 Browse sort order asc/desc (TV)** — added Order section (Descending/Ascending) to the browse filter sheet + onOrderChanged VM setter.
-- [ ] **P6.12 Settings: theme preference (TV)** — System/Dark/Light.
+- [N/A] **P6.12 Settings: theme preference (TV)** — TV has no theming infra and is dark-by-design (10-foot UI); a System/Dark/Light selector is inappropriate for TV (like orientation-lock). Mobile ThemePreference is phone-only. Not pursued.
 - [x] **P6.13 Settings: default audio language (TV)** — Audio Language picker in Playback section, wired to the shared playerSettingsStore.audioLanguageFlow/setAudioLanguage (local setting, like mobile).
 - [x] **P6.14 Settings: full subtitle language list (TV)** — added ko/zh/pt/it/ru to match mobile's 10.
 - [x] **P6.15 Server rename (TV)** — Rename action (Edit icon) on each server row -> TvTextInputDialog -> ServerRegistry.rename.
