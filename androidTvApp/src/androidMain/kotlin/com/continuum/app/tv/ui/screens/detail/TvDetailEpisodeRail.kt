@@ -57,13 +57,14 @@ import com.continuum.app.tv.ui.theme.Spacing
 /**
  * Horizontal episode rail used on the series and episode detail screens. Each
  * card is a 16:9 still topped by an episode-number eyebrow and a 2-line title
- * snippet. Matches the tvOS `TVEpisodeRail` rhythm — pressing OK navigates to
- * the episode's own detail page (not direct play).
+ * snippet. Pressing OK plays (or resumes) the episode directly; long-pressing
+ * opens the episode's own detail page (parity with the phone's tap-to-play).
  */
 @Composable
 internal fun TvDetailEpisodeRail(
     episodes: List<EpisodeListItem>,
     onEpisodeSelected: (EpisodeListItem) -> Unit,
+    onEpisodeLongPress: (EpisodeListItem) -> Unit,
     modifier: Modifier = Modifier,
     currentContentId: String? = null,
     firstItemFocusRequester: FocusRequester? = null,
@@ -96,6 +97,7 @@ internal fun TvDetailEpisodeRail(
                 episode = episode,
                 isCurrent = episode.contentId == currentContentId,
                 onClick = { onEpisodeSelected(episode) },
+                onLongClick = { onEpisodeLongPress(episode) },
                 focusRequester = firstItemFocusRequester
                     ?.takeIf { episode.contentId == episodes.first().contentId },
             )
@@ -109,6 +111,7 @@ private fun TvDetailEpisodeCard(
     episode: EpisodeListItem,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     focusRequester: FocusRequester?,
 ) {
     val cardWidth = 360.dp
@@ -123,6 +126,7 @@ private fun TvDetailEpisodeCard(
     ) {
         Surface(
             onClick = onClick,
+            onLongClick = onLongClick,
             interactionSource = interactionSource,
             shape = ClickableSurfaceDefaults.shape(shape = shape),
             colors = ClickableSurfaceDefaults.colors(

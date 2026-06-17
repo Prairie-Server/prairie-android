@@ -25,10 +25,11 @@ import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvOptionDialog
 
 /**
- * Single compact quality selector for multi-version items. The detail page no
- * longer exposes per-file audio/subtitle differences, so multiple files that
- * share the same quality (for example two 2160p HDR encodes with different
- * audio tracks) collapse into one user-facing option.
+ * Compact version selector for multi-file items. Every file is its own option
+ * (parity with the phone's VersionPickerSheet) — files that share a resolution
+ * are NOT collapsed, so the user can pick a specific encode (e.g. two 2160p HDR
+ * files with different audio/source). A codec · audio · size detail line
+ * disambiguates same-quality files.
  */
 @Composable
 fun TvVersionPicker(
@@ -160,40 +161,33 @@ private data class TvQualityOption(
     val order: Int,
 )
 
-private fun List<FileVersion>.toQualityOptions(): List<TvQualityOption> {
-    val grouped = linkedMapOf<String, MutableList<FileVersion>>()
-    forEach { version ->
-        grouped.getOrPut(version.qualityKey()) { mutableListOf() }.add(version)
-    }
-
-    return grouped.values.mapIndexed { index, group ->
-        val representative = group.first()
+private fun List<FileVersion>.toQualityOptions(): List<TvQualityOption> =
+    mapIndexed { index, version ->
+        // Keep every file as its own option — no collapsing by quality key.
         val detailParts = buildList {
-            representative.videoCodecLabel()?.let { add(it) }
-            if (group.size > 1) add("${group.size} files")
+            version.videoCodecLabel()?.let { add(it) }
+            version.audioCodecLabel()?.let { add(it) }
+            version.fileSizeLabel()?.let { add(it) }
         }
         TvQualityOption(
-            key = representative.qualityKey(),
-            label = representative.qualityLabel(),
+            key = "file-${version.fileId}",
+            label = version.qualityLabel(),
             detail = detailParts.joinToString(" · ").ifBlank { null },
-            representativeFileId = representative.fileId,
-            fileIds = group.map { it.fileId }.toSet(),
-            rank = representative.resolutionRank(),
+            representativeFileId = version.fileId,
+            fileIds = setOf(version.fileId),
+            rank = version.resolutionRank(),
             order = index,
         )
     }.sortedWith(
         compareByDescending<TvQualityOption> { it.rank }
             .thenBy { it.order },
     )
-}
 
-private fun FileVersion.qualityKey(): String = listOf(
-    normalizedResolution(resolution),
-    if (hdr) "hdr" else "sdr",
-    videoCodecLabel().orEmpty(),
-    hdrFormatLabel().orEmpty(),
-    audioCodecLabel().orEmpty(),
-).joinToString("|")
+private fun FileVersion.fileSizeLabel(): String? {
+    if (fileSize <= 0) return null
+    val sizeMb = fileSize / (1024.0 * 1024.0)
+    return if (sizeMb >= 1024) "%.1f GB".format(sizeMb / 1024.0) else "%.0f MB".format(sizeMb)
+}
 
 private fun FileVersion.qualityLabel(): String {
     val parts = buildList {
