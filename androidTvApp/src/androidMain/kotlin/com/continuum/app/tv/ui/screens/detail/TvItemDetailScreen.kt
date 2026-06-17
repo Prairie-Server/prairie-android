@@ -64,10 +64,8 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.continuum.app.model.catalog.AudioTrack
 import com.continuum.app.model.catalog.EpisodeListItem
 import com.continuum.app.model.catalog.ItemDetail
-import com.continuum.app.model.catalog.SubtitleTrack
 import com.continuum.app.model.catalog.isAudiobookItemType
 import com.continuum.app.model.watchtogether.RoomSnapshot
 import com.continuum.app.tv.ui.components.TvDialogOption
@@ -334,22 +332,14 @@ private fun HeroActionRow(
     val wtState by wtViewModel.uiState.collectAsState()
     val resumePosition = remember(detail.userData) { detail.resumePositionSeconds() }
     val hasResume = resumePosition != null
-    val hasVersionPicker = remember(detail.versions) { detail.versions.hasTvVersionChoices() }
-    val qualitySummary = remember(detail.versions) { detail.versionSummaryLabel() }
     var mediaInfoOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var audioPickerOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var subtitlePickerOpen by remember(detail.contentId) { mutableStateOf(false) }
     val hasOverflowMenu = (detail.type == "episode" && detail.seriesId != null) ||
         detail.versions.isNotEmpty()
     val selectedFileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
-    // Tracks for the currently-selected version drive the pre-playback pickers.
+    // The effective playable version drives the inline playback selector row.
     val selectedVersion = remember(detail.versions, selectedFileId) {
         detail.versions.firstOrNull { it.fileId == selectedFileId } ?: detail.versions.firstOrNull()
     }
-    val audioTracks = selectedVersion?.audioTracks.orEmpty()
-    val subtitleTracks = selectedVersion?.subtitleTracks.orEmpty()
-    val hasAudioChoices = audioTracks.size > 1
-    val hasSubtitleChoices = subtitleTracks.isNotEmpty()
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
@@ -443,17 +433,20 @@ private fun HeroActionRow(
         }
 
         // Audiobooks have no meaningful video "version"/quality (the "720p" was
-        // the cover-art mjpeg stream); hide the version/quality picker for them.
-        if (!isAudiobookItemType(detail.type) && (hasVersionPicker || qualitySummary != null)) {
-            TvVersionPicker(
+        // the cover-art mjpeg stream); hide the selector row for them. The row
+        // itself only renders when an effective playable version is resolved
+        // (selectedVersion != null), so series/season detail without next-up
+        // playback metadata yet simply shows nothing.
+        if (!isAudiobookItemType(detail.type)) {
+            TvPlaybackSelectorRow(
                 versions = detail.versions,
-                fallbackLabel = qualitySummary,
-                selectedFileId = state.selectedFileId,
-                lastFileId = detail.userData?.lastFileId,
-                onSelectedFileId = viewModel::onVersionSelected,
-                modifier = Modifier
-                    .padding(start = 18.dp)
-                    .widthIn(min = 120.dp),
+                currentVersion = selectedVersion,
+                selectedVersionFileId = state.selectedFileId,
+                selectedAudioTrackIndex = state.selectedAudioIndex,
+                selectedSubtitleTrackIndex = state.selectedSubtitleIndex,
+                onSelectVersion = viewModel::onVersionSelected,
+                onSelectAudioTrack = viewModel::onAudioTrackSelected,
+                onSelectSubtitleTrack = viewModel::onSubtitleTrackSelected,
             )
         }
     }
@@ -486,40 +479,6 @@ private fun HeroActionRow(
                     )
                 }
             }
-            if (hasAudioChoices) {
-                add(
-                    TvDialogOption(
-                        key = "audio",
-                        title = "Audio",
-                        subtitle = tvAudioTrackLabel(
-                            audioTracks.firstOrNull { it.index == state.selectedAudioIndex },
-                        ) ?: "Default",
-                        onClick = {
-                            moreOpen = false
-                            audioPickerOpen = true
-                        },
-                    ),
-                )
-            }
-            if (hasSubtitleChoices) {
-                add(
-                    TvDialogOption(
-                        key = "subtitles",
-                        title = "Subtitles",
-                        subtitle = when (val idx = state.selectedSubtitleIndex) {
-                            -1 -> "Off"
-                            null -> "Auto"
-                            else -> tvSubtitleTrackLabel(
-                                subtitleTracks.firstOrNull { it.index == idx },
-                            ) ?: "Auto"
-                        },
-                        onClick = {
-                            moreOpen = false
-                            subtitlePickerOpen = true
-                        },
-                    ),
-                )
-            }
             if (detail.versions.isNotEmpty()) {
                 add(
                     TvDialogOption(
@@ -538,59 +497,6 @@ private fun HeroActionRow(
             title = "More Actions",
             options = options,
             onDismiss = { moreOpen = false },
-        )
-    }
-
-    if (audioPickerOpen) {
-        TvOptionDialog(
-            title = "Audio",
-            options = audioTracks.map { track ->
-                TvDialogOption(
-                    key = "audio-${track.index}",
-                    title = tvAudioTrackLabel(track) ?: "Audio ${track.index + 1}",
-                    subtitle = tvAudioTrackDetail(track),
-                    selected = state.selectedAudioIndex == track.index,
-                    onClick = {
-                        audioPickerOpen = false
-                        viewModel.onAudioTrackSelected(track.index)
-                    },
-                )
-            },
-            onDismiss = { audioPickerOpen = false },
-        )
-    }
-
-    if (subtitlePickerOpen) {
-        TvOptionDialog(
-            title = "Subtitles",
-            options = buildList {
-                add(
-                    TvDialogOption(
-                        key = "subtitle-off",
-                        title = "Off",
-                        selected = state.selectedSubtitleIndex == -1,
-                        onClick = {
-                            subtitlePickerOpen = false
-                            viewModel.onSubtitleTrackSelected(-1)
-                        },
-                    ),
-                )
-                subtitleTracks.forEach { track ->
-                    add(
-                        TvDialogOption(
-                            key = "subtitle-${track.index}",
-                            title = tvSubtitleTrackLabel(track) ?: "Track ${track.index + 1}",
-                            subtitle = tvSubtitleTrackDetail(track),
-                            selected = state.selectedSubtitleIndex == track.index,
-                            onClick = {
-                                subtitlePickerOpen = false
-                                viewModel.onSubtitleTrackSelected(track.index)
-                            },
-                        ),
-                    )
-                }
-            },
-            onDismiss = { subtitlePickerOpen = false },
         )
     }
 
@@ -897,13 +803,6 @@ private fun EpisodeListItem.resumePositionSeconds(): Double? {
     return pos
 }
 
-private fun ItemDetail.versionSummaryLabel(): String? {
-    val tokens = TvDetailMetadata.factsLine(this)
-        .mapNotNull { (it as? TvHeroFactToken.Chip)?.value }
-        .filterNot { it.equals("CC", ignoreCase = true) }
-    return tokens.joinToString(" · ").ifBlank { null }
-}
-
 private fun Double.formatHms(): String {
     val totalSeconds = roundToInt().coerceAtLeast(0)
     val hours = totalSeconds / 3600
@@ -916,40 +815,3 @@ private fun Double.formatHms(): String {
     }
 }
 
-// --- Pre-playback track labels (mirror the phone MediaSelectors labels) ---
-
-private fun tvAudioTrackLabel(track: AudioTrack?): String? = track?.let {
-    it.title?.takeIf { t -> t.isNotBlank() }
-        ?: it.language?.takeIf { l -> l.isNotBlank() }
-        ?: "Audio ${it.index + 1}"
-}
-
-private fun tvAudioTrackDetail(track: AudioTrack): String? {
-    val parts = listOfNotNull(
-        track.codec?.uppercase()?.takeIf { it.isNotBlank() },
-        track.channelLayout?.takeIf { it.isNotBlank() }
-            ?: track.channels?.let { "$it ch" },
-    )
-    val detail = parts.joinToString(" · ")
-    return if (track.isDefault) {
-        listOf(detail, "Default").filter { it.isNotBlank() }.joinToString(" · ")
-    } else {
-        detail.ifBlank { null }
-    }
-}
-
-private fun tvSubtitleTrackLabel(track: SubtitleTrack?): String? = track?.let {
-    it.title?.takeIf { t -> t.isNotBlank() }
-        ?: it.language?.takeIf { l -> l.isNotBlank() }
-        ?: "Track ${it.index + 1}"
-}
-
-private fun tvSubtitleTrackDetail(track: SubtitleTrack): String? {
-    val parts = listOfNotNull(
-        track.codec?.uppercase()?.takeIf { it.isNotBlank() },
-        if (track.forced) "Forced" else null,
-        if (track.external) "External" else null,
-        if (track.isDefault) "Default" else null,
-    )
-    return parts.joinToString(" · ").ifBlank { null }
-}

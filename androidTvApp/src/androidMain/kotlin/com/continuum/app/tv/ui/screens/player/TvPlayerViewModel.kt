@@ -315,8 +315,8 @@ class TvPlayerViewModel(
 
     private val contentId: String = launchArgs.contentId
     /**
-     * Preferred file version to play (chosen by the user in
-     * [com.continuum.app.tv.ui.screens.detail.TvVersionPicker]). When the
+     * Preferred file version to play (chosen by the user in the detail
+     * screen's playback selector row). When the
      * item has multiple versions (e.g. 4K + 1080p), this pins the session
      * to that version's `fileId`. `null` means "auto" — fall back to the
      * first version the server returns.

@@ -319,7 +319,7 @@ fun TvAppNavigation(
             TvItemDetailScreen(
                 contentId = contentId,
                 seasonNumber = seasonNumber,
-                // The detail screen's [TvVersionPicker] writes the chosen
+                // The detail screen's playback selector row writes the chosen
                 // version's fileId into [TvItemDetailViewModel.selectedFileId];
                 // we forward it through the route so the player session
                 // actually binds to that version instead of always defaulting
