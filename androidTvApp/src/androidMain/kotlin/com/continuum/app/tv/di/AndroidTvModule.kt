@@ -271,6 +271,14 @@ val androidTvModule = module {
     viewModel { params ->
         com.continuum.app.viewmodel.RequestDetailViewModel(get(), params.get(), params.get())
     }
+    viewModel { params ->
+        val args = params.get<Pair<String?, String?>>()
+        com.continuum.app.viewmodel.DevicePairingViewModel(
+            repository = get(),
+            initialToken = args.first,
+            initialCode = args.second,
+        )
+    }
 
     // Content ViewModels
     viewModel { HomeViewModel(get(), get(), get(), get()) }

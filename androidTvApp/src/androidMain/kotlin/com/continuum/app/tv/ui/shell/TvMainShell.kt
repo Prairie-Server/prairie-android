@@ -108,6 +108,7 @@ fun TvMainShell(
     onSignedOut: () -> Unit,
     onSwitchProfile: () -> Unit,
     onSwitchServer: () -> Unit,
+    onPairDevice: () -> Unit,
 ) {
     val nestedNav = rememberNavController()
     val currentEntry by nestedNav.currentBackStackEntryAsState()
@@ -476,6 +477,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.AdminHub.route)
                         },
                         onManageSessions = { navigateToSecondary(TvMainRoute.ManageSessions.route) },
+                        onPairDevice = onPairDevice,
                         onSignedOut = onSignedOut,
                         onSwitchProfile = onSwitchProfile,
                         onInitialContentFocus = { profileMenuOpen = false },

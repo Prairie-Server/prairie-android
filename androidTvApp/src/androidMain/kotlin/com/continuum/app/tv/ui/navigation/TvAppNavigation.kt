@@ -15,6 +15,7 @@ import com.continuum.app.network.TokenManager
 import com.continuum.app.tv.ui.shell.TvMainShell
 import com.continuum.app.tv.ui.screens.audiobook.TvAudiobookPlayerScreen
 import com.continuum.app.tv.ui.screens.auth.TvLoginScreen
+import com.continuum.app.tv.ui.screens.auth.TvPairDeviceScreen
 import com.continuum.app.tv.ui.screens.auth.TvServerSetupScreen
 import com.continuum.app.tv.ui.screens.auth.TvSetupScreen
 import com.continuum.app.tv.ui.screens.auth.TvSignupScreen
@@ -64,6 +65,24 @@ fun TvAppNavigation(
     LaunchedEffect(Unit) {
         pendingDeepLink.collect { uri ->
             if (uri == null) return@collect
+            // Device-pairing links (`silo://device?token=…` / `?code=…`) carry no
+            // path segment — route on the query params instead of a contentId.
+            if (uri.host.equals("device", ignoreCase = true)) {
+                val token = uri.getQueryParameter("token")?.takeIf { it.isNotBlank() }
+                val code = uri.getQueryParameter("code")?.takeIf { it.isNotBlank() }
+                if (token != null || code != null) {
+                    navController.navigate(
+                        // Prefer token (precise); only fall back to code when no token.
+                        TvRoute.PairDevice(token = token, code = if (token == null) code else null).route,
+                    ) {
+                        // Repeated intent deliveries shouldn't stack duplicate
+                        // pairing screens on the back stack.
+                        launchSingleTop = true
+                    }
+                }
+                pendingDeepLink.value = null
+                return@collect
+            }
             val contentId = uri.pathSegments.lastOrNull() ?: run {
                 pendingDeepLink.value = null
                 return@collect
@@ -262,6 +281,11 @@ fun TvAppNavigation(
                 onSwitchServer = {
                     navController.navigate(TvRoute.ServerList.route)
                 },
+                onPairDevice = {
+                    navController.navigate(TvRoute.PairDevice().route) {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 
@@ -347,6 +371,37 @@ fun TvAppNavigation(
                     navController.navigate(TvRoute.ItemDetail(itemContentId).route)
                 },
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = TvRoute.PairDevice.ROUTE,
+            arguments = listOf(
+                navArgument(TvRoute.PairDevice.ARG_TOKEN) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(TvRoute.PairDevice.ARG_CODE) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { backStack ->
+            val token = backStack.arguments?.getString(TvRoute.PairDevice.ARG_TOKEN)
+            val code = backStack.arguments?.getString(TvRoute.PairDevice.ARG_CODE)
+            TvPairDeviceScreen(
+                token = token,
+                code = code,
+                onDone = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(TvRoute.Main.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                },
+                onSignIn = { navController.navigate(TvRoute.Login().route) },
             )
         }
 

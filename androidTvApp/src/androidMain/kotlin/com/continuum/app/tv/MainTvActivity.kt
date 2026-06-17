@@ -117,7 +117,10 @@ class MainTvActivity : ComponentActivity() {
      */
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "continuum") {
+        // `continuum` carries Watch Next / play links; `silo` carries
+        // device-pairing handoffs (silo://device?token=…). Both are consumed
+        // by TvAppNavigation's pendingDeepLink collector.
+        if (data.scheme == "continuum" || data.scheme == "silo") {
             pendingDeepLink.value = data
         }
     }

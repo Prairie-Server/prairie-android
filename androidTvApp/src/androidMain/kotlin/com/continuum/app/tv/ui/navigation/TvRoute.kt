@@ -163,6 +163,30 @@ sealed class TvRoute(val route: String) {
         }
     }
 
+    /**
+     * Device pairing (immersive auth surface). A signed-in user approves or
+     * denies another device's login by token (from a `silo://device?token=…`
+     * deep link) or by manually entering the code shown on that device.
+     * Mirrors the phone's `Route.PairDevice` / `DevicePairingScreen`.
+     */
+    data class PairDevice(val token: String? = null, val code: String? = null) :
+        TvRoute(
+            buildString {
+                append("pair_device")
+                val params = listOfNotNull(
+                    token?.takeIf { it.isNotBlank() }?.let { "token=${it.routeEncode()}" },
+                    code?.takeIf { it.isNotBlank() }?.let { "code=${it.routeEncode()}" },
+                )
+                if (params.isNotEmpty()) append("?").append(params.joinToString("&"))
+            },
+        ) {
+        companion object {
+            const val ROUTE = "pair_device?token={token}&code={code}"
+            const val ARG_TOKEN = "token"
+            const val ARG_CODE = "code"
+        }
+    }
+
     // --- Collections ---
     data object Collections : TvRoute("collections")
     data class CollectionDetail(val collectionId: String, val title: String) :
