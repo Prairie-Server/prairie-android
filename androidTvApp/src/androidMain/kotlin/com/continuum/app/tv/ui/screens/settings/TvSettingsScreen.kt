@@ -136,6 +136,7 @@ fun TvSettingsScreen(
                 onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
                 onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
                 onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
+                onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
                 onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
             )
         }
@@ -233,6 +234,7 @@ private fun PlaybackSection(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onAudioLanguageChanged: (String) -> Unit,
     onResetPlaybackOverrides: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -249,6 +251,21 @@ private fun PlaybackSection(
                     text = q.label,
                     selected = state.playbackQuality == q,
                     onClick = { onQualityChanged(q) },
+                )
+            }
+        }
+
+        Text(
+            text = "Audio Language",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(AudioLanguages, key = { it.first.ifEmpty { "default" } }) { (wire, label) ->
+                TvFilterChip(
+                    text = label,
+                    selected = state.audioLanguage == wire,
+                    onClick = { onAudioLanguageChanged(wire) },
                 )
             }
         }
@@ -275,6 +292,22 @@ private fun PlaybackSection(
         )
     }
 }
+
+// Audio-language options mirror the phone: the stored value IS the display
+// name (Default => "" locally), persisted to playerSettingsStore.audioLanguage.
+private val AudioLanguages = listOf(
+    "" to "Default",
+    "English" to "English",
+    "Spanish" to "Spanish",
+    "French" to "French",
+    "German" to "German",
+    "Japanese" to "Japanese",
+    "Korean" to "Korean",
+    "Chinese" to "Chinese",
+    "Portuguese" to "Portuguese",
+    "Italian" to "Italian",
+    "Russian" to "Russian",
+)
 
 private val SubtitleLanguages = listOf(
     "" to "Off",

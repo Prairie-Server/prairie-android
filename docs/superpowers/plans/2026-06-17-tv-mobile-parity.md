@@ -69,7 +69,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P6.10 Home hero Play/Resume action (TV)**.
 - [x] **P6.11 Browse sort order asc/desc (TV)** — added Order section (Descending/Ascending) to the browse filter sheet + onOrderChanged VM setter.
 - [ ] **P6.12 Settings: theme preference (TV)** — System/Dark/Light.
-- [ ] **P6.13 Settings: default audio language (TV)**.
+- [x] **P6.13 Settings: default audio language (TV)** — Audio Language picker in Playback section, wired to the shared playerSettingsStore.audioLanguageFlow/setAudioLanguage (local setting, like mobile).
 - [x] **P6.14 Settings: full subtitle language list (TV)** — added ko/zh/pt/it/ru to match mobile's 10.
 - [ ] **P6.15 Server rename (TV)**.
 - [ ] **P6.16 Admin session "Send message" (TV)**.

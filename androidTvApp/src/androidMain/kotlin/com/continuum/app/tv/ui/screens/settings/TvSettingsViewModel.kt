@@ -59,6 +59,7 @@ class TvSettingsViewModel(
         val playbackQuality: PlaybackQuality = PlaybackQuality.Auto,
         val subtitleMode: SubtitleMode = SubtitleMode.Auto,
         val subtitleLanguage: String = "",
+        val audioLanguage: String = "",
         val subtitleSize: SubtitleSize = SubtitleSize.Medium,
         val showForcedSubtitles: Boolean = true,
         val autoPlayNext: Boolean = true,
@@ -162,6 +163,7 @@ class TvSettingsViewModel(
                 playerSettingsStore.autoSkipIntroFlow,
                 playerSettingsStore.autoSkipCreditsFlow,
                 playerSettingsStore.subtitleAppearanceFlow,
+                playerSettingsStore.audioLanguageFlow,
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val quality = values[0] as String
@@ -173,7 +175,9 @@ class TvSettingsViewModel(
                 val skipCredits = values[3] as Boolean
                 @Suppress("UNCHECKED_CAST")
                 val appearance = values[4] as SubtitleAppearance
-                Snapshot(quality, autoPlay, skipIntro, skipCredits, appearance)
+                @Suppress("UNCHECKED_CAST")
+                val audioLang = values[5] as String
+                Snapshot(quality, autoPlay, skipIntro, skipCredits, appearance, audioLang)
             }.collect { snap ->
                 _uiState.update {
                     it.copy(
@@ -182,6 +186,7 @@ class TvSettingsViewModel(
                         autoSkipIntro = snap.skipIntro,
                         autoSkipCredits = snap.skipCredits,
                         subtitleSize = snap.appearance.fontSize.toTvSubtitleSize(),
+                        audioLanguage = snap.audioLanguage,
                     )
                 }
             }
@@ -305,6 +310,15 @@ class TvSettingsViewModel(
         val previousState = _uiState.value
         _uiState.update { it.copy(subtitleLanguage = value) }
         persistProfileSubtitleSettings(previousState)
+    }
+
+    /**
+     * Default audio language — a LOCAL player setting (not a profile field),
+     * matching the phone. Writing the store emits on audioLanguageFlow which
+     * the combine above folds back into [UiState.audioLanguage].
+     */
+    fun onAudioLanguageChanged(value: String) {
+        viewModelScope.launch { playerSettingsStore.setAudioLanguage(value) }
     }
 
     fun onShowForcedSubtitlesChanged(enabled: Boolean) {
@@ -439,5 +453,6 @@ class TvSettingsViewModel(
         val skipIntro: Boolean,
         val skipCredits: Boolean,
         val appearance: SubtitleAppearance,
+        val audioLanguage: String,
     )
 }
