@@ -37,36 +37,37 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [x] **P2.4 In-player subtitle style editor (TV)** — new TvSubtitleStyleDialog (size/font/text color/bg style+color/opacity/outline+color/position), opened from the subtitle menu; modal (Back closes, suppresses player keys + autohide), captures focus. Wired to onSetSubtitleAppearance.
 
 ## Phase 3 — Detail HIGH
-- [ ] **P3.1 Audio pre-selector (TV detail)** — add pre-playback Audio picker to the detail action row/overflow. Mobile: MediaSelectors:148.
-- [ ] **P3.2 Subtitle pre-selector (TV detail)** — add pre-playback Subtitle picker (incl. Off). Mobile: MediaSelectors:186.
-- [ ] **P3.3 Player route track args (TV)** — add `audioTrackIndex`/`subtitleTrackIndex` to TvRoute.Player + pass selected indexes into playback (supports P3.1/P3.2). Mobile: Routes:127.
+- [x] **P3.1 Audio pre-selector (TV detail)** — detail More-menu "Audio" picker (TvOptionDialog) over the selected version's audioTracks; selection → server session start via VideoPlaybackStartRequest.audioTrackIndex + TvVideoPlaybackStarter.startSession. Robust/server-side. Commit a329670.
+- [x] **P3.2 Subtitle pre-selector (TV detail)** — detail More-menu "Subtitles" picker incl. Off; -1/Off + auto robust; positive index applied via subtitleSelectRequests on first track list (consume-once). ⚠ positive-index→player-ordinal mapping best-effort, needs on-device verification. Commit a329670.
+- [x] **P3.3 Player route track args (TV)** — TvRoute.Player + tvPlayDestinationFor gained audioTrackIndex/subtitleTrackIndex; parsed in TvAppNavigation → TvPlayerScreen → launch args → VM. Route tests added. Commit a329670.
 
 ## Phase 4 — Admin / Requests / Auth HIGH
-- [ ] **P4.1 Admin Logs (TV)** — port AdminLogsScreen (App/Audit tabs, filters, search, component filter, pagination, expandable rows) + route + hub entry.
+- [x] **P4.1 Admin Logs (TV)** — TvAdminLogsViewModel + TvAdminLogsScreen: App/Audit tabs over shared AdminRepository.getAppLogs/getAuditLogs, App-level filter chip, cursor pagination (near-end load-more), monospace rows; route/DI/hub "Logs" row. Generation-gated; loading/error/load-more derived from active-tab count/cursor (Codex-reviewed: fixed both-empty gating + missed-load key). Commit 7c2ea90. (Free-text search + component filter + expandable rows = follow-up.)
 - [x] **P4.2 Admin Scans (TV)** — TvAdminScansViewModel + TvAdminScansScreen (Scan-all + per-library scan/cancel via AdminRepository) + route/DI/hub entry. Per-library busy guard prevents duplicate in-flight requests.
-- [~] **P4.3 Admin edit user (TV)** — added setRole/setEnabled to shared AdminUsersViewModel; TV user dialog now has Make-admin/Make-user + Enable/Disable (via updateUser). FULL create-user + library-access/limits form still DEFERRED (multi-field form follow-up).
+- [x] **P4.3 Admin create/edit user (TV)** — quick role/enable actions (setRole/setEnabled in shared AdminUsersViewModel) PLUS the full create/edit FORM: TvAdminUserEditScreen over shared AdminUserEditViewModel (username/email/password, role chips, enabled + download toggles, library-access ids, stream/transcode/profile quotas). Reachable from "Add user" row + "Edit user" dialog option. Nested AdminUserEdit(userId?) route (non-restoring nav); edit-mode derived from route userId; Save gated until edit-load; focus targets first editable field. Codex-reviewed. Commit a85e5a5.
 - [x] **P4.4 Request Detail (TV)** — parameterized route RequestDetail(mediaType,tmdbId) + DI(params) + TvRequestDetailScreen (reuses shared RequestDetailViewModel; title/meta/genres/overview + Request button[disabled while submitting]/status); reachable from TvRequestsScreen non-actionable taps. (Recommendations rail + poster art = follow-up.)
 - [x] **P4.5 My Requests open non-library rows (TV)** — both TvRequestsScreen + TvMyRequestsScreen non-library taps open Request Detail (rows always actionable, phone parity).
-- [ ] **P4.6 Pair Device (TV)** — route + `silo://device`/`continuum://device` deep links + DevicePairingScreen + Settings row. Mobile: DevicePairingScreen.
+- [x] **P4.6 Pair Device (TV)** — TvPairDeviceScreen over shared DevicePairingViewModel (approve/deny by token deep link or manual code via TvTextInputDialog); top-level TvRoute.PairDevice(token,code) + DI factory + TvAppNavigation composable + pendingDeepLink "device" branch (prefers token, launchSingleTop); MainTvActivity + manifest now accept `silo` scheme; Settings "Pair a device" row. Codex-reviewed (button enabled-gating + launchSingleTop). Commit d16bde3. (HTTPS `/device` App Links = best-effort follow-up, same caveat as phone parser.)
 - [x] **P4.7 Manage Sessions (TV)** — TvManageSessionsViewModel/Screen (own sessions via AuthRepository getSessions/deleteSession) + route/DI; "Manage sessions" row in Settings Account.
 
-## Phase 5 — Collections
-- [ ] **P5.1 Collection groups (TV)** — Add Group + group action menu (rename/delete); group the collections grid. Mobile: CollectionsScreen.
-- [ ] **P5.2 Collection card actions (TV)** — move-to-group, delete-from-grid.
-- [ ] **P5.3 Manual vs Smart type (TV)** — create dialog offers collection type. Mobile: CreateCollectionSheet:103.
-- [ ] **P5.4 Collection detail rename/delete (TV)** — top-bar actions when manageable.
+## Phase 5 — Collections  ✅ commit f88b63b (Codex-reviewed)
+- [x] **P5.1 Collection groups (TV)** — TvCollectionsScreen renders shared VM `sections` (named groups + Ungrouped); header "Add Group"; named-group header Edit affordance → TvOptionDialog(Rename/Delete) → openGroupAction; create/rename via TvTextInputDialog, delete via confirm dialog.
+- [x] **P5.2 Collection card actions (TV)** — card onLongClick → TvOptionDialog(Move to group / Delete); Move → TvOptionDialog list (Ungrouped + groups, current pre-selected) → moveCollection; Delete → confirm → deleteCollection.
+- [x] **P5.3 Manual vs Smart type (TV)** — TvCreateCollectionDialog gains Manual/Smart TvFilterChips bound to shared createType/onCreateTypeChanged.
+- [x] **P5.4 Collection detail rename/delete (TV)** — TvCollectionDetailViewModel gained name/rename/delete state+methods; detail header Rename/Delete buttons (TvTextInputDialog + confirm dialog); pops back on delete; grid refreshes on resume to reflect edits.
+- Codex hardening: busy-gated all confirm actions, surfaced group/detail-delete errors in dialog titles, first-resume guard, section-order initial focus, always-available header actions.
 
 ## Phase 6 — MEDIUM batch
 - [x] **P6.1 Aspect options (TV)** — added Stretch (RESIZE_MODE_FILL) to VideoFillMode so the fill toggle now offers Letterbox/Zoom/Stretch (mobile Fit/Fill/Stretch). Persistence still session-only (separate gap).
 - [x] **P6.2 In-player Auto-skip-intro toggle (TV)** — On/Off in HUD Video pane (onSetAutoSkipIntro).
 - [x] **P6.3 In-player Auto-play-next toggle (TV)** — On/Off in HUD Video pane (onSetAutoPlayNext).
-- [ ] **P6.4 Next-Episode prompt overlay (TV)**.
+- [~] **P6.4 Next-Episode prompt overlay (TV)** — DEFERRED (device-test required): credits-position-triggered overlay + auto-play-next consumption + next-episode resolution; needs the TV Ready state to carry seriesId/season/episode (data-flow change) and on-real-media verification of the credits trigger, end-of-stream, and player re-mount. Build in a device-test session alongside P2.3/P2.5.
 - [x] **P6.5 Media Info sheet (TV detail)** — new TvMediaInfoDialog (resolution/codecs/HDR/container/size + audio/subtitle track lists) opened from the detail More menu (now available for movies too, not just episodes); rendered as a focusable Popup (dismissOnBackPress).
 - [~] **P6.6 Subtitle search / AI-translate language list (TV)** — effectively at parity: TvSubtitleLanguageOptions already has 28 common languages; marginal diff vs mobile, not pursued.
-- [ ] **P6.7 Version picker keeps every file (TV)** — stop collapsing files by quality key.
-- [ ] **P6.8 Direct episode play (TV)** — Select on episode plays; separate affordance opens detail.
-- [ ] **P6.9 Series-level Watch Together (TV)** — on next/playable episode.
-- [ ] **P6.10 Home hero Play/Resume action (TV)**.
+- [x] **P6.7 Version picker keeps every file (TV)** — TvVersionPicker lists one option per file (codec·audio·size detail), no quality-key collapsing; exact-fileId selection. Commit e37f8ed.
+- [x] **P6.8 Direct episode play (TV)** — episode rail OK plays/resumes via onPlay (resume policy = finite/>30s/!played/not-near-end), long-press opens detail. Commit e37f8ed.
+- [~] **P6.9 Series-level Watch Together (TV)** — DEFERRED (device-test required): host WT on the resolved next/playable episode from series detail; depends on next-episode resolution (P6.4) + WT room-create/sync verified against live playback. Build with P6.4 in a device-test session.
+- [x] **P6.10 Home hero Play/Resume action (TV)** — hero OK plays/resumes (resume policy = !played/finite/>30s/not-near-end), long-press opens detail; series heroes open detail (no single playable file); audiobooks route to audiobook player. Library hero keeps OK=detail. Commit 7966717.
 - [x] **P6.11 Browse sort order asc/desc (TV)** — added Order section (Descending/Ascending) to the browse filter sheet + onOrderChanged VM setter.
 - [N/A] **P6.12 Settings: theme preference (TV)** — TV has no theming infra and is dark-by-design (10-foot UI); a System/Dark/Light selector is inappropriate for TV (like orientation-lock). Mobile ThemePreference is phone-only. Not pursued.
 - [x] **P6.13 Settings: default audio language (TV)** — Audio Language picker in Playback section, wired to the shared playerSettingsStore.audioLanguageFlow/setAudioLanguage (local setting, like mobile).
