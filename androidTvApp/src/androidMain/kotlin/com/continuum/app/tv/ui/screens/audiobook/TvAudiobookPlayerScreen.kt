@@ -62,7 +62,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 
-private enum class AudiobookPanel { None, Chapters, Speed, Sleep, Skip, Bookmarks }
+private enum class AudiobookPanel { None, Chapters, Speed, Sleep, Skip, Bookmarks, About }
 
 /**
  * 10-foot, D-pad audiobook player for Android TV. A thin focus/layout view over
@@ -298,6 +298,12 @@ fun TvAudiobookPlayerScreen(
                                 label = "Bookmarks",
                                 onClick = { activePanel = AudiobookPanel.Bookmarks },
                             )
+                            if (!state.overview.isNullOrBlank()) {
+                                TvAudiobookChip(
+                                    label = "About",
+                                    onClick = { activePanel = AudiobookPanel.About },
+                                )
+                            }
                             if (hasChapters) {
                                 TvAudiobookChip(
                                     label = "Chapters",
@@ -346,6 +352,18 @@ fun TvAudiobookPlayerScreen(
                         activePanel = AudiobookPanel.None
                     },
                     onDelete = { viewModel.removeBookmark(it.id) },
+                )
+            }
+            AudiobookPanel.About -> TvAudiobookOverlayScaffold(title = "About") {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = state.overview.orEmpty(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = 0.82f),
+                    // Generous cap: a description fits the full-height panel; TV
+                    // can't D-pad-scroll an inner text box.
+                    maxLines = 30,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
             AudiobookPanel.None -> Unit

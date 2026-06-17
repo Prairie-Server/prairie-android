@@ -193,6 +193,17 @@ fun TvSubtitleSearchDialog(
                     )
                 }
 
+                // Provider warnings (e.g. a provider was skipped/unconfigured)
+                // surfaced from the search response — mirrors the phone sheet.
+                state.warnings.forEach { warning ->
+                    Text(
+                        text = warning,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFFBBF24),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+
                 if (state.hasSearched && !state.isSearching &&
                     state.results.isEmpty() && state.error == null
                 ) {

@@ -198,6 +198,8 @@ data class SubtitleSearchUiState(
     val isSearching: Boolean = false,
     val hasSearched: Boolean = false,
     val results: List<SubtitleResult> = emptyList(),
+    /** Provider warnings from the search response (e.g. a provider was skipped). */
+    val warnings: List<String> = emptyList(),
     val error: String? = null,
     /** [SubtitleResult.id] currently downloading (inline row spinner), or null. */
     val downloadingResultId: String? = null,
@@ -978,13 +980,13 @@ class TvPlayerViewModel(
         if (_subtitleSearch.value.isSearching) return
         val language = _subtitleSearch.value.language
         _subtitleSearch.update {
-            it.copy(isSearching = true, hasSearched = true, error = null, results = emptyList())
+            it.copy(isSearching = true, hasSearched = true, error = null, results = emptyList(), warnings = emptyList())
         }
         viewModelScope.launch {
             val request = SubtitleSearchRequest(mediaFileId = mediaFileId, languages = listOf(language))
             when (val r = subtitlesRepository.search(request)) {
                 is ApiResult.Success -> _subtitleSearch.update {
-                    it.copy(isSearching = false, results = r.data.results)
+                    it.copy(isSearching = false, results = r.data.results, warnings = r.data.warnings)
                 }
                 // No capability probe exists — "no providers configured" arrives
                 // here as a plain server error; surface its text verbatim.
