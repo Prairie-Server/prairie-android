@@ -70,7 +70,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P6.11 Browse sort order asc/desc (TV)**.
 - [ ] **P6.12 Settings: theme preference (TV)** — System/Dark/Light.
 - [ ] **P6.13 Settings: default audio language (TV)**.
-- [ ] **P6.14 Settings: full subtitle language list (TV)** — match mobile's 10.
+- [x] **P6.14 Settings: full subtitle language list (TV)** — added ko/zh/pt/it/ru to match mobile's 10.
 - [ ] **P6.15 Server rename (TV)**.
 - [ ] **P6.16 Admin session "Send message" (TV)**.
 

@@ -283,6 +283,11 @@ private val SubtitleLanguages = listOf(
     "fr" to "French",
     "de" to "German",
     "ja" to "Japanese",
+    "ko" to "Korean",
+    "zh" to "Chinese",
+    "pt" to "Portuguese",
+    "it" to "Italian",
+    "ru" to "Russian",
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class)
