@@ -48,7 +48,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P4.4 Request Detail (TV)** — add RequestDetail route + screen (hero metadata, overview, recommendations, request/library/status actions). Mobile: RequestDetailScreen.
 - [ ] **P4.5 My Requests open non-library rows (TV)** — rows should open Request Detail even without a library item.
 - [ ] **P4.6 Pair Device (TV)** — route + `silo://device`/`continuum://device` deep links + DevicePairingScreen + Settings row. Mobile: DevicePairingScreen.
-- [ ] **P4.7 Manage Sessions (TV)** — Settings Account: open session management + revoke. Mobile: AccountSection:137.
+- [x] **P4.7 Manage Sessions (TV)** — TvManageSessionsViewModel/Screen (own sessions via AuthRepository getSessions/deleteSession) + route/DI; "Manage sessions" row in Settings Account.
 
 ## Phase 5 — Collections
 - [ ] **P5.1 Collection groups (TV)** — Add Group + group action menu (rename/delete); group the collections grid. Mobile: CollectionsScreen.

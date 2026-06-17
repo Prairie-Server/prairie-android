@@ -63,6 +63,7 @@ fun TvSettingsScreen(
     onNavigateToBrowse: () -> Unit = {},
     onNavigateToRequests: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
+    onManageSessions: () -> Unit = {},
     onSignedOut: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onInitialContentFocus: () -> Unit = {},
@@ -124,6 +125,7 @@ fun TvSettingsScreen(
             AccountSection(
                 state = state,
                 onSwitchProfile = { viewModel.onSwitchProfile(context) },
+                onManageSessions = onManageSessions,
                 onSignOut = { viewModel.onSignOut(context) },
                 firstActionFocusRequester = firstActionFocusRequester,
             )
@@ -210,6 +212,7 @@ private fun SectionHeader(title: String) {
 private fun AccountSection(
     state: TvSettingsViewModel.UiState,
     onSwitchProfile: () -> Unit,
+    onManageSessions: () -> Unit,
     onSignOut: () -> Unit,
     firstActionFocusRequester: FocusRequester? = null,
 ) {
@@ -228,6 +231,7 @@ private fun AccountSection(
             onClick = onSwitchProfile,
             focusRequester = firstActionFocusRequester,
         )
+        SettingsRowAction(label = "Manage sessions", onClick = onManageSessions)
         SettingsRowAction(label = "Sign out", onClick = onSignOut)
     }
 }

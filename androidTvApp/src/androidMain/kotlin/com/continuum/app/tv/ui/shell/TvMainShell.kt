@@ -84,6 +84,7 @@ import com.continuum.app.tv.ui.screens.recommendations.TvRecommendationsScreen
 import com.continuum.app.tv.ui.screens.requests.TvMyRequestsScreen
 import com.continuum.app.tv.ui.screens.requests.TvRequestsScreen
 import com.continuum.app.tv.ui.screens.search.TvSearchScreen
+import com.continuum.app.tv.ui.screens.settings.TvManageSessionsScreen
 import com.continuum.app.tv.ui.screens.settings.TvSettingsScreen
 import org.koin.compose.koinInject
 
@@ -451,10 +452,14 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.AdminHub.route)
                             moveFocusToContent(TvMainRoute.AdminHub.route)
                         },
+                        onManageSessions = { navigateToSecondary(TvMainRoute.ManageSessions.route) },
                         onSignedOut = onSignedOut,
                         onSwitchProfile = onSwitchProfile,
                         onInitialContentFocus = { profileMenuOpen = false },
                     )
+                }
+                composable(TvMainRoute.ManageSessions.route) {
+                    TvManageSessionsScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
                 }
                 composable(TvMainRoute.Inbox.route) {
                     TvInboxScreen(
