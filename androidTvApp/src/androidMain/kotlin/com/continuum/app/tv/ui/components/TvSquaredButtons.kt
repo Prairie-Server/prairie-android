@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -99,7 +100,7 @@ private fun Modifier.focusRing(
     )
 }
 
-private enum class PillKind { Primary, Secondary }
+internal enum class PillKind { Primary, Secondary }
 
 /**
  * Solid white primary play button — the dominant control in the hero action row.
@@ -153,7 +154,6 @@ fun TvSecondaryPillButton(
     )
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun SquaredPill(
     kind: PillKind,
@@ -162,6 +162,57 @@ private fun SquaredPill(
     onClick: () -> Unit,
     modifier: Modifier,
     focusRequester: FocusRequester?,
+) {
+    val primary = kind == PillKind.Primary
+    SquaredPillSurface(
+        kind = kind,
+        onClick = onClick,
+        modifier = modifier,
+        focusRequester = focusRequester,
+        contentPadding = PaddingValues(
+            horizontal = if (primary) 54.dp else 40.dp,
+            vertical = if (primary) 26.dp else 22.dp,
+        ),
+    ) { foreground ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = foreground,
+                modifier = Modifier.size(if (primary) 32.dp else 28.dp),
+            )
+            Spacer(Modifier.width(if (primary) 18.dp else 16.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = if (primary) 30.sp else 26.sp,
+                ),
+                color = foreground,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * Shared squared-pill surface: paints the §2 fills / inner border / compact focus
+ * treatment (ring + glow + lift shadow + focus/press scale) for [kind], and hands
+ * the animated [foreground] colour to its [content] slot. Reused by
+ * [TvPrimaryPillButton] / [TvSecondaryPillButton] and by `TvAnchoredSelectorMenu`'s
+ * trigger so the selector pill matches the secondary `.compact` look exactly.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+internal fun SquaredPillSurface(
+    kind: PillKind,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    focusRequester: FocusRequester?,
+    contentPadding: PaddingValues,
+    content: @Composable (foreground: Color) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -278,32 +329,10 @@ private fun SquaredPill(
                 indication = null,
                 onClick = onClick,
             )
-            .padding(
-                horizontal = if (primary) 54.dp else 40.dp,
-                vertical = if (primary) 26.dp else 22.dp,
-            ),
+            .padding(contentPadding),
         contentAlignment = Alignment.Center,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = foreground,
-                modifier = Modifier.size(if (primary) 32.dp else 28.dp),
-            )
-            Spacer(Modifier.width(if (primary) 18.dp else 16.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = if (primary) 30.sp else 26.sp,
-                ),
-                color = foreground,
-                maxLines = 1,
-            )
-        }
+        content(foreground)
     }
 }
 
