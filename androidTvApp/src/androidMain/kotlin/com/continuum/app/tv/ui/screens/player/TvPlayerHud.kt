@@ -6,7 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -394,7 +396,10 @@ private fun HudVideoPane(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(Spacing.lg),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         // Playback speed — mirrors the phone's Speed presets (0.5×–3×). Uses a
@@ -527,6 +532,7 @@ private fun HudVideoPane(
                 modifier = Modifier.padding(top = Spacing.md),
             )
             HudPickerPane(
+                modifier = Modifier.heightIn(max = 220.dp),
                 options = videoTracks.map {
                     TrackOption(it.index, it.displayLabel, it.isSelected)
                 },
@@ -910,9 +916,10 @@ private data class TrackOption(val id: Int, val label: String, val selected: Boo
 private fun HudPickerPane(
     options: List<TrackOption>,
     onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(options, key = { it.id }) { opt ->
