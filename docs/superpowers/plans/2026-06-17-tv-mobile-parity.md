@@ -94,10 +94,9 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - 2026-06-17: DONE + committed (no push): P1 (17c7ca6), P2.1 (fd8ba79), P2.2 (08b1b09),
   P2.4 (a749aff), P6.14 (346aafc), P6.11 (1b3ba35). P1.3/P6.6 assessed [~]. P2.3/P2.5 deferred ⚠device.
 - **RESUME HERE (autonomous):** remaining unchecked items, suggested order (bank safe first):
-  1. P6.13 default audio language (TV settings) — mirror the subtitle-language picker I added
-     (TvSettingsScreen `SubtitleLanguages` + TvSettingsViewModel `subtitleLanguage`/`onSubtitleLanguageChanged`/
-     UpdateProfileRequest). FIRST verify the Profile model + UpdateProfileRequest have an audio-language field;
-     if not, this needs a shared-model add (bigger). 
+  1. P6.13 default audio language (TV settings) — CONFIRMED contained: audio-language is a LOCAL shared setting
+     (`playerSettingsStore.audioLanguageFlow` / `setAudioLanguage`, android-shared), NOT a profile/server field.
+     Mirror mobile SettingsViewModel (audioLanguageLabel/audioLanguageWireValue) — add a picker to TV settings.
   2. P6.2/P6.3 in-player auto-skip-intro + auto-play-next toggle chips in HUD Video pane (settings flows exist in
      playerSettingsStore; expose flows+setters on TvPlayerViewModel, add HudClickChip toggles like Speed/Sleep).
   3. P6.15 server rename — TvServerListViewModel + ServerRegistry.rename(serverId, name) exists; needs a TV
