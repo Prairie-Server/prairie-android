@@ -65,6 +65,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.continuum.app.common.player.ActivePlayerHolder
 import com.continuum.app.common.player.AudioCapabilityManager
 import com.continuum.app.common.player.ContinuumPlaybackService
 import com.continuum.app.common.player.DisplayHdrProbe
@@ -131,8 +132,14 @@ fun TvPlayerScreen(
     subtitleManager: SubtitleManager = koinInject(),
     audioCapabilityManager: AudioCapabilityManager = koinInject(),
     capabilityDetector: PlaybackCapabilityDetector = koinInject(),
+    activePlayerHolder: ActivePlayerHolder = koinInject(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    // The real session player (ExoPlayer/MpvPlayer) the service publishes. The
+    // PlayerView surface must bind to THIS, not the MediaController, so the
+    // surface gets correct lifecycle callbacks (esp. MPV) and re-binds on engine
+    // swap. Mirrors phone PlayerScreen. The MediaController is kept for transport.
+    val sessionPlayer by activePlayerHolder.player.collectAsState()
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val introSkipState by viewModel.introSkipState.collectAsState()
@@ -713,7 +720,10 @@ fun TvPlayerScreen(
                             }
                         },
                         update = { view ->
-                            view.player = controller
+                            // Bind the surface to the real session player (re-binds
+                            // when sessionPlayer changes on engine swap); transport
+                            // still flows through the MediaController.
+                            view.player = sessionPlayer
                             view.resizeMode = when (state.videoFillMode) {
                                 VideoFillMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                                 VideoFillMode.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
