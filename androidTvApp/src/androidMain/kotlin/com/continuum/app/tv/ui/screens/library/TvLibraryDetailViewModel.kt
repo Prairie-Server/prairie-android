@@ -351,5 +351,5 @@ class TvLibraryDetailViewModel(
         }
     }
 
-    private fun mediaTypeFor(type: String): String = tvCatalogMediaTypeFor(type)
+    private fun mediaTypeFor(type: String): String? = tvCatalogMediaTypeFor(type)
 }

@@ -27,7 +27,10 @@ fun rememberTvBrowseItemCardActions(
     val coordinator: MediaActionsCoordinator = koinInject()
     val scope = rememberCoroutineScope()
 
-    var state by remember(item.contentId) {
+    // Key on userState too (phone parity): when refreshed data re-emits with a
+    // changed userState, the card must reflect new watched/favorite/watchlist
+    // badges instead of keeping the stale snapshot.
+    var state by remember(item.contentId, item.userState) {
         mutableStateOf(item.userState ?: MediaItemUserState())
     }
 

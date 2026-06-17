@@ -6,6 +6,7 @@ import com.continuum.app.model.section.SectionItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TvMediaTypeFiltersTest {
@@ -106,6 +107,9 @@ class TvMediaTypeFiltersTest {
         assertEquals("audiobook", tvCatalogMediaTypeFor("audiobook"))
         assertEquals("audiobook", tvCatalogMediaTypeFor("audiobooks"))
         assertEquals("movie", tvCatalogMediaTypeFor("movies"))
-        assertEquals("movie", tvCatalogMediaTypeFor("ebooks"))
+        // Unmapped types (music/audio, ebooks) must NOT be forced to "movie" —
+        // browse is scoped by libraryId; forcing "movie" hid every item.
+        assertNull(tvCatalogMediaTypeFor("music"))
+        assertNull(tvCatalogMediaTypeFor("ebooks"))
     }
 }

@@ -32,8 +32,15 @@ fun Iterable<ResolvedSection>.visibleOnTv(): List<ResolvedSection> =
         section.takeIf { visibleItems.isNotEmpty() }?.copy(items = visibleItems)
     }
 
-fun tvCatalogMediaTypeFor(type: String): String = when (type.lowercase()) {
+/**
+ * Catalog `mediaType` to request when browsing a library of [type]. Returns
+ * null for types that don't map to a known catalog media type (e.g. music/
+ * audio) so the browse is scoped by `libraryId` alone instead of being wrongly
+ * forced to "movie" — which previously hid every item in a music library.
+ */
+fun tvCatalogMediaTypeFor(type: String): String? = when (type.lowercase()) {
+    "movie", "movies" -> "movie"
     "series", "shows", "tv" -> "series"
     "audiobook", "audiobooks" -> "audiobook"
-    else -> "movie"
+    else -> null
 }
