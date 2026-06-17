@@ -92,8 +92,13 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 ## Progress log
 - 2026-06-17: audit complete (Codex + Claude). Plan created. Starting Phase 1.
 - 2026-06-17: DONE + committed (no push): P1 (17c7ca6), P2.1 (fd8ba79), P2.2 (08b1b09),
-  P2.4 (a749aff), P6.14 (346aafc), P6.11 (1b3ba35). P1.3/P6.6 assessed [~]. P2.3/P2.5 deferred ⚠device.
-- **RESUME HERE (autonomous):** remaining unchecked items, suggested order (bank safe first):
+  P2.4 (a749aff), P6.14 (346aafc), P6.11 (1b3ba35), P6.13 (97c4758), P6.2/P6.3 (7524f52),
+  + HUD Video-pane scroll fix. P1.3/P6.6 assessed [~]. P2.3/P2.5 deferred ⚠device.
+  Player launches clean on Shield after all player changes.
+- **RESUME HERE (autonomous):** P6.13 + P6.2/P6.3 are now DONE. Remaining unchecked, suggested order:
+  - Next: P6.7 version-picker keep-all-files, P6.1 aspect Fit/Fill/Stretch, P6.10 home hero Play/Resume,
+    P6.8 direct episode play, P6.9 series WT, P6.4 next-episode prompt, P6.5 media-info sheet, P6.12 theme,
+    P6.15 server rename (needs TV text dialog), P6.16 admin session message (text dialog).
   1. P6.13 default audio language (TV settings) — CONFIRMED contained: audio-language is a LOCAL shared setting
      (`playerSettingsStore.audioLanguageFlow` / `setAudioLanguage`, android-shared), NOT a profile/server field.
      Mirror mobile SettingsViewModel (audioLanguageLabel/audioLanguageWireValue) — add a picker to TV settings.
