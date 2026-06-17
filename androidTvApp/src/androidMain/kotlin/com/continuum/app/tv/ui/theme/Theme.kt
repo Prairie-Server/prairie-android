@@ -39,6 +39,13 @@ private val ContinuumTvDarkColorScheme = darkColorScheme(
     scrim = Scrim,
 )
 
+/**
+ * Dedicated radius for the squared control kit (pills + toggles). Mirrors the
+ * Apple tvOS `ContinuumTheme.smallCornerRadius` (8pt). Intentionally distinct
+ * from the [Shapes.small] (12.dp) token — these controls render tighter corners.
+ */
+val TvControlCorner = 8.dp
+
 // tvOS corner radii: 8 / 12 / 18.
 private val ContinuumTvShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
