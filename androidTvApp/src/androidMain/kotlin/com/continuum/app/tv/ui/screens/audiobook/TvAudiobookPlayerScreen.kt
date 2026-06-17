@@ -61,7 +61,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 
-private enum class AudiobookPanel { None, Chapters, Speed, Sleep, Skip }
+private enum class AudiobookPanel { None, Chapters, Speed, Sleep, Skip, Bookmarks }
 
 /**
  * 10-foot, D-pad audiobook player for Android TV. A thin focus/layout view over
@@ -286,6 +286,10 @@ fun TvAudiobookPlayerScreen(
                                 label = "Sleep",
                                 onClick = { activePanel = AudiobookPanel.Sleep },
                             )
+                            TvAudiobookChip(
+                                label = "Bookmarks",
+                                onClick = { activePanel = AudiobookPanel.Bookmarks },
+                            )
                             if (hasChapters) {
                                 TvAudiobookChip(
                                     label = "Chapters",
@@ -325,6 +329,18 @@ fun TvAudiobookPlayerScreen(
                 TvAudiobookSleepPanel(
                     currentChoice = sleepChoice,
                     onSelectSleep = { viewModel.applySleepTimer(it); activePanel = AudiobookPanel.None },
+                )
+            }
+            AudiobookPanel.Bookmarks -> {
+                val bookmarks by viewModel.bookmarks.collectAsState()
+                TvAudiobookBookmarksPanel(
+                    bookmarks = bookmarks,
+                    onAddCurrent = { viewModel.addBookmark() },
+                    onJumpTo = { bookmark ->
+                        viewModel.jumpToBookmark(bookmark)
+                        activePanel = AudiobookPanel.None
+                    },
+                    onDelete = { viewModel.removeBookmark(it.id) },
                 )
             }
             AudiobookPanel.None -> Unit
