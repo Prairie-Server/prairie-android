@@ -57,7 +57,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [ ] **P5.4 Collection detail rename/delete (TV)** — top-bar actions when manageable.
 
 ## Phase 6 — MEDIUM batch
-- [ ] **P6.1 Aspect options (TV)** — Fit/Fill/Stretch (+ persist). Mobile: AspectRow.
+- [x] **P6.1 Aspect options (TV)** — added Stretch (RESIZE_MODE_FILL) to VideoFillMode so the fill toggle now offers Letterbox/Zoom/Stretch (mobile Fit/Fill/Stretch). Persistence still session-only (separate gap).
 - [x] **P6.2 In-player Auto-skip-intro toggle (TV)** — On/Off in HUD Video pane (onSetAutoSkipIntro).
 - [x] **P6.3 In-player Auto-play-next toggle (TV)** — On/Off in HUD Video pane (onSetAutoPlayNext).
 - [ ] **P6.4 Next-Episode prompt overlay (TV)**.

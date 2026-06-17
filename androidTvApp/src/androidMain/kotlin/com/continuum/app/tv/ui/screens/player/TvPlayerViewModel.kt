@@ -88,6 +88,8 @@ enum class VideoFillMode {
     Fit,
     /** Zoom: preserve aspect ratio, fill screen, may crop edges. */
     Zoom,
+    /** Stretch: fill screen ignoring aspect ratio (matches phone "Stretch"). */
+    Stretch,
 }
 
 data class TvPlayerLaunchArgs(

@@ -494,6 +494,7 @@ private fun HudVideoPane(
                     label = when (mode) {
                         VideoFillMode.Fit -> "Letterbox"
                         VideoFillMode.Zoom -> "Zoom (crop)"
+                        VideoFillMode.Stretch -> "Stretch"
                     },
                     selected = fillMode == mode,
                     onClick = { onFillModeChanged(mode) },

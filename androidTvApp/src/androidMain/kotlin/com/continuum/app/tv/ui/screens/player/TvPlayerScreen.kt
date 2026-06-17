@@ -736,6 +736,7 @@ fun TvPlayerScreen(
                             view.resizeMode = when (state.videoFillMode) {
                                 VideoFillMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                                 VideoFillMode.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                VideoFillMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                             }
                         },
                     )
