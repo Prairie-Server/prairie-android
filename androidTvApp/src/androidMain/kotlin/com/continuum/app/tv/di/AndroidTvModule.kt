@@ -322,7 +322,7 @@ val androidTvModule = module {
             title = params.get(),
         )
     }
-    viewModel { TvSearchViewModel(get()) }
+    viewModel { TvSearchViewModel(get(), get()) }
     viewModel { params ->
         TvItemDetailViewModel(
             catalogRepository = get(),

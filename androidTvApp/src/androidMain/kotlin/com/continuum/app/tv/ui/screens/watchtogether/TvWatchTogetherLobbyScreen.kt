@@ -52,6 +52,7 @@ import com.continuum.app.model.watchtogether.RoomSelectionMode
 import com.continuum.app.model.watchtogether.RoomSnapshot
 import com.continuum.app.model.watchtogether.Suggestion
 import com.continuum.app.tv.ui.navigation.TvRoute
+import com.continuum.app.tv.ui.screens.auth.QrCodePanel
 import com.continuum.app.tv.ui.screens.player.TvDialogCyclerRow
 import com.continuum.app.tv.ui.theme.DarkBackground
 import com.continuum.app.tv.ui.theme.FocusedContainer
@@ -212,6 +213,24 @@ fun TvWatchTogetherLobbyScreen(
                         ),
                         color = Color.White,
                     )
+                    // Scannable invite: a guest can point their phone camera at
+                    // the QR to read the join code instead of typing it. (TVs
+                    // have no share targets, so a QR is the parity equivalent of
+                    // the phone's share-code action.) Nested Column so the parent
+                    // 20dp spacing doesn't balloon around the QR + caption.
+                    if (snapshot.code.isNotBlank()) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            QrCodePanel(content = snapshot.code, size = 140.dp)
+                            Text(
+                                text = "Scan to get the code",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.5f),
+                            )
+                        }
+                    }
                     // Selection mode is fixed at room creation — shown read-only.
                     TvDialogCyclerRow(
                         title = "Selection mode",

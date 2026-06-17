@@ -19,7 +19,10 @@ import kotlinx.coroutines.launch
 enum class TvBrowseSortOption(val label: String, val wireValue: String) {
     DateAdded("Date Added", "added_at"),
     Title("Title", "title"),
-    ReleaseDate("Release Date", "release_date"),
+    // Server sorts release date by "year" (matches the phone + the person
+    // filmography endpoint); "release_date" was unsupported and silently
+    // fell back to the default order.
+    ReleaseDate("Release Year", "year"),
     Rating("Rating", "rating_imdb");
 
     companion object {

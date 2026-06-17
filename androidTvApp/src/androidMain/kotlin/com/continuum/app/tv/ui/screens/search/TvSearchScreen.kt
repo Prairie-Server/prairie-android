@@ -114,6 +114,7 @@ fun TvSearchScreen(
                 SearchStage(
                     query = state.query,
                     mediaType = state.mediaType,
+                    availableMediaTypes = state.availableMediaTypes,
                     resultStatus = searchStatusText(
                         query = state.query,
                         total = state.total,
@@ -157,6 +158,7 @@ fun TvSearchScreen(
 private fun SearchStage(
     query: String,
     mediaType: TvSearchMediaType,
+    availableMediaTypes: List<TvSearchMediaType>,
     resultStatus: String?,
     hasResults: Boolean,
     searchFieldFocusRequester: FocusRequester,
@@ -170,7 +172,7 @@ private fun SearchStage(
     val startPadding = tvPageStartPadding(expandedGap = Spacing.md)
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val mediaTypes = remember { TvSearchMediaType.values().toList() }
+    val mediaTypes = availableMediaTypes
 
     Column(
         modifier = Modifier

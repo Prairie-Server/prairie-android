@@ -55,6 +55,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun TvHomeScreen(
     onItemClick: (contentId: String) -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit = { _, _, _ -> },
+    onSeeAll: () -> Unit = {},
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
     viewModel: HomeViewModel = koinViewModel(),
@@ -78,6 +79,7 @@ fun TvHomeScreen(
             upcomingItems = upcomingItems,
             onItemClick = onItemClick,
             onPlayItem = onPlayItem,
+            onSeeAll = onSeeAll,
             onInitialContentFocus = onInitialContentFocus,
             focusRequest = focusRequest,
             onSetWatched = viewModel::setWatched,
@@ -94,6 +96,7 @@ private fun TvHomeContent(
     upcomingItems: List<SectionItem> = emptyList(),
     onItemClick: (String) -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit = { _, _, _ -> },
+    onSeeAll: () -> Unit = {},
     onInitialContentFocus: () -> Unit,
     focusRequest: Int,
     onSetWatched: (String, Boolean) -> Unit = { _, _ -> },
@@ -205,6 +208,9 @@ private fun TvHomeContent(
                         title = section.title,
                         items = section.items,
                         onItemClick = onItemClick,
+                        // "See all" opens the global catalog browse (matches the
+                        // phone, which routes every section's See All to Browse).
+                        onSeeAllClick = onSeeAll,
                         showProgress = isProgressRow,
                         style = if (isProgressRow) TvRowStyle.Backdrop else TvRowStyle.Poster,
                         startPadding = Spacing.safeArea,

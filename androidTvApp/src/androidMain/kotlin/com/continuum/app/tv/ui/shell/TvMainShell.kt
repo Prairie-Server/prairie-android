@@ -379,6 +379,10 @@ fun TvMainShell(
                     TvHomeScreen(
                         onItemClick = onOpenItemDetail,
                         onPlayItem = onPlayItem,
+                        onSeeAll = {
+                            navigateToSecondary(TvMainRoute.Browse.route)
+                            moveFocusToContent(TvMainRoute.Browse.route)
+                        },
                         onInitialContentFocus = { profileMenuOpen = false },
                         focusRequest = contentFocusRequest,
                     )
@@ -387,6 +391,10 @@ fun TvMainShell(
                     TvHomeScreen(
                         onItemClick = onOpenItemDetail,
                         onPlayItem = onPlayItem,
+                        onSeeAll = {
+                            navigateToSecondary(TvMainRoute.Browse.route)
+                            moveFocusToContent(TvMainRoute.Browse.route)
+                        },
                         onInitialContentFocus = { profileMenuOpen = false },
                         focusRequest = contentFocusRequest,
                     )

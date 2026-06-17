@@ -27,12 +27,14 @@ enum class TvLibraryTab(val label: String) {
 enum class TvLibrarySortOption(val label: String, val wireValue: String) {
     Title("Title", "title"),
     DateAdded("Date Added", "added_at"),
-    ReleaseDate("Release Date", "release_date"),
+    // Server expects "year" for release-date sort (matches phone); the old
+    // "release_date" value was unsupported.
+    ReleaseDate("Release Year", "year"),
     Rating("Rating", "rating_imdb");
 
     companion object {
         fun fromWire(value: String): TvLibrarySortOption =
-            entries.firstOrNull { it.wireValue == value } ?: Title
+            entries.firstOrNull { it.wireValue == value } ?: DateAdded
     }
 }
 
