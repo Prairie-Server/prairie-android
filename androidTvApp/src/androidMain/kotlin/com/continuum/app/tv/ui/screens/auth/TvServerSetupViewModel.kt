@@ -15,14 +15,34 @@ data class TvServerSetupUiState(
     val serverUrl: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
-    val serverReady: Boolean = false,
+    /** Destination after a successful server probe; consumed by the screen. */
+    val navigateTo: TvServerSetupDestination? = null,
 )
 
 /**
- * TV variant of the phone app's ServerSetupViewModel, simplified for Phase 1.
+ * Where the URL probe lands the user. Mirrors the phone's
+ * `ServerSetupDestination` so the TV flow matches the gold-standard logic:
  *
- * Only handles the "already set up" path. First-time-server setup (admin creation)
- * is not part of the TV app — TVs join existing servers, not bootstrap them.
+ *  - [Setup]   the server has no admin yet → first-admin creation form.
+ *  - [Login]   the server is ready → sign-in. `signupEnabled` decides whether
+ *              the login screen offers a "Create account" affordance.
+ */
+sealed class TvServerSetupDestination {
+    data object Setup : TvServerSetupDestination()
+    data class Login(val signupEnabled: Boolean) : TvServerSetupDestination()
+}
+
+/**
+ * TV variant of the phone app's `ServerSetupViewModel`.
+ *
+ * Probes the entered server and routes to the matching flow:
+ *  1. needs setup → first-admin creation ([TvSetupScreen]).
+ *  2. set up → login ([TvLoginScreen]); signup availability is forwarded so
+ *     the login screen can surface the invite-code signup ([TvSignupScreen]).
+ *
+ * Parity note: earlier TV builds intentionally dead-ended un-set-up servers
+ * ("complete setup on a phone first"). That restriction is lifted — a TV can
+ * now bootstrap a fresh server and join via invite, matching the phone.
  */
 class TvServerSetupViewModel(
     private val authRepository: AuthRepository,
@@ -65,19 +85,20 @@ class TvServerSetupViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
+            // Save the URL so all subsequent API calls target this server.
             authRepository.setServerUrl(normalized)
 
+            // Step 1: does the server need first-time setup (no admin yet)?
             when (val result = authRepository.getSetupStatus()) {
                 is ApiResult.Success -> {
                     if (result.data.needsSetup) {
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
-                                error = "This server is not set up yet. Complete setup on a phone or web browser first.",
+                                navigateTo = TvServerSetupDestination.Setup,
                             )
                         }
-                    } else {
-                        _uiState.update { it.copy(isLoading = false, serverReady = true) }
+                        return@launch
                     }
                 }
                 is ApiResult.Error -> {
@@ -87,6 +108,7 @@ class TvServerSetupViewModel(
                             error = "Could not reach server: ${result.message}",
                         )
                     }
+                    return@launch
                 }
                 is ApiResult.NetworkError -> {
                     _uiState.update {
@@ -95,12 +117,26 @@ class TvServerSetupViewModel(
                             error = "Network error. Check the URL and try again.",
                         )
                     }
+                    return@launch
                 }
+            }
+
+            // Step 2: server is set up — check whether public signup is enabled.
+            val signupEnabled = when (val signupResult = authRepository.getSignupStatus()) {
+                is ApiResult.Success -> signupResult.data.enabled
+                else -> false // If we can't determine, default to no signup.
+            }
+
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    navigateTo = TvServerSetupDestination.Login(signupEnabled = signupEnabled),
+                )
             }
         }
     }
 
     fun onNavigationConsumed() {
-        _uiState.update { it.copy(serverReady = false) }
+        _uiState.update { it.copy(navigateTo = null) }
     }
 }

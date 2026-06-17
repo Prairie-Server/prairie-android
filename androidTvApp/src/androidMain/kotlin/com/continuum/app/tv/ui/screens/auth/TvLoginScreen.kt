@@ -27,6 +27,7 @@ import androidx.compose.ui.focus.onFocusEvent
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
@@ -71,6 +72,8 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun TvLoginScreen(
     onLoginSuccess: () -> Unit,
+    onCreateAccount: () -> Unit = {},
+    signupEnabled: Boolean = false,
     viewModel: TvLoginViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -122,6 +125,8 @@ fun TvLoginScreen(
                     onUsernameChanged = viewModel::onUsernameChanged,
                     onPasswordChanged = viewModel::onPasswordChanged,
                     onLoginClick = viewModel::onLoginClick,
+                    signupEnabled = signupEnabled,
+                    onCreateAccount = onCreateAccount,
                     scope = scope,
                     modifier = Modifier.width(620.dp),
                 )
@@ -165,6 +170,8 @@ private fun CredentialFormCard(
     onUsernameChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
     onLoginClick: () -> Unit,
+    signupEnabled: Boolean,
+    onCreateAccount: () -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
@@ -265,6 +272,26 @@ private fun CredentialFormCard(
                 horizontalPaddingOverride = 38.dp,
                 labelStyle = TvLoginTextStyles.Button,
                 onClick = onLoginClick,
+            )
+        }
+
+        // Surfaced only when the server reports public signup is enabled. The
+        // ServerSetup probe forwards that flag through the Login route so this
+        // affordance never appears on signup-disabled servers.
+        if (signupEnabled) {
+            Text(
+                text = "Don't have an account yet?",
+                style = TvLoginTextStyles.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TvHeroActionPill(
+                label = "Create Account",
+                icon = Icons.Default.AccountCircle,
+                variant = TvPillVariant.Hollow,
+                heightOverride = 56.dp,
+                horizontalPaddingOverride = 32.dp,
+                labelStyle = TvLoginTextStyles.Button,
+                onClick = onCreateAccount,
             )
         }
     }

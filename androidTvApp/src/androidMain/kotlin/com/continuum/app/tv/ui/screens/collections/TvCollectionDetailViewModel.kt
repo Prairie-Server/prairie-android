@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CollectionRepository
+import com.continuum.app.tv.ui.util.visibleOnTv
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +36,11 @@ class TvCollectionDetailViewModel(
 
     private val pageSize = 40
 
+    // Raw (pre-visibleOnTv-filter) loaded count = the next-page server offset.
+    // Using filtered items.size would skip/duplicate when a page has hidden
+    // (ebook) entries.
+    private var rawLoaded = 0
+
     init {
         load(reset = true)
     }
@@ -48,19 +54,22 @@ class TvCollectionDetailViewModel(
     fun retry() = load(reset = true)
 
     private fun load(reset: Boolean) {
+        if (reset) rawLoaded = 0
         viewModelScope.launch {
             val state = _uiState.value
-            val offset = if (reset) 0 else state.items.size
+            val offset = if (reset) 0 else rawLoaded
             _uiState.update {
                 if (reset) it.copy(isLoading = true, error = null)
                 else it.copy(isLoadingMore = true)
             }
             when (val r = collectionRepository.getItems(collectionId, offset, pageSize)) {
                 is ApiResult.Success -> _uiState.update {
+                    rawLoaded = if (reset) r.data.items.size else rawLoaded + r.data.items.size
+                    val visible = r.data.items.visibleOnTv()
                     it.copy(
                         isLoading = false,
                         isLoadingMore = false,
-                        items = if (reset) r.data.items else it.items + r.data.items,
+                        items = if (reset) visible else it.items + visible,
                         hasMore = r.data.hasMore,
                         total = r.data.total,
                         error = null,

@@ -16,6 +16,10 @@ import com.continuum.app.tv.ui.shell.TvMainShell
 import com.continuum.app.tv.ui.screens.audiobook.TvAudiobookPlayerScreen
 import com.continuum.app.tv.ui.screens.auth.TvLoginScreen
 import com.continuum.app.tv.ui.screens.auth.TvServerSetupScreen
+import com.continuum.app.tv.ui.screens.auth.TvSetupScreen
+import com.continuum.app.tv.ui.screens.auth.TvSignupScreen
+import com.continuum.app.tv.ui.screens.profiles.TvCreateProfileScreen
+import com.continuum.app.tv.ui.screens.profiles.TvEditProfileScreen
 import com.continuum.app.tv.ui.screens.collections.TvCollectionDetailScreen
 import com.continuum.app.tv.ui.screens.detail.TvItemDetailScreen
 import com.continuum.app.tv.ui.screens.people.TvPersonDetailScreen
@@ -81,7 +85,7 @@ fun TvAppNavigation(
     // preserved so they don't have to re-enter the URL).
     LaunchedEffect(Unit) {
         tokenManager.sessionExpired.collect {
-            navController.navigate(TvRoute.Login.route) {
+            navController.navigate(TvRoute.Login().route) {
                 // Clear the entire back stack so the user can't press Back
                 // to return to a screen that has no credentials to render.
                 popUpTo(0) { inclusive = true }
@@ -97,11 +101,33 @@ fun TvAppNavigation(
     ) {
         composable(TvRoute.ServerSetup.route) {
             TvServerSetupScreen(
-                onContinueToLogin = {
-                    navController.navigate(TvRoute.Login.route) {
+                onContinueToLogin = { signupEnabled ->
+                    navController.navigate(TvRoute.Login(signupEnabled).route) {
                         popUpTo(TvRoute.ServerSetup.route) { inclusive = true }
                     }
                 },
+                onNeedsSetup = { navController.navigate(TvRoute.Setup.route) },
+            )
+        }
+
+        composable(TvRoute.Setup.route) {
+            TvSetupScreen(
+                onSetupComplete = {
+                    navController.navigate(TvRoute.ProfileSelection.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(TvRoute.Signup.route) {
+            TvSignupScreen(
+                onSignupComplete = {
+                    navController.navigate(TvRoute.ProfileSelection.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onBackToLogin = { navController.popBackStack() },
             )
         }
 
@@ -118,7 +144,7 @@ fun TvAppNavigation(
                         TvServerSwitchDestination.Home -> TvRoute.Main.route
                         TvServerSwitchDestination.ProfileSelection ->
                             TvRoute.ProfileSelection.route
-                        TvServerSwitchDestination.Login -> TvRoute.Login.route
+                        TvServerSwitchDestination.Login -> TvRoute.Login().route
                     }
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
@@ -129,11 +155,22 @@ fun TvAppNavigation(
             )
         }
 
-        composable(TvRoute.Login.route) {
+        composable(
+            route = TvRoute.Login.ROUTE,
+            arguments = listOf(
+                navArgument(TvRoute.Login.ARG_SIGNUP_ENABLED) {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
+        ) { backStack ->
+            val signupEnabled = backStack.arguments?.getBoolean(TvRoute.Login.ARG_SIGNUP_ENABLED) ?: false
             TvLoginScreen(
+                signupEnabled = signupEnabled,
+                onCreateAccount = { navController.navigate(TvRoute.Signup.route) },
                 onLoginSuccess = {
                     navController.navigate(TvRoute.ProfileSelection.route) {
-                        popUpTo(TvRoute.Login.route) { inclusive = true }
+                        popUpTo(TvRoute.Login.ROUTE) { inclusive = true }
                     }
                     // Seed Watch Next now and schedule periodic refresh; the user has
                     // just authenticated so /api/v1/home/sections will return their
@@ -156,6 +193,31 @@ fun TvAppNavigation(
                     watchNextSeeder.seedNow()
                     watchNextSeeder.enqueuePeriodic()
                 },
+                onAddProfile = { navController.navigate(TvRoute.CreateProfile.route) },
+                onEditProfile = { profileId ->
+                    navController.navigate(TvRoute.EditProfile(profileId).route)
+                },
+            )
+        }
+
+        composable(TvRoute.CreateProfile.route) {
+            TvCreateProfileScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onProfileCreated = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = TvRoute.EditProfile.ROUTE,
+            arguments = listOf(
+                navArgument(TvRoute.EditProfile.ARG_PROFILE_ID) { type = NavType.StringType },
+            ),
+        ) { backStack ->
+            val profileId = backStack.arguments?.getString(TvRoute.EditProfile.ARG_PROFILE_ID)
+                ?: return@composable
+            TvEditProfileScreen(
+                profileId = profileId,
+                onSaved = { navController.popBackStack() },
             )
         }
 

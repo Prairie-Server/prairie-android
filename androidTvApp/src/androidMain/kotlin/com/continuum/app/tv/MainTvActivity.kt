@@ -148,7 +148,7 @@ class MainTvActivity : ComponentActivity() {
             ?: return TvRoute.ServerSetup.route
 
         val accessToken = tokenManager.getAccessToken()
-        if (accessToken.isNullOrBlank()) return TvRoute.Login.route
+        if (accessToken.isNullOrBlank()) return TvRoute.Login().route
 
         val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
         if (profileId.isNullOrBlank()) return TvRoute.ProfileSelection.route

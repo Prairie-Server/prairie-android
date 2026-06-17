@@ -66,7 +66,8 @@ import org.koin.compose.viewmodel.koinViewModel
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvServerSetupScreen(
-    onContinueToLogin: () -> Unit,
+    onContinueToLogin: (signupEnabled: Boolean) -> Unit,
+    onNeedsSetup: () -> Unit,
     viewModel: TvServerSetupViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -75,10 +76,17 @@ fun TvServerSetupScreen(
     val connectBringIntoView = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(state.serverReady) {
-        if (state.serverReady) {
-            viewModel.onNavigationConsumed()
-            onContinueToLogin()
+    LaunchedEffect(state.navigateTo) {
+        when (val dest = state.navigateTo) {
+            is TvServerSetupDestination.Setup -> {
+                viewModel.onNavigationConsumed()
+                onNeedsSetup()
+            }
+            is TvServerSetupDestination.Login -> {
+                viewModel.onNavigationConsumed()
+                onContinueToLogin(dest.signupEnabled)
+            }
+            null -> Unit
         }
     }
 

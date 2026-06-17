@@ -12,12 +12,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -34,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.common.ui.components.ThumbhashImage
@@ -43,8 +51,12 @@ import com.continuum.app.common.ui.components.rememberProfileServerUrl
 import com.continuum.app.common.ui.components.resolveAvatarUrl
 import com.continuum.app.model.profile.Profile
 import com.continuum.app.tv.ui.components.TvAnimatedMeshBackground
+import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvErrorScreen
+import com.continuum.app.tv.ui.components.TvHeroActionPill
 import com.continuum.app.tv.ui.components.TvLoadingScreen
+import com.continuum.app.tv.ui.components.TvOptionDialog
+import com.continuum.app.tv.ui.components.TvPillVariant
 import com.continuum.app.tv.ui.components.TvPinEntryDialog
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.theme.continuumCardDefaults
@@ -54,9 +66,22 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun TvProfileSelectionScreen(
     onProfileSelected: () -> Unit,
+    onAddProfile: () -> Unit = {},
+    onEditProfile: (String) -> Unit = {},
     viewModel: TvProfileSelectionViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Reload on resume so a profile created/edited on a pushed screen is
+    // reflected when we return (the VM otherwise only loads in init).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.loadProfiles()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(state.selectedProfileId) {
         if (state.selectedProfileId != null) {
@@ -87,13 +112,17 @@ fun TvProfileSelectionScreen(
                     )
                     Spacer(modifier = Modifier.height(Spacing.sm))
                     Text(
-                        text = "Who's watching?",
+                        text = if (state.isManageMode) "Manage profiles" else "Who's watching?",
                         style = MaterialTheme.typography.displayMedium,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     Text(
-                        text = "Choose a profile to continue.",
+                        text = if (state.isManageMode) {
+                            "Select a profile to edit, or remove it."
+                        } else {
+                            "Choose a profile to continue."
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -103,8 +132,6 @@ fun TvProfileSelectionScreen(
                     val firstCardFocus = remember { FocusRequester() }
                     LaunchedEffect(state.profiles) {
                         if (state.profiles.isNotEmpty()) {
-                            // Grab D-pad focus on the first card so the user can immediately
-                            // press OK without having to "find" where focus is.
                             runCatching { firstCardFocus.requestFocus() }
                         }
                     }
@@ -115,7 +142,15 @@ fun TvProfileSelectionScreen(
                         itemsIndexed(state.profiles, key = { _, p -> p.id }) { index, profile ->
                             TvProfileCard(
                                 profile = profile,
-                                onClick = { viewModel.onProfileSelected(profile) },
+                                manageMode = state.isManageMode,
+                                onClick = {
+                                    if (state.isManageMode) {
+                                        onEditProfile(profile.id)
+                                    } else {
+                                        viewModel.onProfileSelected(profile)
+                                    }
+                                },
+                                onDelete = { viewModel.requestDelete(profile) },
                                 modifier = if (index == 0) {
                                     Modifier.focusRequester(firstCardFocus)
                                 } else {
@@ -123,7 +158,21 @@ fun TvProfileSelectionScreen(
                                 },
                             )
                         }
+                        // "Add profile" tile always trails the list.
+                        item(key = "__add_profile__") {
+                            TvAddProfileCard(onClick = onAddProfile)
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(Spacing.xxl))
+
+                    // Manage / Done toggle.
+                    TvHeroActionPill(
+                        label = if (state.isManageMode) "Done" else "Manage Profiles",
+                        icon = Icons.Filled.Edit,
+                        variant = TvPillVariant.Hollow,
+                        onClick = viewModel::toggleManageMode,
+                    )
 
                     if (state.error != null) {
                         Spacer(modifier = Modifier.height(24.dp))
@@ -149,13 +198,37 @@ fun TvProfileSelectionScreen(
             onDismiss = { viewModel.onPinDialogDismissed() },
         )
     }
+
+    // Delete confirmation — modeled as a two-option dialog (TV-native).
+    val deleteCandidate = state.deleteCandidate
+    if (deleteCandidate != null) {
+        TvOptionDialog(
+            title = "Delete ${deleteCandidate.name}?",
+            options = listOf(
+                TvDialogOption(
+                    key = "delete",
+                    title = "Delete profile",
+                    subtitle = "This cannot be undone.",
+                    onClick = { viewModel.confirmDelete() },
+                ),
+                TvDialogOption(
+                    key = "cancel",
+                    title = "Cancel",
+                    onClick = { viewModel.dismissDelete() },
+                ),
+            ),
+            onDismiss = { viewModel.dismissDelete() },
+        )
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvProfileCard(
     profile: Profile,
+    manageMode: Boolean,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val serverUrl = rememberProfileServerUrl()
@@ -222,11 +295,81 @@ private fun TvProfileCard(
                         color = Color.White.copy(alpha = 0.94f),
                     )
                 }
+
+                if (manageMode) {
+                    // Pencil badge signals the card edits instead of selects.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(10.dp)
+                            .size(34.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(17.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = "Edit",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = profile.name,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.88f),
+        )
+        if (manageMode) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TvHeroActionPill(
+                label = "Delete",
+                icon = Icons.Filled.Delete,
+                variant = TvPillVariant.Ghost,
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvAddProfileCard(onClick: () -> Unit) {
+    val shape = RoundedCornerShape(24.dp)
+    val cardFocus = continuumCardDefaults(shape = shape)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Card(
+            onClick = onClick,
+            shape = CardDefaults.shape(shape = shape),
+            scale = cardFocus.scale,
+            border = cardFocus.border,
+            glow = cardFocus.glow,
+            modifier = Modifier.size(180.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.18f),
+                        shape = shape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Add profile",
+                    tint = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(56.dp),
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "Add Profile",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.88f),
         )

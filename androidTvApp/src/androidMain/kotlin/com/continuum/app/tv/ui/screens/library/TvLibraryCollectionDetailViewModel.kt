@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.SectionRepository
+import com.continuum.app.tv.ui.util.visibleOnTv
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,7 +43,7 @@ class TvLibraryCollectionDetailViewModel(
                 is ApiResult.Success -> _uiState.update {
                     it.copy(
                         isLoading = false,
-                        items = result.data.items,
+                        items = result.data.items.visibleOnTv(),
                         error = null,
                     )
                 }

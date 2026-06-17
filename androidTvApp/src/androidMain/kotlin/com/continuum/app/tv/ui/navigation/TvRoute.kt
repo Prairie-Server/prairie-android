@@ -19,10 +19,34 @@ sealed class TvRoute(val route: String) {
     // --- Auth flow (no drawer) ---
     data object ServerSetup : TvRoute("server_setup")
     data object ServerList : TvRoute("server_list")
-    data object Login : TvRoute("login")
+
+    /** First-time server setup (first-admin creation) when the server isn't set up yet. */
+    data object Setup : TvRoute("server_first_setup")
+
+    /** Invite-code signup, reachable from Login when the server allows signups. */
+    data object Signup : TvRoute("signup")
+
+    data class Login(val signupEnabled: Boolean = false) :
+        TvRoute("login?signupEnabled=$signupEnabled") {
+        companion object {
+            const val ROUTE = "login?signupEnabled={signupEnabled}"
+            const val ARG_SIGNUP_ENABLED = "signupEnabled"
+        }
+    }
 
     // --- Profile selection (no drawer) ---
     data object ProfileSelection : TvRoute("profiles")
+
+    // --- Profile management (no drawer) ---
+    data object CreateProfile : TvRoute("profiles/create")
+
+    data class EditProfile(val profileId: String) :
+        TvRoute("profiles/edit/${profileId.routeEncode()}") {
+        companion object {
+            const val ROUTE = "profiles/edit/{profileId}"
+            const val ARG_PROFILE_ID = "profileId"
+        }
+    }
 
     // --- Main (drawer + nested nav: home, libraries, search, settings) ---
     data object Main : TvRoute("main")
@@ -182,6 +206,12 @@ sealed class TvMainRoute(val route: String) {
 
     /** Global cross-library catalog browse — opened from Settings. */
     data object Browse : TvMainRoute("main/browse")
+
+    /** Admin hub + sub-screens — opened from Settings when adminVisible. */
+    data object AdminHub : TvMainRoute("main/admin")
+    data object AdminDashboard : TvMainRoute("main/admin/dashboard")
+    data object AdminUsers : TvMainRoute("main/admin/users")
+    data object AdminSessions : TvMainRoute("main/admin/sessions")
 
 }
 

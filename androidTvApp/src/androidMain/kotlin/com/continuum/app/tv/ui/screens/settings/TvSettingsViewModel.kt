@@ -60,6 +60,7 @@ class TvSettingsViewModel(
         val subtitleMode: SubtitleMode = SubtitleMode.Auto,
         val subtitleLanguage: String = "",
         val subtitleSize: SubtitleSize = SubtitleSize.Medium,
+        val showForcedSubtitles: Boolean = true,
         val autoPlayNext: Boolean = true,
         val autoSkipIntro: Boolean = false,
         val autoSkipCredits: Boolean = false,
@@ -139,6 +140,7 @@ class TvSettingsViewModel(
                         it.copy(
                             subtitleMode = SubtitleMode.fromWire(profile.subtitleMode),
                             subtitleLanguage = profile.subtitleLanguage.orEmpty(),
+                            showForcedSubtitles = profile.showForcedSubtitles ?: true,
                         )
                     }
                 }
@@ -305,6 +307,12 @@ class TvSettingsViewModel(
         persistProfileSubtitleSettings(previousState)
     }
 
+    fun onShowForcedSubtitlesChanged(enabled: Boolean) {
+        val previousState = _uiState.value
+        _uiState.update { it.copy(showForcedSubtitles = enabled) }
+        persistProfileSubtitleSettings(previousState)
+    }
+
     fun onSubtitleSizeChanged(value: SubtitleSize) {
         viewModelScope.launch {
             val current = playerSettingsStore.subtitleAppearanceFlow.first()
@@ -383,6 +391,7 @@ class TvSettingsViewModel(
                     UpdateProfileRequest(
                         subtitleLanguage = state.subtitleLanguage.ifBlank { null },
                         subtitleMode = state.subtitleMode.wireValue,
+                        showForcedSubtitles = state.showForcedSubtitles,
                     )
                 )
             ) {
@@ -391,11 +400,13 @@ class TvSettingsViewModel(
                     _uiState.update { current ->
                         if (
                             current.subtitleLanguage == state.subtitleLanguage &&
-                            current.subtitleMode == state.subtitleMode
+                            current.subtitleMode == state.subtitleMode &&
+                            current.showForcedSubtitles == state.showForcedSubtitles
                         ) {
                             current.copy(
                                 subtitleLanguage = previousState.subtitleLanguage,
                                 subtitleMode = previousState.subtitleMode,
+                                showForcedSubtitles = previousState.showForcedSubtitles,
                             )
                         } else {
                             current

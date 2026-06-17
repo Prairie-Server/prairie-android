@@ -146,6 +146,7 @@ fun TvSettingsScreen(
                 onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
                 onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
                 onSubtitleSizeChanged = viewModel::onSubtitleSizeChanged,
+                onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
             )
         }
 
@@ -291,6 +292,7 @@ private fun SubtitleSection(
     onSubtitleModeChanged: (SubtitleMode) -> Unit,
     onSubtitleLanguageChanged: (String) -> Unit,
     onSubtitleSizeChanged: (SubtitleSize) -> Unit,
+    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionHeader(title = "Subtitles")
@@ -339,6 +341,12 @@ private fun SubtitleSection(
                 )
             }
         }
+
+        SettingsRowToggle(
+            label = "Forced subtitles",
+            checked = state.showForcedSubtitles,
+            onCheckedChange = onShowForcedSubtitlesChanged,
+        )
     }
 }
 

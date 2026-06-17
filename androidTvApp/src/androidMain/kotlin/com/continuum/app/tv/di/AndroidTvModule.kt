@@ -248,12 +248,23 @@ val androidTvModule = module {
 
     // Auth ViewModels
     viewModel { TvServerSetupViewModel(get()) }
+    viewModel { com.continuum.app.tv.ui.screens.auth.TvSetupViewModel(get()) }
+    viewModel { com.continuum.app.tv.ui.screens.auth.TvSignupViewModel(get()) }
     viewModel { TvLoginViewModel(get(), get(), get()) }
     viewModel { TvProfileSelectionViewModel(get()) }
+    viewModel { com.continuum.app.tv.ui.screens.profiles.TvCreateProfileViewModel(get()) }
+    viewModel { params ->
+        com.continuum.app.tv.ui.screens.profiles.TvEditProfileViewModel(
+            profileRepository = get(),
+            profileId = params.get(),
+        )
+    }
     viewModel { TvServerListViewModel(get(), get()) }
 
     // Admin ViewModels
     viewModel { AdminStatsViewModel(get()) }
+    viewModel { com.continuum.app.viewmodel.AdminUsersViewModel(get()) }
+    viewModel { com.continuum.app.tv.ui.screens.admin.TvAdminSessionsViewModel(get()) }
 
     // Content ViewModels
     viewModel { HomeViewModel(get(), get(), get(), get()) }

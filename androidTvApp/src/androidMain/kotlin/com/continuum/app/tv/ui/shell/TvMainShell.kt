@@ -67,6 +67,10 @@ import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.tv.ui.navigation.TvMainRoute
 import com.continuum.app.tv.ui.screens.notifications.TvInboxScreen
+import com.continuum.app.tv.ui.screens.admin.TvAdminHubScreen
+import com.continuum.app.tv.ui.screens.admin.TvAdminScreen
+import com.continuum.app.tv.ui.screens.admin.TvAdminSessionsScreen
+import com.continuum.app.tv.ui.screens.admin.TvAdminUsersScreen
 import com.continuum.app.tv.ui.screens.browse.TvBrowseScreen
 import com.continuum.app.tv.ui.screens.calendar.TvCalendarScreen
 import com.continuum.app.tv.ui.screens.collections.TvCollectionsScreen
@@ -419,6 +423,10 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.Requests.route)
                             moveFocusToContent(TvMainRoute.Requests.route)
                         },
+                        onNavigateToAdmin = {
+                            navigateToSecondary(TvMainRoute.AdminHub.route)
+                            moveFocusToContent(TvMainRoute.AdminHub.route)
+                        },
                         onSignedOut = onSignedOut,
                         onSwitchProfile = onSwitchProfile,
                         onInitialContentFocus = { profileMenuOpen = false },
@@ -445,6 +453,23 @@ fun TvMainShell(
                         onOpenItemDetail = onOpenItemDetail,
                         onInitialContentFocus = { profileMenuOpen = false },
                     )
+                }
+                composable(TvMainRoute.AdminHub.route) {
+                    TvAdminHubScreen(
+                        onOpenDashboard = { navigateToSecondary(TvMainRoute.AdminDashboard.route) },
+                        onOpenUsers = { navigateToSecondary(TvMainRoute.AdminUsers.route) },
+                        onOpenSessions = { navigateToSecondary(TvMainRoute.AdminSessions.route) },
+                        onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
+                    )
+                }
+                composable(TvMainRoute.AdminDashboard.route) {
+                    TvAdminScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
+                }
+                composable(TvMainRoute.AdminUsers.route) {
+                    TvAdminUsersScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
+                }
+                composable(TvMainRoute.AdminSessions.route) {
+                    TvAdminSessionsScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
                 }
             }
         }
