@@ -55,6 +55,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.common.player.AudiobookPlayerViewModel
 import com.continuum.app.common.player.ContinuumPlaybackService
+import com.continuum.app.common.player.SleepTimerChoice
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvPoster
 import com.google.common.util.concurrent.MoreExecutors
@@ -78,6 +79,7 @@ fun TvAudiobookPlayerScreen(
     val state by viewModel.uiState.collectAsState()
     val currentChapterIndex by viewModel.currentChapterIndex.collectAsState()
     val chapterCountLabel by viewModel.chapterCountLabel.collectAsState()
+    val sleepChoice by viewModel.sleepTimerChoice.collectAsState()
     val context = LocalContext.current
 
     var controller by remember { mutableStateOf<MediaController?>(null) }
@@ -283,7 +285,13 @@ fun TvAudiobookPlayerScreen(
                                 onClick = { activePanel = AudiobookPanel.Skip },
                             )
                             TvAudiobookChip(
-                                label = "Sleep",
+                                label = when {
+                                    state.sleepTimerMinutesLeft != null ->
+                                        "Sleep · ${state.sleepTimerMinutesLeft}m"
+                                    sleepChoice == SleepTimerChoice.EndOfChapter -> "Sleep · Chapter"
+                                    sleepChoice == SleepTimerChoice.EndOfBook -> "Sleep · Book"
+                                    else -> "Sleep"
+                                },
                                 onClick = { activePanel = AudiobookPanel.Sleep },
                             )
                             TvAudiobookChip(
@@ -324,13 +332,10 @@ fun TvAudiobookPlayerScreen(
                 onSelectSkipBack = { viewModel.setSkipBackSeconds(it) },
                 onSelectSkipForward = { viewModel.setSkipForwardSeconds(it) },
             )
-            AudiobookPanel.Sleep -> {
-                val sleepChoice by viewModel.sleepTimerChoice.collectAsState()
-                TvAudiobookSleepPanel(
-                    currentChoice = sleepChoice,
-                    onSelectSleep = { viewModel.applySleepTimer(it); activePanel = AudiobookPanel.None },
-                )
-            }
+            AudiobookPanel.Sleep -> TvAudiobookSleepPanel(
+                currentChoice = sleepChoice,
+                onSelectSleep = { viewModel.applySleepTimer(it); activePanel = AudiobookPanel.None },
+            )
             AudiobookPanel.Bookmarks -> {
                 val bookmarks by viewModel.bookmarks.collectAsState()
                 TvAudiobookBookmarksPanel(
