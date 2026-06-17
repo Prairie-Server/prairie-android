@@ -217,6 +217,12 @@ private fun AccountSection(
         SectionHeader(title = "Account")
         val username = state.user?.username ?: "—"
         SettingsRowInfo(label = "Signed in as", value = username)
+        state.user?.email?.takeIf { it.isNotBlank() }?.let {
+            SettingsRowInfo(label = "Email", value = it)
+        }
+        state.user?.role?.takeIf { it.isNotBlank() }?.let {
+            SettingsRowInfo(label = "Role", value = it.replaceFirstChar { c -> c.uppercase() })
+        }
         SettingsRowAction(
             label = "Switch profile",
             onClick = onSwitchProfile,

@@ -75,7 +75,7 @@ Legend: `[ ]` todo · `[x]` done (commit sha) · `[~]` partial · `[N/A]` won't-
 - [x] **P6.16 Admin session "Send message" (TV)** — "Send message" action in the session menu -> TvTextInputDialog -> control(Message, SessionControlRequest(message)).
 
 ## Phase 7 — LOW / polish
-- [ ] Combined audio+subtitle Tracks surface · subtitle provider warnings · WT room-indicator persistence · audiobook active-sleep-timer label + About/description · full genre tags in detail facts · Home/Library "See All" · Browse Release-Date naming · Browse Reset/Apply · Search media-type deep-link + library-derived filters · person bio scroll · WT copy/QR invite · Account email/role display · "Manage Servers" settings row · Library default sort.
+- [ ] Combined audio+subtitle Tracks surface · subtitle provider warnings · WT room-indicator persistence · audiobook active-sleep-timer label + About/description · full genre tags in detail facts · Home/Library "See All" · Browse Release-Date naming · Browse Reset/Apply · Search media-type deep-link + library-derived filters · person bio scroll · WT copy/QR invite · ~~Account email/role display~~ (done) · "Manage Servers" settings row · Library default sort.
 - [ ] **Audiobook bookmarks (TV)** — (HIGH-tagged in audit but audiobook-domain; sequence with Phase 7 unless prioritized).
 
 ---
