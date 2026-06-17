@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 
 class AutoPlayGuardTest {
     @Test fun gatesAfterThresholdRecordedAdvances() {
-        val guard = AutoPlayGuard(threshold = 3)
+        val guard = AutoPlayGuard(threshold = { 3 })
         guard.recordAutoAdvance() // 1
         guard.recordAutoAdvance() // 2
         assertFalse(guard.shouldGate())
@@ -21,7 +21,7 @@ class AutoPlayGuardTest {
      * prompt appears (i.e. the 4th is gated).
      */
     @Test fun vmSequenceAllowsThresholdAdvancesThenGates() {
-        val guard = AutoPlayGuard(threshold = 3)
+        val guard = AutoPlayGuard(threshold = { 3 })
         var advances = 0
         var gatedAt = -1
         repeat(6) { attempt ->
@@ -37,7 +37,7 @@ class AutoPlayGuardTest {
     }
 
     @Test fun userActionResetsCounter() {
-        val guard = AutoPlayGuard(threshold = 3)
+        val guard = AutoPlayGuard(threshold = { 3 })
         repeat(3) { guard.recordAutoAdvance() }
         assertTrue(guard.shouldGate())
         guard.recordUserAction()
@@ -45,7 +45,7 @@ class AutoPlayGuardTest {
     }
 
     @Test fun continueAfterPromptResetsAndAllowsMore() {
-        val guard = AutoPlayGuard(threshold = 3)
+        val guard = AutoPlayGuard(threshold = { 3 })
         repeat(3) { guard.recordAutoAdvance() }
         guard.recordUserAction() // user tapped "Continue"
         guard.recordAutoAdvance() // 1
@@ -53,14 +53,25 @@ class AutoPlayGuardTest {
     }
 
     @Test fun thresholdZeroNeverGates() {
-        val guard = AutoPlayGuard(threshold = 0)
+        val guard = AutoPlayGuard(threshold = { 0 })
         repeat(10) { guard.recordAutoAdvance() }
         assertFalse(guard.shouldGate())
     }
 
     @Test fun negativeThresholdNeverGates() {
-        val guard = AutoPlayGuard(threshold = -1)
+        val guard = AutoPlayGuard(threshold = { -1 })
         repeat(5) { guard.recordAutoAdvance() }
+        assertFalse(guard.shouldGate())
+    }
+
+    @Test fun thresholdIsReadLazilyOnEachCheck() {
+        // The provider can change between checks (the user edits the setting
+        // mid-session): gating must reflect the latest value.
+        var threshold = 3
+        val guard = AutoPlayGuard(threshold = { threshold })
+        repeat(3) { guard.recordAutoAdvance() }
+        assertTrue(guard.shouldGate())
+        threshold = 0 // user switched pass-out protection off
         assertFalse(guard.shouldGate())
     }
 }

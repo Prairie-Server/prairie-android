@@ -41,6 +41,22 @@ object PlaybackSettingsKeys {
      */
     const val DownloadsWifiOnly = "downloads.wifi_only"
 
+    /**
+     * Local-only per-profile setting: seconds to skip back when RESUMING a
+     * partially-watched item, so context is re-established. Default 7; 0 = off.
+     * Not server-registered, so it stays out of [DeviceSettings] (never pulled
+     * from / overwritten by the server cascade).
+     */
+    const val ResumeRewindSeconds = "player.resume_rewind_seconds"
+
+    /**
+     * Local-only per-profile setting: number of consecutive auto-advanced
+     * episodes allowed before the "Still watching?" prompt gates the next one
+     * (pass-out protection). Default 3; 0 = off (never prompt). Not
+     * server-registered → excluded from [DeviceSettings].
+     */
+    const val PassOutThreshold = "player.passout_threshold"
+
     val DeviceSettings = listOf(
         PreferredQuality,
         AudioLanguage,

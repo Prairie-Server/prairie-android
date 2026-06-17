@@ -11,7 +11,6 @@ import com.continuum.app.common.player.video.VideoPlaybackStarter
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.WatchDetail
-import com.continuum.app.model.playback.DefaultResumeRewindSeconds
 import com.continuum.app.model.playback.PlayMethod
 import com.continuum.app.model.playback.PlaybackSessionResponse
 import com.continuum.app.model.playback.applyResumeRewind
@@ -70,11 +69,13 @@ class MobileVideoPlaybackStarter(
             // rewound value drives BOTH the server seek and the player start, so
             // a transcode cut and the player position never disagree.
             val suppressRewind = request.suppressResumeRewind || request.roomId != null
+            // Per-profile setting (default 7; 0 = off). Read once per start.
+            val rewindSeconds = playerSettingsStore.resumeRewindSecondsFlow.first().toDouble()
             fun rewound(position: Double?): Double? = position?.let {
                 applyResumeRewind(
                     resolvedStartPosition = it,
                     isExplicitOverride = suppressRewind,
-                    rewindSeconds = DefaultResumeRewindSeconds,
+                    rewindSeconds = rewindSeconds,
                 )
             }
             val startRequestPosition = rewound(

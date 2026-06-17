@@ -18,10 +18,13 @@ package com.continuum.app.common.player
  * prompt appears before the 5th). A manual transport action (play/seek/next) or
  * tapping "Continue" calls [recordUserAction] and resets the streak.
  *
+ * The threshold is supplied lazily ([threshold]) so it always reflects the
+ * current per-profile "pass-out" setting without rebuilding the guard.
+ *
  * Framework-free and stateful — NOT thread-safe; confine to the player's main
  * scope (Dispatchers.Main).
  */
-class AutoPlayGuard(private val threshold: Int) {
+class AutoPlayGuard(private val threshold: () -> Int) {
     private var consecutiveAutoAdvances: Int = 0
 
     /** Record that an episode was auto-advanced (not user-chosen). */
@@ -38,5 +41,5 @@ class AutoPlayGuard(private val threshold: Int) {
      * True when the next auto-advance should be blocked by the prompt. Call
      * BEFORE [recordAutoAdvance] (see the class doc's required sequence).
      */
-    fun shouldGate(): Boolean = threshold > 0 && consecutiveAutoAdvances >= threshold
+    fun shouldGate(): Boolean = threshold().let { it > 0 && consecutiveAutoAdvances >= it }
 }

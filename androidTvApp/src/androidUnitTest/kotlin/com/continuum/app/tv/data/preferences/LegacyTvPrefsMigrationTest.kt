@@ -241,6 +241,8 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val subtitleSyncMsFlow = MutableStateFlow(0)
     override val nextUpPromptSecondsFlow = MutableStateFlow(30)
     override val sleepTimerDefaultMinutesFlow = MutableStateFlow(0)
+    override val resumeRewindSecondsFlow = MutableStateFlow(7)
+    override val passOutThresholdFlow = MutableStateFlow(3)
     override val preferredQualityFlow = MutableStateFlow("auto")
     override val audioLanguageFlow = MutableStateFlow("")
     override val videoGravityFlow = MutableStateFlow("fit")
@@ -280,6 +282,12 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     }
     override suspend fun setSleepTimerDefaultMinutes(value: Int) {
         setterCalls += "setSleepTimerDefaultMinutes"; sleepTimerDefaultMinutesFlow.value = value
+    }
+    override suspend fun setResumeRewindSeconds(value: Int) {
+        setterCalls += "setResumeRewindSeconds"; resumeRewindSecondsFlow.value = value
+    }
+    override suspend fun setPassOutThreshold(value: Int) {
+        setterCalls += "setPassOutThreshold"; passOutThresholdFlow.value = value
     }
     override suspend fun setPreferredQuality(value: String) {
         setterCalls += "setPreferredQuality"; preferredQualityFlow.value = value

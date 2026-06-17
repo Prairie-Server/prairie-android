@@ -252,10 +252,13 @@ class PlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     // ---- F2 pass-out protection ----
+    // Per-profile "Still watching?" threshold (default 3; 0 = off).
+    val passOutThreshold: StateFlow<Int> = playerSettingsStore.passOutThresholdFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 3)
     // The mobile player reloads in place (loadContent(nextContentId)), so the
     // same VM persists across episodes and the guard accumulates the streak.
-    // Threshold is fixed for now (no server key / UI), matching TV.
-    private val autoPlayGuard = AutoPlayGuard(threshold = 3)
+    // The guard reads the threshold lazily so a settings change applies live.
+    private val autoPlayGuard = AutoPlayGuard(threshold = { passOutThreshold.value })
     // Once-per-episode guard for the credits/ended trigger; reset on each load.
     private var autoAdvanceHandled = false
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow

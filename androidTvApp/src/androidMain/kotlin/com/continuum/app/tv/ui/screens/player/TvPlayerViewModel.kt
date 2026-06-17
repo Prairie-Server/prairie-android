@@ -117,8 +117,9 @@ data class TvPlayerLaunchArgs(
     /**
      * How many consecutive auto-advances led to this playback (0 = a manual
      * start). The player re-mounts per episode, so the pass-out streak rides
-     * the route instead of living in the VM. When it reaches PASSOUT_THRESHOLD,
-     * the next credits-reached shows "Still watching?" instead of auto-advancing.
+     * the route instead of living in the VM. When it reaches the pass-out
+     * threshold setting, the next credits-reached shows "Still watching?"
+     * instead of auto-advancing.
      */
     val autoAdvanceCount: Int = 0,
 )
@@ -289,10 +290,6 @@ class TvPlayerViewModel(
         private const val TAG = "TvPlayerViewModel"
         // Record a durable position roughly every 10s of content time.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
-        // Pass-out protection: after this many CONSECUTIVE auto-advances, prompt
-        // "Still watching?" instead of auto-advancing. (Fixed for now — no server
-        // key / UI yet, same as the resume-rewind constant.)
-        private const val PASSOUT_THRESHOLD = 3
     }
 
     private var lastRecordedKey: String? = null
@@ -520,6 +517,9 @@ class TvPlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val autoPlayNextEnabled: StateFlow<Boolean> = playerSettingsStore.autoPlayNextFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    // Per-profile "Still watching?" threshold (default 3; 0 = off).
+    val passOutThreshold: StateFlow<Int> = playerSettingsStore.passOutThresholdFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 3)
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
@@ -937,8 +937,8 @@ class TvPlayerViewModel(
     /**
      * Called by the screen when the credits point is reached (primary) or the
      * stream ends (fallback). Auto-advances to the next episode, or — once the
-     * consecutive-auto-advance streak hits [PASSOUT_THRESHOLD] — shows the
-     * "Still watching?" prompt instead. Once-per-item.
+     * consecutive-auto-advance streak hits the pass-out threshold setting —
+     * shows the "Still watching?" prompt instead. Once-per-item.
      */
     fun onApproachingEnd() {
         if (autoAdvanceHandled) return
@@ -949,7 +949,9 @@ class TvPlayerViewModel(
         val next = _uiState.value.nextEpisode ?: return
         if (!autoPlayNextEnabled.value) return
         autoAdvanceHandled = true
-        if (autoAdvanceCount >= PASSOUT_THRESHOLD) {
+        // Threshold 0 (or less) = off: never prompt, always advance.
+        val threshold = passOutThreshold.value
+        if (threshold > 0 && autoAdvanceCount >= threshold) {
             _uiState.update { it.copy(stillWatchingPrompt = true) }
         } else {
             _playNextRequests.tryEmit(PlayNextRequest(next.contentId, autoAdvanceCount + 1))

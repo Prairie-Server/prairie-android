@@ -169,6 +169,16 @@ class AndroidPlayerSettingsStore(
     override val sleepTimerDefaultMinutesFlow: Flow<Int> =
         profileScopedFlow(30) { p, s -> p.intFor(s, PlaybackSettingsKeys.SleepTimerDefaultMinutes, 30) }
 
+    override val resumeRewindSecondsFlow: Flow<Int> =
+        profileScopedFlow(DEFAULT_RESUME_REWIND_SECONDS) { p, s ->
+            p.intFor(s, PlaybackSettingsKeys.ResumeRewindSeconds, DEFAULT_RESUME_REWIND_SECONDS)
+        }
+
+    override val passOutThresholdFlow: Flow<Int> =
+        profileScopedFlow(DEFAULT_PASSOUT_THRESHOLD) { p, s ->
+            p.intFor(s, PlaybackSettingsKeys.PassOutThreshold, DEFAULT_PASSOUT_THRESHOLD)
+        }
+
     // ---- Strings -------------------------------------------------------
     override val preferredQualityFlow: Flow<String> =
         profileScopedFlow("auto") { p, s -> p.stringFor(s, PlaybackSettingsKeys.PreferredQuality, "auto") }
@@ -222,6 +232,12 @@ class AndroidPlayerSettingsStore(
 
     override suspend fun setNextUpPromptSeconds(value: Int) =
         writeInt(PlaybackSettingsKeys.NextUpPromptSeconds, value.coerceIn(0, 120))
+
+    override suspend fun setResumeRewindSeconds(value: Int) =
+        writeIntLocal(PlaybackSettingsKeys.ResumeRewindSeconds, value.coerceIn(0, 30))
+
+    override suspend fun setPassOutThreshold(value: Int) =
+        writeIntLocal(PlaybackSettingsKeys.PassOutThreshold, value.coerceIn(0, 10))
 
     override suspend fun setSleepTimerDefaultMinutes(value: Int) =
         writeInt(PlaybackSettingsKeys.SleepTimerDefaultMinutes, value.coerceIn(0, 240))
@@ -366,6 +382,18 @@ class AndroidPlayerSettingsStore(
         }
     }
 
+    /**
+     * Persist an Int that the server does not know about: write the scoped
+     * DataStore slot only, with NO server flush. Used for keys absent from
+     * [PlaybackSettingsKeys.DeviceSettings] so an unknown-key flush can't be
+     * rejected or poison a batch.
+     */
+    private suspend fun writeIntLocal(key: String, value: Int) {
+        withScope { scope, store ->
+            store.edit { it[intPreferencesKey(scope.keyPrefix + key)] = value }
+        }
+    }
+
     private suspend fun writeString(key: String, value: String) {
         withScope { scope, store ->
             store.edit { it[stringPreferencesKey(scope.keyPrefix + key)] = value }
@@ -411,6 +439,10 @@ class AndroidPlayerSettingsStore(
     private companion object {
         const val MIGRATION_SENTINEL_LEGACY = "migration_v1"
         const val MISSING_SENTINEL = "__missing__"
+        // F1/F2 local-only defaults (mirror DefaultResumeRewindSeconds=7.0 and
+        // the previous hardcoded AutoPlayGuard threshold of 3).
+        const val DEFAULT_RESUME_REWIND_SECONDS = 7
+        const val DEFAULT_PASSOUT_THRESHOLD = 3
         val VALID_VIDEO_GRAVITY = setOf("fit", "fill", "stretch")
 
         val BOOLEAN_KEYS: Set<String> = setOf(
