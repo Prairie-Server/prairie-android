@@ -1,7 +1,11 @@
 package com.continuum.app.tv.ui.screens.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,48 +14,74 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.continuum.app.tv.BuildConfig
 import com.continuum.app.tv.data.preferences.PlaybackQuality
 import com.continuum.app.tv.data.preferences.SubtitleMode
 import com.continuum.app.tv.data.preferences.SubtitleSize
-import com.continuum.app.tv.ui.components.TvFilterChip
 import com.continuum.app.tv.ui.shell.TvTopMenuLayout
+import com.continuum.app.tv.ui.theme.FocusedContainer
+import com.continuum.app.tv.ui.theme.FocusedContent
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * TV Settings screen. Sectioned list of settings groups:
+ * TV Settings — a tvOS-style drill-in category menu (modeled on
+ * `iosApp/.../tvOS/Screens/Settings/TVSettingsView.swift`).
  *
- * - Account: username, switch profile, sign out
- * - Playback: quality picker, auto-play next, auto-skip intro/credits
- * - Subtitles: default language + size
- * - Library shortcuts: Favorites, Watchlist, History, Collections
- * - Server: current URL (read-only)
- * - About: version
+ * The root is a short list of categories rather than one wall of controls:
+ *  - a tappable Account header (avatar + name + role/username) that switches
+ *    profile,
+ *  - a Preferences group of value rows (Playback, Subtitles, Card Overlays)
+ *    that drill into dedicated sub-screens,
+ *  - an Account-actions group (Admin Dashboard when gated, Sign Out with a
+ *    confirm dialog, plus the Android-only Manage Sessions / Pair a Device),
+ *  - an About group (Server name, URL, Manage Servers, app version from
+ *    `BuildConfig.VERSION_NAME`).
  *
- * Navigation actions (sign out, switch profile, library shortcuts)
- * are forwarded via callbacks so the Settings screen doesn't need direct
- * access to the top-level NavController.
+ * The Android-only extras the iOS root doesn't have (Notifications prefs,
+ * Library shortcuts, Manage Sessions, Pair a Device) are relocated into
+ * sensible groups rather than deleted.
+ *
+ * Sub-screens are presented as full-screen overlays (local `SubScreen`
+ * state) instead of pushes — the TV NavHost owns the back stack and we want
+ * Back to land on the root menu, matching the tvOS full-screen-cover model.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -73,7 +103,10 @@ fun TvSettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val firstActionFocusRequester = androidx.compose.runtime.remember { FocusRequester() }
+    val firstActionFocusRequester = remember { FocusRequester() }
+
+    var subScreen by remember { mutableStateOf<SubScreen?>(null) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         runCatching { firstActionFocusRequester.requestFocus() }
@@ -94,6 +127,104 @@ fun TvSettingsScreen(
         }
     }
 
+    // Render the root only when no sub-screen is drilled in. The sub-screens
+    // are full-screen; keeping the root composed underneath would leave its rows
+    // in the focus tree, so focus could leak behind the overlay and fire hidden
+    // root actions.
+    if (subScreen == null) SettingsRootMenu(
+        state = state,
+        firstActionFocusRequester = firstActionFocusRequester,
+        onSwitchProfile = { viewModel.onSwitchProfile(context) },
+        onOpenPlayback = { subScreen = SubScreen.Playback },
+        onOpenSubtitles = { subScreen = SubScreen.Subtitles },
+        onNavigateToAdmin = onNavigateToAdmin,
+        onManageSessions = onManageSessions,
+        onPairDevice = onPairDevice,
+        onManageServers = onManageServers,
+        onRequestSignOut = { showSignOutConfirm = true },
+        onNavigateToBrowse = onNavigateToBrowse,
+        onNavigateToFavorites = onNavigateToFavorites,
+        onNavigateToWatchlist = onNavigateToWatchlist,
+        onNavigateToHistory = onNavigateToHistory,
+        onNavigateToCollections = onNavigateToCollections,
+        onNavigateToRequests = onNavigateToRequests,
+        onNotificationsEnabledChanged = viewModel::onNotificationsEnabledChanged,
+        onNotifyFavoritesChanged = viewModel::onNotifyFavoritesChanged,
+        onNotifyWatchlistChanged = viewModel::onNotifyWatchlistChanged,
+        onNotifyContinueWatchingChanged = viewModel::onNotifyContinueWatchingChanged,
+        onNotifyNextUpChanged = viewModel::onNotifyNextUpChanged,
+    )
+
+    when (subScreen) {
+        SubScreen.Playback -> TvPlaybackSettingsScreen(
+            state = state,
+            onQualityChanged = viewModel::onPlaybackQualityChanged,
+            onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
+            onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
+            onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
+            onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
+            onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
+            onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
+            onNextUpPromptSecondsChanged = viewModel::onNextUpPromptSecondsChanged,
+            onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
+            onDismiss = { subScreen = null },
+        )
+        SubScreen.Subtitles -> TvSubtitleSettingsScreen(
+            state = state,
+            onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
+            onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
+            onSubtitleSizeChanged = viewModel::onSubtitleSizeChanged,
+            onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
+            onDismiss = { subScreen = null },
+        )
+        null -> Unit
+    }
+
+    if (showSignOutConfirm) {
+        TvSettingsConfirmDialog(
+            title = "Sign Out",
+            message = "You will be returned to the login screen.",
+            confirmLabel = "Sign Out",
+            onConfirm = {
+                showSignOutConfirm = false
+                viewModel.onSignOut(context)
+            },
+            onDismiss = { showSignOutConfirm = false },
+        )
+    }
+}
+
+private enum class SubScreen { Playback, Subtitles }
+
+// ---------------------------------------------------------------------------
+// Root menu
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsRootMenu(
+    state: TvSettingsViewModel.UiState,
+    firstActionFocusRequester: FocusRequester,
+    onSwitchProfile: () -> Unit,
+    onOpenPlayback: () -> Unit,
+    onOpenSubtitles: () -> Unit,
+    onNavigateToAdmin: () -> Unit,
+    onManageSessions: () -> Unit,
+    onPairDevice: () -> Unit,
+    onManageServers: () -> Unit,
+    onRequestSignOut: () -> Unit,
+    onNavigateToBrowse: () -> Unit,
+    onNavigateToFavorites: () -> Unit,
+    onNavigateToWatchlist: () -> Unit,
+    onNavigateToHistory: () -> Unit,
+    onNavigateToCollections: () -> Unit,
+    onNavigateToRequests: () -> Unit,
+    onNotificationsEnabledChanged: (Boolean) -> Unit,
+    onNotifyFavoritesChanged: (Boolean) -> Unit,
+    onNotifyWatchlistChanged: (Boolean) -> Unit,
+    onNotifyContinueWatchingChanged: (Boolean) -> Unit,
+    onNotifyNextUpChanged: (Boolean) -> Unit,
+) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -106,248 +237,890 @@ fun TvSettingsScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
     ) {
+        // Account header — tappable, switches profile.
         item {
-            androidx.compose.foundation.layout.Column(
-                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                Text(
-                    text = "YOUR PREFERENCES",
-                    style = com.continuum.app.tv.ui.theme.sectionEyebrow,
-                    color = com.continuum.app.tv.ui.theme.ContinuumBlue.copy(alpha = 0.92f),
+            SettingsAccountRow(
+                name = state.profileName ?: state.user?.username ?: "—",
+                subtitle = accountSubtitle(state),
+                avatar = state.profileAvatar,
+                onClick = onSwitchProfile,
+                focusRequester = firstActionFocusRequester,
+            )
+        }
+
+        // Preferences — drill-in categories.
+        item {
+            SettingsGroup(title = "Preferences") {
+                SettingsValueRow(
+                    label = "Playback",
+                    value = state.playbackQuality.label,
+                    onClick = onOpenPlayback,
                 )
-                Text(
-                    text = "Settings",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onBackground,
+                SettingsValueRow(
+                    label = "Subtitles",
+                    value = subtitleLanguageLabel(state.subtitleLanguage),
+                    onClick = onOpenSubtitles,
                 )
+                // Card Overlays row is intentionally omitted until its sub-screen
+                // exists (Sweep-6 follow-up) — an orphaned no-op row is worse than
+                // a missing one.
             }
-        }
-
-        item {
-            AccountSection(
-                state = state,
-                onSwitchProfile = { viewModel.onSwitchProfile(context) },
-                onManageSessions = onManageSessions,
-                onPairDevice = onPairDevice,
-                onManageServers = onManageServers,
-                onSignOut = { viewModel.onSignOut(context) },
-                firstActionFocusRequester = firstActionFocusRequester,
-            )
-        }
-
-        item {
-            PlaybackSection(
-                state = state,
-                onQualityChanged = viewModel::onPlaybackQualityChanged,
-                onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
-                onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
-                onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
-                onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
-                onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
-                onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
-                onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
-            )
-        }
-
-        item {
-            SubtitleSection(
-                state = state,
-                onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
-                onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
-                onSubtitleSizeChanged = viewModel::onSubtitleSizeChanged,
-                onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
-            )
         }
 
         if (state.notificationsVisible) {
             item {
-                NotificationsSection(
-                    state = state,
-                    onNotificationsEnabledChanged = viewModel::onNotificationsEnabledChanged,
-                    onNotifyFavoritesChanged = viewModel::onNotifyFavoritesChanged,
-                    onNotifyWatchlistChanged = viewModel::onNotifyWatchlistChanged,
-                    onNotifyContinueWatchingChanged = viewModel::onNotifyContinueWatchingChanged,
-                    onNotifyNextUpChanged = viewModel::onNotifyNextUpChanged,
-                )
-            }
-        }
-
-        if (state.adminVisible) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionHeader(title = "Admin")
-                    SettingsRowAction(label = "Admin Dashboard", onClick = onNavigateToAdmin)
+                SettingsGroup(title = "Notifications") {
+                    SettingsToggleRow(
+                        label = "In-app notifications",
+                        checked = state.notificationsEnabled,
+                        onCheckedChange = onNotificationsEnabledChanged,
+                    )
+                    if (state.notificationsEnabled) {
+                        SettingsToggleRow(
+                            label = "Favorites",
+                            checked = state.notifyFavorites,
+                            onCheckedChange = onNotifyFavoritesChanged,
+                        )
+                        SettingsToggleRow(
+                            label = "Watchlist",
+                            checked = state.notifyWatchlist,
+                            onCheckedChange = onNotifyWatchlistChanged,
+                        )
+                        SettingsToggleRow(
+                            label = "Continue watching",
+                            checked = state.notifyContinueWatching,
+                            onCheckedChange = onNotifyContinueWatchingChanged,
+                        )
+                        SettingsToggleRow(
+                            label = "Next up",
+                            checked = state.notifyNextUp,
+                            onCheckedChange = onNotifyNextUpChanged,
+                        )
+                    }
                 }
             }
         }
 
+        // Library shortcuts (Android-only extra).
         item {
-            LibraryShortcutsSection(
-                onNavigateToBrowse = onNavigateToBrowse,
-                onNavigateToFavorites = onNavigateToFavorites,
-                onNavigateToWatchlist = onNavigateToWatchlist,
-                onNavigateToHistory = onNavigateToHistory,
-                onNavigateToCollections = onNavigateToCollections,
-                onNavigateToRequests = onNavigateToRequests,
-            )
+            SettingsGroup(title = "Library") {
+                SettingsActionRow(label = "Browse", onClick = onNavigateToBrowse)
+                SettingsActionRow(label = "Favorites", onClick = onNavigateToFavorites)
+                SettingsActionRow(label = "Watchlist", onClick = onNavigateToWatchlist)
+                SettingsActionRow(label = "Watch history", onClick = onNavigateToHistory)
+                SettingsActionRow(label = "Collections", onClick = onNavigateToCollections)
+                SettingsActionRow(label = "Requests", onClick = onNavigateToRequests)
+            }
         }
 
+        // Account actions.
         item {
-            ServerSection(serverUrl = state.serverUrl)
+            SettingsGroup(title = "Account") {
+                if (state.adminVisible) {
+                    SettingsActionRow(label = "Admin Dashboard", onClick = onNavigateToAdmin)
+                }
+                SettingsActionRow(label = "Manage Sessions", onClick = onManageSessions)
+                SettingsActionRow(label = "Pair a Device", onClick = onPairDevice)
+                SettingsActionRow(
+                    label = "Sign Out",
+                    onClick = onRequestSignOut,
+                    destructive = true,
+                )
+            }
         }
 
+        // About / Server.
         item {
-            AboutSection()
+            SettingsGroup(title = "About") {
+                SettingsInfoRow(
+                    label = "Server",
+                    value = state.serverName.ifBlank { "Not configured" },
+                )
+                if (state.serverUrl.isNotBlank() && state.serverName != state.serverUrl) {
+                    SettingsInfoRow(label = "URL", value = state.serverUrl)
+                }
+                SettingsActionRow(label = "Manage Servers", onClick = onManageServers)
+                SettingsInfoRow(label = "Version", value = BuildConfig.VERSION_NAME)
+            }
         }
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleLarge,
-        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
-        modifier = Modifier.padding(vertical = 8.dp),
-    )
+private fun accountSubtitle(state: TvSettingsViewModel.UiState): String {
+    val role = state.user?.role?.takeIf { it.isNotBlank() }
+        ?.replaceFirstChar { it.uppercase() }
+    val username = state.user?.username?.takeIf { it.isNotBlank() }
+    return listOfNotNull(role, username).joinToString(" · ").ifBlank { "Switch profile" }
 }
+
+// ---------------------------------------------------------------------------
+// Playback sub-screen
+// ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun AccountSection(
-    state: TvSettingsViewModel.UiState,
-    onSwitchProfile: () -> Unit,
-    onManageSessions: () -> Unit,
-    onPairDevice: () -> Unit,
-    onManageServers: () -> Unit,
-    onSignOut: () -> Unit,
-    firstActionFocusRequester: FocusRequester? = null,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(title = "Account")
-        val username = state.user?.username ?: "—"
-        SettingsRowInfo(label = "Signed in as", value = username)
-        state.user?.email?.takeIf { it.isNotBlank() }?.let {
-            SettingsRowInfo(label = "Email", value = it)
-        }
-        state.user?.role?.takeIf { it.isNotBlank() }?.let {
-            SettingsRowInfo(label = "Role", value = it.replaceFirstChar { c -> c.uppercase() })
-        }
-        SettingsRowAction(
-            label = "Switch profile",
-            onClick = onSwitchProfile,
-            focusRequester = firstActionFocusRequester,
-        )
-        SettingsRowAction(label = "Manage sessions", onClick = onManageSessions)
-        SettingsRowAction(label = "Pair a device", onClick = onPairDevice)
-        SettingsRowAction(label = "Manage servers", onClick = onManageServers)
-        SettingsRowAction(label = "Sign out", onClick = onSignOut)
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun PlaybackSection(
+private fun TvPlaybackSettingsScreen(
     state: TvSettingsViewModel.UiState,
     onQualityChanged: (PlaybackQuality) -> Unit,
+    onAudioLanguageChanged: (String) -> Unit,
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
-    onAudioLanguageChanged: (String) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
+    onNextUpPromptSecondsChanged: (Int) -> Unit,
     onResetPlaybackOverrides: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionHeader(title = "Playback")
+    var activePicker by remember { mutableStateOf<PlaybackPicker?>(null) }
 
-        Text(
-            text = "Quality",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(PlaybackQuality.values().toList(), key = { it.name }) { q ->
-                TvFilterChip(
-                    text = q.label,
-                    selected = state.playbackQuality == q,
-                    onClick = { onQualityChanged(q) },
+    TvSettingsSubScreenScaffold(title = "Playback", onDismiss = onDismiss) {
+        item {
+            SettingsGroup(title = "Streaming") {
+                SettingsValueRow(
+                    label = "Quality",
+                    value = state.playbackQuality.label,
+                    onClick = { activePicker = PlaybackPicker.Quality },
+                )
+                SettingsValueRow(
+                    label = "Audio Language",
+                    value = audioLanguageLabel(state.audioLanguage),
+                    onClick = { activePicker = PlaybackPicker.AudioLanguage },
                 )
             }
         }
-
-        Text(
-            text = "Audio Language",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(AudioLanguages, key = { it.first.ifEmpty { "default" } }) { (wire, label) ->
-                TvFilterChip(
-                    text = label,
-                    selected = state.audioLanguage == wire,
-                    onClick = { onAudioLanguageChanged(wire) },
+        item {
+            SettingsGroup(title = "Episodes") {
+                SettingsToggleRow(
+                    label = "Auto-Play Next Episode",
+                    checked = state.autoPlayNext,
+                    onCheckedChange = onAutoPlayNextChanged,
+                )
+                SettingsValueRow(
+                    label = "Show Next Up",
+                    value = nextUpPromptLabel(state.nextUpPromptSeconds),
+                    onClick = { activePicker = PlaybackPicker.NextUpPrompt },
+                )
+                SettingsToggleRow(
+                    label = "Auto-Skip Intros",
+                    checked = state.autoSkipIntro,
+                    onCheckedChange = onAutoSkipIntroChanged,
+                )
+                SettingsToggleRow(
+                    label = "Auto-Skip Credits",
+                    checked = state.autoSkipCredits,
+                    onCheckedChange = onAutoSkipCreditsChanged,
+                )
+                SettingsValueRow(
+                    label = "Resume Skip-Back",
+                    value = resumeRewindLabel(state.resumeRewindSeconds),
+                    onClick = { activePicker = PlaybackPicker.ResumeRewind },
+                )
+                SettingsValueRow(
+                    label = "Still-Watching Prompt After",
+                    value = passOutThresholdLabel(state.passOutThreshold),
+                    onClick = { activePicker = PlaybackPicker.PassOutThreshold },
                 )
             }
         }
-
-        SettingsRowToggle(
-            label = "Auto-Play Next Episode",
-            checked = state.autoPlayNext,
-            onCheckedChange = onAutoPlayNextChanged,
-        )
-        SettingsRowToggle(
-            label = "Auto-Skip Intros",
-            checked = state.autoSkipIntro,
-            onCheckedChange = onAutoSkipIntroChanged,
-        )
-        SettingsRowToggle(
-            label = "Auto-Skip Credits",
-            checked = state.autoSkipCredits,
-            onCheckedChange = onAutoSkipCreditsChanged,
-        )
-
-        Text(
-            text = "Resume Skip-Back",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(ResumeRewindOptions, key = { it }) { sec ->
-                TvFilterChip(
-                    text = if (sec <= 0) "Off" else "${sec}s",
-                    selected = state.resumeRewindSeconds == sec,
-                    onClick = { onResumeRewindSecondsChanged(sec) },
+        item {
+            SettingsGroup(title = "Reset") {
+                SettingsActionRow(
+                    label = "Reset Playback Overrides",
+                    onClick = onResetPlaybackOverrides,
+                    destructive = true,
                 )
             }
         }
+    }
 
-        Text(
-            text = "Still-Watching Prompt After",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+    when (activePicker) {
+        PlaybackPicker.Quality -> TvSettingsPickerSheet(
+            title = "Quality",
+            options = PlaybackQuality.values().map { PickerOption(it.name, it.label) },
+            selectedId = state.playbackQuality.name,
+            onSelect = { id ->
+                PlaybackQuality.values().firstOrNull { it.name == id }?.let(onQualityChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
         )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(PassOutThresholdOptions, key = { it }) { count ->
-                TvFilterChip(
-                    text = if (count <= 0) "Off" else "$count",
-                    selected = state.passOutThreshold == count,
-                    onClick = { onPassOutThresholdChanged(count) },
+        PlaybackPicker.AudioLanguage -> TvSettingsPickerSheet(
+            title = "Audio Language",
+            options = AudioLanguages.map { PickerOption(it.first, it.second) },
+            selectedId = state.audioLanguage,
+            onSelect = { onAudioLanguageChanged(it); activePicker = null },
+            onDismiss = { activePicker = null },
+        )
+        PlaybackPicker.NextUpPrompt -> TvSettingsPickerSheet(
+            title = "Show Next Up",
+            options = NextUpPromptOptions.map { PickerOption(it.toString(), nextUpPromptLabel(it)) },
+            selectedId = state.nextUpPromptSeconds.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let(onNextUpPromptSecondsChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        PlaybackPicker.ResumeRewind -> TvSettingsPickerSheet(
+            title = "Resume Skip-Back",
+            options = ResumeRewindOptions.map { PickerOption(it.toString(), resumeRewindLabel(it)) },
+            selectedId = state.resumeRewindSeconds.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let(onResumeRewindSecondsChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        PlaybackPicker.PassOutThreshold -> TvSettingsPickerSheet(
+            title = "Still-Watching Prompt After",
+            options = PassOutThresholdOptions.map { PickerOption(it.toString(), passOutThresholdLabel(it)) },
+            selectedId = state.passOutThreshold.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let(onPassOutThresholdChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        null -> Unit
+    }
+}
+
+private enum class PlaybackPicker { Quality, AudioLanguage, NextUpPrompt, ResumeRewind, PassOutThreshold }
+
+// ---------------------------------------------------------------------------
+// Subtitle sub-screen (keeps existing controls)
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSubtitleSettingsScreen(
+    state: TvSettingsViewModel.UiState,
+    onSubtitleModeChanged: (SubtitleMode) -> Unit,
+    onSubtitleLanguageChanged: (String) -> Unit,
+    onSubtitleSizeChanged: (SubtitleSize) -> Unit,
+    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var activePicker by remember { mutableStateOf<SubtitlePicker?>(null) }
+
+    TvSettingsSubScreenScaffold(title = "Subtitles", onDismiss = onDismiss) {
+        item {
+            SettingsGroup(title = "Subtitles") {
+                SettingsValueRow(
+                    label = "Mode",
+                    value = state.subtitleMode.label,
+                    onClick = { activePicker = SubtitlePicker.Mode },
+                )
+                SettingsValueRow(
+                    label = "Language",
+                    value = subtitleLanguageLabel(state.subtitleLanguage),
+                    onClick = { activePicker = SubtitlePicker.Language },
+                )
+                SettingsValueRow(
+                    label = "Size",
+                    value = state.subtitleSize.label,
+                    onClick = { activePicker = SubtitlePicker.Size },
+                )
+                SettingsToggleRow(
+                    label = "Forced subtitles",
+                    checked = state.showForcedSubtitles,
+                    onCheckedChange = onShowForcedSubtitlesChanged,
                 )
             }
         }
+    }
 
-        SettingsRowAction(
-            label = "Reset Playback Overrides",
-            onClick = onResetPlaybackOverrides,
+    when (activePicker) {
+        SubtitlePicker.Mode -> TvSettingsPickerSheet(
+            title = "Mode",
+            options = SubtitleMode.values().map { PickerOption(it.name, it.label) },
+            selectedId = state.subtitleMode.name,
+            onSelect = { id ->
+                SubtitleMode.values().firstOrNull { it.name == id }?.let(onSubtitleModeChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.Language -> TvSettingsPickerSheet(
+            title = "Language",
+            options = SubtitleLanguages.map { PickerOption(it.first, it.second) },
+            selectedId = state.subtitleLanguage,
+            onSelect = { onSubtitleLanguageChanged(it); activePicker = null },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.Size -> TvSettingsPickerSheet(
+            title = "Size",
+            options = SubtitleSize.values().map { PickerOption(it.name, it.label) },
+            selectedId = state.subtitleSize.name,
+            onSelect = { id ->
+                SubtitleSize.values().firstOrNull { it.name == id }?.let(onSubtitleSizeChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        null -> Unit
+    }
+}
+
+private enum class SubtitlePicker { Mode, Language, Size }
+
+// ---------------------------------------------------------------------------
+// Sub-screen scaffold (full-screen overlay with a title + back-to-dismiss)
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSettingsSubScreenScaffold(
+    title: String,
+    onDismiss: () -> Unit,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+    val firstRowFocus = remember { FocusRequester() }
+    LaunchedEffect(title) { runCatching { firstRowFocus.requestFocus() } }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(firstRowFocus),
+            contentPadding = PaddingValues(
+                start = 72.dp,
+                top = TvTopMenuLayout.contentTopInset,
+                end = 72.dp,
+                bottom = Spacing.xxxl,
+            ),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+        ) {
+            item {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+            content()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reusable picker sheet (centered modal vertical option list)
+// ---------------------------------------------------------------------------
+
+data class PickerOption(val id: String, val label: String)
+
+/**
+ * Reusable centered modal option picker. Renders a vertical list with a
+ * checkmark on the current selection, auto-focuses the selected row and
+ * scrolls it into view, and dismisses on selection or Back. Mirrors the
+ * tvOS `TVSettingsPickerSheet`.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvSettingsPickerSheet(
+    title: String,
+    options: List<PickerOption>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+
+    val initialFocus = remember { FocusRequester() }
+    val selectedIndex = options.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+    val focusTargetIndex = if (options.isEmpty()) -1 else selectedIndex
+    val listState: LazyListState = rememberLazyListState()
+
+    LaunchedEffect(title, selectedId) {
+        if (focusTargetIndex >= 0) {
+            runCatching { listState.scrollToItem(focusTargetIndex) }
+            runCatching { initialFocus.requestFocus() }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.86f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 28.dp),
+                )
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .width(680.dp),
+                    contentPadding = PaddingValues(horizontal = 40.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(options, key = { it.id }) { option ->
+                        val isFocusTarget = option.id == (options.getOrNull(focusTargetIndex)?.id)
+                        TvSettingsPickerOptionRow(
+                            option = option,
+                            selected = option.id == selectedId,
+                            onClick = { onSelect(option.id) },
+                            modifier = if (isFocusTarget) {
+                                Modifier.focusRequester(initialFocus)
+                            } else {
+                                Modifier
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSettingsPickerOptionRow(
+    option: PickerOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.08f),
+            contentColor = Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 26.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = option.label,
+                style = MaterialTheme.typography.headlineSmall,
+                color = if (isFocused) FocusedContent else Color.White,
+                modifier = Modifier.weight(1f),
+            )
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = if (isFocused) FocusedContent else Color.White,
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Confirm dialog
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSettingsConfirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+    val confirmFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { confirmFocus.requestFocus() } }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.86f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(640.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    DialogButton(
+                        label = "Cancel",
+                        onClick = onDismiss,
+                    )
+                    DialogButton(
+                        label = confirmLabel,
+                        onClick = onConfirm,
+                        destructive = true,
+                        focusRequester = confirmFocus,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DialogButton(
+    label: String,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    focusRequester: FocusRequester? = null,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.08f),
+            contentColor = if (destructive) MaterialTheme.colorScheme.error else Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            color = if (isFocused) FocusedContent else if (destructive) MaterialTheme.colorScheme.error else Color.White,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp),
         )
     }
 }
+
+// ---------------------------------------------------------------------------
+// Shared row primitives — inverted-capsule focus chrome
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsGroup(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+        content()
+    }
+}
+
+private val RowShape = RoundedCornerShape(12.dp)
+private val RowMaxWidth = 960.dp
+private val RowHeight = 64.dp
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsAccountRow(
+    name: String,
+    subtitle: String,
+    avatar: String?,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = invertedRowColors(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .fillMaxWidth()
+            .widthIn(max = RowMaxWidth),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isFocused) FocusedContent.copy(alpha = 0.15f)
+                        else Color.White.copy(alpha = 0.12f),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = name.take(1).uppercase(),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = if (isFocused) FocusedContent else Color.White,
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isFocused) FocusedContent else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.6f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.6f),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsValueRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = invertedRowColors(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = RowMaxWidth)
+            .height(RowHeight),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isFocused) FocusedContent else Color.White,
+                modifier = Modifier.weight(1f),
+            )
+            if (value.isNotBlank()) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.6f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.6f),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsActionRow(
+    label: String,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = invertedRowColors(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = RowMaxWidth)
+            .height(RowHeight),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = when {
+                    isFocused -> FocusedContent
+                    destructive -> MaterialTheme.colorScheme.error
+                    else -> Color.White
+                },
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = { onCheckedChange(!checked) },
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = invertedRowColors(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = RowMaxWidth)
+            .height(RowHeight),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isFocused) FocusedContent else Color.White,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (checked) "On" else "Off",
+                style = MaterialTheme.typography.titleMedium,
+                color = when {
+                    isFocused -> FocusedContent
+                    checked -> MaterialTheme.colorScheme.primary
+                    else -> Color.White.copy(alpha = 0.6f)
+                },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = RowMaxWidth)
+            .height(RowHeight)
+            .clip(RowShape)
+            .background(Color.White.copy(alpha = 0.06f))
+            .padding(horizontal = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun invertedRowColors() = ClickableSurfaceDefaults.colors(
+    containerColor = Color.White.copy(alpha = 0.06f),
+    contentColor = Color.White,
+    focusedContainerColor = FocusedContainer,
+    focusedContentColor = FocusedContent,
+    pressedContainerColor = FocusedContainer,
+    pressedContentColor = FocusedContent,
+)
+
+// ---------------------------------------------------------------------------
+// Option data + value formatting
+// ---------------------------------------------------------------------------
 
 // Discrete choices for the F1/F2 behavior settings (0 = off).
 private val ResumeRewindOptions = listOf(0, 3, 5, 7, 10, 15, 20, 30)
 private val PassOutThresholdOptions = listOf(0, 2, 3, 4, 5)
+
+// Up-Next prompt timing (seconds before end; 0 = at end). Mirrors tvOS.
+private val NextUpPromptOptions = listOf(0, 10, 30, 60, 120)
 
 // Audio-language options mirror the phone: the stored value IS the display
 // name (Default => "" locally), persisted to playerSettingsStore.audioLanguage.
@@ -379,252 +1152,21 @@ private val SubtitleLanguages = listOf(
     "ru" to "Russian",
 )
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun SubtitleSection(
-    state: TvSettingsViewModel.UiState,
-    onSubtitleModeChanged: (SubtitleMode) -> Unit,
-    onSubtitleLanguageChanged: (String) -> Unit,
-    onSubtitleSizeChanged: (SubtitleSize) -> Unit,
-    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionHeader(title = "Subtitles")
+private fun audioLanguageLabel(wire: String): String =
+    AudioLanguages.firstOrNull { it.first == wire }?.second ?: "Default"
 
-        Text(
-            text = "Mode",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(SubtitleMode.values().toList(), key = { it.name }) { m ->
-                TvFilterChip(
-                    text = m.label,
-                    selected = state.subtitleMode == m,
-                    onClick = { onSubtitleModeChanged(m) },
-                )
-            }
-        }
+private fun subtitleLanguageLabel(wire: String): String =
+    SubtitleLanguages.firstOrNull { it.first == wire }?.second ?: "Off"
 
-        Text(
-            text = "Language",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(SubtitleLanguages, key = { it.first }) { (wire, label) ->
-                TvFilterChip(
-                    text = label,
-                    selected = state.subtitleLanguage == wire,
-                    onClick = { onSubtitleLanguageChanged(wire) },
-                )
-            }
-        }
+private fun resumeRewindLabel(seconds: Int): String =
+    if (seconds <= 0) "Off" else "${seconds}s"
 
-        Text(
-            text = "Size",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(SubtitleSize.values().toList(), key = { it.name }) { s ->
-                TvFilterChip(
-                    text = s.label,
-                    selected = state.subtitleSize == s,
-                    onClick = { onSubtitleSizeChanged(s) },
-                )
-            }
-        }
+private fun passOutThresholdLabel(count: Int): String =
+    if (count <= 0) "Off" else "$count"
 
-        SettingsRowToggle(
-            label = "Forced subtitles",
-            checked = state.showForcedSubtitles,
-            onCheckedChange = onShowForcedSubtitlesChanged,
-        )
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun NotificationsSection(
-    state: TvSettingsViewModel.UiState,
-    onNotificationsEnabledChanged: (Boolean) -> Unit,
-    onNotifyFavoritesChanged: (Boolean) -> Unit,
-    onNotifyWatchlistChanged: (Boolean) -> Unit,
-    onNotifyContinueWatchingChanged: (Boolean) -> Unit,
-    onNotifyNextUpChanged: (Boolean) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionHeader(title = "Notifications")
-        SettingsRowToggle(
-            label = "In-app notifications",
-            checked = state.notificationsEnabled,
-            onCheckedChange = onNotificationsEnabledChanged,
-        )
-        if (state.notificationsEnabled) {
-            SettingsRowToggle(
-                label = "Favorites",
-                checked = state.notifyFavorites,
-                onCheckedChange = onNotifyFavoritesChanged,
-            )
-            SettingsRowToggle(
-                label = "Watchlist",
-                checked = state.notifyWatchlist,
-                onCheckedChange = onNotifyWatchlistChanged,
-            )
-            SettingsRowToggle(
-                label = "Continue watching",
-                checked = state.notifyContinueWatching,
-                onCheckedChange = onNotifyContinueWatchingChanged,
-            )
-            SettingsRowToggle(
-                label = "Next up",
-                checked = state.notifyNextUp,
-                onCheckedChange = onNotifyNextUpChanged,
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun LibraryShortcutsSection(
-    onNavigateToBrowse: () -> Unit,
-    onNavigateToFavorites: () -> Unit,
-    onNavigateToWatchlist: () -> Unit,
-    onNavigateToHistory: () -> Unit,
-    onNavigateToCollections: () -> Unit,
-    onNavigateToRequests: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(title = "Library")
-        SettingsRowAction(label = "Browse", onClick = onNavigateToBrowse)
-        SettingsRowAction(label = "Favorites", onClick = onNavigateToFavorites)
-        SettingsRowAction(label = "Watchlist", onClick = onNavigateToWatchlist)
-        SettingsRowAction(label = "Watch history", onClick = onNavigateToHistory)
-        SettingsRowAction(label = "Collections", onClick = onNavigateToCollections)
-        SettingsRowAction(label = "Requests", onClick = onNavigateToRequests)
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun ServerSection(serverUrl: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(title = "Server")
-        SettingsRowInfo(
-            label = "Server URL",
-            value = serverUrl.ifBlank { "Not set" },
-        )
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun AboutSection() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(title = "About")
-        SettingsRowInfo(label = "Version", value = "0.1.0")
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun SettingsRowInfo(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .widthIn(max = 960.dp)
-            .height(64.dp)
-            .background(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(12.dp),
-            )
-            .padding(horizontal = 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun SettingsRowAction(
-    label: String,
-    onClick: () -> Unit,
-    focusRequester: FocusRequester? = null,
-) {
-    Card(
-        onClick = onClick,
-        shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
-        modifier = Modifier
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .fillMaxWidth()
-            .widthIn(max = 960.dp)
-            .height(64.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun SettingsRowToggle(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Card(
-        onClick = { onCheckedChange(!checked) },
-        shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .widthIn(max = 960.dp)
-            .height(64.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = if (checked) "On" else "Off",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (checked) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
-    }
+private fun nextUpPromptLabel(seconds: Int): String = when {
+    seconds <= 0 -> "At end"
+    seconds < 60 -> "$seconds seconds before end"
+    seconds == 60 -> "1 minute before end"
+    else -> "${seconds / 60} minutes before end"
 }

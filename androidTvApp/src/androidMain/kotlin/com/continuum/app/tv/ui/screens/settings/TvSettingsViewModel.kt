@@ -55,7 +55,11 @@ class TvSettingsViewModel(
         val user: User? = null,
         val userLoading: Boolean = true,
         val userError: String? = null,
+        // Active profile identity for the tappable account header row.
+        val profileName: String? = null,
+        val profileAvatar: String? = null,
         val serverUrl: String = "",
+        val serverName: String = "",
         val playbackQuality: PlaybackQuality = PlaybackQuality.Auto,
         val subtitleMode: SubtitleMode = SubtitleMode.Auto,
         val subtitleLanguage: String = "",
@@ -69,6 +73,9 @@ class TvSettingsViewModel(
         // before the "Still watching?" prompt (0 = off).
         val resumeRewindSeconds: Int = 7,
         val passOutThreshold: Int = 3,
+        // Seconds before the end of an episode to surface the Up-Next prompt
+        // (0 = at the very end). Mirrors tvOS `nextUpPromptSeconds`.
+        val nextUpPromptSeconds: Int = 10,
         // Notifications (in-app). The section is hidden entirely unless the
         // server reports in-app notifications are enabled AND preferences
         // load — so no toggles (least of all push) ever render otherwise.
@@ -104,6 +111,8 @@ class TvSettingsViewModel(
                             user = r.data,
                             userLoading = false,
                             userError = null,
+                            profileName = profile?.name,
+                            profileAvatar = profile?.avatar,
                             adminVisible = shouldShowClientAdminSurface(isActingAdmin(r.data, profile)),
                         )
                     }
@@ -127,7 +136,7 @@ class TvSettingsViewModel(
     private fun loadSettings() {
         viewModelScope.launch {
             val serverUrl = tokenManager.getServerUrl()
-            _uiState.update { it.copy(serverUrl = serverUrl) }
+            _uiState.update { it.copy(serverUrl = serverUrl, serverName = serverDisplayName(serverUrl)) }
 
             // One-shot import of pre-server-sync TvPreferences values.
             // Idempotent — sentinel-gated inside the migration.
@@ -201,6 +210,26 @@ class TvSettingsViewModel(
                 }
             }
         }
+        // Up-Next prompt timing lives outside the 8-arg combine above.
+        viewModelScope.launch {
+            playerSettingsStore.nextUpPromptSecondsFlow.collect { seconds ->
+                _uiState.update { it.copy(nextUpPromptSeconds = seconds) }
+            }
+        }
+    }
+
+    /**
+     * Friendly server name for the About group — the host of the configured
+     * URL (mirrors tvOS `serverDisplayName`, which collapses to the host when
+     * no nicer name is known). Falls back to the raw value if it can't be
+     * parsed.
+     */
+    private fun serverDisplayName(url: String): String {
+        if (url.isBlank()) return ""
+        return url
+            .substringAfter("://", url)
+            .substringBefore('/')
+            .ifBlank { url }
     }
 
     /**
@@ -363,6 +392,10 @@ class TvSettingsViewModel(
 
     fun onPassOutThresholdChanged(value: Int) {
         viewModelScope.launch { playerSettingsStore.setPassOutThreshold(value) }
+    }
+
+    fun onNextUpPromptSecondsChanged(value: Int) {
+        viewModelScope.launch { playerSettingsStore.setNextUpPromptSeconds(value) }
     }
 
     /**
