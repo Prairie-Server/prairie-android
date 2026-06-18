@@ -11,15 +11,17 @@ class TvProfileActionsPanelReadabilityTest {
 
     @Test
     fun focusedProfileRowsInvertTextAgainstLightFocusBackground() {
+        // TvProfileDropdown rows invert to a solid ContinuumOnSurface fill with
+        // DarkBackground content on focus (the Skyline capsule grammar).
         assertTrue(source.contains("collectIsFocusedAsState()"))
-        assertTrue(source.contains("focusedContentColor = Color.Black"))
-        assertTrue(source.contains("color = if (isFocused) Color.Black else MaterialTheme.colorScheme.onSurface"))
+        assertTrue(source.contains("focusedContentColor = DarkBackground"))
+        assertTrue(source.contains("if (isFocused) DarkBackground else ContinuumOnSurface.copy(alpha = 0.9f)"))
     }
 
     @Test
     fun profilePanelSeparatesItselfFromContentBehindIt() {
-        assertTrue(source.contains("Color.Black.copy(alpha = 0.58f)"))
-        assertTrue(source.contains("color = MaterialTheme.colorScheme.surface,"))
-        assertTrue(source.contains("content behind the menu cannot visually merge"))
+        // The dropdown floats on its own frosted panel chrome (no full-screen
+        // scrim) so content behind it can't visually merge.
+        assertTrue(source.contains("tvSkylinePanelChrome()"))
     }
 }

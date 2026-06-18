@@ -65,9 +65,13 @@ class TvUsabilityGuardTest {
             "src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvMainShell.kt",
         ).readText()
 
-        assertTrue(shell.contains("Color.Black.copy(alpha = 0.58f)"))
+        // The TvProfileDropdown is "modal" via a focus trap (arrows can't leak
+        // out; only Back closes) on its own frosted panel chrome — no longer a
+        // full-screen scrim — and is Back/Escape dismissible with a Sign Out row.
+        assertTrue(shell.contains("tvSkylinePanelChrome()"))
+        assertTrue(shell.contains("exit = { FocusRequester.Cancel }"))
         assertTrue(shell.contains(".zIndex(2f)"))
         assertTrue(shell.contains("ev.key == Key.Back || ev.key == Key.Escape"))
-        assertTrue(shell.contains("ProfileActionRow(label = \"Sign Out\""))
+        assertTrue(shell.contains("label = \"Sign Out\""))
     }
 }
