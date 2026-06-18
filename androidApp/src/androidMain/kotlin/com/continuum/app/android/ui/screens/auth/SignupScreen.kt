@@ -1,34 +1,50 @@
 package com.continuum.app.android.ui.screens.auth
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.continuum.app.android.ui.components.aurora.AuroraEyebrow
+import com.continuum.app.android.ui.components.aurora.AuroraErrorLabel
+import com.continuum.app.android.ui.components.aurora.AuroraGhostButton
+import com.continuum.app.android.ui.components.aurora.AuroraPrimaryButton
+import com.continuum.app.android.ui.components.aurora.AuroraScreen
+import com.continuum.app.android.ui.components.aurora.AuroraScrim
+import com.continuum.app.android.ui.components.aurora.AuroraTextField
+import com.continuum.app.android.ui.components.aurora.AuroraVariant
+import com.continuum.app.android.ui.components.aurora.auroraGlass
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * New user registration screen with invite code.
- *
- * @param onNavigateToLogin Called when the user taps "Already have an account? Sign In".
- * @param onNavigateToProfiles Called after a successful signup.
+ * Account registration. Mirrors silo-apple iOS phone `SignupView` (Aurora):
+ * wordmark, "Create account" eyebrow + "Create your account", glass card with
+ * Username / Email / Password / Invite code, cream "Create account" button, and
+ * a "Back to sign in" ghost. (Android VM has no confirm-password field, so it
+ * is omitted rather than adding VM state.)
  */
 @Composable
 fun SignupScreen(
@@ -37,6 +53,7 @@ fun SignupScreen(
     viewModel: SignupViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    var showPassword by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.signupSuccess) {
         if (state.signupSuccess) {
@@ -45,94 +62,86 @@ fun SignupScreen(
         }
     }
 
-    AuthStage {
+    AuroraScreen(variant = AuroraVariant.SignIn, scrim = AuroraScrim.Soft) {
+        ContinuumLogo()
+
+        Spacer(Modifier.height(30.dp))
+        AuroraEyebrow(text = "Create account", centered = true)
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Create your account",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFFF3EFE9),
+        )
+        Spacer(Modifier.height(24.dp))
+
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+                .fillMaxWidth()
+                .auroraGlass(cornerRadius = 24.dp, emphasized = true)
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ContinuumLogo()
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Text(
-                text = "Create Account",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = AuthColors.OnBackground,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Join this Silo server with your invite.",
-                fontSize = 15.sp,
-                color = AuthColors.OnSurfaceVariant,
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            state.error?.let { error ->
-                AuthErrorBanner(message = error)
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            ContinuumTextField(
+            AuroraTextField(
+                label = "Username",
                 value = state.username,
                 onValueChange = viewModel::onUsernameChanged,
-                label = "Username",
+                placeholder = "yourname",
                 imeAction = ImeAction.Next,
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            ContinuumTextField(
+            AuroraTextField(
+                label = "Email",
                 value = state.email,
                 onValueChange = viewModel::onEmailChanged,
-                label = "Email",
+                placeholder = "you@example.com",
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next,
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            ContinuumPasswordField(
+            AuroraTextField(
+                label = "Password",
                 value = state.password,
                 onValueChange = viewModel::onPasswordChanged,
-                label = "Password",
+                placeholder = "••••••",
+                keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Next,
+                visualTransformation = if (showPassword) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailing = {
+                    IconButton(onClick = { showPassword = !showPassword }) {
+                        Icon(
+                            imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            tint = Color.White.copy(alpha = 0.62f),
+                        )
+                    }
+                },
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            ContinuumTextField(
+            AuroraTextField(
+                label = "Invite code",
                 value = state.inviteCode,
                 onValueChange = viewModel::onInviteCodeChanged,
-                label = "Invite Code",
-                imeAction = ImeAction.Done,
+                placeholder = "ABCD-1234",
+                imeAction = ImeAction.Go,
                 onImeAction = viewModel::onSignupClick,
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            state.error?.let { AuroraErrorLabel(it) }
 
-            ContinuumButton(
-                text = "Sign Up",
+            AuroraPrimaryButton(
+                label = if (state.isLoading) "Creating…" else "Create account",
                 onClick = viewModel::onSignupClick,
                 isLoading = state.isLoading,
+                modifier = Modifier.fillMaxWidth(),
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Already have an account? Sign In",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = AuthColors.OnBackground,
-                modifier = Modifier.clickable(onClick = onNavigateToLogin),
+            AuroraGhostButton(
+                label = "Back to sign in",
+                onClick = onNavigateToLogin,
+                fillMaxWidth = true,
             )
         }
     }
