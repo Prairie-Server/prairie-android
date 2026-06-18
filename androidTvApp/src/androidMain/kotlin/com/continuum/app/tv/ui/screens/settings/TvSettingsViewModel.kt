@@ -12,7 +12,9 @@ import com.continuum.app.model.auth.isActingAdmin
 import com.continuum.app.model.notifications.NotificationPreferencesUpdate
 import com.continuum.app.model.profile.UpdateProfileRequest
 import com.continuum.app.model.settings.SubtitleAppearance
+import com.continuum.app.model.settings.SubtitleBackgroundStylePreset
 import com.continuum.app.model.settings.SubtitleFontSizePreset
+import com.continuum.app.model.settings.SubtitlePositionPreset
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.TokenManager
 import com.continuum.app.repository.AuthRepository
@@ -68,6 +70,10 @@ class TvSettingsViewModel(
         val audioLanguage: String = "",
         val subtitleSize: SubtitleSize = SubtitleSize.Medium,
         val showForcedSubtitles: Boolean = true,
+        // Full subtitle appearance + whether the device-scoped override is on.
+        // Mirrors iOS `subtitleAppearance` / `subtitleUsesDeviceAppearanceOverride`.
+        val subtitleAppearance: SubtitleAppearance = SubtitleAppearance.DEFAULT,
+        val subtitleUsesDeviceOverride: Boolean = false,
         val autoPlayNext: Boolean = true,
         val autoSkipIntro: Boolean = false,
         val autoSkipCredits: Boolean = false,
@@ -205,6 +211,7 @@ class TvSettingsViewModel(
                         autoSkipIntro = snap.skipIntro,
                         autoSkipCredits = snap.skipCredits,
                         subtitleSize = snap.appearance.fontSize.toTvSubtitleSize(),
+                        subtitleAppearance = snap.appearance,
                         audioLanguage = snap.audioLanguage,
                         resumeRewindSeconds = snap.resumeRewindSeconds,
                         passOutThreshold = snap.passOutThreshold,
@@ -216,6 +223,13 @@ class TvSettingsViewModel(
         viewModelScope.launch {
             playerSettingsStore.nextUpPromptSecondsFlow.collect { seconds ->
                 _uiState.update { it.copy(nextUpPromptSeconds = seconds) }
+            }
+        }
+        // Device-scoped subtitle-appearance override toggle (same source the
+        // player HUD reads); also kept out of the 8-arg combine.
+        viewModelScope.launch {
+            playerSettingsStore.subtitleUsesDeviceOverrideFlow.collect { enabled ->
+                _uiState.update { it.copy(subtitleUsesDeviceOverride = enabled) }
             }
         }
     }
@@ -374,6 +388,54 @@ class TvSettingsViewModel(
             val updated = current.copy(fontSize = value.toFontSizePreset())
             playerSettingsStore.setSubtitleAppearance(updated)
         }
+    }
+
+    /**
+     * Commit a full subtitle-appearance value (device-scoped). The Appearance
+     * picker rows build [next] by copying the current appearance and changing
+     * one field, mirroring the tvOS bindings. The store debounces the server
+     * write and re-emits on [subtitleAppearanceFlow], which the combine folds
+     * back into [UiState.subtitleAppearance].
+     */
+    fun setSubtitleAppearance(next: SubtitleAppearance) {
+        viewModelScope.launch { playerSettingsStore.setSubtitleAppearance(next) }
+    }
+
+    /**
+     * Per-field appearance setters. Each reads the freshest appearance from the
+     * store before copying the single changed field, so a concurrent edit (e.g.
+     * a HUD change while a Settings picker is open) is not clobbered by a stale
+     * composable-captured snapshot. Mirrors [onSubtitleSizeChanged].
+     */
+    private fun editAppearance(transform: (SubtitleAppearance) -> SubtitleAppearance) {
+        viewModelScope.launch {
+            val current = playerSettingsStore.subtitleAppearanceFlow.first()
+            playerSettingsStore.setSubtitleAppearance(transform(current))
+        }
+    }
+
+    fun setSubtitleFontSize(value: SubtitleFontSizePreset) = editAppearance { it.copy(fontSize = value) }
+
+    fun setSubtitleFontFamily(value: String) = editAppearance { it.copy(fontFamily = value) }
+
+    fun setSubtitleFontColor(value: String) = editAppearance { it.copy(fontColor = value) }
+
+    fun setSubtitleTextOutline(value: Boolean) = editAppearance { it.copy(textOutline = value) }
+
+    fun setSubtitleTextOutlineColor(value: String) = editAppearance { it.copy(textOutlineColor = value) }
+
+    fun setSubtitleBackgroundStyle(value: SubtitleBackgroundStylePreset) =
+        editAppearance { it.copy(backgroundStyle = value) }
+
+    fun setSubtitleBackgroundOpacity(value: Int) = editAppearance { it.copy(backgroundOpacity = value) }
+
+    fun setSubtitleBackgroundColor(value: String) = editAppearance { it.copy(backgroundColor = value) }
+
+    fun setSubtitlePosition(value: SubtitlePositionPreset) = editAppearance { it.copy(position = value) }
+
+    /** Toggle the device-level subtitle-appearance override (Custom Appearance). */
+    fun setSubtitleDeviceOverrideEnabled(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setSubtitleDeviceOverrideEnabled(enabled) }
     }
 
     fun onAutoPlayNextChanged(value: Boolean) {

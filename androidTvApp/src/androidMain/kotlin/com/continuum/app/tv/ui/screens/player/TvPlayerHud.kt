@@ -1242,36 +1242,16 @@ private fun hexToColor(hex: String): Color = try {
     Color.White
 }
 
-private val FONT_SIZES = listOf(
-    SubtitleFontSizePreset.Small to "Small",
-    SubtitleFontSizePreset.Medium to "Medium",
-    SubtitleFontSizePreset.Large to "Large",
-    SubtitleFontSizePreset.XLarge to "X-Large",
-    SubtitleFontSizePreset.XXLarge to "XX-Large",
-)
-private val FONT_FAMILIES = listOf(
-    SubtitleAppearance.SANS_SERIF to "Sans-serif",
-    SubtitleAppearance.SERIF to "Serif",
-    SubtitleAppearance.MONOSPACE to "Monospace",
-)
-private val BACKGROUND_STYLES = listOf(
-    SubtitleBackgroundStylePreset.Box to "Box",
-    SubtitleBackgroundStylePreset.Shadow to "Shadow",
-    SubtitleBackgroundStylePreset.Outline to "Outline",
-    SubtitleBackgroundStylePreset.None to "None",
-)
-private val POSITIONS = listOf(
-    SubtitlePositionPreset.Bottom to "Bottom",
-    SubtitlePositionPreset.LowerThird to "Lower Third",
-    SubtitlePositionPreset.Top to "Top",
-)
-private val OPACITY_STEPS = listOf(0, 25, 50, 75, 100)
-private val TEXT_COLOR_SWATCHES = listOf(
-    "#ffffff", "#facc15", "#22c55e", "#06b6d4", "#d946ef", "#ef4444", "#3b82f6", "#000000",
-)
-private val BACKGROUND_COLOR_SWATCHES = listOf(
-    "#000000", "#374151", "#1e3a5f", "#7f1d1d", "#14532d",
-)
+// Subtitle-appearance option sets are shared with the Settings → Subtitles
+// Appearance block via [TvSubtitleAppearanceOptions] so the HUD and Settings
+// always offer the identical choices.
+private val FONT_SIZES = TvSubtitleAppearanceOptions.FONT_SIZES
+private val FONT_FAMILIES = TvSubtitleAppearanceOptions.FONT_FAMILIES
+private val BACKGROUND_STYLES = TvSubtitleAppearanceOptions.BACKGROUND_STYLES
+private val POSITIONS = TvSubtitleAppearanceOptions.POSITIONS
+private val OPACITY_STEPS = TvSubtitleAppearanceOptions.OPACITY_STEPS
+private val TEXT_COLOR_SWATCHES = TvSubtitleAppearanceOptions.TEXT_COLOR_SWATCHES
+private val BACKGROUND_COLOR_SWATCHES = TvSubtitleAppearanceOptions.BACKGROUND_COLOR_SWATCHES
 
 /** Signed delay label — matches the phone's formatDelayMs (true minus sign). */
 private fun delayLabel(valueMs: Int): String =

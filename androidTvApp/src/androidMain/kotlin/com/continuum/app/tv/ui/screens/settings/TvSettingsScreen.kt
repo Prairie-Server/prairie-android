@@ -52,10 +52,13 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.common.settings.OverlayPrefsStore
+import com.continuum.app.model.settings.SubtitleBackgroundStylePreset
+import com.continuum.app.model.settings.SubtitleFontSizePreset
+import com.continuum.app.model.settings.SubtitlePositionPreset
 import com.continuum.app.tv.BuildConfig
 import com.continuum.app.tv.data.preferences.PlaybackQuality
 import com.continuum.app.tv.data.preferences.SubtitleMode
-import com.continuum.app.tv.data.preferences.SubtitleSize
+import com.continuum.app.tv.ui.screens.player.TvSubtitleAppearanceOptions
 import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.FocusedContainer
 import com.continuum.app.tv.ui.theme.FocusedContent
@@ -177,8 +180,17 @@ fun TvSettingsScreen(
             state = state,
             onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
             onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
-            onSubtitleSizeChanged = viewModel::onSubtitleSizeChanged,
             onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
+            onSubtitleFontSizeChanged = viewModel::setSubtitleFontSize,
+            onSubtitleFontFamilyChanged = viewModel::setSubtitleFontFamily,
+            onSubtitleFontColorChanged = viewModel::setSubtitleFontColor,
+            onSubtitleTextOutlineChanged = viewModel::setSubtitleTextOutline,
+            onSubtitleTextOutlineColorChanged = viewModel::setSubtitleTextOutlineColor,
+            onSubtitleBackgroundStyleChanged = viewModel::setSubtitleBackgroundStyle,
+            onSubtitleBackgroundOpacityChanged = viewModel::setSubtitleBackgroundOpacity,
+            onSubtitleBackgroundColorChanged = viewModel::setSubtitleBackgroundColor,
+            onSubtitlePositionChanged = viewModel::setSubtitlePosition,
+            onSubtitleDeviceOverrideEnabledChanged = viewModel::setSubtitleDeviceOverrideEnabled,
             onDismiss = { subScreen = null },
         )
         SubScreen.CardOverlays -> TvCardOverlaySettingsScreen(
@@ -509,15 +521,26 @@ private fun TvSubtitleSettingsScreen(
     state: TvSettingsViewModel.UiState,
     onSubtitleModeChanged: (SubtitleMode) -> Unit,
     onSubtitleLanguageChanged: (String) -> Unit,
-    onSubtitleSizeChanged: (SubtitleSize) -> Unit,
     onShowForcedSubtitlesChanged: (Boolean) -> Unit,
+    onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
+    onSubtitleFontFamilyChanged: (String) -> Unit,
+    onSubtitleFontColorChanged: (String) -> Unit,
+    onSubtitleTextOutlineChanged: (Boolean) -> Unit,
+    onSubtitleTextOutlineColorChanged: (String) -> Unit,
+    onSubtitleBackgroundStyleChanged: (SubtitleBackgroundStylePreset) -> Unit,
+    onSubtitleBackgroundOpacityChanged: (Int) -> Unit,
+    onSubtitleBackgroundColorChanged: (String) -> Unit,
+    onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
+    onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var activePicker by remember { mutableStateOf<SubtitlePicker?>(null) }
+    val appearance = state.subtitleAppearance
 
     TvSettingsSubScreenScaffold(title = "Subtitles", onDismiss = onDismiss) {
+        // Profile section — language / behavior / forced (unchanged).
         item {
-            SettingsGroup(title = "Subtitles") {
+            SettingsGroup(title = "Profile") {
                 SettingsValueRow(
                     label = "Mode",
                     value = state.subtitleMode.label,
@@ -528,17 +551,78 @@ private fun TvSubtitleSettingsScreen(
                     value = subtitleLanguageLabel(state.subtitleLanguage),
                     onClick = { activePicker = SubtitlePicker.Language },
                 )
-                SettingsValueRow(
-                    label = "Size",
-                    value = state.subtitleSize.label,
-                    onClick = { activePicker = SubtitlePicker.Size },
-                )
                 SettingsToggleRow(
-                    label = "Forced subtitles",
+                    label = "Show Forced Subtitles",
                     checked = state.showForcedSubtitles,
                     onCheckedChange = onShowForcedSubtitlesChanged,
                 )
             }
+        }
+
+        // Appearance section — device-scoped override (ports tvOS
+        // TVSubtitleSettingsView appearance block).
+        item {
+            SettingsGroup(title = "Appearance") {
+                SettingsToggleRow(
+                    label = "Custom Appearance",
+                    checked = state.subtitleUsesDeviceOverride,
+                    onCheckedChange = onSubtitleDeviceOverrideEnabledChanged,
+                )
+                SettingsValueRow(
+                    label = "Font Size",
+                    value = TvSubtitleAppearanceOptions.fontSizeLabel(appearance.fontSize),
+                    onClick = { activePicker = SubtitlePicker.FontSize },
+                )
+                SettingsValueRow(
+                    label = "Font Family",
+                    value = TvSubtitleAppearanceOptions.fontFamilyLabel(appearance.fontFamily),
+                    onClick = { activePicker = SubtitlePicker.FontFamily },
+                )
+                SettingsValueRow(
+                    label = "Font Color",
+                    value = TvSubtitleAppearanceOptions.fontColorLabel(appearance.fontColor),
+                    onClick = { activePicker = SubtitlePicker.FontColor },
+                )
+                SettingsToggleRow(
+                    label = "Text Outline",
+                    checked = appearance.textOutline,
+                    onCheckedChange = onSubtitleTextOutlineChanged,
+                )
+                SettingsValueRow(
+                    label = "Outline Color",
+                    value = TvSubtitleAppearanceOptions.fontColorLabel(appearance.textOutlineColor),
+                    onClick = { activePicker = SubtitlePicker.OutlineColor },
+                )
+                SettingsValueRow(
+                    label = "Background Style",
+                    value = TvSubtitleAppearanceOptions.backgroundStyleLabel(appearance.backgroundStyle),
+                    onClick = { activePicker = SubtitlePicker.BackgroundStyle },
+                )
+                SettingsValueRow(
+                    label = "Background Opacity",
+                    value = "${appearance.backgroundOpacity}%",
+                    onClick = { activePicker = SubtitlePicker.BackgroundOpacity },
+                )
+                SettingsValueRow(
+                    label = "Background Color",
+                    value = TvSubtitleAppearanceOptions.backgroundColorLabel(appearance.backgroundColor),
+                    onClick = { activePicker = SubtitlePicker.BackgroundColor },
+                )
+                SettingsValueRow(
+                    label = "Position",
+                    value = TvSubtitleAppearanceOptions.positionLabel(appearance.position),
+                    onClick = { activePicker = SubtitlePicker.Position },
+                )
+            }
+        }
+        item {
+            SettingsFooterText(
+                text = if (state.subtitleUsesDeviceOverride) {
+                    "Appearance is saved on the server for this profile on this device."
+                } else {
+                    "Appearance is using the server fallback for this profile on this device."
+                },
+            )
         }
     }
 
@@ -560,12 +644,90 @@ private fun TvSubtitleSettingsScreen(
             onSelect = { onSubtitleLanguageChanged(it); activePicker = null },
             onDismiss = { activePicker = null },
         )
-        SubtitlePicker.Size -> TvSettingsPickerSheet(
-            title = "Size",
-            options = SubtitleSize.values().map { PickerOption(it.name, it.label) },
-            selectedId = state.subtitleSize.name,
+        SubtitlePicker.FontSize -> TvSettingsPickerSheet(
+            title = "Font Size",
+            options = TvSubtitleAppearanceOptions.FONT_SIZES.map { PickerOption(it.first.name, it.second) },
+            selectedId = appearance.fontSize.name,
             onSelect = { id ->
-                SubtitleSize.values().firstOrNull { it.name == id }?.let(onSubtitleSizeChanged)
+                TvSubtitleAppearanceOptions.FONT_SIZES.firstOrNull { it.first.name == id }?.let {
+                    onSubtitleFontSizeChanged(it.first)
+                }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.FontFamily -> TvSettingsPickerSheet(
+            title = "Font Family",
+            options = TvSubtitleAppearanceOptions.FONT_FAMILIES.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.fontFamily,
+            onSelect = { id ->
+                TvSubtitleAppearanceOptions.FONT_FAMILIES.firstOrNull { it.first == id }?.let {
+                    onSubtitleFontFamilyChanged(it.first)
+                }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.FontColor -> TvSettingsPickerSheet(
+            title = "Font Color",
+            options = TvSubtitleAppearanceOptions.FONT_COLORS.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.fontColor.lowercase(),
+            onSelect = { id ->
+                onSubtitleFontColorChanged(id)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.OutlineColor -> TvSettingsPickerSheet(
+            title = "Outline Color",
+            options = TvSubtitleAppearanceOptions.FONT_COLORS.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.textOutlineColor.lowercase(),
+            onSelect = { id ->
+                onSubtitleTextOutlineColorChanged(id)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.BackgroundStyle -> TvSettingsPickerSheet(
+            title = "Background Style",
+            options = TvSubtitleAppearanceOptions.BACKGROUND_STYLES.map { PickerOption(it.first.name, it.second) },
+            selectedId = appearance.backgroundStyle.name,
+            onSelect = { id ->
+                TvSubtitleAppearanceOptions.BACKGROUND_STYLES.firstOrNull { it.first.name == id }?.let {
+                    onSubtitleBackgroundStyleChanged(it.first)
+                }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.BackgroundOpacity -> TvSettingsPickerSheet(
+            title = "Background Opacity",
+            options = TvSubtitleAppearanceOptions.OPACITY_STEPS.map { PickerOption(it.toString(), "$it%") },
+            selectedId = appearance.backgroundOpacity.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let { onSubtitleBackgroundOpacityChanged(it) }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.BackgroundColor -> TvSettingsPickerSheet(
+            title = "Background Color",
+            options = TvSubtitleAppearanceOptions.BACKGROUND_COLORS.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.backgroundColor.lowercase(),
+            onSelect = { id ->
+                onSubtitleBackgroundColorChanged(id)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.Position -> TvSettingsPickerSheet(
+            title = "Position",
+            options = TvSubtitleAppearanceOptions.POSITIONS.map { PickerOption(it.first.name, it.second) },
+            selectedId = appearance.position.name,
+            onSelect = { id ->
+                TvSubtitleAppearanceOptions.POSITIONS.firstOrNull { it.first.name == id }?.let {
+                    onSubtitlePositionChanged(it.first)
+                }
                 activePicker = null
             },
             onDismiss = { activePicker = null },
@@ -574,7 +736,18 @@ private fun TvSubtitleSettingsScreen(
     }
 }
 
-private enum class SubtitlePicker { Mode, Language, Size }
+private enum class SubtitlePicker {
+    Mode,
+    Language,
+    FontSize,
+    FontFamily,
+    FontColor,
+    OutlineColor,
+    BackgroundStyle,
+    BackgroundOpacity,
+    BackgroundColor,
+    Position,
+}
 
 // ---------------------------------------------------------------------------
 // Sub-screen scaffold (full-screen overlay with a title + back-to-dismiss)
@@ -1109,6 +1282,20 @@ private fun SettingsInfoRow(label: String, value: String) {
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/** Non-focusable explanatory footer below a settings group (tvOS Section footer). */
+@Composable
+private fun SettingsFooterText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = RowMaxWidth)
+            .padding(horizontal = 8.dp),
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
