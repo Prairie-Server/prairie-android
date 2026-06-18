@@ -45,9 +45,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.continuum.app.android.ui.screens.auth.AuthStage
 import com.continuum.app.android.ui.screens.auth.AuthColors
 import com.continuum.app.android.ui.screens.auth.AuthErrorBanner
+import com.continuum.app.android.ui.components.aurora.AuroraBackdrop
+import com.continuum.app.android.ui.components.aurora.AuroraScrim
+import com.continuum.app.android.ui.components.aurora.AuroraVariant
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.common.ui.components.isImageAvatar
 import com.continuum.app.common.ui.components.profileAvatarDisplayText
@@ -93,7 +95,8 @@ fun ProfileSelectionScreen(
         )
     }
 
-    AuthStage {
+    Box(modifier = Modifier.fillMaxSize()) {
+        AuroraBackdrop(variant = AuroraVariant.Profile, scrim = AuroraScrim.Soft)
         // Vertical scroll on the whole page, mirroring iOS phone's
         // `ScrollView { LazyVGrid(adaptive(min: 140, max: 180)) }` pattern at
         // `ProfileSelectionView.swift:119`. The previous implementation
