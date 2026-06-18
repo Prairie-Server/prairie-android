@@ -15,16 +15,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.model.request.RequestMediaDetail
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
+import com.continuum.app.tv.ui.theme.ContinuumBlue
+import com.continuum.app.tv.ui.theme.sectionEyebrow
 import com.continuum.app.viewmodel.RequestDetailViewModel
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -86,6 +88,11 @@ private fun RequestDetailContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
+            text = "REQUEST",
+            style = sectionEyebrow,
+            color = ContinuumBlue.copy(alpha = 0.92f),
+        )
+        Text(
             text = detail.title,
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.onBackground,
@@ -129,17 +136,13 @@ private fun RequestDetailContent(
         val request = detail.request
         when {
             request.requestable -> {
-                Button(
+                TvRequestActionPill(
+                    label = if (isSubmitting) "Requesting…" else "Request",
+                    icon = Icons.Filled.Add,
                     onClick = onRequest,
                     enabled = !isSubmitting,
                     modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    Text(
-                        text = if (isSubmitting) "Requesting…" else "Request",
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                )
             }
             !request.status.isNullOrBlank() -> {
                 Text(

@@ -3,36 +3,30 @@ package com.continuum.app.tv.ui.screens.admin
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.model.admin.AdminStats
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
+import com.continuum.app.tv.ui.components.auroraGlass
+import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.viewmodel.AdminStatsViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -59,7 +53,7 @@ fun TvAdminScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        AdminHeader()
+        TvAdminScreenHeader(eyebrow = "ADMIN", title = "Dashboard")
 
         when {
             state.isLoading && state.stats == null -> TvLoadingScreen()
@@ -69,30 +63,6 @@ fun TvAdminScreen(
             )
             state.stats != null -> AdminStatsGrid(stats = state.stats!!)
         }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun AdminHeader() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Filled.AdminPanelSettings,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(40.dp),
-        )
-        Text(
-            text = "Admin Dashboard",
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
     }
 }
 
@@ -110,7 +80,7 @@ private fun AdminStatsGrid(stats: AdminStats) {
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
+        contentPadding = PaddingValues(horizontal = Spacing.safeArea, vertical = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(32.dp),
         verticalArrangement = Arrangement.spacedBy(32.dp),
     ) {
@@ -125,12 +95,11 @@ private data class StatTile(val label: String, val value: String)
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun AdminStatCard(tile: StatTile) {
-    Card(
-        onClick = {},
-        shape = CardDefaults.shape(shape = RoundedCornerShape(20.dp)),
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(180.dp),
+            .height(180.dp)
+            .auroraGlass(cornerRadius = 20.dp),
     ) {
         Column(
             modifier = Modifier

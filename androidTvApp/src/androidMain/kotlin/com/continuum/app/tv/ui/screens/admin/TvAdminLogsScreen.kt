@@ -37,6 +37,7 @@ import com.continuum.app.model.admin.AdminLogEntry
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvFilterChip
 import com.continuum.app.tv.ui.components.TvLoadingScreen
+import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -76,16 +77,11 @@ fun TvAdminLogsScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Text(
-            text = "Logs",
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 12.dp),
-        )
+        TvAdminScreenHeader(eyebrow = "ADMIN", title = "Logs")
 
         // Tab rail
         Row(
-            modifier = Modifier.padding(horizontal = 48.dp),
+            modifier = Modifier.padding(horizontal = Spacing.safeArea),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             TvLogTab.entries.forEach { tab ->
@@ -96,7 +92,7 @@ fun TvAdminLogsScreen(
         // Level filter (App tab only)
         if (state.tab == TvLogTab.App) {
             Row(
-                modifier = Modifier.padding(horizontal = 48.dp, vertical = 12.dp),
+                modifier = Modifier.padding(horizontal = Spacing.safeArea, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 LOG_LEVELS.forEach { (wire, label) ->
@@ -114,7 +110,7 @@ fun TvAdminLogsScreen(
             else -> LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = Spacing.safeArea, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (state.tab == TvLogTab.App) {
