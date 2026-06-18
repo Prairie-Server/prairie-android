@@ -45,7 +45,8 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Border
 import androidx.compose.foundation.BorderStroke
 import androidx.tv.material3.Text
-import com.continuum.app.tv.ui.components.TvAnimatedMeshBackground
+import com.continuum.app.tv.ui.components.TvAuroraBackdrop
+import com.continuum.app.tv.ui.components.TvAuroraVariant
 import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvFilterChip
 import com.continuum.app.tv.ui.components.TvHeroActionPill
@@ -107,7 +108,7 @@ fun TvProfileForm(
             .fillMaxSize()
             .imePadding(),
     ) {
-        TvAnimatedMeshBackground()
+        TvAuroraBackdrop(variant = TvAuroraVariant.Profile)
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,

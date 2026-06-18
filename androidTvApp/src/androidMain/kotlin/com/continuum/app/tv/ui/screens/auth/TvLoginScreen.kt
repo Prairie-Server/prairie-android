@@ -54,7 +54,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.repository.DeviceLoginRepository
 import com.continuum.app.tv.R
-import com.continuum.app.tv.ui.components.TvAnimatedMeshBackground
+import com.continuum.app.tv.ui.components.TvAuroraBackdrop
+import com.continuum.app.tv.ui.components.TvAuroraVariant
 import com.continuum.app.tv.ui.components.TvHeroActionPill
 import com.continuum.app.tv.ui.components.TvPillVariant
 import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
@@ -97,7 +98,7 @@ fun TvLoginScreen(
             .fillMaxSize()
             .imePadding(),
     ) {
-        TvAnimatedMeshBackground()
+        TvAuroraBackdrop(variant = TvAuroraVariant.SignIn)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(Spacing.md),

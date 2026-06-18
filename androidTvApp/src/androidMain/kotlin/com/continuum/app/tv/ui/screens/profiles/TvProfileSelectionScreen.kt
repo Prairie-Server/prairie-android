@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
@@ -57,7 +56,8 @@ import com.continuum.app.common.ui.components.profileAvatarDisplayText
 import com.continuum.app.common.ui.components.rememberProfileServerUrl
 import com.continuum.app.common.ui.components.resolveAvatarUrl
 import com.continuum.app.model.profile.Profile
-import com.continuum.app.tv.ui.components.TvAnimatedMeshBackground
+import com.continuum.app.tv.ui.components.TvAuroraBackdrop
+import com.continuum.app.tv.ui.components.TvAuroraVariant
 import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvHeroActionPill
@@ -105,7 +105,7 @@ fun TvProfileSelectionScreen(
         )
         else -> {
             Box(modifier = Modifier.fillMaxSize()) {
-                TvAnimatedMeshBackground()
+                TvAuroraBackdrop(variant = TvAuroraVariant.Profile)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
