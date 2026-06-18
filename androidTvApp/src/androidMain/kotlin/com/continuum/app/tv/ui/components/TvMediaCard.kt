@@ -29,6 +29,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -39,8 +40,6 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.model.catalog.MediaItemUserState
-import com.continuum.app.tv.ui.theme.ContinuumBlue
-import com.continuum.app.tv.ui.theme.DarkOnPrimary
 import com.continuum.app.tv.ui.theme.ProgressTrack
 import com.continuum.app.tv.ui.theme.ProgressFill
 import com.continuum.app.tv.ui.theme.SelectedContainer
@@ -123,16 +122,16 @@ fun TvMediaCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                            .size(12.dp)
-                            .background(ContinuumBlue, CircleShape),
+                            .padding(12.dp)
+                            .size(40.dp)
+                            .background(Color.White, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = "Watched",
-                            tint = DarkOnPrimary,
-                            modifier = Modifier.size(7.dp),
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp),
                         )
                     }
                 }
@@ -156,7 +155,7 @@ fun TvMediaCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             text = title,
@@ -168,6 +167,7 @@ fun TvMediaCard(
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -176,6 +176,7 @@ fun TvMediaCard(
                 text = year.toString(),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.70f),
+                textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -196,4 +197,4 @@ fun TvMediaCard(
  * (260×390pt at scale per `RowDimens.PosterWidth`) — the spec calls for
  * 200×300dp posters across rows and grids on Android TV.
  */
-val TvCardWidth: Dp = 130.dp
+val TvCardWidth: Dp = 200.dp

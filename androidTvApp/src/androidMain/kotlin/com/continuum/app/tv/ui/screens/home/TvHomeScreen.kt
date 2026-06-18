@@ -234,8 +234,8 @@ private fun TvHomeContent(
     }
 }
 
-/** Spec 3.1 — card spacing inside Home rows. */
-private val TvHomeItemSpacing = 20.dp
+/** Spec 3.1 — card spacing inside Home rows. Matches tvOS MediaRow cardSpacing (40). */
+private val TvHomeItemSpacing = 40.dp
 
 /** Portion of the screen reserved for the row stack (tvOS rowBandHeightFraction). */
 private const val RowBandHeightFraction = 0.50f

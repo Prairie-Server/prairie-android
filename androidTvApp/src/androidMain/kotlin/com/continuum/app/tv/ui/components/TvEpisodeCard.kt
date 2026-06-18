@@ -206,9 +206,9 @@ fun TvEpisodeCard(
 
 private fun formatEpisodeTag(season: Int?, episode: Int?): String? {
     if (season == null && episode == null) return null
-    val s = season?.let { "S${it.toString().padStart(2, '0')}" } ?: ""
-    val e = episode?.let { "E${it.toString().padStart(2, '0')}" } ?: ""
-    return "$s$e"
+    val s = season?.let { "S$it" }
+    val e = episode?.let { "E$it" }
+    return listOfNotNull(s, e).joinToString(" · ")
 }
 
 /**
