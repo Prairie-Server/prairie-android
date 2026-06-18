@@ -1,25 +1,31 @@
 package com.continuum.app.tv.ui.screens.profiles
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
@@ -30,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -62,7 +69,7 @@ import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.theme.continuumCardDefaults
 import org.koin.compose.viewmodel.koinViewModel
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TvProfileSelectionScreen(
     onProfileSelected: () -> Unit,
@@ -113,7 +120,7 @@ fun TvProfileSelectionScreen(
                     Spacer(modifier = Modifier.height(Spacing.sm))
                     Text(
                         text = if (state.isManageMode) "Manage profiles" else "Who's watching?",
-                        style = MaterialTheme.typography.displayMedium,
+                        style = MaterialTheme.typography.displayLarge,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
@@ -135,11 +142,16 @@ fun TvProfileSelectionScreen(
                             runCatching { firstCardFocus.requestFocus() }
                         }
                     }
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(32.dp),
-                        contentPadding = PaddingValues(horizontal = 32.dp),
+                    // Wrapping, centered household grid (tvOS ProfileSelectionView
+                    // uses an adaptive LazyVGrid that wraps to multiple rows) —
+                    // not a single horizontal scroller.
+                    FlowRow(
+                        modifier = Modifier.widthIn(max = 1480.dp),
+                        horizontalArrangement = Arrangement.spacedBy(56.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(72.dp),
+                        maxItemsInEachRow = 5,
                     ) {
-                        itemsIndexed(state.profiles, key = { _, p -> p.id }) { index, profile ->
+                        state.profiles.forEachIndexed { index, profile ->
                             TvProfileCard(
                                 profile = profile,
                                 manageMode = state.isManageMode,
@@ -159,9 +171,7 @@ fun TvProfileSelectionScreen(
                             )
                         }
                         // "Add profile" tile always trails the list.
-                        item(key = "__add_profile__") {
-                            TvAddProfileCard(onClick = onAddProfile)
-                        }
+                        TvAddProfileCard(onClick = onAddProfile)
                     }
 
                     Spacer(modifier = Modifier.height(Spacing.xxl))
@@ -241,17 +251,34 @@ private fun TvProfileCard(
             ?.let { resolveAvatarUrl(serverUrl, it) }
     }
 
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(28.dp)
     val cardFocus = continuumCardDefaults(shape = shape)
     val tileTint = profile.tintColor()
+    // Per-profile tinted focus halo ("this profile is alive"), mirroring tvOS
+    // ProfileTile's colored glow.
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val haloElevation by animateDpAsState(
+        targetValue = if (isFocused) 40.dp else 0.dp,
+        label = "profileTileHalo",
+    )
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Card(
             onClick = onClick,
+            interactionSource = interactionSource,
             shape = CardDefaults.shape(shape = shape),
             scale = cardFocus.scale,
             border = cardFocus.border,
             glow = cardFocus.glow,
-            modifier = modifier.size(180.dp),
+            modifier = modifier
+                .size(280.dp)
+                .shadow(
+                    elevation = haloElevation,
+                    shape = shape,
+                    clip = false,
+                    ambientColor = tileTint,
+                    spotColor = tileTint,
+                ),
         ) {
             Box(
                 modifier = Modifier
@@ -287,13 +314,27 @@ private fun TvProfileCard(
                     Text(
                         text = avatarText,
                         fontSize = if (!profile.avatar.isNullOrBlank() && !isImageAvatar(profile.avatar)) {
-                            70.sp
+                            104.sp
                         } else {
-                            58.sp
+                            88.sp
                         },
                         fontWeight = FontWeight.Bold,
                         color = Color.White.copy(alpha = 0.94f),
                     )
+                }
+
+                // Child (leaf) + PIN (lock) indicator badges, top-leading — tvOS
+                // ProfileTile surfaces these so a household reads at a glance.
+                if (profile.isChild || profile.hasPin) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (profile.isChild) ProfileBadge(Icons.Filled.ChildCare, "Child profile")
+                        if (profile.hasPin) ProfileBadge(Icons.Filled.Lock, "PIN protected")
+                    }
                 }
 
                 if (manageMode) {
@@ -337,7 +378,7 @@ private fun TvProfileCard(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvAddProfileCard(onClick: () -> Unit) {
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(28.dp)
     val cardFocus = continuumCardDefaults(shape = shape)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Card(
@@ -346,7 +387,7 @@ private fun TvAddProfileCard(onClick: () -> Unit) {
             scale = cardFocus.scale,
             border = cardFocus.border,
             glow = cardFocus.glow,
-            modifier = Modifier.size(180.dp),
+            modifier = Modifier.size(280.dp),
         ) {
             Box(
                 modifier = Modifier
@@ -372,6 +413,23 @@ private fun TvAddProfileCard(onClick: () -> Unit) {
             text = "Add Profile",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.88f),
+        )
+    }
+}
+
+@Composable
+private fun ProfileBadge(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(17.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
         )
     }
 }
