@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Forward10
@@ -25,15 +23,14 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Transport controls overlay for the video player. Top-bar icon layout
@@ -75,170 +72,133 @@ fun PlayerControls(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize(),
+    // iOS dims the entire screen with a flat `Color.black.opacity(0.4)`
+    // backdrop (MobilePlayerControls) — no top/bottom gradients. The VStack
+    // sits inside the dim with iOS's default 16pt edge padding.
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.4f)),
     ) {
-        // Top gradient + header bar
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent),
-                    )
-                )
-                .padding(top = 8.dp, start = 4.dp, end = 4.dp, bottom = 24.dp),
+                .fillMaxSize()
+                .padding(16.dp),
         ) {
+            // Top bar — iOS HStack(spacing: 16): back · spacer · title · spacer ·
+            // lock · chapters · tracks · settings. Title is centered between the
+            // two spacers, single-line, `.subheadline`, no subtitle.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                    )
-                }
+                ControlButton(
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Back",
+                    onClick = onBack,
+                )
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (subtitle.isNotEmpty()) {
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.7f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+                Spacer(modifier = Modifier.weight(1f))
+
+                Text(
+                    text = title,
+                    fontSize = 15.sp,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
 
                 // Orientation lock toggle — mirrors iOS `lock.fill` / `lock.open`.
-                IconButton(onClick = onToggleOrientationLock) {
-                    Icon(
-                        imageVector = if (isOrientationLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (isOrientationLocked) "Landscape Locked" else "Rotate Freely",
-                        tint = Color.White,
-                    )
-                }
+                ControlButton(
+                    icon = if (isOrientationLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    contentDescription = if (isOrientationLocked) "Landscape Locked" else "Rotate Freely",
+                    onClick = onToggleOrientationLock,
+                )
 
                 // Chapters — only shown when the file has chapters (iOS parity).
                 if (hasChapters) {
-                    IconButton(onClick = onOpenChapters) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.List,
-                            contentDescription = "Chapters",
-                            tint = Color.White,
-                        )
-                    }
+                    ControlButton(
+                        icon = Icons.AutoMirrored.Filled.List,
+                        contentDescription = "Chapters",
+                        onClick = onOpenChapters,
+                    )
                 }
 
                 // Tracks (audio + subtitles) — iOS uses `captions.bubble`. Dimmed
-                // when there's nothing to pick.
-                IconButton(
+                // to 0.3 opacity when there's nothing to pick.
+                ControlButton(
+                    icon = Icons.Default.ClosedCaption,
+                    contentDescription = "Audio and subtitles",
                     onClick = onOpenTracks,
                     enabled = hasTracks,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ClosedCaption,
-                        contentDescription = "Audio and subtitles",
-                        tint = if (hasTracks) Color.White else Color.White.copy(alpha = 0.3f),
-                    )
-                }
+                )
 
                 // Settings — iOS `gearshape`, opens the playback settings sheet.
-                IconButton(onClick = onOpenSettings) {
+                ControlButton(
+                    icon = Icons.Default.Settings,
+                    contentDescription = "Playback settings",
+                    onClick = onOpenSettings,
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Center controls — iOS HStack(spacing: 48): skip back (32) ·
+            // play/pause (48, no background) · skip forward (32). While
+            // buffering, iOS swaps the play glyph for a spinner.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(48.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = onSkipBackward,
+                    enabled = seekEnabled,
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Playback settings",
-                        tint = Color.White,
+                        imageVector = Icons.Default.Replay10,
+                        contentDescription = "Skip back 10 seconds",
+                        tint = if (seekEnabled) Color.White else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+
+                IconButton(
+                    onClick = onPlayPause,
+                    enabled = playPauseEnabled,
+                ) {
+                    Icon(
+                        imageVector = if (isPaused || !isPlaying) {
+                            Icons.Default.PlayArrow
+                        } else {
+                            Icons.Default.Pause
+                        },
+                        contentDescription = if (isPaused || !isPlaying) "Play" else "Pause",
+                        tint = if (playPauseEnabled) Color.White else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(48.dp),
+                    )
+                }
+
+                IconButton(
+                    onClick = onSkipForward,
+                    enabled = seekEnabled,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Forward10,
+                        contentDescription = "Skip forward 10 seconds",
+                        tint = if (seekEnabled) Color.White else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(32.dp),
                     )
                 }
             }
-        }
 
-        // Center controls: spacer pushes them to the middle
-        Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.weight(1f))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = onSkipBackward,
-                enabled = seekEnabled,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Replay10,
-                    contentDescription = "Skip back 10 seconds",
-                    tint = if (seekEnabled) Color.White else Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.size(36.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.width(32.dp))
-
-            IconButton(
-                onClick = onPlayPause,
-                enabled = playPauseEnabled,
-                modifier = Modifier
-                    .size(72.dp)
-                    .background(Color.White.copy(alpha = 0.15f), CircleShape),
-            ) {
-                Icon(
-                    imageVector = if (isPaused || !isPlaying) {
-                        Icons.Default.PlayArrow
-                    } else {
-                        Icons.Default.Pause
-                    },
-                    contentDescription = if (isPaused || !isPlaying) "Play" else "Pause",
-                    tint = if (playPauseEnabled) Color.White else Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.size(48.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.width(32.dp))
-
-            IconButton(
-                onClick = onSkipForward,
-                enabled = seekEnabled,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Forward10,
-                    contentDescription = "Skip forward 10 seconds",
-                    tint = if (seekEnabled) Color.White else Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.size(36.dp),
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Bottom gradient + seek bar
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
-                    )
-                )
-                .padding(bottom = 16.dp, start = 8.dp, end = 8.dp, top = 24.dp),
-        ) {
+            // Bottom bar — iOS VStack(spacing: 8): progress slider then a time
+            // row. No gradient (the flat dim handles contrast).
             PlayerProgressBar(
                 position = position,
                 duration = duration,
@@ -246,5 +206,30 @@ fun PlayerControls(
                 enabled = seekEnabled,
             )
         }
+    }
+}
+
+/**
+ * Top-bar control button matching iOS `controlButton`: a `size 20` icon inside
+ * a 44x44 tap target, white, dimmed to 0.3 when disabled.
+ */
+@Composable
+private fun ControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(44.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) Color.White else Color.White.copy(alpha = 0.3f),
+            modifier = Modifier.size(20.dp),
+        )
     }
 }

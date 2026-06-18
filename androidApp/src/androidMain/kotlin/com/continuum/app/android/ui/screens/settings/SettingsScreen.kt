@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -89,16 +91,16 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             item {
                 if (!showTopBar) {
                     Text(
                         text = "Settings",
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.displayMedium,
                         color = MaterialTheme.colorScheme.onBackground,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                     )
                 }
             }
@@ -125,17 +127,13 @@ fun SettingsScreen(
 
             item {
                 SettingsSectionCard {
-                    SettingsSectionHeader(title = "Card Overlays")
-                    SettingsRow(
-                        label = "Badges & Overlays",
-                        modifier = Modifier.clickable(onClick = onNavigateToCardOverlays),
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    SettingsRowLabel(
+                        title = "Card Overlays",
+                        icon = Icons.Filled.Layers,
+                        badgeColor = SettingsBadgeIndigo,
+                        onClick = onNavigateToCardOverlays,
+                        showChevron = true,
+                    )
                 }
             }
 
@@ -238,10 +236,23 @@ fun SettingsScreen(
     }
 }
 
+// --- iOS system-color badge palette (maps SwiftUI .blue/.pink/etc.) ---
+
+val SettingsBadgeBlue = Color(0xFF0A84FF)
+val SettingsBadgePink = Color(0xFFFF375F)
+val SettingsBadgeIndigo = Color(0xFF5E5CE6)
+val SettingsBadgeTeal = Color(0xFF64D2FF)
+val SettingsBadgeOrange = Color(0xFFFF9F0A)
+val SettingsBadgeRed = Color(0xFFFF453A)
+val SettingsBadgeGray = Color(0xFF8E8E93)
+val SettingsBadgePurple = Color(0xFFBF5AF2)
+
 // --- Shared Settings UI Components ---
 
 /**
- * Card container for a settings section with a subtle surface background.
+ * Card container for a settings section. Mirrors the iOS inset-grouped
+ * `Section` whose rows sit on `continuumSurfaceElevated`. iOS uses a
+ * ~10pt corner radius for grouped sections.
  */
 @Composable
 fun SettingsSectionCard(
@@ -251,24 +262,102 @@ fun SettingsSectionCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .padding(vertical = 8.dp),
+            .clip(RoundedCornerShape(10.dp))
+            // iOS rows sit on `continuumSurfaceElevated`, which the Android
+            // theme exposes as `primaryContainer` (0xFF15171C).
+            .background(MaterialTheme.colorScheme.primaryContainer),
         content = content,
     )
 }
 
 /**
- * Section header text within a settings card.
+ * Section header text. iOS grouped-list section headers are uppercased
+ * footnote text in the secondary color, sitting above the card with a
+ * small inset.
  */
 @Composable
 fun SettingsSectionHeader(title: String) {
     Text(
-        text = title,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        text = title.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
+    )
+}
+
+/**
+ * iOS Settings-app style row: a colored rounded-square icon badge
+ * (cornerRadius 7, 29x29), the row title, and an optional trailing
+ * value in secondary color. Mirrors `SettingsRowLabel`.
+ */
+@Composable
+fun SettingsRowLabel(
+    title: String,
+    icon: ImageVector,
+    badgeColor: Color,
+    modifier: Modifier = Modifier,
+    value: String? = null,
+    onClick: (() -> Unit)? = null,
+    showChevron: Boolean = false,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .size(29.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(badgeColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+
+        if (value != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+
+        if (showChevron) {
+            Spacer(modifier = Modifier.width(8.dp))
+            SettingsRowChevron()
+        }
+    }
+}
+
+/**
+ * Disclosure chevron matching the iOS `SettingsRowChevron`.
+ */
+@Composable
+fun SettingsRowChevron() {
+    Icon(
+        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        modifier = Modifier.size(18.dp),
     )
 }
 
@@ -284,12 +373,12 @@ fun SettingsRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
@@ -337,7 +426,7 @@ fun SettingsClickableRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -349,7 +438,7 @@ fun SettingsClickableRow(
         Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge,
             color = labelColor,
         )
     }

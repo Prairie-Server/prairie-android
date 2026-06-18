@@ -20,7 +20,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.components.MediaCard
 import com.continuum.app.android.ui.components.rememberBrowseItemCardActions
 import com.continuum.app.model.catalog.BrowseItem
@@ -67,15 +69,16 @@ fun SearchResults(
         columns = GridCells.Fixed(3),
         state = gridState,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier,
     ) {
-        // Result count header
+        // Result count header — iOS: "N result(s)" in continuumCaption (12sp).
         item(span = { GridItemSpan(3) }) {
             Text(
-                text = "$total results",
-                style = MaterialTheme.typography.labelMedium,
+                text = "$total result${if (total == 1) "" else "s"}",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp),
             )
@@ -109,7 +112,9 @@ fun SearchResults(
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
             }
         }

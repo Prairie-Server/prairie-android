@@ -15,7 +15,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -126,11 +126,11 @@ fun CollectionDetailScreen(
                 EmptyStateView(
                     title = "Collection is empty",
                     subtitle = if (state.canManage) {
-                        "Add items to this collection from item detail screens"
+                        "Add items from their detail pages"
                     } else {
-                        "No items were found in this library collection"
+                        "This collection does not have any items yet."
                     },
-                    icon = Icons.Outlined.Inbox,
+                    icon = Icons.Outlined.CollectionsBookmark,
                     modifier = Modifier.padding(padding),
                 )
             }
@@ -143,11 +143,11 @@ fun CollectionDetailScreen(
                         .padding(padding),
                 ) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 110.dp),
+                        columns = GridCells.Fixed(3),
                         state = gridState,
-                        contentPadding = PaddingValues(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         items(
                             items = state.items,

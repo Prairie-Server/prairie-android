@@ -1,6 +1,7 @@
 package com.continuum.app.android.ui.screens.audiobook
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -8,7 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bedtime
@@ -21,7 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
@@ -41,9 +44,12 @@ fun AudiobookSecondaryBar(
     showChapters: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    // iOS optionsRow: HStack(spacing: 12), centered group of translucent
+    // capsule chips. (The skip chip is an Android-only extra kept inline.)
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         ChipButton(icon = Icons.Filled.Speed, label = speedLabel, onClick = onSpeedClick)
         ChipButton(icon = Icons.Filled.Replay, label = skipLabel, onClick = onSkipClick)
@@ -54,6 +60,11 @@ fun AudiobookSecondaryBar(
     }
 }
 
+/**
+ * iOS AudioOptionChip: translucent white capsule (8% fill), 1dp outline
+ * border, footnote-semibold label, 14×9 padding. The icon + label use the
+ * onSurface tint (the iOS active-accent variant isn't modelled here).
+ */
 @Composable
 internal fun ChipButton(
     icon: ImageVector,
@@ -62,15 +73,26 @@ internal fun ChipButton(
 ) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(16.dp),
+        )
         Spacer(modifier = Modifier.size(6.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

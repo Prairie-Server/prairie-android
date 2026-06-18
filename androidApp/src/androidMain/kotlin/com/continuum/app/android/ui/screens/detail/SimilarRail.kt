@@ -1,12 +1,15 @@
 package com.continuum.app.android.ui.screens.detail
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -14,8 +17,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.continuum.app.android.ui.components.MediaCard
+import com.continuum.app.android.ui.theme.ContinuumSurfaceElevated
 import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
@@ -117,13 +122,21 @@ private fun SimilarRailContent(
 
 @Composable
 private fun SimilarRailPlaceholder(modifier: Modifier = Modifier) {
+    // iOS PhoneSimilarRail.loadingPlaceholder: poster-sized skeletons
+    // (120×198, corner 12, surfaceElevated fill), spacing 12.
     LazyRow(
         contentPadding = PaddingValues(horizontal = SafePadding),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         items(4) {
-            Spacer(modifier = Modifier.width(120.dp))
+            Box(
+                modifier = Modifier
+                    .width(120.dp)
+                    .height(198.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ContinuumSurfaceElevated),
+            )
         }
     }
 }

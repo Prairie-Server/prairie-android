@@ -1,27 +1,29 @@
 package com.continuum.app.android.ui.screens.detail
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.continuum.app.android.ui.theme.ContinuumSecondaryText
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.CastMember
 import com.continuum.app.model.catalog.CrewMember
@@ -40,9 +42,10 @@ fun CastCrewSection(
 ) {
     if (cast.isEmpty()) return
 
+    // iOS PhoneCastRail: cardSpacing 14, cardWidth 96, photo 76.
     LazyRow(
         contentPadding = PaddingValues(horizontal = SafePadding),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         items(cast, key = { "${it.name}_${it.character}_${it.order}" }) { member ->
@@ -67,37 +70,54 @@ private fun CastTile(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
-            .width(84.dp)
+            .width(96.dp)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
-        ThumbhashImage(
-            url = photoUrl,
-            thumbhash = photoThumbhash,
-            contentDescription = name,
+        // iOS PhoneCastRail photo: 76pt circle, white-0.10 stroke.
+        Box(
             modifier = Modifier
-                .size(72.dp)
-                .clip(CircleShape),
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = name,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = DetailPrimaryText,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
-        if (!role.isNullOrBlank()) {
+                .size(76.dp)
+                .clip(CircleShape)
+                .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape),
+        ) {
+            ThumbhashImage(
+                url = photoUrl,
+                thumbhash = photoThumbhash,
+                contentDescription = name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(CircleShape),
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            // Name 12pt semibold, character 11pt regular (secondary).
             Text(
-                text = role,
-                style = MaterialTheme.typography.labelSmall,
-                color = DetailTertiaryText,
-                maxLines = 1,
+                text = name,
+                fontSize = 12.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DetailPrimaryText,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
             )
+            if (!role.isNullOrBlank()) {
+                Text(
+                    text = role,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = ContinuumSecondaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }

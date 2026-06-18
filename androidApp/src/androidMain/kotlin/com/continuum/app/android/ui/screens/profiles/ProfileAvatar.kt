@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -93,7 +94,8 @@ fun ProfileAvatar(
     onClick: (() -> Unit)? = null,
 ) {
     val displayText = profileAvatarDisplayText(avatar = avatar, name = name)
-    val bgColor = AvatarOptions.colorForAvatar(avatar ?: name)
+    // iOS ProfileAvatarView uses a single flat continuumSurfaceVariant (#0E0F12).
+    val bgColor = Color(0xFF0E0F12)
     val serverUrl = rememberProfileServerUrl()
     val resolvedAvatarUrl = remember(avatar, serverUrl) {
         avatar
@@ -128,23 +130,30 @@ fun ProfileAvatar(
                 transparent = true,
             )
         } else {
-            val fontSize = if (!avatar.isNullOrBlank() && !isImageAvatar(avatar)) {
-                (size.value * 0.45).sp
+            // iOS: emoji at size*0.45; initials at size*0.34 semibold, onSurface.
+            val isEmoji = !avatar.isNullOrBlank() && !isImageAvatar(avatar)
+            if (isEmoji) {
+                Text(
+                    text = displayText,
+                    fontSize = (size.value * 0.45).sp,
+                )
             } else {
-                (size.value * 0.35).sp
+                Text(
+                    text = displayText,
+                    fontSize = (size.value * 0.34).sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AuthColors.OnSurface,
+                )
             }
-            Text(
-                text = displayText,
-                fontSize = fontSize,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-            )
         }
     }
 }
 
 /**
- * Smaller selectable avatar used in the avatar picker grid on create/edit screens.
+ * Smaller selectable emoji avatar used in the avatar picker grid on
+ * create/edit screens. Mirrors iOS phone `EditProfileView`'s emoji grid:
+ * 40dp rounded-rect cell (radius 8), emoji at 28pt, selection shown by a
+ * tinted background (continuumPrimary at 30%).
  */
 @Composable
 fun AvatarPickerItem(
@@ -153,25 +162,19 @@ fun AvatarPickerItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bgColor = AvatarOptions.colorForAvatar(emoji)
-    val borderModifier = if (isSelected) {
-        Modifier.border(3.dp, AuthColors.Primary, CircleShape)
-    } else {
-        Modifier
-    }
-
     Box(
         modifier = modifier
-            .size(52.dp)
-            .then(borderModifier)
-            .clip(CircleShape)
-            .background(bgColor)
+            .size(40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (isSelected) AuthColors.Primary.copy(alpha = 0.3f) else Color.Transparent,
+            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = emoji,
-            fontSize = 24.sp,
+            fontSize = 28.sp,
         )
     }
 }

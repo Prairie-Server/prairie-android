@@ -80,7 +80,7 @@ fun CreateProfileScreen(
         TopAppBar(
             title = {
                 Text(
-                    text = "Create Profile",
+                    text = "New Profile",
                     fontWeight = FontWeight.SemiBold,
                     color = AuthColors.OnBackground,
                 )
@@ -152,6 +152,7 @@ fun CreateProfileScreen(
                 label = "Child Profile",
                 checked = state.isChild,
                 onCheckedChange = viewModel::onChildToggled,
+                subtitle = "Restricts content to kid-friendly ratings",
             )
 
             // -- Content rating picker (visible for child profiles) --
@@ -209,7 +210,7 @@ fun CreateProfileScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             ContinuumButton(
-                text = "Create",
+                text = "Create Profile",
                 onClick = viewModel::onCreateClick,
                 isLoading = state.isLoading,
             )
@@ -223,11 +224,12 @@ fun CreateProfileScreen(
 
 @Composable
 internal fun SectionHeader(text: String) {
+    // iOS phone field labels use continuumCaption (12pt regular, secondary).
     Text(
         text = text,
-        fontSize = 16.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = AuthColors.OnBackground,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Normal,
+        color = AuthColors.OnSurfaceVariant,
         modifier = Modifier.padding(bottom = 12.dp),
     )
 }
@@ -237,17 +239,28 @@ internal fun SwitchRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            fontSize = 15.sp,
-            color = AuthColors.OnBackground,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            // iOS phone Toggle title: continuumBody (14pt), onSurface.
+            Text(
+                text = label,
+                fontSize = 14.sp,
+                color = AuthColors.OnBackground,
+            )
+            if (subtitle != null) {
+                // iOS phone Toggle subtitle: continuumCaption (12pt), secondary.
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = AuthColors.OnSurfaceVariant,
+                )
+            }
+        }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,

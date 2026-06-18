@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.continuum.app.android.ui.theme.ContinuumSurfaceElevated
 import com.continuum.app.model.catalog.CatalogFiltersResponse
 
 private val sortOptions = listOf(
@@ -91,12 +92,61 @@ fun FilterSheet(
                 modifier = Modifier.padding(bottom = 16.dp),
             )
 
-            // Genre multi-select
+            // Sort by — iOS phone FilterView lists Sort By first, Genre second.
+            Text(
+                text = "Sort By",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                sortOptions.forEach { (value, label) ->
+                    FilterChip(
+                        selected = selectedSort == value,
+                        onClick = { selectedSort = value },
+                        label = { Text(label) },
+                        colors = filterSheetChipColors(selectedSort == value),
+                        border = null,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Sort order
+            Text(
+                text = "Sort Order",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                orderOptions.forEach { (value, label) ->
+                    FilterChip(
+                        selected = selectedOrder == value,
+                        onClick = { selectedOrder = value },
+                        label = { Text(label) },
+                        colors = filterSheetChipColors(selectedOrder == value),
+                        border = null,
+                    )
+                }
+            }
+
+            // Genre multi-select — iOS largePadding (24) between sections.
             if (availableFilters != null && availableFilters.genres.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(24.dp))
                 Text(
                     text = "Genre",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
                 FlowRow(
@@ -117,18 +167,19 @@ fun FilterSheet(
                             },
                             label = { Text(genre) },
                             colors = filterSheetChipColors(selected),
+                            border = null,
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
             }
 
             // Content rating multi-select
             if (availableFilters != null && availableFilters.contentRatings.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(24.dp))
                 Text(
                     text = "Content Rating",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
                 FlowRow(
@@ -149,55 +200,9 @@ fun FilterSheet(
                             },
                             label = { Text(rating) },
                             colors = filterSheetChipColors(selected),
+                            border = null,
                         )
                     }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Sort by
-            Text(
-                text = "Sort By",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                sortOptions.forEach { (value, label) ->
-                    FilterChip(
-                        selected = selectedSort == value,
-                        onClick = { selectedSort = value },
-                        label = { Text(label) },
-                        colors = filterSheetChipColors(selectedSort == value),
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Sort order
-            Text(
-                text = "Sort Order",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                orderOptions.forEach { (value, label) ->
-                    FilterChip(
-                        selected = selectedOrder == value,
-                        onClick = { selectedOrder = value },
-                        label = { Text(label) },
-                        colors = filterSheetChipColors(selectedOrder == value),
-                    )
                 }
             }
 
@@ -251,14 +256,16 @@ fun FilterSheet(
     }
 }
 
+// iOS phone FilterView chip palette: selected = inverted onSurface bg with
+// background-colored text; unselected = surfaceElevated bg with secondary text.
 @Composable
 private fun filterSheetChipColors(selected: Boolean) = FilterChipDefaults.filterChipColors(
-    selectedContainerColor = Color.White.copy(alpha = 0.1f),
-    selectedLabelColor = MaterialTheme.colorScheme.onSurface,
-    selectedLeadingIconColor = MaterialTheme.colorScheme.onSurface,
-    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+    selectedContainerColor = MaterialTheme.colorScheme.onSurface,
+    selectedLabelColor = MaterialTheme.colorScheme.background,
+    selectedLeadingIconColor = MaterialTheme.colorScheme.background,
+    containerColor = ContinuumSurfaceElevated,
     labelColor = if (selected) {
-        MaterialTheme.colorScheme.onSurface
+        MaterialTheme.colorScheme.background
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     },

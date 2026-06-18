@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ private const val PIN_LENGTH = 4
 @Composable
 fun PINEntryDialog(
     profileName: String,
+    profileAvatar: String?,
     isLoading: Boolean,
     error: String?,
     onPinComplete: (String) -> Unit,
@@ -65,25 +67,36 @@ fun PINEntryDialog(
     }
 
     Dialog(onDismissRequest = onDismiss) {
+        // iOS phone presents PIN entry as a sheet over the black background.
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = AuthColors.Surface,
+            color = AuthColors.Background,
         ) {
+            // VStack(spacing: 32) header / dots / pad / cancel.
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // Header: avatar (64) + label, spacing 10.
+                ProfileAvatar(
+                    avatar = profileAvatar,
+                    name = profileName,
+                    size = 64.dp,
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Text(
                     text = "Enter PIN for $profileName",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
                     color = AuthColors.OnSurface,
                     textAlign = TextAlign.Center,
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                // PIN dots row
+                // PIN dots row (size 20, spacing 20).
                 PinDots(filledCount = pin.length)
 
                 if (error != null) {
@@ -96,7 +109,7 @@ fun PINEntryDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 // Number pad
                 NumberPad(
@@ -116,12 +129,12 @@ fun PINEntryDialog(
                     },
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 TextButton(onClick = onDismiss) {
                     Text(
                         text = "Cancel",
-                        color = AuthColors.OnSurfaceVariant,
+                        color = AuthColors.Primary,
                         fontSize = 15.sp,
                     )
                 }
@@ -130,25 +143,23 @@ fun PINEntryDialog(
     }
 }
 
+// iOS continuumSurfaceVariant (#0E0F12) — used for empty PIN dots and pad keys.
+private val SurfaceVariant = Color(0xFF0E0F12)
+
 @Composable
 private fun PinDots(filledCount: Int) {
+    // iOS phone: dotSize 20, spacing 20; empty dots are a filled surfaceVariant.
     Row(
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(PIN_LENGTH) { index ->
             val filled = index < filledCount
             Box(
                 modifier = Modifier
-                    .size(16.dp)
+                    .size(20.dp)
                     .clip(CircleShape)
-                    .then(
-                        if (filled) {
-                            Modifier.background(AuthColors.Primary)
-                        } else {
-                            Modifier.border(2.dp, AuthColors.FieldBorder, CircleShape)
-                        },
-                    ),
+                    .background(if (filled) AuthColors.Primary else SurfaceVariant),
             )
         }
     }
@@ -167,27 +178,29 @@ private fun NumberPad(
         listOf("", "0", "back"),
     )
 
+    // iOS pad: 3-column grid, key size 64, spacing 16.
     Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         for (row in rows) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 for (key in row) {
                     when (key) {
                         "" -> {
-                            // Empty spacer
-                            Spacer(modifier = Modifier.size(56.dp))
+                            // Empty slot keeps the "0" centered (iOS Color.clear).
+                            Spacer(modifier = Modifier.size(64.dp))
                         }
 
                         "back" -> {
                             Box(
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(64.dp)
                                     .clip(CircleShape)
+                                    .background(SurfaceVariant)
                                     .then(
                                         if (enabled) {
                                             Modifier.clickable(onClick = onBackspace)
@@ -201,7 +214,7 @@ private fun NumberPad(
                                     imageVector = Icons.AutoMirrored.Filled.Backspace,
                                     contentDescription = "Backspace",
                                     tint = if (enabled) AuthColors.OnSurface else AuthColors.OnSurfaceVariant,
-                                    modifier = Modifier.size(24.dp),
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
                         }
@@ -228,18 +241,20 @@ private fun NumberPadKey(
 ) {
     Box(
         modifier = Modifier
-            .size(56.dp)
+            .size(64.dp)
             .clip(CircleShape)
-            .background(AuthColors.Background)
+            .background(SurfaceVariant)
             .then(
                 if (enabled) Modifier.clickable(onClick = onClick) else Modifier,
             ),
         contentAlignment = Alignment.Center,
     ) {
+        // iOS continuumPIN: 32 bold monospaced.
         Text(
             text = digit,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Medium,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
             color = if (enabled) AuthColors.OnSurface else AuthColors.OnSurfaceVariant,
         )
     }

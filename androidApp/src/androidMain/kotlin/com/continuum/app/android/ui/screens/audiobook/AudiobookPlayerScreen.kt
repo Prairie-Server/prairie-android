@@ -12,11 +12,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -206,10 +207,13 @@ fun AudiobookPlayerScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(horizontal = 24.dp),
     ) {
-        // Back row + bookmark icon (top-right).
+        // Top bar mirrors iOS: chevron-down to minimize (left), 44dp hit
+        // targets, secondary tint, 8dp top inset. The bookmark action stays
+        // on the trailing side (Android-only affordance).
         var showBookmarksSheet by remember { mutableStateOf(false) }
+        Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -221,12 +225,24 @@ fun AudiobookPlayerScreen(
                     viewModel.stopPlaybackSession()
                     onBackClick()
                 },
+                modifier = Modifier.size(44.dp),
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Minimize Player",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { showBookmarksSheet = true }) {
-                Icon(Icons.Filled.Bookmark, contentDescription = "Bookmarks")
+            IconButton(
+                onClick = { showBookmarksSheet = true },
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Bookmark,
+                    contentDescription = "Bookmarks",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         if (showBookmarksSheet) {
@@ -240,7 +256,7 @@ fun AudiobookPlayerScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         AudiobookCoverHeader(
             title = state.title,
@@ -250,7 +266,7 @@ fun AudiobookPlayerScreen(
             coverThumbhash = state.coverThumbhash,
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         ChapterProgressBar(
             chapters = state.chapters,
@@ -258,6 +274,7 @@ fun AudiobookPlayerScreen(
             positionSeconds = state.positionSeconds,
             durationSeconds = state.durationSeconds,
             onSeek = { viewModel.seekTo(it) },
+            modifier = Modifier.padding(horizontal = 8.dp),
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -277,7 +294,7 @@ fun AudiobookPlayerScreen(
             onNextChapter = { viewModel.skipToNextChapter() },
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
         // Secondary controls: speed / skip / sleep / chapters.
         var showSpeedSheet by remember { mutableStateOf(false) }

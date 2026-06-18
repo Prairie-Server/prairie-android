@@ -2,12 +2,14 @@ package com.continuum.app.android.ui.screens.people
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,10 +22,12 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,11 +44,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
 import com.continuum.app.android.ui.components.MediaCard
 import com.continuum.app.android.ui.components.rememberBrowseItemCardActions
 import com.continuum.app.android.ui.theme.ContinuumOnSurface
+import com.continuum.app.android.ui.theme.ContinuumSecondaryText
 import com.continuum.app.android.ui.theme.ContinuumSurfaceElevated
 import com.continuum.app.android.ui.theme.ContinuumSurfaceVariant
 import com.continuum.app.android.ui.theme.PillShape
@@ -144,7 +151,7 @@ private fun PersonDetailContent(
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(top = 56.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 PersonHeader(person = person)
                 FilmographyHeader(
@@ -163,10 +170,8 @@ private fun PersonDetailContent(
                         .height(180.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "Loading…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = ContinuumOnSurface.copy(alpha = 0.7f),
+                    CircularProgressIndicator(
+                        color = ContinuumOnSurface,
                     )
                 }
             }
@@ -175,13 +180,13 @@ private fun PersonDetailContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(220.dp),
+                        .height(260.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "No titles found",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = ContinuumOnSurface.copy(alpha = 0.7f),
+                    EmptyStateView(
+                        title = "No titles found",
+                        subtitle = "There are no movies or series linked to this person yet.",
+                        icon = Icons.Outlined.Movie,
                     )
                 }
             }
@@ -205,6 +210,7 @@ private fun PersonDetailContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PersonHeader(person: Person) {
     Row(
@@ -219,8 +225,8 @@ private fun PersonHeader(person: Person) {
         ) {
             Text(
                 text = person.name,
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.ExtraBold,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
                 color = ContinuumOnSurface,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
@@ -231,7 +237,10 @@ private fun PersonHeader(person: Person) {
                 person.birthplace?.takeIf { it.isNotBlank() }?.let { add(it) }
             }
             if (badges.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     badges.forEach { badge ->
                         Surface(
                             shape = PillShape,
@@ -239,7 +248,8 @@ private fun PersonHeader(person: Person) {
                         ) {
                             Text(
                                 text = badge,
-                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal,
                                 color = ContinuumOnSurface,
                                 modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                             )
@@ -251,11 +261,10 @@ private fun PersonHeader(person: Person) {
             if (bio != null) {
                 Text(
                     text = bio,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = ContinuumOnSurface.copy(alpha = 0.78f),
+                    fontSize = 14.sp,
+                    color = ContinuumSecondaryText,
                     maxLines = 8,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
                 )
             }
         }
@@ -266,11 +275,13 @@ private fun PersonHeader(person: Person) {
 private fun PersonPortrait(person: Person) {
     val width = 132.dp
     val height = (width.value * 1.5f).dp
+    val shape = RoundedCornerShape(8.dp)
     Box(
         modifier = Modifier
             .size(width = width, height = height)
-            .clip(RoundedCornerShape(14.dp))
-            .background(ContinuumSurfaceElevated),
+            .clip(shape)
+            .background(ContinuumSurfaceElevated)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape),
         contentAlignment = Alignment.Center,
     ) {
         if (!person.photoUrl.isNullOrBlank()) {
@@ -283,9 +294,9 @@ private fun PersonPortrait(person: Person) {
         } else {
             Text(
                 text = personInitials(person.name),
-                style = MaterialTheme.typography.displaySmall,
+                fontSize = (width.value * 0.28f).sp,
                 fontWeight = FontWeight.SemiBold,
-                color = ContinuumOnSurface.copy(alpha = 0.7f),
+                color = ContinuumSecondaryText,
             )
         }
     }
@@ -304,20 +315,24 @@ private fun FilmographyHeader(
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 text = "Filmography",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = ContinuumOnSurface,
                 modifier = Modifier.weight(1f),
             )
             if (totalLoaded > 0) {
                 Text(
                     text = if (totalLoaded == 1) "1 title" else "$totalLoaded titles",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ContinuumOnSurface.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = ContinuumSecondaryText,
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
             PersonMediaFilter.values().forEach { filter ->
                 FilterChip(
                     title = filter.title,
@@ -337,20 +352,20 @@ private fun FilterChip(
 ) {
     Surface(
         shape = PillShape,
-        color = if (isSelected) Color.White else Color.White.copy(alpha = 0.10f),
+        color = if (isSelected) ContinuumSurfaceVariant else ContinuumSurfaceElevated.copy(alpha = 0.55f),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isSelected) Color.White else Color.White.copy(alpha = 0.20f),
+            Color.White.copy(alpha = if (isSelected) 0.16f else 0.08f),
         ),
         modifier = Modifier.clickable(onClick = onClick),
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = if (isSelected) Color.Black else ContinuumOnSurface,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Normal,
+            color = if (isSelected) ContinuumOnSurface else ContinuumSecondaryText,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
         )
     }
 }

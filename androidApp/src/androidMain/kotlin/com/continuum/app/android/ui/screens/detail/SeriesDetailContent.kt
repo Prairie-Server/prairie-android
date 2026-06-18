@@ -83,12 +83,14 @@ fun SeriesDetailContent(
         "$count episode${if (count == 1) "" else "s"}"
     }
 
+    // iOS below-fold section spacing is 36 (hero→first section 32). Use 36
+    // uniformly — the closest single-value match to the iOS column rhythm.
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .background(ContinuumBackground)
             .background(detailScreenBackgroundBrush(dominantColor)),
-        verticalArrangement = Arrangement.spacedBy(LargePadding),
+        verticalArrangement = Arrangement.spacedBy(36.dp),
     ) {
         item {
             DetailHero(
@@ -241,15 +243,8 @@ fun SeriesDetailContent(
             }
         }
 
-        if (detail.genres.isNotEmpty()) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Tags", title = "Genres")
-                    GenrePillRow(genres = detail.genres)
-                }
-            }
-        }
-
+        // No standalone Genres section — iOS folds genres into the hero
+        // source tokens / facts row, then goes straight to Details.
         item {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SectionHeader(label = "Info", title = "Details")

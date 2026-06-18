@@ -1,8 +1,6 @@
 package com.continuum.app.android.ui.screens.audiobook
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,12 +8,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,7 +24,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,50 +71,56 @@ fun ChaptersSheet(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.heightIn(max = 480.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 itemsIndexed(chapters, key = { _, c -> c.index }) { idx, chapter ->
                     val isCurrent = idx == currentChapterIndex
+                    // iOS chapterRow: HStack(spacing: 14), a 24pt leading slot
+                    // holding either the accent waveform (current) or the
+                    // monospaced chapter number, then the title, then the start
+                    // time. Rows are plain (no fill) and use accent text for the
+                    // current chapter.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                if (isCurrent) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surface,
-                            )
                             .clickable {
                                 onJumpTo(chapter)
                                 onDismiss()
                             }
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                            .padding(vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (isCurrent) {
                             Icon(
                                 imageVector = Icons.Filled.GraphicEq,
                                 contentDescription = "Now playing",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(width = 28.dp, height = 18.dp).padding(end = 8.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.width(24.dp).height(16.dp),
                             )
                         } else {
-                            Spacer(modifier = Modifier.width(28.dp))
+                            Text(
+                                text = "${idx + 1}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(24.dp),
+                            )
                         }
+                        Spacer(modifier = Modifier.width(14.dp))
                         Text(
                             text = audiobookChapterLabel(idx, chapter.title),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyLarge,
                             fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer
+                            color = if (isCurrent) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = formatClockTime(chapter.startSeconds),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }

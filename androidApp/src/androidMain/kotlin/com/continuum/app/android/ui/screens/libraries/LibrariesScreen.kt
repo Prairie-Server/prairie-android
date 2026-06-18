@@ -32,9 +32,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalMovies
@@ -74,6 +74,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.android.ui.components.EmptyStateView
@@ -84,6 +85,7 @@ import com.continuum.app.android.ui.screens.browse.CatalogGrid
 import com.continuum.app.android.ui.screens.home.FeaturedCarousel
 import com.continuum.app.android.ui.screens.home.HomeSectionRow
 import com.continuum.app.android.ui.screens.profiles.ProfileAvatar
+import com.continuum.app.android.ui.theme.ContinuumSurfaceElevated
 import com.continuum.app.android.ui.util.rememberDominantColor
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.BrowseItem
@@ -687,10 +689,12 @@ private fun RecommendedTabContent(
                 state.sections.splitFeatured().let { it.featured to it.rest }
             }
 
+            // iOS `LibraryRecommendedView`: LazyVStack(spacing: largePadding = 24)
+            // between section rows.
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 if (featuredSection != null && featuredSection.items.isNotEmpty()) {
                     item(key = "library-featured") {
@@ -874,16 +878,18 @@ private fun CollectionsTabContent(
             )
         }
         else -> {
+            // iOS `LibraryCollectionsView`: 3-column poster grid (iPhone
+            // compact) with 16pt grid spacing and padding (16) insets.
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 140.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                columns = GridCells.Fixed(3),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = contentTopPadding,
-                    bottom = 16.dp,
+                    bottom = 24.dp,
                 ),
             ) {
                 items(
@@ -905,15 +911,20 @@ private fun InlineLibraryCollectionCard(
     collection: LibraryCollection,
     onClick: () -> Unit,
 ) {
+    // iOS `LibraryCollectionCard`: VStack(spacing: 6) of a 2:3.3 poster
+    // (smallCornerRadius = 6) carrying a bottom-trailing count badge, a
+    // continuumCaption (12) name (2 lines), and a continuumSmall (11) secondary
+    // type label.
     Column(
         modifier = Modifier.clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(6.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f))
-                .aspectRatio(2f / 3f),
+                .aspectRatio(2f / 3.3f),
         ) {
             ThumbhashImage(
                 url = collection.posterUrl,
@@ -922,18 +933,31 @@ private fun InlineLibraryCollectionCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+            Text(
+                text = collection.itemCount?.takeIf { it > 0 }?.toString() ?: "Smart",
+                fontSize = 11.sp,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+            )
         }
         Text(
             text = collection.name,
-            style = MaterialTheme.typography.bodySmall,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 8.dp),
         )
         Text(
             text = collection.itemCount?.let { "$it items" } ?: "Collection",
-            style = MaterialTheme.typography.labelSmall,
+            fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -963,15 +987,17 @@ private fun LibrariesFloatingChrome(
         modifier = Modifier
             .fillMaxWidth()
             .background(
+                // iOS chrome scrim: LinearGradient(black@0.55 → black@0.25 →
+                // clear) faded in by the scroll-driven opacity.
                 Brush.verticalGradient(
                     colors = listOf(
                         MaterialTheme.colorScheme.background.copy(alpha = 0.55f * animatedFill),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.30f * animatedFill),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.25f * animatedFill),
                         MaterialTheme.colorScheme.background.copy(alpha = 0f),
                     ),
                 ),
             )
-            .padding(top = statusBarPadding.calculateTopPadding() + 6.dp),
+            .padding(top = statusBarPadding.calculateTopPadding() + 8.dp),
     ) {
         // Top row: library selector on the left, action icons on the right.
         Row(
@@ -988,13 +1014,15 @@ private fun LibrariesFloatingChrome(
             )
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ChromeIconButton(onClick = onSearchClick) {
                     Icon(
                         imageVector = Icons.Outlined.Search,
                         contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
                 ChromeProfileMenu(
@@ -1007,7 +1035,8 @@ private fun LibrariesFloatingChrome(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        // iOS: top bar bottom inset = smallPadding (8).
+        Spacer(modifier = Modifier.height(8.dp))
 
         LibrarySubtabRow(
             selectedTab = selectedTab,
@@ -1017,7 +1046,8 @@ private fun LibrariesFloatingChrome(
             modifier = Modifier.padding(horizontal = 16.dp),
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        // iOS: tab selector bottom inset = padding (16).
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
@@ -1033,15 +1063,21 @@ private fun LibrarySelectorButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // iOS `LibrarySelectorButton`: VStack(spacing: 1) of a name+chevron row
+    // (continuumTitle = 18pt bold) above a continuumCaption (12pt) type label.
     Column(
         modifier = modifier
             .clickable(enabled = canSwitch && library != null, onClick = onClick)
             .padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             Text(
                 text = library?.name ?: "Libraries",
-                style = MaterialTheme.typography.titleLarge,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -1049,18 +1085,17 @@ private fun LibrarySelectorButton(
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (canSwitch && library != null) {
-                Spacer(modifier = Modifier.size(4.dp))
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(14.dp),
                 )
             }
         }
         Text(
             text = library?.typeLabel() ?: "Choose a library",
-            style = MaterialTheme.typography.labelSmall,
+            fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1073,26 +1108,16 @@ private fun ChromeIconButton(
     onClick: () -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline,
-        ),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .padding(4.dp),
-            contentAlignment = Alignment.Center,
-            content = content,
-        )
-    }
+    // iOS `TopBarIconButton`/`ProfileAvatarMenu`: plain 40pt hit target with
+    // no surface fill or border — just the icon/avatar over the chrome scrim.
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
 }
 
 @Composable
@@ -1110,12 +1135,12 @@ private fun ChromeProfileMenu(
                 ProfileAvatar(
                     avatar = activeProfile.avatar,
                     name = activeProfile.name,
-                    size = 32.dp,
+                    size = 36.dp,
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)),
                     contentAlignment = Alignment.Center,
@@ -1180,19 +1205,16 @@ fun LibrariesSelectorSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
+        // iOS `LibraryPickerSheet`: a large "Libraries" navigation title above a
+        // VStack(spacing: 8) of rows, with h/v padding = padding (16).
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 text = "Libraries",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "Switch the active library for recommendations and browsing.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -1219,7 +1241,7 @@ private fun LibrarySubtabRow(
 ) {
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         LibrarySubtabChip(
             label = "Recommended",
@@ -1245,24 +1267,29 @@ private fun LibrarySubtabChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    // iOS `LibraryPageTabSelector` chip: Capsule, continuumCaption (12pt),
+    // selected = onSurface (white #EDEDED) fill / background (black) label and
+    // semibold weight; unselected = surfaceElevated (#15171C) fill / secondary
+    // label and regular weight. Padding h16 v8.
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(999.dp),
         color = if (selected) {
-            Color.White
+            MaterialTheme.colorScheme.onSurface
         } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+            ContinuumSurfaceElevated
         },
         contentColor = if (selected) {
-            Color.Black
+            MaterialTheme.colorScheme.background
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 }
@@ -1273,15 +1300,24 @@ private fun LibrarySelectorRow(
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
+    // iOS `LibraryPickerRow`: cornerRadius (8) card, selected fill onSurface@10%
+    // else surfaceElevated, hairline continuumOutline (white@12%) border. Row
+    // padding h16 v14; circle 40 onSurface@12% with an 18pt icon; name
+    // continuumHeadline (16) above a continuumCaption (12) secondary label;
+    // a 14pt checkmark on the selected row.
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(8.dp),
         color = if (isSelected) {
-            Color.White.copy(alpha = 0.1f)
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
         } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ContinuumSurfaceElevated
         },
         contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        ),
     ) {
         Row(
             modifier = Modifier
@@ -1294,34 +1330,39 @@ private fun LibrarySelectorRow(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.08f)),
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = libraryIcon(library.type),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(18.dp),
                 )
             }
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     text = library.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
                     text = library.typeLabel(),
-                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             if (isSelected) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(14.dp),
                 )
             }
         }
