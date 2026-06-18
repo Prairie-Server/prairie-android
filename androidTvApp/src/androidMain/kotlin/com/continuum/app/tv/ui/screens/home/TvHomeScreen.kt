@@ -3,11 +3,15 @@ package com.continuum.app.tv.ui.screens.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -17,23 +21,24 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.model.section.SectionItem
-import com.continuum.app.model.section.splitFeatured
 import com.continuum.app.tv.ui.components.LocalAmbientBackdropTint
 import com.continuum.app.tv.ui.components.TvErrorScreen
-import com.continuum.app.tv.ui.components.TvHomeHeroCarousel
+import com.continuum.app.tv.ui.components.TvFocusMarquee
 import com.continuum.app.tv.ui.components.TvLoadingScreen
 import com.continuum.app.tv.ui.components.TvMediaRow
 import com.continuum.app.tv.ui.components.TvRootHeroBackdrop
 import com.continuum.app.tv.ui.components.TvRowStyle
 import com.continuum.app.tv.ui.components.rememberAmbientBackdropTintState
+import com.continuum.app.tv.ui.components.rememberTvFocusMarqueeState
 import com.continuum.app.tv.ui.shell.TvTopMenuLayout
-import com.continuum.app.tv.ui.theme.HeroDimens
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.util.visibleOnTv
 import com.continuum.app.viewmodel.HomeViewModel
@@ -41,28 +46,27 @@ import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Android TV Home screen — mirrors the tvOS `HomeView` + `TVRootHeroBackdrop`
- * pattern. A page-level blurred backdrop pulled from the first featured
- * section's hero artwork bleeds behind the content; a featured carousel renders
- * above regular horizontal section rows when the server provides one.
+ * Android TV Home screen — the Skyline landing, a faithful port of tvOS
+ * `TVSkylineSectionFeed` + `HomeView`. There is NO featured carousel: every
+ * visible non-empty section renders as a horizontal row in server order. A
+ * passive focus marquee (bottom-left) and the page backdrop both track whichever
+ * row card currently holds focus, debounced ~150 ms. Rows scroll inside a lower
+ * band so they never paint over the marquee text.
  *
- * Layout numbers track Section 3.1 of `.android-parity/specs/ios-tv.md`:
- * 200×300dp posters via [TvMediaRow], 40dp column spacing, 60dp row spacing,
- * the menu band reserves [TvTopMenuLayout.contentTopInset] at the top only when
- * there is no featured carousel to draw behind the floating menu.
+ * "Recommended For You" is surfaced as a Home row (For You is no longer a tab);
+ * its See-all opens the recommendations screen via [onOpenForYou].
  */
 @Composable
 fun TvHomeScreen(
     onItemClick: (contentId: String) -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit = { _, _, _ -> },
     onSeeAll: () -> Unit = {},
+    onOpenForYou: () -> Unit = {},
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
     viewModel: HomeViewModel = koinViewModel(),
-    upcomingViewModel: TvUpcomingViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val upcomingItems by upcomingViewModel.items.collectAsState()
     val visibleSections = remember(state.sections) { state.sections.visibleOnTv() }
 
     when {
@@ -76,10 +80,9 @@ fun TvHomeScreen(
         )
         else -> TvHomeContent(
             sections = visibleSections,
-            upcomingItems = upcomingItems,
             onItemClick = onItemClick,
-            onPlayItem = onPlayItem,
             onSeeAll = onSeeAll,
+            onOpenForYou = onOpenForYou,
             onInitialContentFocus = onInitialContentFocus,
             focusRequest = focusRequest,
             onSetWatched = viewModel::setWatched,
@@ -93,10 +96,9 @@ fun TvHomeScreen(
 @Composable
 private fun TvHomeContent(
     sections: List<ResolvedSection>,
-    upcomingItems: List<SectionItem> = emptyList(),
     onItemClick: (String) -> Unit,
-    onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit = { _, _, _ -> },
     onSeeAll: () -> Unit = {},
+    onOpenForYou: () -> Unit = {},
     onInitialContentFocus: () -> Unit,
     focusRequest: Int,
     onSetWatched: (String, Boolean) -> Unit = { _, _ -> },
@@ -104,20 +106,25 @@ private fun TvHomeContent(
     onToggleWatchlist: (String, Boolean) -> Unit = { _, _ -> },
     onDismissContinueWatching: (String, String) -> Unit = { _, _ -> },
 ) {
-    val (featuredSection, restSections) = sections.splitFeatured().let { it.featured to it.rest }
-    val rows = restSections.filter { it.items.isNotEmpty() }
+    // All visible non-empty sections, in server order — no featured split.
+    val rows = remember(sections) { sections.filter { it.items.isNotEmpty() } }
 
     val tintState = rememberAmbientBackdropTintState()
-    var activeHeroItem by remember(featuredSection?.id) {
-        mutableStateOf(featuredSection?.items?.firstOrNull())
-    }
-    // Seed the tint state with the initial featured item on (re)entry; also
-    // re-emits when the carousel advances via onActiveItemChanged below.
-    LaunchedEffect(activeHeroItem?.contentId) {
-        tintState.set(activeHeroItem)
+    val marquee = rememberTvFocusMarqueeState()
+
+    // Focused-card → marquee. Reported on focus gain only, so moving up into
+    // chrome keeps the last previewed item.
+    val onItemFocused: (SectionItem, String) -> Unit = { item, rowTitle ->
+        marquee.preview(item, rowTitle)
     }
 
-    val heroFocusRequester = remember { FocusRequester() }
+    // The tint follows the COMMITTED (debounced) marquee content, not the raw
+    // focus event — so palette extraction tracks the same card the marquee +
+    // backdrop show and doesn't churn while scrubbing across a row.
+    LaunchedEffect(marquee.content?.id) {
+        marquee.content?.source?.let { tintState.set(it) }
+    }
+
     val firstRowFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
     var firstRowFocusRequest by remember { mutableIntStateOf(0) }
@@ -130,138 +137,111 @@ private fun TvHomeContent(
         return true
     }
 
-    LaunchedEffect(firstRowId, featuredSection?.id) {
-        if (initialFocusRequested || featuredSection != null || firstRowId == null) return@LaunchedEffect
+    // Entry focus → first row's first card on entry (no carousel gate).
+    LaunchedEffect(firstRowId) {
+        if (initialFocusRequested || firstRowId == null) return@LaunchedEffect
         delay(120)
         requestFirstRowFocus()
         initialFocusRequested = true
     }
 
-    LaunchedEffect(focusRequest, firstRowId, featuredSection?.id) {
-        if (focusRequest == 0 || featuredSection != null || firstRowId == null) return@LaunchedEffect
+    LaunchedEffect(focusRequest, firstRowId) {
+        if (focusRequest == 0 || firstRowId == null) return@LaunchedEffect
         requestFirstRowFocus()
     }
 
     CompositionLocalProvider(LocalAmbientBackdropTint provides tintState) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
+            // Crisp corner-anchored backdrop + diagonal tint wash, driven by the
+            // focused card's marquee content.
             TvRootHeroBackdrop(
-                item = activeHeroItem,
-                modifier = Modifier.fillMaxWidth(),
+                content = marquee.content,
+                modifier = Modifier.fillMaxSize(),
             )
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
-                contentPadding = PaddingValues(
-                    top = if (featuredSection == null) TvTopMenuLayout.contentTopInset else 0.dp,
-                    bottom = Spacing.xxxl,
-                ),
+            // Rows live only in the lower band; the viewport clips at its top
+            // edge so rows never paint through the marquee text while scrolling.
+            val bandHeight = maxHeight * RowBandHeightFraction
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(bandHeight)
+                    .align(Alignment.BottomStart)
+                    .clipToBounds(),
             ) {
-                featuredSection?.let { section ->
-                    item(key = "featured:${section.id}") {
-                        TvHomeHeroCarousel(
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
+                    contentPadding = PaddingValues(
+                        top = 0.dp,
+                        bottom = Spacing.xxxl,
+                    ),
+                ) {
+                    items(rows, key = ResolvedSection::id) { section ->
+                        val isProgressRow = section.isProgressRow()
+                        val isFirstRow = section.id == firstRowId
+                        val isForYou = section.isForYouRow()
+                        TvMediaRow(
+                            title = section.title,
                             items = section.items,
                             onItemClick = onItemClick,
-                            onPlayItem = { item ->
-                                // A series has no single playable file — open its
-                                // detail to pick an episode; movies/episodes play.
-                                if (item.type.equals("series", ignoreCase = true)) {
-                                    onItemClick(item.contentId)
-                                } else {
-                                    onPlayItem(item.contentId, item.type, item.heroResumePositionSeconds())
-                                }
-                            },
-                            heroHeight = HeroDimens.HomeHeight,
-                            autoFocus = !initialFocusRequested,
-                            focusRequest = focusRequest,
-                            initialFocusRequester = heroFocusRequester,
-                            // Only wire `down` when a first row actually
-                            // exists to attach the requester — otherwise the
-                            // focus system would resolve Down to an unattached
-                            // FocusRequester and crash. When rows exist the
-                            // imperative onDirectionDown path moves focus, so
-                            // this is belt-and-suspenders either way.
-                            downFocusRequester = firstRowFocusRequester
-                                .takeIf { firstRowId != null },
-                            onDirectionDown = ::requestFirstRowFocus,
-                            onAutoFocusClaimed = {
-                                initialFocusRequested = true
-                                onInitialContentFocus()
-                            },
-                            onFocusEntered = onInitialContentFocus,
-                            onActiveItemChanged = { item ->
-                                activeHeroItem = item
-                                tintState.set(item)
-                            },
-                        )
-                    }
-                }
-
-                items(rows, key = ResolvedSection::id) { section ->
-                    val isProgressRow = section.isProgressRow()
-                    val isFirstRow = section.id == firstRowId
-                    TvMediaRow(
-                        title = section.title,
-                        items = section.items,
-                        onItemClick = onItemClick,
-                        // "See all" opens the global catalog browse (matches the
-                        // phone, which routes every section's See All to Browse).
-                        onSeeAllClick = onSeeAll,
-                        showProgress = isProgressRow,
-                        style = if (isProgressRow) TvRowStyle.Backdrop else TvRowStyle.Poster,
-                        startPadding = Spacing.safeArea,
-                        endPadding = Spacing.safeArea,
-                        itemSpacing = TvHomeItemSpacing,
-                        rowTopPadding = 0.dp,
-                        rowBottomPadding = 0.dp,
-                        upFocusRequester = heroFocusRequester
-                            .takeIf { isFirstRow && featuredSection != null },
-                        firstItemFocusRequester = firstRowFocusRequester
-                            .takeIf { isFirstRow },
-                        firstItemFocusRequest = if (isFirstRow) firstRowFocusRequest else 0,
-                        cardActions = { item ->
-                            com.continuum.app.tv.ui.components.TvMediaCardActions(
-                                onSetWatched = { watched -> onSetWatched(item.contentId, watched) },
-                                onToggleFavorite = { fav -> onToggleFavorite(item.contentId, fav) },
-                                onToggleWatchlist = { wl -> onToggleWatchlist(item.contentId, wl) },
-                                onRemoveFromContinueWatching = if (isProgressRow && item.progressUpdatedAt != null) {
-                                    {
-                                        item.progressUpdatedAt?.let { ts ->
-                                            onDismissContinueWatching(item.contentId, ts)
-                                        }
-                                    }
-                                } else null,
-                            )
-                        },
-                    )
-                }
-
-                // Client-side calendar row — appended after all server sections.
-                if (upcomingItems.isNotEmpty()) {
-                    item(key = "upcoming-week") {
-                        TvMediaRow(
-                            title = "Coming this week",
-                            items = upcomingItems,
-                            onItemClick = onItemClick,
+                            icon = if (isProgressRow) Icons.Filled.PlayCircle else null,
+                            // No per-row "See all" on Home — except For You, whose
+                            // See-all opens the recommendations screen.
+                            onSeeAllClick = if (isForYou) onOpenForYou else null,
+                            showProgress = isProgressRow,
+                            style = if (isProgressRow) TvRowStyle.Backdrop else TvRowStyle.Poster,
                             startPadding = Spacing.safeArea,
                             endPadding = Spacing.safeArea,
                             itemSpacing = TvHomeItemSpacing,
                             rowTopPadding = 0.dp,
                             rowBottomPadding = 0.dp,
+                            firstItemFocusRequester = firstRowFocusRequester
+                                .takeIf { isFirstRow },
+                            firstItemFocusRequest = if (isFirstRow) firstRowFocusRequest else 0,
+                            onItemFocused = { item -> onItemFocused(item, section.title) },
+                            cardActions = { item ->
+                                com.continuum.app.tv.ui.components.TvMediaCardActions(
+                                    onSetWatched = { watched -> onSetWatched(item.contentId, watched) },
+                                    onToggleFavorite = { fav -> onToggleFavorite(item.contentId, fav) },
+                                    onToggleWatchlist = { wl -> onToggleWatchlist(item.contentId, wl) },
+                                    onRemoveFromContinueWatching = if (isProgressRow && item.progressUpdatedAt != null) {
+                                        {
+                                            item.progressUpdatedAt?.let { ts ->
+                                                onDismissContinueWatching(item.contentId, ts)
+                                            }
+                                        }
+                                    } else null,
+                                )
+                            },
                         )
                     }
                 }
             }
+
+            // Passive billboard floating over the band above the focused row.
+            TvFocusMarquee(
+                content = marquee.content,
+                startPadding = Spacing.safeArea,
+                bottomPadding = bandHeight + MarqueeBottomGap,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }
 
-/** Spec 3.1 — 40dp between cards, 60dp between rows. */
+/** Spec 3.1 — card spacing inside Home rows. */
 private val TvHomeItemSpacing = 20.dp
+
+/** Portion of the screen reserved for the row stack (tvOS rowBandHeightFraction). */
+private const val RowBandHeightFraction = 0.50f
+
+/** Gap between the marquee block and the top of the row band. */
+private val MarqueeBottomGap = 16.dp
 
 private fun ResolvedSection.isProgressRow(): Boolean {
     val type = sectionType.lowercase()
@@ -271,16 +251,15 @@ private fun ResolvedSection.isProgressRow(): Boolean {
         type.contains("up_next")
 }
 
-/**
- * Resume position for a Play action launched from the home hero (P6.10). Same
- * policy as the detail hero / phone's playbackResumePosition: finite, >30s in,
- * not finished, not near the end. null = start / let the session decide.
- */
-private fun SectionItem.heroResumePositionSeconds(): Double? {
-    if (userState?.played == true) return null
-    val pos = positionSeconds ?: return null
-    if (!pos.isFinite() || pos <= 30) return null
-    val dur = durationSeconds
-    if (dur != null && dur > 0 && pos >= dur - 5) return null
-    return pos
+private fun ResolvedSection.isForYouRow(): Boolean {
+    // Only the dedicated For You / recommendations section opens the
+    // recommendations screen — match exact type ids / titles, not a broad
+    // "recommend" substring (which would also catch e.g. per-genre
+    // "recommended_*" rows).
+    val type = sectionType.lowercase()
+    return type == "for_you" ||
+        type == "foryou" ||
+        type == "recommendations" ||
+        title.equals("for you", ignoreCase = true) ||
+        title.equals("recommended for you", ignoreCase = true)
 }

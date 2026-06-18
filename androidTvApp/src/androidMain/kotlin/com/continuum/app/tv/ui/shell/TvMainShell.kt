@@ -587,6 +587,10 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.Browse.route)
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
+                        onOpenForYou = {
+                            navigateToSecondary(TvMainRoute.ForYou.route)
+                            moveFocusToContent(TvMainRoute.ForYou.route)
+                        },
                         onInitialContentFocus = { profileMenuOpen = false },
                         focusRequest = contentFocusRequest,
                     )
@@ -598,6 +602,10 @@ fun TvMainShell(
                         onSeeAll = {
                             navigateToSecondary(TvMainRoute.Browse.route)
                             moveFocusToContent(TvMainRoute.Browse.route)
+                        },
+                        onOpenForYou = {
+                            navigateToSecondary(TvMainRoute.ForYou.route)
+                            moveFocusToContent(TvMainRoute.ForYou.route)
                         },
                         onInitialContentFocus = { profileMenuOpen = false },
                         focusRequest = contentFocusRequest,

@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -59,6 +60,9 @@ fun TvMediaRow(
     firstItemFocusRequester: FocusRequester? = null,
     firstItemFocusRequest: Int = 0,
     firstItemCardModifier: Modifier = Modifier,
+    /** Fired (on focus GAIN only) with whichever card the user focuses, so the
+     *  Skyline marquee + backdrop can preview the focused item. */
+    onItemFocused: ((SectionItem) -> Unit)? = null,
     cardActions: (SectionItem) -> TvMediaCardActions = { TvMediaCardActions() },
 ) {
     if (items.isEmpty()) return
@@ -113,6 +117,14 @@ fun TvMediaRow(
                 ).then(
                     if (upFocusRequester != null) {
                         Modifier.focusProperties { up = upFocusRequester }
+                    } else {
+                        Modifier
+                    },
+                ).then(
+                    if (onItemFocused != null) {
+                        Modifier.onFocusChanged { st ->
+                            if (st.isFocused) onItemFocused(item)
+                        }
                     } else {
                         Modifier
                     },
