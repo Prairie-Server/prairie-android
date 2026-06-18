@@ -85,6 +85,88 @@ class PlayerTrackEntriesTest {
         assertTrue(entries[0].displayLabel.contains("PGS"))
     }
 
+    @Test
+    fun videoQualityOptionsFlattenPerFormatVariantsWithAutoFirst() {
+        // A single video group carrying three resolution variants must surface
+        // three real options, not collapse to one — plus a synthetic "Auto".
+        val group = TrackGroup(
+            videoFormat(width = 1920, height = 1080, bitrate = 8_000_000),
+            videoFormat(width = 1280, height = 720, bitrate = 4_000_000),
+            videoFormat(width = 640, height = 360, bitrate = 1_000_000),
+        )
+        val tracks = Tracks(
+            listOf(
+                Tracks.Group(
+                    group,
+                    true,
+                    intArrayOf(C.FORMAT_HANDLED, C.FORMAT_HANDLED, C.FORMAT_HANDLED),
+                    // 720p explicitly selected = an override is active.
+                    booleanArrayOf(false, true, false),
+                ),
+            ),
+        )
+
+        val options = extractVideoQualityOptions(tracks)
+
+        // Auto + three variants.
+        assertEquals(4, options.size)
+        assertEquals(VIDEO_QUALITY_AUTO_ID, options.first().id)
+        assertEquals("Auto", options.first().label)
+        assertTrue(options[1].label.contains("1080p"))
+        assertTrue(options[2].label.contains("720p"))
+        assertTrue(options[3].label.contains("360p"))
+        // The explicitly-selected variant (720p) is selected, not Auto.
+        assertEquals(options[2].id, options.first { it.isSelected }.id, "720p variant should be selected")
+    }
+
+    @Test
+    fun videoQualityAutoSelectedWhenNoOverrideAndDisabledWhenSingleVariant() {
+        val adaptiveGroup = TrackGroup(
+            videoFormat(width = 1920, height = 1080, bitrate = 8_000_000),
+            videoFormat(width = 1280, height = 720, bitrate = 4_000_000),
+        )
+        val adaptive = Tracks(
+            listOf(
+                Tracks.Group(
+                    adaptiveGroup,
+                    true,
+                    intArrayOf(C.FORMAT_HANDLED, C.FORMAT_HANDLED),
+                    // Adaptive: both selectable, none pinned as an override.
+                    booleanArrayOf(true, true),
+                ),
+            ),
+        )
+        val adaptiveOptions = extractVideoQualityOptions(adaptive)
+        // With more than one selected variant there is no single override, so
+        // Auto is the selected option.
+        assertTrue(adaptiveOptions.first().isSelected)
+
+        // A single-variant group offers no genuine quality choice: Auto + one
+        // variant = size 2, so the HUD row disables (hasQualityChoice = size>2).
+        val singleGroup = TrackGroup(videoFormat(width = 1920, height = 1080, bitrate = 8_000_000))
+        val single = Tracks(
+            listOf(
+                Tracks.Group(
+                    singleGroup,
+                    true,
+                    intArrayOf(C.FORMAT_HANDLED),
+                    booleanArrayOf(true),
+                ),
+            ),
+        )
+        val singleOptions = extractVideoQualityOptions(single)
+        assertEquals(2, singleOptions.size)
+        assertTrue(singleOptions.first().isSelected)
+    }
+
+    private fun videoFormat(width: Int, height: Int, bitrate: Int): Format =
+        Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_H264)
+            .setWidth(width)
+            .setHeight(height)
+            .setAverageBitrate(bitrate)
+            .build()
+
     private fun subtitle(
         label: String,
         language: String,

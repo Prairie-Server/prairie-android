@@ -373,6 +373,10 @@ class TvPlayerViewModel(
         val audioTracks: List<PlayerTrackEntry> = emptyList(),
         val subtitleTracks: List<PlayerTrackEntry> = emptyList(),
         val videoTracks: List<PlayerTrackEntry> = emptyList(),
+        // Real per-format video quality variants (resolution/bitrate) flattened
+        // from the video group, plus a synthetic "Auto". Distinct from
+        // [videoTracks] (group-level): only this drives the HUD Quality picker.
+        val videoQualities: List<VideoQualityOption> = emptyList(),
         // Scrubber preview state — `isScrubbing` flips on the first arrow
         // press from the focused scrubber, `scrubPreviewSec` shadows the
         // intended seek target so the overlay can render a preview puck
@@ -985,8 +989,16 @@ class TvPlayerViewModel(
         audio: List<PlayerTrackEntry>,
         subtitle: List<PlayerTrackEntry>,
         video: List<PlayerTrackEntry>,
+        videoQualities: List<VideoQualityOption> = emptyList(),
     ) {
-        _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle, videoTracks = video) }
+        _uiState.update {
+            it.copy(
+                audioTracks = audio,
+                subtitleTracks = subtitle,
+                videoTracks = video,
+                videoQualities = videoQualities,
+            )
+        }
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
     }

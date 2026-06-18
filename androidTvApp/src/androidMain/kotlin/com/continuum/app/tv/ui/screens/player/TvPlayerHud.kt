@@ -9,6 +9,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -22,16 +23,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,13 +40,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -63,7 +65,6 @@ import com.continuum.app.model.settings.SubtitleAppearance
 import com.continuum.app.model.settings.SubtitleBackgroundStylePreset
 import com.continuum.app.model.settings.SubtitleFontSizePreset
 import com.continuum.app.model.settings.SubtitlePositionPreset
-import com.continuum.app.tv.ui.theme.Spacing
 
 /**
  * Floating top-center player HUD mirroring `iosApp/.../tvOS/TVPlayerInfoHUD.swift`.
@@ -77,15 +78,15 @@ import com.continuum.app.tv.ui.theme.Spacing
  * always present; Stats / Audio / Subtitles / Chapters are hidden when their
  * backing data is empty (Infuse hides rather than disables, keeping the bar
  * tidy). The Subtitles tab folds in what used to be the separate subtitle drawer
- * + style dialog: track list, delay stepper, appearance chips, plus the
- * Android-only Search / AI-Translate rows.
+ * + style dialog: track list, delay, appearance, plus the Android-only Search /
+ * AI-Translate rows.
  *
- * Focus model:
- *  - The tab pill bar is a horizontal row. Moving focus L/R between pills swaps
- *    the pane immediately (focus-driven selection — no Select needed). Up arrow
- *    inside the panel returns focus to the active tab.
- *  - The panel content is a vertical group. Chapters/tracks use focus-to-seek or
- *    click-commit as appropriate so focus traversal is safe.
+ * Option controls follow the tvOS row→picker-dialog model: each editable option
+ * renders as a [HudFocusedSettingRow] (label + current value + chevron, inverted
+ * capsule focus). Activating a row opens a centered [HudPickerDialog] whose
+ * scrollable option list shows a checkmark on the selected option, auto-focuses
+ * + scrolls to the selection, commits on Select and closes, and dismisses on
+ * Back.
  */
 @Composable
 fun TvPlayerHud(
@@ -95,12 +96,12 @@ fun TvPlayerHud(
     seasonNumber: Int?,
     episodeNumber: Int?,
     audioTracks: List<PlayerTrackEntry>,
-    videoTracks: List<PlayerTrackEntry>,
+    videoQualities: List<VideoQualityOption>,
     subtitleTracks: List<PlayerTrackEntry>,
     stats: PlayerStatsSnapshot,
     videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
-    onSelectVideo: (Int) -> Unit,
+    onSelectVideoQuality: (String) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
     onVideoFillModeChanged: (VideoFillMode) -> Unit,
     playbackSpeed: Double,
@@ -127,6 +128,7 @@ fun TvPlayerHud(
     onSelectChapter: (Int) -> Unit,
     onDismiss: () -> Unit,
     initialTab: HudTab = HudTab.Info,
+    onPickerOpenChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val tabs = visibleHudTabs(
@@ -139,16 +141,32 @@ fun TvPlayerHud(
         mutableStateOf(initialTab.takeIf { it in tabs } ?: tabs.first())
     }
 
+    // The active picker dialog, shared by every pane. Null = no dialog. While a
+    // dialog is open the panes dim + disable so focus stays inside the modal,
+    // matching the tvOS HUDPickerDialog presentation.
+    var activePicker by remember { mutableStateOf<HudPickerPresentation?>(null) }
+
     val tabFocusRequesters = remember(tabs) { tabs.associateWith { FocusRequester() } }
 
     LaunchedEffect(initialTab, tabs) {
         selectedTab = initialTab.takeIf { it in tabs } ?: tabs.first()
     }
 
-    // Seed initial focus on the active tab pill.
-    LaunchedEffect(selectedTab, tabs) {
-        tabFocusRequesters[selectedTab]?.let { runCatching { it.requestFocus() } }
+    // Seed initial focus on the active tab pill (only while no dialog is open).
+    LaunchedEffect(selectedTab, tabs, activePicker) {
+        if (activePicker == null) {
+            tabFocusRequesters[selectedTab]?.let { runCatching { it.requestFocus() } }
+        }
     }
+
+    val presentPicker: (HudPickerPresentation) -> Unit = { activePicker = it }
+    val closePicker: () -> Unit = { activePicker = null }
+
+    // Hoist picker-open state up so the screen-level BackHandler can defer to
+    // the picker (Back should dismiss only the active picker, not the whole
+    // HUD, while a picker is open).
+    val pickerOpen = activePicker != null
+    LaunchedEffect(pickerOpen) { onPickerOpenChanged(pickerOpen) }
 
     // Top-center card. No full-screen scrim — the video stays visible behind it.
     Box(
@@ -167,13 +185,23 @@ fun TvPlayerHud(
                 if (ev.type == KeyEventType.KeyUp &&
                     (ev.key == Key.Back || ev.key == Key.Escape)
                 ) {
-                    onDismiss(); true
-                } else false
+                    // Back closes the picker first (if open), else dismisses the HUD.
+                    if (activePicker != null) {
+                        activePicker = null
+                    } else {
+                        onDismiss()
+                    }
+                    true
+                } else {
+                    false
+                }
             }
             .padding(horizontal = 28.dp, vertical = 22.dp),
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = if (activePicker != null) 0.28f else 1f },
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Horizontal pill tab bar at the top.
@@ -187,6 +215,7 @@ fun TvPlayerHud(
                     HudTabPill(
                         label = tab.label,
                         isSelected = tab == selectedTab,
+                        enabled = activePicker == null,
                         focusRequester = tabFocusRequesters[tab]
                             ?: remember(tab) { FocusRequester() },
                         onFocused = {
@@ -212,6 +241,8 @@ fun TvPlayerHud(
                     )
                     HudTab.Stats -> HudStatsPane(stats)
                     HudTab.Video -> HudVideoPane(
+                        videoQualities = videoQualities,
+                        onSelectVideoQuality = onSelectVideoQuality,
                         hdrEnabled = hdrEnabled,
                         onHdrEnabledChanged = onHdrEnabledChanged,
                         fillMode = videoFillMode,
@@ -225,14 +256,16 @@ fun TvPlayerHud(
                         onAutoSkipIntroChanged = onAutoSkipIntroChanged,
                         autoPlayNext = autoPlayNext,
                         onAutoPlayNextChanged = onAutoPlayNextChanged,
-                        videoTracks = videoTracks,
-                        onSelectVideo = onSelectVideo,
+                        enabled = activePicker == null,
+                        onPresentPicker = presentPicker,
                     )
                     HudTab.Audio -> HudAudioPane(
                         audioTracks = audioTracks,
                         onSelectAudio = onSelectAudio,
                         audioDelayMs = audioDelayMs,
                         onAudioDelayChanged = onAudioDelayChanged,
+                        enabled = activePicker == null,
+                        onPresentPicker = presentPicker,
                     )
                     HudTab.Subtitles -> HudSubtitlesPane(
                         subtitleTracks = subtitleTracks,
@@ -244,12 +277,28 @@ fun TvPlayerHud(
                         onPaneShown = onSubtitlesPaneShown,
                         onSearchSubtitles = onSearchSubtitles,
                         onTranslateWithAi = onTranslateWithAi,
+                        enabled = activePicker == null,
+                        onPresentPicker = presentPicker,
                     )
                     HudTab.Chapters -> HudChaptersPane(
                         chapters = chapters,
                         onSelectChapter = onSelectChapter,
                     )
                 }
+            }
+        }
+
+        // Centered modal picker dialog, drawn on top of the dimmed panes.
+        val picker = activePicker
+        if (picker != null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                HudPickerDialog(
+                    presentation = picker,
+                    onClose = closePicker,
+                )
             }
         }
     }
@@ -292,6 +341,7 @@ internal fun visibleHudTabs(
 private fun HudTabPill(
     label: String,
     isSelected: Boolean,
+    enabled: Boolean,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
 ) {
@@ -325,7 +375,7 @@ private fun HudTabPill(
             .clip(RoundedCornerShape(50))
             .background(bg)
             .focusRequester(focusRequester)
-            .focusable(interactionSource = interactionSource)
+            .focusable(enabled = enabled, interactionSource = interactionSource)
             .padding(horizontal = 24.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -506,7 +556,7 @@ private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifi
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         rows.forEach { (label, value) ->
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -526,13 +576,28 @@ private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifi
     }
 }
 
-/** Playback-speed presets — mirrors the phone player (PlayerSettingsSheet). */
-private val PLAYBACK_SPEED_OPTIONS = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
+/**
+ * Playback-speed presets — aligned to tvOS (0.75 / 1.0 / 1.25 / 1.5 / 2.0).
+ */
+private val PLAYBACK_SPEED_OPTIONS = listOf(0.75, 1.0, 1.25, 1.5, 2.0)
 
-/** 1.0 -> "1", 1.25 -> "1.25", 1.5 -> "1.5" (trim trailing zeros). */
+/**
+ * Locale-independent option id for a playback speed. `"%.2f".format(...)` uses
+ * the default locale, which on comma-decimal locales emits "1,25" — that never
+ * round-trips through `toDoubleOrNull()`, silently no-op'ing the selection.
+ * Format with [Locale.ROOT] so the id always matches on commit.
+ */
+private fun speedOptionId(speed: Double): String =
+    String.format(java.util.Locale.ROOT, "%.2f", speed)
+
+/** 1.0 -> "1.0×", 1.25 -> "1.25×" (matches tvOS speed labels). */
 private fun formatTvPlaybackSpeed(speed: Double): String {
-    if (speed % 1.0 == 0.0) return speed.toInt().toString()
-    return speed.toString().trimEnd('0').trimEnd('.')
+    val text = if (speed % 1.0 == 0.0) {
+        "%.1f".format(speed)
+    } else {
+        speed.toString().trimEnd('0').trimEnd('.')
+    }
+    return "$text×"
 }
 
 /** Sleep-timer presets (minutes) — mirrors the phone SleepTimerSheet. */
@@ -545,13 +610,30 @@ private fun formatSleepRemaining(totalSeconds: Int): String {
     return if (m > 0) "${m}m ${sec}s" else "${sec}s"
 }
 
+private fun sleepPresetLabel(minutes: Int): String =
+    if (minutes >= 60) {
+        "${minutes / 60}h${if (minutes % 60 != 0) " ${minutes % 60}m" else ""}"
+    } else {
+        "${minutes}m"
+    }
+
+/** Aspect (video-gravity) option labels — mirrors tvOS VideoGravity. */
+private fun fillModeLabel(mode: VideoFillMode): String = when (mode) {
+    VideoFillMode.Fit -> "Letterbox"
+    VideoFillMode.Zoom -> "Zoom (crop)"
+    VideoFillMode.Stretch -> "Stretch"
+}
+
+private fun onOffLabel(value: Boolean): String = if (value) "On" else "Off"
+
 /**
- * Video pane — playback speed + HDR toggle + Fill mode (Letterbox vs Zoom,
- * matching tvOS video-gravity). When a stream advertises multiple video tracks
- * they're appended below as a secondary picker.
+ * Video pane — drill-in setting rows opening picker dialogs: Quality, Speed,
+ * Aspect, HDR (+ auto behaviors), with the Sleep-timer kept inline below.
  */
 @Composable
 private fun HudVideoPane(
+    videoQualities: List<VideoQualityOption>,
+    onSelectVideoQuality: (String) -> Unit,
     hdrEnabled: Boolean,
     onHdrEnabledChanged: (Boolean) -> Unit,
     fillMode: VideoFillMode,
@@ -565,219 +647,197 @@ private fun HudVideoPane(
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     autoPlayNext: Boolean,
     onAutoPlayNextChanged: (Boolean) -> Unit,
-    videoTracks: List<PlayerTrackEntry>,
-    onSelectVideo: (Int) -> Unit,
+    enabled: Boolean,
+    onPresentPicker: (HudPickerPresentation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+    Row(
+        modifier = modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(48.dp),
     ) {
-        // Playback speed — mirrors the phone's Speed presets (0.5×–3×). Uses a
-        // click-committed chip (NOT the focus-committed HudOptionChip) so
-        // D-pad-traversing the 9 presets doesn't change speed on every chip.
-        Text(
-            text = "Speed",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Row(
+        // Playback column — Quality / Speed / Aspect / HDR + auto toggles.
+        PaneColumn(
+            "Playback",
             modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
         ) {
-            PLAYBACK_SPEED_OPTIONS.forEach { speed ->
-                HudClickChip(
-                    label = "${formatTvPlaybackSpeed(speed)}×",
-                    selected = kotlin.math.abs(playbackSpeed - speed) < 0.01,
-                    onClick = { onPlaybackSpeedChanged(speed) },
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Quality — derived from the real per-format video variants
+                // (resolution / bitrate) flattened from the video group. This is
+                // a genuine Media3 track override (setOverrideForType on the
+                // video group), not a no-op. When there is only one real variant
+                // (Auto + 0 or 1 format) there is nothing to switch, so the row
+                // is shown disabled with an "Auto" value rather than faking it.
+                // (videoQualities, when present, always contains a synthetic
+                // "Auto" entry, so a genuine choice means size > 2.)
+                val hasQualityChoice = videoQualities.size > 2
+                val selectedQuality = videoQualities.firstOrNull { it.isSelected }
+                val qualityValue = selectedQuality?.label ?: "Auto"
+                HudFocusedSettingRow(
+                    label = "Quality",
+                    value = qualityValue,
+                    enabled = enabled && hasQualityChoice,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Quality",
+                                options = videoQualities.map {
+                                    HudPickerOption(id = it.id, label = it.label)
+                                },
+                                selectedId = (selectedQuality?.id ?: VIDEO_QUALITY_AUTO_ID),
+                                onSelect = { id -> onSelectVideoQuality(id) },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Speed",
+                    value = formatTvPlaybackSpeed(playbackSpeed),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Playback Speed",
+                                options = PLAYBACK_SPEED_OPTIONS.map {
+                                    HudPickerOption(speedOptionId(it), formatTvPlaybackSpeed(it))
+                                },
+                                selectedId = speedOptionId(playbackSpeed),
+                                onSelect = { id ->
+                                    PLAYBACK_SPEED_OPTIONS.firstOrNull { speedOptionId(it) == id }
+                                        ?.let(onPlaybackSpeedChanged)
+                                },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Aspect",
+                    value = fillModeLabel(fillMode),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Aspect",
+                                options = VideoFillMode.entries.map {
+                                    HudPickerOption(it.name, fillModeLabel(it))
+                                },
+                                selectedId = fillMode.name,
+                                onSelect = { id ->
+                                    VideoFillMode.entries.firstOrNull { it.name == id }
+                                        ?.let(onFillModeChanged)
+                                },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "HDR passthrough",
+                    value = onOffLabel(hdrEnabled),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            boolPicker(
+                                title = "HDR Passthrough",
+                                value = hdrEnabled,
+                                onSet = onHdrEnabledChanged,
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Auto-skip intro",
+                    value = onOffLabel(autoSkipIntro),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            boolPicker(
+                                title = "Auto-skip Intro",
+                                value = autoSkipIntro,
+                                onSet = onAutoSkipIntroChanged,
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Auto-play next",
+                    value = onOffLabel(autoPlayNext),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            boolPicker(
+                                title = "Auto-play Next",
+                                value = autoPlayNext,
+                                onSet = onAutoPlayNextChanged,
+                            ),
+                        )
+                    },
                 )
             }
         }
 
-        // Sleep timer — preset chips when idle; remaining time + Cancel when armed.
-        Text(
-            text = "Sleep timer",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = Spacing.md),
-        )
-        val activeSleep = sleepTimerState as? SleepTimerState.Active
-        if (activeSleep != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Sleeping in ${formatSleepRemaining(activeSleep.remainingSeconds)}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-                )
-                HudClickChip(label = "Cancel", selected = false, onClick = onCancelSleepTimer)
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                SLEEP_TIMER_PRESETS.forEach { minutes ->
-                    HudClickChip(
-                        label = if (minutes >= 60) "${minutes / 60}h${if (minutes % 60 != 0) " ${minutes % 60}m" else ""}" else "${minutes}m",
-                        selected = false,
-                        onClick = { onStartSleepTimer(minutes) },
+        // Sync / timing column — Sleep timer kept where it is (inline chips).
+        PaneColumn(
+            "Timers",
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text(
+                text = "Sleep timer",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
+            )
+            val activeSleep = sleepTimerState as? SleepTimerState.Active
+            if (activeSleep != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Sleeping in ${formatSleepRemaining(activeSleep.remainingSeconds)}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
                     )
+                    HudClickChip(label = "Cancel", selected = false, enabled = enabled, onClick = onCancelSleepTimer)
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SLEEP_TIMER_PRESETS.forEach { minutes ->
+                        HudClickChip(
+                            label = sleepPresetLabel(minutes),
+                            selected = false,
+                            enabled = enabled,
+                            onClick = { onStartSleepTimer(minutes) },
+                        )
+                    }
                 }
             }
         }
-
-        Text(
-            text = "HDR",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = Spacing.md),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            HudOptionChip(
-                label = "On",
-                selected = hdrEnabled,
-                onClick = { onHdrEnabledChanged(true) },
-            )
-            HudOptionChip(
-                label = "Off",
-                selected = !hdrEnabled,
-                onClick = { onHdrEnabledChanged(false) },
-            )
-        }
-
-        Text(
-            text = "Fill mode",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = Spacing.md),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            VideoFillMode.entries.forEach { mode ->
-                HudOptionChip(
-                    label = when (mode) {
-                        VideoFillMode.Fit -> "Letterbox"
-                        VideoFillMode.Zoom -> "Zoom (crop)"
-                        VideoFillMode.Stretch -> "Stretch"
-                    },
-                    selected = fillMode == mode,
-                    onClick = { onFillModeChanged(mode) },
-                )
-            }
-        }
-
-        // In-player quick toggles for the per-profile auto behaviors (phone
-        // exposes these in the player settings sheet too, not just Settings).
-        Text(
-            text = "Auto-skip intro",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = Spacing.md),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            HudClickChip("On", autoSkipIntro) { onAutoSkipIntroChanged(true) }
-            HudClickChip("Off", !autoSkipIntro) { onAutoSkipIntroChanged(false) }
-        }
-        Text(
-            text = "Auto-play next episode",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = Spacing.md),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            HudClickChip("On", autoPlayNext) { onAutoPlayNextChanged(true) }
-            HudClickChip("Off", !autoPlayNext) { onAutoPlayNextChanged(false) }
-        }
-
-        if (videoTracks.size > 1) {
-            Text(
-                text = "Video track",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = Spacing.md),
-            )
-            HudPickerPane(
-                modifier = Modifier.heightIn(max = 220.dp),
-                options = videoTracks.map {
-                    TrackOption(it.index, it.displayLabel, it.isSelected)
-                },
-                onSelect = onSelectVideo,
-            )
-        }
-    }
-}
-
-/**
- * Focus-driven option pill used by the HUD Video pane for both HDR and Fill
- * mode rows. Mirrors `HudTabPill`'s color/scale idiom — focused = white fill
- * on dark text, selected (but unfocused) = subtle highlight, idle = ghost.
- * Moving focus to a chip commits its selection (no Select press needed).
- */
-@Composable
-private fun HudOptionChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    LaunchedEffect(isFocused) {
-        if (isFocused) onClick()
-    }
-    val bg = when {
-        isFocused -> Color.White.copy(alpha = 0.94f)
-        selected -> Color.White.copy(alpha = 0.18f)
-        else -> Color.White.copy(alpha = 0.06f)
-    }
-    val fg = when {
-        isFocused -> Color.Black
-        selected -> Color.White
-        else -> Color.White.copy(alpha = 0.72f)
-    }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.0f else 0.96f,
-        animationSpec = tween(120),
-        label = "hudOptionChipScale",
-    )
-
-    Box(
-        modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(50))
-            .background(bg)
-            .focusable(interactionSource = interactionSource)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color = fg,
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontWeight = FontWeight.SemiBold,
-            ),
-        )
     }
 }
 
 /**
  * Like [HudOptionChip] but commits on explicit Select (click), NOT on focus —
- * use for multi-option rows (e.g. the 9 speed presets) where focus-driven
- * commit would change the value while the user is just traversing chips.
+ * use for multi-option rows where focus-driven commit would change the value
+ * while the user is just traversing chips.
  */
 @Composable
 private fun HudClickChip(
     label: String,
     selected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -802,7 +862,11 @@ private fun HudClickChip(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(50))
             .background(bg)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+            ) { onClick() }
             .padding(horizontal = 24.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -815,9 +879,8 @@ private fun HudClickChip(
 }
 
 /**
- * Audio pane — combines the existing track picker (when >1 audio track) with
- * an audio-delay stepper row. The stepper is always rendered: even single-
- * track titles benefit from sync adjustment when the upstream has A/V drift.
+ * Audio pane — track selection + audio delay rendered as the tvOS row→dialog
+ * pattern. Both open a centered [HudPickerDialog] from a [HudFocusedSettingRow].
  */
 @Composable
 private fun HudAudioPane(
@@ -825,48 +888,68 @@ private fun HudAudioPane(
     onSelectAudio: (Int) -> Unit,
     audioDelayMs: Int,
     onAudioDelayChanged: (Int) -> Unit,
+    enabled: Boolean,
+    onPresentPicker: (HudPickerPresentation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        if (audioTracks.size > 1) {
-            Text(
-                text = "Audio track",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            HudPickerPane(
-                modifier = Modifier.heightIn(max = 180.dp),
-                options = audioTracks.map {
-                    TrackOption(it.index, it.displayLabel, it.isSelected)
-                },
-                onSelect = onSelectAudio,
-            )
-        }
+        PaneColumn("Track") {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val selectedTrack = audioTracks.firstOrNull { it.isSelected }
+                HudFocusedSettingRow(
+                    label = "Audio track",
+                    value = selectedTrack?.displayLabel?.ifBlank { "Track ${selectedTrack.index + 1}" }
+                        ?: "Default",
+                    enabled = enabled && audioTracks.size > 1,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Audio Track",
+                                options = audioTracks.mapIndexed { idx, track ->
+                                    HudPickerOption(
+                                        id = track.index.toString(),
+                                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                                    )
+                                },
+                                selectedId = (selectedTrack?.index ?: 0).toString(),
+                                onSelect = { id -> id.toIntOrNull()?.let(onSelectAudio) },
+                            ),
+                        )
+                    },
+                )
 
-        // Audio delay stepper — always shown; works regardless of track count.
-        Text(
-            text = "Audio delay: ${audioDelayMs} ms",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        DelayStepperRow(
-            valueMs = audioDelayMs,
-            onChange = onAudioDelayChanged,
-        )
+                HudFocusedSettingRow(
+                    label = "Delay",
+                    value = delayLabel(audioDelayMs),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            delayPicker(
+                                title = "Audio Delay",
+                                current = audioDelayMs,
+                                from = -1_000,
+                                to = 1_000,
+                                step = 50,
+                                onSet = onAudioDelayChanged,
+                            ),
+                        )
+                    },
+                )
+            }
+        }
     }
 }
 
 /**
- * Subtitles pane — folds the retired separate subtitle drawer + style dialog
- * into a HUD tab: track list (Off + each track), delay stepper, appearance
- * chips (size / font / colors / background / opacity / outline / position), plus
- * the Android-only Search / AI-Translate rows. Hidden entirely when the stream
- * has no subtitle tracks (the tab is dropped by [visibleHudTabs]).
+ * Subtitles pane — track selection + delay + appearance rendered as tvOS
+ * row→dialog rows, plus the Android-only Search / AI-Translate rows preserved
+ * from the old drawer. Text-color / background-color stay as swatch chips since
+ * tvOS draws color swatches inline in its picker too.
  */
 @Composable
 private fun HudSubtitlesPane(
@@ -879,115 +962,236 @@ private fun HudSubtitlesPane(
     onPaneShown: () -> Unit,
     onSearchSubtitles: (() -> Unit)?,
     onTranslateWithAi: (() -> Unit)?,
+    enabled: Boolean,
+    onPresentPicker: (HudPickerPresentation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(Unit) { onPaneShown() }
 
-    val trackOptions = buildList {
-        add(TrackOption(-1, "Off", subtitleTracks.none { it.isSelected }))
-        addAll(subtitleTracks.map { TrackOption(it.index, it.displayLabel, it.isSelected) })
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+    Row(
+        modifier = modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(48.dp),
     ) {
-        Text(
-            text = "Tracks",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            trackOptions.forEach { opt ->
-                HudPickerRow(option = opt, onSelect = { onSelectSubtitle(opt.id) })
+        // Tracks + sync column.
+        PaneColumn(
+            "Tracks",
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val selectedSub = subtitleTracks.firstOrNull { it.isSelected }
+                HudFocusedSettingRow(
+                    label = "Subtitles",
+                    value = selectedSub?.displayLabel?.ifBlank { "On" } ?: "Off",
+                    enabled = enabled,
+                    onActivate = {
+                        val options = buildList {
+                            add(HudPickerOption(id = "-1", label = "Off"))
+                            subtitleTracks.forEachIndexed { idx, track ->
+                                add(
+                                    HudPickerOption(
+                                        id = track.index.toString(),
+                                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                                    ),
+                                )
+                            }
+                        }
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Subtitle Track",
+                                options = options,
+                                selectedId = (selectedSub?.index ?: -1).toString(),
+                                onSelect = { id -> onSelectSubtitle(id.toIntOrNull() ?: -1) },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Delay",
+                    value = delayLabel(subtitleDelayMs),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            delayPicker(
+                                title = "Subtitle Delay",
+                                current = subtitleDelayMs,
+                                from = -2_000,
+                                to = 2_000,
+                                step = 100,
+                                onSet = onSubtitleDelayChanged,
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Size",
+                    value = FONT_SIZES.firstOrNull { it.first == appearance.fontSize }?.second
+                        ?: appearance.fontSize.name,
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Subtitle Size",
+                                options = FONT_SIZES.map { HudPickerOption(it.first.name, it.second) },
+                                selectedId = appearance.fontSize.name,
+                                onSelect = { id ->
+                                    FONT_SIZES.firstOrNull { it.first.name == id }?.let {
+                                        onAppearanceChanged(appearance.copy(fontSize = it.first))
+                                    }
+                                },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Font",
+                    value = FONT_FAMILIES.firstOrNull { it.first == appearance.fontFamily }?.second
+                        ?: appearance.fontFamily,
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Subtitle Font",
+                                options = FONT_FAMILIES.map { HudPickerOption(it.first, it.second) },
+                                selectedId = appearance.fontFamily,
+                                onSelect = { id ->
+                                    FONT_FAMILIES.firstOrNull { it.first == id }?.let {
+                                        onAppearanceChanged(appearance.copy(fontFamily = it.first))
+                                    }
+                                },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Background",
+                    value = BACKGROUND_STYLES.firstOrNull { it.first == appearance.backgroundStyle }?.second
+                        ?: appearance.backgroundStyle.name,
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Subtitle Background",
+                                options = BACKGROUND_STYLES.map { HudPickerOption(it.first.name, it.second) },
+                                selectedId = appearance.backgroundStyle.name,
+                                onSelect = { id ->
+                                    BACKGROUND_STYLES.firstOrNull { it.first.name == id }?.let {
+                                        onAppearanceChanged(appearance.copy(backgroundStyle = it.first))
+                                    }
+                                },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Opacity",
+                    value = "${appearance.backgroundOpacity}%",
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Background Opacity",
+                                options = OPACITY_STEPS.map { HudPickerOption(it.toString(), "$it%") },
+                                selectedId = appearance.backgroundOpacity.toString(),
+                                onSelect = { id ->
+                                    id.toIntOrNull()?.let {
+                                        onAppearanceChanged(appearance.copy(backgroundOpacity = it))
+                                    }
+                                },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Outline",
+                    value = onOffLabel(appearance.textOutline),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            boolPicker(
+                                title = "Text Outline",
+                                value = appearance.textOutline,
+                                onSet = { onAppearanceChanged(appearance.copy(textOutline = it)) },
+                            ),
+                        )
+                    },
+                )
+
+                HudFocusedSettingRow(
+                    label = "Position",
+                    value = POSITIONS.firstOrNull { it.first == appearance.position }?.second
+                        ?: appearance.position.name,
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Subtitle Position",
+                                options = POSITIONS.map { HudPickerOption(it.first.name, it.second) },
+                                selectedId = appearance.position.name,
+                                onSelect = { id ->
+                                    POSITIONS.firstOrNull { it.first.name == id }?.let {
+                                        onAppearanceChanged(appearance.copy(position = it.first))
+                                    }
+                                },
+                            ),
+                        )
+                    },
+                )
             }
         }
 
-        Text(
-            text = "Subtitle delay: ${subtitleSyncCompactValue(subtitleDelayMs)}",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = Spacing.sm),
-        )
-        DelayStepperRow(valueMs = subtitleDelayMs, onChange = onSubtitleDelayChanged)
-
-        // Appearance — folded from the retired TvSubtitleStyleDialog.
-        StyleSection("Text size") {
-            FONT_SIZES.forEach { (preset, label) ->
-                HudClickChip(label, appearance.fontSize == preset) {
-                    onAppearanceChanged(appearance.copy(fontSize = preset))
-                }
-            }
-        }
-        StyleSection("Font") {
-            FONT_FAMILIES.forEach { (value, label) ->
-                HudClickChip(label, appearance.fontFamily == value) {
-                    onAppearanceChanged(appearance.copy(fontFamily = value))
-                }
-            }
-        }
-        StyleSection("Text color") {
-            TEXT_COLOR_SWATCHES.forEach { hex ->
-                StyleColorSwatch(hex, appearance.fontColor.equals(hex, ignoreCase = true)) {
-                    onAppearanceChanged(appearance.copy(fontColor = hex))
-                }
-            }
-        }
-        StyleSection("Background") {
-            BACKGROUND_STYLES.forEach { (preset, label) ->
-                HudClickChip(label, appearance.backgroundStyle == preset) {
-                    onAppearanceChanged(appearance.copy(backgroundStyle = preset))
-                }
-            }
-        }
-        StyleSection("Background color") {
-            BACKGROUND_COLOR_SWATCHES.forEach { hex ->
-                StyleColorSwatch(hex, appearance.backgroundColor.equals(hex, ignoreCase = true)) {
-                    onAppearanceChanged(appearance.copy(backgroundColor = hex))
-                }
-            }
-        }
-        StyleSection("Background opacity") {
-            OPACITY_STEPS.forEach { pct ->
-                HudClickChip("$pct%", appearance.backgroundOpacity == pct) {
-                    onAppearanceChanged(appearance.copy(backgroundOpacity = pct))
-                }
-            }
-        }
-        StyleSection("Outline") {
-            HudClickChip("On", appearance.textOutline) { onAppearanceChanged(appearance.copy(textOutline = true)) }
-            HudClickChip("Off", !appearance.textOutline) { onAppearanceChanged(appearance.copy(textOutline = false)) }
-        }
-        if (appearance.textOutline) {
-            StyleSection("Outline color") {
+        // Colors + Android-only acquisition column.
+        PaneColumn(
+            "Style & sources",
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            // Color swatches stay inline — tvOS draws color swatches directly,
+            // and a row→dialog of colors would lose the at-a-glance palette.
+            StyleSection("Text color") {
                 TEXT_COLOR_SWATCHES.forEach { hex ->
-                    StyleColorSwatch(hex, appearance.textOutlineColor.equals(hex, ignoreCase = true)) {
-                        onAppearanceChanged(appearance.copy(textOutlineColor = hex))
+                    StyleColorSwatch(hex, appearance.fontColor.equals(hex, ignoreCase = true), enabled) {
+                        onAppearanceChanged(appearance.copy(fontColor = hex))
                     }
                 }
             }
-        }
-        StyleSection("Position") {
-            POSITIONS.forEach { (preset, label) ->
-                HudClickChip(label, appearance.position == preset) {
-                    onAppearanceChanged(appearance.copy(position = preset))
+            StyleSection("Background color") {
+                BACKGROUND_COLOR_SWATCHES.forEach { hex ->
+                    StyleColorSwatch(hex, appearance.backgroundColor.equals(hex, ignoreCase = true), enabled) {
+                        onAppearanceChanged(appearance.copy(backgroundColor = hex))
+                    }
                 }
             }
-        }
-
-        // Android-only sidecar acquisition rows — kept from the old drawer.
-        if (onSearchSubtitles != null || onTranslateWithAi != null) {
-            Column(
-                modifier = Modifier.padding(top = Spacing.sm),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (onSearchSubtitles != null) {
-                    HudActionRow(label = "Search subtitles", onClick = onSearchSubtitles)
+            if (appearance.textOutline) {
+                StyleSection("Outline color") {
+                    TEXT_COLOR_SWATCHES.forEach { hex ->
+                        StyleColorSwatch(hex, appearance.textOutlineColor.equals(hex, ignoreCase = true), enabled) {
+                            onAppearanceChanged(appearance.copy(textOutlineColor = hex))
+                        }
+                    }
                 }
-                if (onTranslateWithAi != null) {
-                    HudActionRow(label = "Translate with AI", onClick = onTranslateWithAi)
+            }
+
+            // Android-only sidecar acquisition rows — kept from the old drawer.
+            if (onSearchSubtitles != null || onTranslateWithAi != null) {
+                Column(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (onSearchSubtitles != null) {
+                        HudActionRow(label = "Search subtitles", enabled = enabled, onClick = onSearchSubtitles)
+                    }
+                    if (onTranslateWithAi != null) {
+                        HudActionRow(label = "Translate with AI", enabled = enabled, onClick = onTranslateWithAi)
+                    }
                 }
             }
         }
@@ -996,7 +1200,7 @@ private fun HudSubtitlesPane(
 
 @Composable
 private fun StyleSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = Spacing.sm)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
@@ -1013,7 +1217,7 @@ private fun StyleSection(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun StyleColorSwatch(hex: String, selected: Boolean, onClick: () -> Unit) {
+private fun StyleColorSwatch(hex: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val ring = when {
@@ -1027,7 +1231,7 @@ private fun StyleColorSwatch(hex: String, selected: Boolean, onClick: () -> Unit
             .clip(CircleShape)
             .background(hexToColor(hex))
             .border(width = if (isFocused || selected) 3.dp else 1.dp, color = ring, shape = CircleShape)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() },
+            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() },
     )
 }
 
@@ -1069,8 +1273,8 @@ private val BACKGROUND_COLOR_SWATCHES = listOf(
     "#000000", "#374151", "#1e3a5f", "#7f1d1d", "#14532d",
 )
 
-// Signed current offset — matches the phone's formatDelayMs (true minus sign).
-private fun subtitleSyncCompactValue(valueMs: Int): String =
+/** Signed delay label — matches the phone's formatDelayMs (true minus sign). */
+private fun delayLabel(valueMs: Int): String =
     when {
         valueMs > 0 -> "+$valueMs ms"
         valueMs < 0 -> "−${-valueMs} ms"
@@ -1085,6 +1289,7 @@ private fun subtitleSyncCompactValue(valueMs: Int): String =
 @Composable
 private fun HudActionRow(
     label: String,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -1098,7 +1303,7 @@ private fun HudActionRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1107,65 +1312,6 @@ private fun HudActionRow(
             color = fg,
             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
             modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-/**
- * D-pad-friendly stepper row: −50 / −10 / Reset / +10 / +50 ms. Shared by audio
- * + subtitles so both delays use the same row. PlayerSettingsStore clamps to
- * iOS-parity ranges, so boundary presses become no-ops.
- */
-@Composable
-private fun DelayStepperRow(
-    valueMs: Int,
-    onChange: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier,
-    ) {
-        DelayStepperButton(label = "−50", onClick = { onChange(valueMs - 50) })
-        DelayStepperButton(label = "−10", onClick = { onChange(valueMs - 10) })
-        DelayStepperButton(label = "Reset", onClick = { onChange(0) })
-        DelayStepperButton(label = "+10", onClick = { onChange(valueMs + 10) })
-        DelayStepperButton(label = "+50", onClick = { onChange(valueMs + 50) })
-    }
-}
-
-@Composable
-private fun DelayStepperButton(
-    label: String,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    val bg = if (isFocused) Color.White.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.06f)
-    val fg = if (isFocused) Color.Black else Color.White.copy(alpha = 0.72f)
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.0f else 0.96f,
-        animationSpec = tween(120),
-        label = "delayStepperScale",
-    )
-
-    Box(
-        modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(50))
-            .background(bg)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color = fg,
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontWeight = FontWeight.SemiBold,
-            ),
         )
     }
 }
@@ -1205,7 +1351,7 @@ private fun HudEmptyStatePane(message: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(Spacing.lg),
+            .padding(18.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -1279,61 +1425,245 @@ private fun HudChapterRow(
     }
 }
 
-private data class TrackOption(val id: Int, val label: String, val selected: Boolean)
+// ---------------------------------------------------------------------------
+// Reusable tvOS row→picker-dialog primitives
+// ---------------------------------------------------------------------------
 
+/** An option in a [HudPickerDialog]. [colorHex] draws an inline swatch. */
+internal data class HudPickerOption(
+    val id: String,
+    val label: String,
+    val colorHex: String? = null,
+)
+
+/**
+ * A request to present a centered picker dialog. Built by a pane row and handed
+ * to the HUD, which owns the single active-dialog slot.
+ */
+internal data class HudPickerPresentation(
+    val title: String,
+    val options: List<HudPickerOption>,
+    val selectedId: String,
+    val onSelect: (String) -> Unit,
+)
+
+private fun boolPicker(title: String, value: Boolean, onSet: (Boolean) -> Unit): HudPickerPresentation =
+    HudPickerPresentation(
+        title = title,
+        options = listOf(HudPickerOption("on", "On"), HudPickerOption("off", "Off")),
+        selectedId = if (value) "on" else "off",
+        onSelect = { onSet(it.equals("on", ignoreCase = true)) },
+    )
+
+private fun delayPicker(
+    title: String,
+    current: Int,
+    from: Int,
+    to: Int,
+    step: Int,
+    onSet: (Int) -> Unit,
+): HudPickerPresentation {
+    val values = (generateSequence(from) { it + step }.takeWhile { it <= to } + current)
+        .toSortedSet()
+    return HudPickerPresentation(
+        title = title,
+        options = values.map { HudPickerOption(it.toString(), delayLabel(it)) },
+        selectedId = current.toString(),
+        onSelect = { id -> id.toIntOrNull()?.let(onSet) },
+    )
+}
+
+/**
+ * Drill-in setting row: label + current value + chevron, with an inverted
+ * capsule on focus (white fill / dark text). Activating (Select) runs
+ * [onActivate], which the caller wires to present a [HudPickerDialog]. Mirrors
+ * tvOS `HUDFocusedSettingRow`.
+ */
 @Composable
-private fun HudPickerPane(
-    options: List<TrackOption>,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
+internal fun HudFocusedSettingRow(
+    label: String,
+    value: String,
+    enabled: Boolean = true,
+    colorHex: String? = null,
+    onActivate: () -> Unit,
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val bg = if (isFocused) Color.White else Color.Transparent
+    val labelColor = if (isFocused) Color.Black else Color.White
+    val valueColor = if (isFocused) Color.Black.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.72f)
+    val chevronColor = if (isFocused) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.45f)
+    val rowAlpha = if (enabled) 1f else 0.35f
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = rowAlpha }
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+            ) { onActivate() }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        items(options, key = { it.id }) { opt ->
-            HudPickerRow(
-                option = opt,
-                onSelect = {
-                    onSelect(opt.id)
-                },
+        Text(
+            text = label,
+            color = labelColor,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Box(modifier = Modifier.weight(1f))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (colorHex != null) {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(hexToColor(colorHex))
+                        .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+                )
+            }
+            Text(
+                text = value,
+                color = valueColor,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = chevronColor,
+                modifier = Modifier.size(18.dp),
             )
         }
     }
 }
 
+/**
+ * Centered modal option list mirroring tvOS `HUDPickerDialog`: a dark card with
+ * a title and a scrollable list of options; the selected option shows a
+ * checkmark, focus auto-lands on the selected option and scrolls it into view,
+ * Select commits the option + closes, and Back closes (handled by the HUD's
+ * key handler). Each option commits on explicit Select (click), not focus, so
+ * D-pad traversal doesn't change the value.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun HudPickerRow(
-    option: TrackOption,
+internal fun HudPickerDialog(
+    presentation: HudPickerPresentation,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val options = presentation.options
+    val selectedIndex = options.indexOfFirst { it.id.equals(presentation.selectedId, ignoreCase = true) }
+        .coerceAtLeast(0)
+    val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
+
+    // Auto-focus the selected option and scroll it into view on appear.
+    LaunchedEffect(presentation.title) {
+        runCatching { listState.scrollToItem(selectedIndex) }
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    Box(
+        modifier = modifier
+            .width(620.dp)
+            .heightIn(max = 340.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(28.dp))
+            // Focus trap: contain D-pad navigation inside the modal so focus
+            // can't leak to the player root at the list edges. Cancelling exit
+            // keeps focus on the boundary option until the user picks (Select)
+            // or backs out (Back).
+            .focusGroup()
+            .focusProperties { exit = { FocusRequester.Cancel } }
+            .padding(horizontal = 28.dp, vertical = 24.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                text = presentation.title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+            )
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.heightIn(max = 240.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                itemsIndexed(options, key = { _, o -> o.id }) { index, option ->
+                    HudPickerOptionRow(
+                        option = option,
+                        isSelected = index == selectedIndex,
+                        focusRequester = if (index == selectedIndex) focusRequester else null,
+                        onSelect = {
+                            presentation.onSelect(option.id)
+                            onClose()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HudPickerOptionRow(
+    option: HudPickerOption,
+    isSelected: Boolean,
+    focusRequester: FocusRequester?,
     onSelect: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val bg = if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent
-    val fg = if (isFocused) Color.White else Color.White.copy(alpha = 0.86f)
+    val bg = if (isFocused || isSelected) Color.White else Color.Transparent
+    val fg = if (isFocused || isSelected) Color.Black else Color.White
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(bg)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(interactionSource = interactionSource, indication = null) { onSelect() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        if (option.colorHex != null) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(hexToColor(option.colorHex))
+                    .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+            )
+        }
         Text(
-            text = option.label.ifBlank { "Track ${option.id + 1}" },
+            text = option.label,
             color = fg,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (option.selected) {
+        if (isSelected) {
             Icon(
                 imageVector = Icons.Filled.Check,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.padding(start = 12.dp),
+                contentDescription = "Selected",
+                tint = fg,
+                modifier = Modifier.size(20.dp),
             )
         }
     }

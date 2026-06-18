@@ -192,6 +192,12 @@ fun TvPlayerScreen(
     val exitScope = rememberCoroutineScope()
     var exitRequested by remember { mutableStateOf(false) }
     var requestedHudTab by remember { mutableStateOf(HudTab.Info) }
+    // Mirrors the HUD's internal active-picker slot so the screen-level
+    // BackHandler can defer to an open picker (Back closes only the picker).
+    var hudPickerOpen by remember { mutableStateOf(false) }
+    // Clear the mirror whenever the HUD itself is gone, so a stale "picker open"
+    // can never wedge the screen BackHandler off.
+    LaunchedEffect(state.hudOpen) { if (!state.hudOpen) hudPickerOpen = false }
     // Captured PlayerView reference so subtitleManager.applyAppearance can hit
     // the inflated subtitleView after the AndroidView factory runs. Mirrors
     // the phone PlayerScreen's `playerViewRef` pattern.
@@ -341,7 +347,10 @@ fun TvPlayerScreen(
         }
     }
 
-    BackHandler(enabled = true) {
+    // While a HUD picker dialog is open, the HUD owns Back: its onPreviewKeyEvent
+    // closes only the active picker and consumes the event, so the screen-level
+    // BackHandler must defer (disabled) rather than tearing down the whole HUD.
+    BackHandler(enabled = !(state.hudOpen && hudPickerOpen)) {
         when {
             state.showSubtitleStyleDialog -> viewModel.closeSubtitleStyleDialog()
             state.showSubtitleMenu -> viewModel.closeSubtitleMenu()
@@ -541,7 +550,8 @@ fun TvPlayerScreen(
                     val audio = extractTrackEntries(tracks, C.TRACK_TYPE_AUDIO)
                     val subtitle = extractTrackEntries(tracks, C.TRACK_TYPE_TEXT)
                     val video = extractTrackEntries(tracks, C.TRACK_TYPE_VIDEO)
-                    viewModel.onTracksChanged(audio, subtitle, video)
+                    val videoQualities = extractVideoQualityOptions(tracks)
+                    viewModel.onTracksChanged(audio, subtitle, video, videoQualities)
                 }
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
                     // MediaController doesn't expose ExoPlayer's `videoFormat`
@@ -961,7 +971,7 @@ fun TvPlayerScreen(
                             seasonNumber = state.seasonNumber,
                             episodeNumber = state.episodeNumber,
                             audioTracks = state.audioTracks,
-                            videoTracks = state.videoTracks,
+                            videoQualities = state.videoQualities,
                             subtitleTracks = state.subtitleTracks,
                             stats = state.stats,
                             videoFillMode = state.videoFillMode,
@@ -973,12 +983,11 @@ fun TvPlayerScreen(
                                     videoBackend?.selectAudioTrack(selectedTrack)
                                 }
                             },
-                            onSelectVideo = { _ ->
-                                // Selecting a specific video track on a single-stream
-                                // playback rarely matters (tracks are equivalent
-                                // resolution variants of the same stream); MediaController
-                                // doesn't expose a direct setter the way audio/subtitle do,
-                                // so we surface the picker for visibility but no-op on tap.
+                            onSelectVideoQuality = { id ->
+                                // Real Media3 video track override: clears the
+                                // override for Auto, otherwise pins the chosen
+                                // resolution/bitrate variant within the video group.
+                                mediaController?.let { selectVideoQuality(it, id) }
                             },
                             onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, false) },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
@@ -1027,6 +1036,7 @@ fun TvPlayerScreen(
                             },
                             onDismiss = { viewModel.closeHUD() },
                             initialTab = requestedHudTab,
+                            onPickerOpenChanged = { hudPickerOpen = it },
                         )
                     }
                 }
@@ -1588,3 +1598,120 @@ private fun Format.subtitleCodecOrMime(): String? =
     } else {
         sampleMimeType ?: codecs
     }
+
+/**
+ * A selectable video quality variant. Unlike [extractTrackEntries] (which
+ * collapses every video group to a single group-level entry), this flattens the
+ * individual formats *inside* the video group(s) — the real resolution / bitrate
+ * variants of the stream — so the HUD Quality picker can surface genuine
+ * options. [id] encodes `"<groupOrdinal>:<trackIndex>"`; the synthetic `"-1"`
+ * id means Auto (adaptive — clears any override).
+ */
+data class VideoQualityOption(
+    val id: String,
+    val label: String,
+    val isSelected: Boolean,
+)
+
+internal const val VIDEO_QUALITY_AUTO_ID = "-1"
+
+/**
+ * Flatten the current [Tracks] video group(s) into per-format quality options.
+ * Each format becomes a resolution/bitrate-labelled option. "Auto" is prepended
+ * and is selected whenever no single format override is active (adaptive).
+ */
+internal fun extractVideoQualityOptions(tracks: Tracks): List<VideoQualityOption> {
+    val variants = mutableListOf<VideoQualityOption>()
+    val selectedFlags = mutableListOf<Boolean>()
+    var videoGroupOrdinal = 0
+    for (group in tracks.groups) {
+        if (group.type != C.TRACK_TYPE_VIDEO) continue
+        val mediaGroup = group.mediaTrackGroup
+        for (trackIndex in 0 until mediaGroup.length) {
+            val format = mediaGroup.getFormat(trackIndex)
+            selectedFlags.add(group.isTrackSelected(trackIndex))
+            variants.add(
+                VideoQualityOption(
+                    id = "$videoGroupOrdinal:$trackIndex",
+                    label = formatVideoQualityLabel(format, trackIndex),
+                    isSelected = false,
+                ),
+            )
+        }
+        videoGroupOrdinal++
+    }
+    if (variants.isEmpty()) return emptyList()
+
+    // An explicit single-variant override is in effect only when EXACTLY one
+    // variant is selected among multiple. Several selected (or none) = adaptive,
+    // so Auto is the active option. (A single-variant group is trivially "Auto"
+    // — there is nothing to switch.)
+    val hasMultipleVariants = variants.size > 1
+    val selectedCount = selectedFlags.count { it }
+    val overrideActive = hasMultipleVariants && selectedCount == 1
+    val selectedVariantIndex = if (overrideActive) selectedFlags.indexOfFirst { it } else -1
+
+    val resolved = variants.mapIndexed { idx, v ->
+        v.copy(isSelected = idx == selectedVariantIndex)
+    }
+    return buildList {
+        add(
+            VideoQualityOption(
+                id = VIDEO_QUALITY_AUTO_ID,
+                label = "Auto",
+                isSelected = !overrideActive,
+            ),
+        )
+        addAll(resolved)
+    }
+}
+
+private fun formatVideoQualityLabel(format: Format, trackIndex: Int): String {
+    val height = format.height.takeIf { it > 0 }
+    val resolution = when {
+        height != null -> "${height}p"
+        else -> null
+    }
+    val bitrate = format.bitrate.takeIf { it > 0 }?.let { bps ->
+        when {
+            bps >= 1_000_000 -> "%.1f Mbps".format(bps / 1_000_000.0)
+            else -> "%.0f Kbps".format(bps / 1_000.0)
+        }
+    }
+    val parts = listOfNotNull(resolution, bitrate)
+    return if (parts.isEmpty()) "Variant ${trackIndex + 1}" else parts.joinToString(" · ")
+}
+
+/**
+ * Apply (or clear, for [VIDEO_QUALITY_AUTO_ID]) a video quality override on the
+ * player. Mirrors [AudioTrackManager]'s override approach but targets a specific
+ * format *within* the video group. This is a real Media3 track switch.
+ */
+internal fun selectVideoQuality(player: Player, id: String) {
+    if (id == VIDEO_QUALITY_AUTO_ID) {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .build()
+        return
+    }
+    val parts = id.split(":")
+    val groupOrdinal = parts.getOrNull(0)?.toIntOrNull() ?: return
+    val trackIndex = parts.getOrNull(1)?.toIntOrNull() ?: return
+    var ordinal = 0
+    for (group in player.currentTracks.groups) {
+        if (group.type != C.TRACK_TYPE_VIDEO) continue
+        if (ordinal == groupOrdinal) {
+            val mediaGroup = group.mediaTrackGroup
+            if (trackIndex !in 0 until mediaGroup.length) return
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(
+                    androidx.media3.common.TrackSelectionOverride(mediaGroup, trackIndex),
+                )
+                .build()
+            return
+        }
+        ordinal++
+    }
+}
