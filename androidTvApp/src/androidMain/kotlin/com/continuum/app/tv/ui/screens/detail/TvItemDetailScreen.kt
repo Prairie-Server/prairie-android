@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
@@ -351,8 +353,27 @@ private fun HeroActionRow(
             watchTogetherViewModel.consumeResult()
         }
     }
-    val resumePosition = remember(detail.userData) { detail.resumePositionSeconds() }
+    // Series / season detail target the *next-up episode* rather than the
+    // container itself (mirrors silo-apple's TVSeriesDetailView /
+    // TVSeasonDetailView). For those types the hero Play button, the resume
+    // position, and the inline selector row all bind to the next-up episode's
+    // own playback detail; movie / episode detail keep the container behavior.
+    val isSeriesOrSeason = detail.type == "series" || detail.type == "season"
+    val nextUp = state.nextUpEpisode.takeIf { isSeriesOrSeason }
+    val nextUpDetail = state.nextUpPlaybackDetail
+
+    // The contentId / type / versions / resume the Play action actually uses.
+    val playContentId = nextUp?.contentId ?: detail.contentId
+    val playType = if (nextUp != null) "episode" else detail.type
+    // For series/season we must NOT fall back to playing the container — Play is
+    // a no-op until the next-up episode resolves (episodes still loading, or an
+    // empty/error season). Movie/episode are always ready.
+    val playReady = !isSeriesOrSeason || nextUp != null
+    val containerResume = remember(detail.userData) { detail.resumePositionSeconds() }
+    val nextUpResume = remember(nextUp?.userData) { nextUp?.userData?.resumePositionSeconds() }
+    val resumePosition = if (isSeriesOrSeason) nextUpResume else containerResume
     val hasResume = resumePosition != null
+
     // tvOS overflow: episode Go-to-Series / Go-to-Season navigation and season
     // Go-to-Series (mirrors `TVSeasonDetailView.moreMenu`), plus Media Info (the
     // only access to stream info on Android until the player-HUD parity
@@ -361,16 +382,36 @@ private fun HeroActionRow(
     val hasOverflowNavigation = hasSeriesNavigation
     val hasMediaInfo = detail.versions.isNotEmpty()
     val hasOverflowMenu = hasOverflowNavigation || hasMediaInfo
-    val selectedFileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
+
+    // Version set + selection state driving the selector row / Play file id.
+    // Series/season use the next-up episode's versions + the next-up selection;
+    // everything else uses the container's.
+    val selectorVersions = if (isSeriesOrSeason) (nextUpDetail?.versions ?: emptyList()) else detail.versions
+    val selectorSelectedFileId = if (isSeriesOrSeason) state.selectedNextUpFileId else state.selectedFileId
+    val selectorAudioIndex = if (isSeriesOrSeason) state.selectedNextUpAudioIndex else state.selectedAudioIndex
+    val selectorSubtitleIndex =
+        if (isSeriesOrSeason) state.selectedNextUpSubtitleIndex else state.selectedSubtitleIndex
+    val selectedFileId = selectorSelectedFileId ?: selectorVersions.firstOrNull()?.fileId
     // The effective playable version drives the inline playback selector row.
-    val selectedVersion = remember(detail.versions, selectedFileId) {
-        detail.versions.firstOrNull { it.fileId == selectedFileId } ?: detail.versions.firstOrNull()
+    val selectedVersion = remember(selectorVersions, selectedFileId) {
+        selectorVersions.firstOrNull { it.fileId == selectedFileId } ?: selectorVersions.firstOrNull()
     }
     val isAudiobook = isAudiobookItemType(detail.type)
     // Down from the action cluster lands on the selector row (when shown) rather
     // than skipping into the body. Mirrors Apple's full-width `.focusSection()`.
     val selectorFocus = remember { FocusRequester() }
-    val showsSelectorRow = !isAudiobook && selectedVersion != null
+    // While the next-up playback detail is still loading we hold a placeholder in
+    // the selector slot (Apple's `TVVersionPillPlaceholder`); once resolved the
+    // real selector binds to the next-up versions/tracks.
+    val showsNextUpPlaceholder = isSeriesOrSeason && nextUp != null &&
+        (state.isLoadingNextUpPlaybackDetail ||
+            (!state.didLoadNextUpPlaybackDetail && nextUpDetail == null))
+    val showsSelectorRow = !isAudiobook && !showsNextUpPlaceholder && selectedVersion != null
+
+    // No separate next-up autofocus: the Play button is always rendered and
+    // focusable, and the screen already focuses it on detail load, so re-focusing
+    // when next-up resolves would only risk yanking focus back if the viewer had
+    // already moved into the seasons/episodes rails.
 
     Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
         // Action row — `HStack(spacing 36)` (TVMovieDetailView.actionRow). One
@@ -392,13 +433,21 @@ private fun HeroActionRow(
         ) {
             TvPrimaryPillButton(
                 icon = Icons.Filled.PlayArrow,
-                title = if (hasResume) "Resume ${resumePosition!!.formatHms()}" else "Play",
+                title = playButtonLabel(
+                    isSeriesOrSeason = isSeriesOrSeason,
+                    seriesContainer = detail.type == "series",
+                    nextUp = nextUp,
+                    hasResume = hasResume,
+                    resumePosition = resumePosition,
+                ),
                 onClick = {
-                    onPlay(
-                        detail.contentId, selectedFileId,
-                        state.selectedAudioIndex, state.selectedSubtitleIndex,
-                        detail.type, resumePosition,
-                    )
+                    if (playReady) {
+                        onPlay(
+                            playContentId, selectedFileId,
+                            selectorAudioIndex, selectorSubtitleIndex,
+                            playType, resumePosition,
+                        )
+                    }
                 },
                 focusRequester = playFocus,
             )
@@ -408,11 +457,13 @@ private fun HeroActionRow(
                     icon = Icons.Filled.Replay,
                     title = "Start Over",
                     onClick = {
-                        onPlay(
-                            detail.contentId, selectedFileId,
-                            state.selectedAudioIndex, state.selectedSubtitleIndex,
-                            detail.type, 0.0,
-                        )
+                        if (playReady) {
+                            onPlay(
+                                playContentId, selectedFileId,
+                                selectorAudioIndex, selectorSubtitleIndex,
+                                playType, 0.0,
+                            )
+                        }
                     },
                 )
             }
@@ -478,21 +529,36 @@ private fun HeroActionRow(
         }
 
         // Audiobooks have no meaningful video "version"/quality (the "720p" was
-        // the cover-art mjpeg stream); hide the selector row for them. The row
-        // itself only renders when an effective playable version is resolved
-        // (selectedVersion != null), so series/season detail without next-up
-        // playback metadata yet simply shows nothing.
-        if (showsSelectorRow) {
+        // the cover-art mjpeg stream); hide the selector row for them. For
+        // series/season detail the row binds to the *next-up* episode's
+        // versions/tracks; while that detail loads we hold a placeholder pill
+        // (Apple's `TVVersionPillPlaceholder`). Movie / episode detail bind to
+        // the container's own versions.
+        if (showsNextUpPlaceholder) {
+            TvVersionPillPlaceholder()
+        } else if (showsSelectorRow) {
             TvPlaybackSelectorRow(
                 modifier = Modifier.focusRequester(selectorFocus),
-                versions = detail.versions,
+                versions = selectorVersions,
                 currentVersion = selectedVersion,
-                selectedVersionFileId = state.selectedFileId,
-                selectedAudioTrackIndex = state.selectedAudioIndex,
-                selectedSubtitleTrackIndex = state.selectedSubtitleIndex,
-                onSelectVersion = viewModel::onVersionSelected,
-                onSelectAudioTrack = viewModel::onAudioTrackSelected,
-                onSelectSubtitleTrack = viewModel::onSubtitleTrackSelected,
+                selectedVersionFileId = selectorSelectedFileId,
+                selectedAudioTrackIndex = selectorAudioIndex,
+                selectedSubtitleTrackIndex = selectorSubtitleIndex,
+                onSelectVersion = if (isSeriesOrSeason) {
+                    viewModel::onNextUpVersionSelected
+                } else {
+                    viewModel::onVersionSelected
+                },
+                onSelectAudioTrack = if (isSeriesOrSeason) {
+                    viewModel::onNextUpAudioTrackSelected
+                } else {
+                    viewModel::onAudioTrackSelected
+                },
+                onSelectSubtitleTrack = if (isSeriesOrSeason) {
+                    viewModel::onNextUpSubtitleTrackSelected
+                } else {
+                    viewModel::onSubtitleTrackSelected
+                },
             )
         }
     }
@@ -746,6 +812,43 @@ private fun episodeEyebrowLabel(detail: ItemDetail, state: TvItemDetailUiState):
     return "This Season"
 }
 
+/**
+ * Static, non-focusable placeholder shown in the selector slot while the
+ * next-up episode's playback detail loads. Compose-for-TV analogue of
+ * silo-apple's `TVVersionPillPlaceholder` — a dimmed "Version" pill.
+ */
+@Composable
+private fun TvVersionPillPlaceholder(modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.42f), shape)
+            .border(1.2.dp, Color.White.copy(alpha = 0.16f), shape)
+            .widthIn(min = 150.dp)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.HighQuality,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.58f),
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = "Version",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = Color.White.copy(alpha = 0.58f),
+        )
+        Icon(
+            imageVector = Icons.Filled.KeyboardArrowDown,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.35f),
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
 @Composable
 private fun DetailsSection(
     detail: ItemDetail,
@@ -762,12 +865,37 @@ private fun DetailsSection(
 
 // MARK: - Helpers
 
-private fun ItemDetail.resumePositionSeconds(): Double? {
-    val user = userData ?: return null
-    val pos = user.positionSeconds ?: return null
-    val dur = user.durationSeconds ?: return null
+private fun ItemDetail.resumePositionSeconds(): Double? = userData?.resumePositionSeconds()
+
+private fun com.continuum.app.model.catalog.LeafItemUserData.resumePositionSeconds(): Double? {
+    val pos = positionSeconds ?: return null
+    val dur = durationSeconds ?: return null
     if (pos <= 30 || dur <= 0 || pos >= dur - 5) return null
     return pos
+}
+
+/**
+ * Hero Play button label. Movie / episode detail keep the plain Play /
+ * Resume<hms> form; series / season detail target the next-up episode and read
+ * "Play S2 · E3" / "Resume S2 · E3" (series) or "Play E4" / "Resume E4"
+ * (season), mirroring silo-apple's `playButtonLabel(for:)`.
+ */
+private fun playButtonLabel(
+    isSeriesOrSeason: Boolean,
+    seriesContainer: Boolean,
+    nextUp: EpisodeListItem?,
+    hasResume: Boolean,
+    resumePosition: Double?,
+): String {
+    if (isSeriesOrSeason && nextUp != null) {
+        val verb = if (hasResume) "Resume" else "Play"
+        return if (seriesContainer) {
+            "$verb S${nextUp.seasonNumber} · E${nextUp.episodeNumber}"
+        } else {
+            "$verb E${nextUp.episodeNumber}"
+        }
+    }
+    return if (hasResume && resumePosition != null) "Resume ${resumePosition.formatHms()}" else "Play"
 }
 
 private fun Double.formatHms(): String {

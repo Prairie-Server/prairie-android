@@ -50,6 +50,22 @@ data class TvItemDetailUiState(
     // browse query until the server exposes an item-specific related endpoint.
     val moreLikeThis: List<SectionItem> = emptyList(),
     val moreLikeThisLoading: Boolean = false,
+    // --- Next-up episode (series / season detail only) ---
+    // The episode the hero Play button targets: an in-progress episode if one
+    // exists, else the first unwatched, else the first. Mirrors silo-apple's
+    // `nextUpEpisode`.
+    val nextUpEpisode: EpisodeListItem? = null,
+    // The next-up episode's loaded playback detail (versions / tracks). Loaded
+    // asynchronously whenever the next-up episode changes — analogue of Apple's
+    // `nextUpPlaybackDetail`.
+    val nextUpPlaybackDetail: ItemDetail? = null,
+    val isLoadingNextUpPlaybackDetail: Boolean = false,
+    val didLoadNextUpPlaybackDetail: Boolean = false,
+    // Per-next-up version / track overrides (separate from the container's
+    // selectedFileId/audio/subtitle, which series/season detail does not use).
+    val selectedNextUpFileId: Int? = null,
+    val selectedNextUpAudioIndex: Int? = null,
+    val selectedNextUpSubtitleIndex: Int? = null,
 )
 
 /**
@@ -299,21 +315,141 @@ class TvItemDetailViewModel(
         }
     }
 
+    private var episodeLoadJob: kotlinx.coroutines.Job? = null
+
     private fun loadEpisodes(seriesContentId: String, seasonNumber: Int) {
-        viewModelScope.launch {
+        // Cancel any in-flight episode load so a slower response for a
+        // previously-selected season can't overwrite episodes/next-up for the
+        // season the user is now on (rapid season switches / the initial
+        // firstRegular load racing a route-driven season load).
+        episodeLoadJob?.cancel()
+        episodeLoadJob = viewModelScope.launch {
             _uiState.update { it.copy(episodesLoading = true) }
             when (val r = catalogRepository.getEpisodes(seriesContentId, seasonNumber)) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(
-                        episodesLoading = false,
-                        episodes = r.data.episodes.sortedBy { ep -> ep.episodeNumber },
-                    )
+                is ApiResult.Success -> {
+                    val episodes = r.data.episodes.sortedBy { ep -> ep.episodeNumber }
+                    _uiState.update { it.copy(episodesLoading = false, episodes = episodes) }
+                    refreshNextUp(episodes)
                 }
-                else -> _uiState.update {
-                    it.copy(episodesLoading = false, episodes = emptyList())
+                else -> {
+                    _uiState.update { it.copy(episodesLoading = false, episodes = emptyList()) }
+                    refreshNextUp(emptyList())
                 }
             }
         }
+    }
+
+    /**
+     * Resolves the next-up episode for the selected season (series/season detail
+     * only) and kicks off its playback-detail load when it changes. Mirrors
+     * silo-apple's `nextUpEpisode` + the `.task(id:)`-driven
+     * `loadSeriesNextUpPlaybackDetail` / `loadSeasonNextUpPlaybackDetail`.
+     */
+    private fun refreshNextUp(episodes: List<EpisodeListItem>) {
+        val detail = _uiState.value.detail
+        val type = detail?.type?.lowercase()
+        if (detail == null || (type != "series" && type != "season")) {
+            // Movie / episode detail does not drive next-up; clear any state.
+            if (_uiState.value.nextUpEpisode != null || _uiState.value.nextUpPlaybackDetail != null) {
+                _uiState.update {
+                    it.copy(
+                        nextUpEpisode = null,
+                        nextUpPlaybackDetail = null,
+                        isLoadingNextUpPlaybackDetail = false,
+                        didLoadNextUpPlaybackDetail = false,
+                        selectedNextUpFileId = null,
+                        selectedNextUpAudioIndex = null,
+                        selectedNextUpSubtitleIndex = null,
+                    )
+                }
+            }
+            return
+        }
+
+        val nextUp = resolveNextUpEpisode(episodes)
+        val previousId = _uiState.value.nextUpEpisode?.contentId
+        if (nextUp?.contentId == previousId && _uiState.value.nextUpEpisode != null) {
+            // Same target — just refresh the snapshot (userData may have changed)
+            // without re-loading playback detail.
+            _uiState.update { it.copy(nextUpEpisode = nextUp) }
+            return
+        }
+
+        if (nextUp == null) {
+            _uiState.update {
+                it.copy(
+                    nextUpEpisode = null,
+                    nextUpPlaybackDetail = null,
+                    isLoadingNextUpPlaybackDetail = false,
+                    didLoadNextUpPlaybackDetail = false,
+                    selectedNextUpFileId = null,
+                    selectedNextUpAudioIndex = null,
+                    selectedNextUpSubtitleIndex = null,
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                nextUpEpisode = nextUp,
+                nextUpPlaybackDetail = null,
+                isLoadingNextUpPlaybackDetail = true,
+                didLoadNextUpPlaybackDetail = false,
+                selectedNextUpFileId = null,
+                selectedNextUpAudioIndex = null,
+                selectedNextUpSubtitleIndex = null,
+            )
+        }
+        loadNextUpPlaybackDetail(nextUp.contentId)
+    }
+
+    private fun resolveNextUpEpisode(episodes: List<EpisodeListItem>): EpisodeListItem? {
+        episodes.firstOrNull { it.userData?.isInProgress == true }?.let { return it }
+        episodes.firstOrNull { it.userData?.played != true }?.let { return it }
+        return episodes.firstOrNull()
+    }
+
+    private fun loadNextUpPlaybackDetail(episodeContentId: String) {
+        viewModelScope.launch {
+            val result = catalogRepository.getItemDetail(episodeContentId)
+            // Ignore a late result if the next-up target moved on.
+            if (_uiState.value.nextUpEpisode?.contentId != episodeContentId) return@launch
+            when (result) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(
+                        nextUpPlaybackDetail = result.data,
+                        isLoadingNextUpPlaybackDetail = false,
+                        didLoadNextUpPlaybackDetail = true,
+                    )
+                }
+                else -> _uiState.update {
+                    it.copy(
+                        nextUpPlaybackDetail = null,
+                        isLoadingNextUpPlaybackDetail = false,
+                        didLoadNextUpPlaybackDetail = true,
+                    )
+                }
+            }
+        }
+    }
+
+    fun onNextUpVersionSelected(fileId: Int?) {
+        _uiState.update {
+            it.copy(
+                selectedNextUpFileId = fileId,
+                selectedNextUpAudioIndex = null,
+                selectedNextUpSubtitleIndex = null,
+            )
+        }
+    }
+
+    fun onNextUpAudioTrackSelected(index: Int?) {
+        _uiState.update { it.copy(selectedNextUpAudioIndex = index) }
+    }
+
+    fun onNextUpSubtitleTrackSelected(index: Int?) {
+        _uiState.update { it.copy(selectedNextUpSubtitleIndex = index) }
     }
 
     private fun loadMoreLikeThis(detail: ItemDetail) {

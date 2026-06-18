@@ -58,7 +58,7 @@ class TvPlayerRouteTest {
     @Test
     fun startOverPassesExplicitZeroResumePosition() {
         assertTrue(
-            detailSource.contains("detail.type, 0.0,"),
+            detailSource.contains("playType, 0.0,"),
             "Start Over must pass an explicit 0.0 override; null falls back to stored progress",
         )
     }
