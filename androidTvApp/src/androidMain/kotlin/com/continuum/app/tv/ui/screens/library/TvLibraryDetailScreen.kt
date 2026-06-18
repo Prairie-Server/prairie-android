@@ -70,6 +70,7 @@ import com.continuum.app.model.section.LibraryCollection
 import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.model.section.SectionItem
 import com.continuum.app.model.section.splitFeatured
+import com.continuum.app.tv.ui.components.TvAlphabetRail
 import com.continuum.app.tv.ui.components.TvCardWidth
 import com.continuum.app.tv.ui.components.TvCatalogEmptyState
 import com.continuum.app.tv.ui.components.TvErrorScreen
@@ -88,21 +89,21 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
 /**
- * Android TV library detail surface — mirrors `TVLibrariesTabView` +
- * `TVLibraryLandingView` from tvOS. The screen exposes three tabs as a focus-
- * driven mode slider: **Recommended** (hero + section rows), **Library**
- * (6-column poster grid with right-side alphabet rail), and **Collections**
- * (6-column collection grid).
+ * Android TV library detail surface — mirrors `TVLibraryGridView` +
+ * `TVLibraryCollectionsView` from tvOS. The screen exposes three sections in
+ * tvOS order as a focus-driven mode slider: **Recommended** (hero + section
+ * rows), **Collections** (grouped 2:3 poster grid), and **Browse** (poster
+ * grid with a persistent right-edge A–Z alphabet rail).
  *
  * The big-letter library header (64sp bold title + subtitle) lives at the
- * top of every tab so the screen never feels rootless. Filter dropdowns
- * (Genre, Sort) sit immediately below the header on the Library tab; the
- * alphabet rail floats on the right edge as a vertical pill.
+ * top of every section so the screen never feels rootless. The in-grid Filter
+ * sheet (genre / year / sort) sits below the header on Browse; the A–Z rail
+ * ([TvAlphabetRail]) lives in a Row to the right of the Browse grid and jumps
+ * the browse name-prefix filter (it replaces the old in-sheet "Jump to" chips).
  *
- * Card dimensions, spacing, pagination thresholds, and the alphabet rail
- * pattern track Section 3.2 of `.android-parity/specs/ios-tv.md`:
- * 6-column grid, 200×300dp posters, 40dp horizontal / 60dp vertical spacing,
- * load-more fires within 8 rows of the end.
+ * Catalog grid metrics track tvOS `TVCatalogGrid`: 40dp column spacing, 60dp
+ * row spacing, load-more within 8 rows of the end. The Browse grid uses 5
+ * columns to clear the rail; the Collections grid uses 6.
  */
 @Composable
 fun TvLibraryDetailScreen(
@@ -154,7 +155,7 @@ fun TvLibraryDetailScreen(
                 onRetry = viewModel::retryRecommended,
                 onInitialContentFocus = onInitialContentFocus,
             )
-            TvLibraryTab.Library -> LibraryTab(
+            TvLibraryTab.Browse -> LibraryTab(
                 state = state,
                 canSwitchLibrary = canSwitchLibrary,
                 onSwitchLibrary = onSwitchLibrary,
@@ -316,7 +317,7 @@ private fun RecommendedTab(
                             style = TvRowStyle.Poster,
                             startPadding = Spacing.safeArea,
                             endPadding = Spacing.safeArea,
-                            itemSpacing = LibraryGridItemSpacing,
+                            itemSpacing = LibraryGridColumnSpacing,
                             rowTopPadding = 0.dp,
                             rowBottomPadding = 0.dp,
                             upFocusRequester = heroFocusRequester
@@ -398,18 +399,31 @@ private fun LibraryTab(
                     ),
                 )
             } else {
-                LibraryGrid(
-                    state = state,
-                    canSwitchLibrary = canSwitchLibrary,
-                    onSwitchLibrary = onSwitchLibrary,
-                    onTabSelected = onTabSelected,
-                    onItemClick = onItemClick,
-                    onLoadMore = onLoadMore,
-                    sortLabel = sortLabel,
-                    onOpenFilters = { showFilterSheet = true },
-                    tabSliderFocusRequester = tabSliderFocusRequester,
-                    firstItemFocusRequester = firstGridItemFocusRequester,
-                )
+                // Grid + right-edge alphabet rail (tvOS `TVLibraryGridView`):
+                // the rail sits in a Row to the RIGHT of the Browse grid and
+                // jumps the browse name-prefix filter. The grid drops to 5
+                // columns to clear the rail.
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        LibraryGrid(
+                            state = state,
+                            canSwitchLibrary = canSwitchLibrary,
+                            onSwitchLibrary = onSwitchLibrary,
+                            onTabSelected = onTabSelected,
+                            onItemClick = onItemClick,
+                            onLoadMore = onLoadMore,
+                            sortLabel = sortLabel,
+                            onOpenFilters = { showFilterSheet = true },
+                            tabSliderFocusRequester = tabSliderFocusRequester,
+                            firstItemFocusRequester = firstGridItemFocusRequester,
+                        )
+                    }
+                    TvAlphabetRail(
+                        selected = state.browseFilter.namePrefix,
+                        onSelect = onNamePrefixChanged,
+                        modifier = Modifier.padding(end = Spacing.md),
+                    )
+                }
             }
         }
 
@@ -485,44 +499,9 @@ private fun LibraryTab(
                     }
                 }
 
-                // --- Alphabet section ---
-                FilterSectionHeader("Jump to")
-                // Render alphabet letters as horizontal chips inline (the existing
-                // TvAlphabetRail renders vertically). Keep this inline for layout
-                // simplicity inside the sheet.
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    val letters = remember {
-                        buildList {
-                            add("All")
-                            add("#")
-                            ('A'..'Z').forEach { add(it.toString()) }
-                        }
-                    }
-                    letters.forEach { letter ->
-                        val selected = when (letter) {
-                            "All" -> state.browseFilter.namePrefix == null
-                            "#" -> state.browseFilter.namePrefix == "#"
-                            else -> state.browseFilter.namePrefix == letter
-                        }
-                        FilterChoiceChip(
-                            label = letter,
-                            selected = selected,
-                            onClick = {
-                                onNamePrefixChanged(
-                                    when (letter) {
-                                        "All" -> null
-                                        "#" -> "#"
-                                        else -> letter
-                                    },
-                                )
-                            },
-                        )
-                    }
-                }
+                // The A–Z "Jump to" picker moved out of the sheet onto the
+                // persistent right-edge TvAlphabetRail (tvOS parity), so it is
+                // intentionally no longer rendered here.
             }
         }
     }
@@ -559,7 +538,7 @@ private fun LibraryGrid(
                 state.browseItems.isNotEmpty() &&
                     lastVisible != null &&
                     lastVisible.index >= state.browseItems.size -
-                        (LibraryGridLoadMoreRowsThreshold * LibraryGridColumns)
+                        (LibraryGridLoadMoreRowsThreshold * LibraryBrowseGridColumns)
             }
         }
     }
@@ -568,12 +547,19 @@ private fun LibraryGrid(
         if (nearEnd) onLoadMore()
     }
 
+    // Jump to the top of the result set whenever the A–Z prefix changes, so an
+    // alphabet-rail letter-jump actually lands at the start of that prefix's
+    // results instead of keeping a deep scroll position from the old set.
+    LaunchedEffect(state.browseFilter.namePrefix) {
+        gridState.scrollToItem(0)
+    }
+
     LazyVerticalGrid(
         state = gridState,
-        columns = GridCells.Fixed(LibraryGridColumns),
+        columns = GridCells.Fixed(LibraryBrowseGridColumns),
         modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(LibraryGridItemSpacing),
-        verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
+        horizontalArrangement = Arrangement.spacedBy(LibraryGridColumnSpacing),
+        verticalArrangement = Arrangement.spacedBy(LibraryGridRowSpacing),
         contentPadding = PaddingValues(
             start = Spacing.safeArea,
             top = TvTopMenuLayout.contentTopInset,
@@ -667,11 +653,16 @@ private fun CollectionsTab(
         initialFocusRequested = true
     }
 
+    // First collection of the first non-empty group claims initial focus.
+    val firstCollectionId = state.collectionSections
+        .firstOrNull { it.collections.isNotEmpty() }
+        ?.collections?.firstOrNull()?.id
+
     LazyVerticalGrid(
         columns = GridCells.Fixed(LibraryGridColumns),
         modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(LibraryGridItemSpacing),
-        verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
+        horizontalArrangement = Arrangement.spacedBy(LibraryGridColumnSpacing),
+        verticalArrangement = Arrangement.spacedBy(LibraryGridRowSpacing),
         contentPadding = PaddingValues(
             start = Spacing.safeArea,
             top = TvTopMenuLayout.contentTopInset,
@@ -709,18 +700,48 @@ private fun CollectionsTab(
                     TvCatalogEmptyState(message = "No collections in this library.")
                 }
             }
-            else -> itemsIndexed(
-                state.collections,
-                key = { _, collection -> collection.id },
-            ) { index, collection ->
-                TvCollectionCard(
-                    collection = collection,
-                    onClick = { onCollectionClick(collection.id, collection.name) },
-                    focusRequester = firstCollectionFocusRequester.takeIf { index == 0 },
-                )
+            // Grouped collections (tvOS `TVLibraryCollectionsView`): a mono
+            // uppercase group header, then a grid of 2:3 poster cards. A
+            // section with an empty name (flat / ungrouped bucket) renders no
+            // header.
+            else -> state.collectionSections.forEachIndexed { sectionIndex, section ->
+                if (section.collections.isEmpty()) return@forEachIndexed
+                if (section.name.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "group-header:$sectionIndex:${section.name}",
+                    ) {
+                        CollectionsGroupHeader(name = section.name)
+                    }
+                }
+                itemsIndexed(
+                    section.collections,
+                    key = { _, collection -> "$sectionIndex:${collection.id}" },
+                ) { _, collection ->
+                    TvCollectionCard(
+                        collection = collection,
+                        onClick = { onCollectionClick(collection.id, collection.name) },
+                        focusRequester = firstCollectionFocusRequester
+                            .takeIf { collection.id == firstCollectionId },
+                    )
+                }
             }
         }
     }
+}
+
+/** Mono uppercase group header for the grouped collections grid (tvOS §6.3). */
+@Composable
+private fun CollectionsGroupHeader(name: String) {
+    Text(
+        text = name.uppercase(),
+        color = Color.White.copy(alpha = 0.38f),
+        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        fontSize = 14.sp,
+        letterSpacing = 3.6.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 // ============================================================================
@@ -1223,21 +1244,43 @@ private fun TvCollectionCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Centered caption with a caps count noun ("12 MOVIES"), matching
+        // tvOS `TVCollectionPosterCard`.
         Text(
             text = collection.name,
             style = MaterialTheme.typography.titleSmall,
             color = Color.White.copy(alpha = 0.92f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
-        Text(
-            text = collection.itemCount?.let {
-                "$it ${if (it == 1) "item" else "items"}"
-            } ?: "Collection",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.7f),
-        )
+        collectionCountText(collection)?.let { countText ->
+            Text(
+                text = countText,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.7f),
+                maxLines = 1,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
+}
+
+/** `12 MOVIES`-style caps count, deriving the noun from the collection type. */
+private fun collectionCountText(collection: LibraryCollection): String? {
+    val count = collection.itemCount ?: return null
+    if (count <= 0) return null
+    val plural = count != 1
+    val noun = when (collection.collectionType?.lowercase()) {
+        "movie", "movies" -> if (plural) "movies" else "movie"
+        "series", "show", "shows", "tvshows" -> if (plural) "shows" else "show"
+        "album", "albums" -> if (plural) "albums" else "album"
+        "audiobook", "audiobooks", "book", "books" -> if (plural) "books" else "book"
+        else -> if (plural) "items" else "item"
+    }
+    return "$count $noun".uppercase()
 }
 
 // ============================================================================
@@ -1316,6 +1359,11 @@ private fun collectionsSubtitle(state: TvLibraryDetailViewModel.UiState): String
     }
 }
 
+// Catalog grid metrics, 1:1 with tvOS `TVCatalogGrid`: 6 columns, 40dp column
+// spacing, 60dp row spacing. The Browse grid drops to 5 columns to clear the
+// right-edge alphabet rail (tvOS shrinks the same way).
 private const val LibraryGridColumns = 6
-private val LibraryGridItemSpacing = 40.dp
+private const val LibraryBrowseGridColumns = 5
+private val LibraryGridColumnSpacing = 40.dp
+private val LibraryGridRowSpacing = 60.dp
 private const val LibraryGridLoadMoreRowsThreshold = 8

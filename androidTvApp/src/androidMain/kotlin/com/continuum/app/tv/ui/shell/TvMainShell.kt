@@ -1052,12 +1052,12 @@ private fun TvRootDestination.toRoute(): String = when (this) {
 
 /**
  * Maps a committed cascade [TvLibraryPill] to the library detail screen's
- * section tab. Recommended → Recommended, Browse → Library (the full grid),
+ * section tab. Recommended → Recommended, Browse → Browse (the full grid),
  * Collections → Collections.
  */
 private fun TvLibraryPill.toLibraryTab(): TvLibraryTab = when (this) {
     TvLibraryPill.Recommended -> TvLibraryTab.Recommended
-    TvLibraryPill.Browse -> TvLibraryTab.Library
+    TvLibraryPill.Browse -> TvLibraryTab.Browse
     TvLibraryPill.Collections -> TvLibraryTab.Collections
 }
 
