@@ -95,6 +95,9 @@ fun TvPlayerScrubber(
     scrubPreviewSec: Double,
     chapters: List<ChapterInfo>,
     cancelOnBlur: Boolean,
+    // Intro / skip region [startSec, endSec] drawn as a cyan band on the track
+    // when known (mirrors tvOS TVPlayerScrubber.introRegion). Null = no band.
+    introRangeSec: ClosedRange<Double>? = null,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
     onBeginScrub: () -> Unit,
@@ -362,6 +365,29 @@ fun TvPlayerScrubber(
                         ),
                     ),
             )
+
+            // Intro / skip region — cyan band on the track (tvOS introRegion).
+            // Drawn above the bare track but below the played fill / ticks so
+            // the playhead still reads clearly over it.
+            if (introRangeSec != null && durationSec > 0) {
+                val introStart = (introRangeSec.start / durationSec).toFloat().coerceIn(0f, 1f)
+                val introEnd = (introRangeSec.endInclusive / durationSec).toFloat().coerceIn(0f, 1f)
+                if (introEnd > introStart) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .offset(x = barWidthDp * introStart)
+                            .fillMaxWidth(introEnd - introStart)
+                            .height(trackHeight)
+                            .clip(RoundedCornerShape(percent = 50))
+                            .background(
+                                Color.Cyan.copy(
+                                    alpha = if (isTimelineScrubbing || isFocused) 0.45f else 0.34f,
+                                ),
+                            ),
+                    )
+                }
+            }
 
             // Played fill — pure white, follows the preview while scrubbing.
             Box(

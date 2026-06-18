@@ -103,6 +103,7 @@ data class NextEpisodeState(
     val episodeNumber: Int,
     val title: String?,
     val stillUrl: String?,
+    val overview: String? = null,
 )
 
 data class TvPlayerLaunchArgs(
@@ -290,7 +291,15 @@ class TvPlayerViewModel(
         private const val TAG = "TvPlayerViewModel"
         // Record a durable position roughly every 10s of content time.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
+        // Auto-play countdown shown on the Up-Next overlay before the next
+        // episode starts (mirrors tvOS CountdownRing default).
+        const val NEXT_UP_COUNTDOWN_SECONDS = 10
     }
+
+    // Up-Next auto-play countdown ticker. Cancelled on dismiss / Play Now /
+    // exit. Lives on the VM (not the composable) so the countdown survives
+    // recomposition and overlay focus churn.
+    private var nextUpCountdownJob: Job? = null
 
     private var lastRecordedKey: String? = null
     private var lastRecordedPositionSec: Double = -1.0
@@ -431,6 +440,18 @@ class TvPlayerViewModel(
         val episodeNumber: Int? = null,
         val nextEpisode: NextEpisodeState? = null,
         val stillWatchingPrompt: Boolean = false,
+        // Up-Next end-of-playback surface (mirrors tvOS PlayerNextUpScreen). When
+        // `showNextUp` is true the screen renders the Up-Next overlay — a 16:9
+        // mini-player pane beside the next-episode panel — in place of the idle
+        // controls. `nextUpVideoEnded` distinguishes "almost finished" (credits
+        // reached, still playing) from "end of playback" (stream ended).
+        // `nextUpCountdownSeconds` drives the auto-play CountdownRing: non-null
+        // counts down to 0 and then plays the next episode; null means no
+        // countdown (auto-play off, pass-out gate hit, or no next episode).
+        val showNextUp: Boolean = false,
+        val nextUpVideoEnded: Boolean = false,
+        val nextUpCountdownSeconds: Int? = null,
+        val nextUpCountdownTotalSeconds: Int = NEXT_UP_COUNTDOWN_SECONDS,
         // Live player statistics — reduced from [PlaybackAnalyticsListener.Event]s
         // by [reducePlayerStats]. Always non-null so the HUD Stats pane has a
         // snapshot to read; populates field-by-field as events arrive.
@@ -464,6 +485,10 @@ class TvPlayerViewModel(
     // ---- Next-episode auto-advance (F2) ----
     private val autoAdvanceCount: Int = launchArgs.autoAdvanceCount
     private var autoAdvanceHandled = false // once-per-item guard
+    // Set when the credits/end point fired but nextEpisode hadn't resolved yet,
+    // so the Up-Next overlay couldn't arm its countdown. Carries the "video has
+    // ended" flag forward so the countdown re-arms once nextEpisode resolves.
+    private var pendingApproachingEndVideoEnded: Boolean? = null
     private val _playNextRequests = MutableSharedFlow<PlayNextRequest>(extraBufferCapacity = 1)
     /** Screen collects this and navigates to the next episode's player. */
     val playNextRequests: SharedFlow<PlayNextRequest> = _playNextRequests
@@ -660,6 +685,9 @@ class TvPlayerViewModel(
                                 // Cleared until re-resolved for the new item.
                                 nextEpisode = null,
                                 stillWatchingPrompt = false,
+                                showNextUp = false,
+                                nextUpVideoEnded = false,
+                                nextUpCountdownSeconds = null,
                             )
                         }
                         startIntroAutoSkipObserver()
@@ -924,54 +952,145 @@ class TvPlayerViewModel(
                     ?.data?.episodes?.let { pool += it }
             }
             val next = nextEpisodeAfter(pool, curSeason, curEpisode) ?: return@launch
-            _uiState.update {
-                it.copy(
-                    nextEpisode = NextEpisodeState(
-                        contentId = next.contentId,
-                        seasonNumber = next.seasonNumber,
-                        episodeNumber = next.episodeNumber,
-                        title = next.title,
-                        stillUrl = next.stillUrl,
-                    ),
-                )
+            val nextState = NextEpisodeState(
+                contentId = next.contentId,
+                seasonNumber = next.seasonNumber,
+                episodeNumber = next.episodeNumber,
+                title = next.title,
+                stillUrl = next.stillUrl,
+                overview = next.overview,
+            )
+            _uiState.update { it.copy(nextEpisode = nextState) }
+            // If the credits/end point already fired while we were still
+            // resolving, the overlay couldn't arm — complete it now (re-arm the
+            // countdown) with the strongest video-ended flag we observed.
+            if (!autoAdvanceHandled) {
+                pendingApproachingEndVideoEnded?.let { videoEnded ->
+                    commitApproachingEnd(nextState, videoEnded)
+                }
             }
         }
     }
 
     /**
      * Called by the screen when the credits point is reached (primary) or the
-     * stream ends (fallback). Auto-advances to the next episode, or — once the
-     * consecutive-auto-advance streak hits the pass-out threshold setting —
-     * shows the "Still watching?" prompt instead. Once-per-item.
+     * stream ends (fallback). Surfaces the Up-Next overlay — a 16:9 mini-player
+     * beside the next-episode panel — as the end-of-playback surface (mirrors
+     * tvOS PlayerNextUpScreen), replacing the old "Still watching?" dialog.
+     *
+     * When auto-play is on and the consecutive-auto-advance streak is below the
+     * pass-out threshold, the overlay starts a countdown ring that plays the
+     * next episode at zero. Once the streak hits the pass-out threshold (or
+     * auto-play is off), the overlay shows with NO countdown so the user must
+     * explicitly choose Play Now / Keep Watching (the pass-out gate). Once-per-item.
+     *
+     * [videoEnded] true when the stream has actually ended (STATE_ENDED) — the
+     * panel reads "End of playback" / "Playing Next" and hides Keep Watching;
+     * false at the credits-crossing while video is still rolling.
      */
-    fun onApproachingEnd() {
-        if (autoAdvanceHandled) return
+    fun onApproachingEnd(videoEnded: Boolean = false) {
         // Watch Together is authoritative — never auto-advance a room member
         // (it would silently leave/desync the room). Mirrors the remote-control
         // transport gate.
         if (roomId != null) return
-        val next = _uiState.value.nextEpisode ?: return
-        if (!autoPlayNextEnabled.value) return
+        // Surfacing again on STATE_ENDED after a credits-crossing only upgrades
+        // the "video ended" flag; don't re-arm the countdown or re-trigger.
+        if (autoAdvanceHandled) {
+            if (videoEnded && _uiState.value.showNextUp) {
+                _uiState.update { it.copy(nextUpVideoEnded = true) }
+            }
+            return
+        }
+
+        val next = _uiState.value.nextEpisode
+        if (next == null) {
+            // Next episode hasn't resolved yet — don't latch a permanent
+            // no-countdown/no-next state. Record that the end point fired (and
+            // whether the stream has ended) so the countdown re-arms when
+            // nextEpisode arrives via [resolveNextEpisode]. If a later signal
+            // upgrades to videoEnded, keep the strongest (ended) flag.
+            val ended = videoEnded || (pendingApproachingEndVideoEnded == true)
+            pendingApproachingEndVideoEnded = ended
+            // If the stream has genuinely ended (STATE_ENDED) we still surface
+            // the end-of-playback overlay now — there may be no next episode at
+            // all (last episode / movie). We deliberately do NOT latch
+            // autoAdvanceHandled here, so a next episode that resolves moments
+            // later can still arm the countdown via resolveNextEpisode.
+            if (ended) {
+                _uiState.update {
+                    it.copy(
+                        showNextUp = true,
+                        nextUpVideoEnded = true,
+                        nextUpCountdownSeconds = null,
+                    )
+                }
+            }
+            return
+        }
+        commitApproachingEnd(next, videoEnded)
+    }
+
+    private fun commitApproachingEnd(next: NextEpisodeState, videoEnded: Boolean) {
         autoAdvanceHandled = true
-        // Threshold 0 (or less) = off: never prompt, always advance.
+        pendingApproachingEndVideoEnded = null
+        // Threshold 0 (or less) = off: never gate, always allow auto-countdown.
         val threshold = passOutThreshold.value
-        if (threshold > 0 && autoAdvanceCount >= threshold) {
-            _uiState.update { it.copy(stillWatchingPrompt = true) }
-        } else {
-            _playNextRequests.tryEmit(PlayNextRequest(next.contentId, autoAdvanceCount + 1))
+        val passOutGated = threshold > 0 && autoAdvanceCount >= threshold
+        val autoCountdown = autoPlayNextEnabled.value && !passOutGated
+
+        _uiState.update {
+            it.copy(
+                showNextUp = true,
+                nextUpVideoEnded = videoEnded,
+                nextUpCountdownSeconds = if (autoCountdown) NEXT_UP_COUNTDOWN_SECONDS else null,
+            )
+        }
+        if (autoCountdown) startNextUpCountdown()
+    }
+
+    private fun startNextUpCountdown() {
+        nextUpCountdownJob?.cancel()
+        nextUpCountdownJob = viewModelScope.launch {
+            var remaining = NEXT_UP_COUNTDOWN_SECONDS
+            while (remaining > 0) {
+                delay(1_000)
+                remaining -= 1
+                _uiState.update {
+                    // Bail if something dismissed the overlay underneath us.
+                    if (!it.showNextUp) it else it.copy(nextUpCountdownSeconds = remaining)
+                }
+                if (!_uiState.value.showNextUp) return@launch
+            }
+            // Automatic countdown-expiry advance: increment the pass-out streak
+            // so a long unattended binge eventually trips the "still watching?"
+            // gate. An explicit Play Now (below) resets the streak instead.
+            advanceToNextEpisode(nextAutoAdvanceCount = autoAdvanceCount + 1)
         }
     }
 
-    /** User tapped "Continue" on the prompt — play next and reset the streak. */
-    fun onStillWatchingContinue() {
-        val next = _uiState.value.nextEpisode ?: return
-        _uiState.update { it.copy(stillWatchingPrompt = false) }
-        _playNextRequests.tryEmit(PlayNextRequest(next.contentId, autoAdvanceCount = 0))
+    /**
+     * Up-Next "Play Now" / Play-Pause-on-overlay: an explicit user choice to keep
+     * going. This is active watching, so it RESETS the pass-out streak to 0 —
+     * the next episode starts fresh and isn't gated behind the still-watching
+     * prompt. The automatic countdown-expiry path keeps incrementing the streak.
+     */
+    fun playNextEpisodeNow() {
+        advanceToNextEpisode(nextAutoAdvanceCount = 0)
     }
 
-    /** User tapped "Stop" (or dismissed) — stay on the finished episode. */
-    fun onStillWatchingStop() {
-        _uiState.update { it.copy(stillWatchingPrompt = false) }
+    private fun advanceToNextEpisode(nextAutoAdvanceCount: Int) {
+        nextUpCountdownJob?.cancel()
+        nextUpCountdownJob = null
+        val next = _uiState.value.nextEpisode ?: return
+        _uiState.update { it.copy(showNextUp = false, nextUpCountdownSeconds = null) }
+        _playNextRequests.tryEmit(PlayNextRequest(next.contentId, nextAutoAdvanceCount))
+    }
+
+    /** Up-Next "Keep Watching" — dismiss the overlay and stay on the current episode. */
+    fun dismissNextUp() {
+        nextUpCountdownJob?.cancel()
+        nextUpCountdownJob = null
+        _uiState.update { it.copy(showNextUp = false, nextUpCountdownSeconds = null) }
     }
 
     /**
@@ -1483,6 +1602,7 @@ class TvPlayerViewModel(
         }
         sessionLifecycle.stop()
         introObserveJob?.cancel()
+        nextUpCountdownJob?.cancel()
         introAutoSkipController.reset()
         _uiState.update {
             it.copy(
@@ -1556,6 +1676,7 @@ class TvPlayerViewModel(
         }
         introObserveJob?.cancel()
         lifecycleObserveJob?.cancel()
+        nextUpCountdownJob?.cancel()
         introAutoSkipController.reset()
         val sessionId = _uiState.value.sessionId
         if (sessionId != null) {

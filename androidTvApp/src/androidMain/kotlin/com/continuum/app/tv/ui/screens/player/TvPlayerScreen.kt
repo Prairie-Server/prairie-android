@@ -13,8 +13,10 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -59,6 +61,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
@@ -79,6 +83,7 @@ import com.continuum.app.common.player.HdrDisplayController
 import com.continuum.app.common.player.PlaybackCapabilityDetector
 import com.continuum.app.common.player.PlaybackPreflightListener
 import com.continuum.app.common.player.SessionState
+import com.continuum.app.common.player.SleepTimerState
 import com.continuum.app.common.player.SubtitleManager
 import com.continuum.app.common.player.VideoPlayerMediaSpec
 import com.continuum.app.common.player.backend.PlaybackEngineCommand
@@ -354,6 +359,9 @@ fun TvPlayerScreen(
         when {
             state.showSubtitleStyleDialog -> viewModel.closeSubtitleStyleDialog()
             state.showSubtitleMenu -> viewModel.closeSubtitleMenu()
+            // On the Up-Next overlay, Back exits the player (matches tvOS, where
+            // the Up-Next "Back" button dismisses the whole player).
+            state.showNextUp -> stopPlaybackAndExit()
             state.hudOpen -> viewModel.closeHUD()
             showLeaveDialog -> showLeaveDialog = false
             state.showControls -> viewModel.setControlsVisible(false)
@@ -380,17 +388,33 @@ fun TvPlayerScreen(
             if (playerState.streamUrl == null || playerState.isLoading || playerState.error != null) {
                 return@handler false
             }
-            if (playerState.hudOpen || playerState.showSubtitleMenu ||
-                playerState.showSubtitleStyleDialog || latestShowLeaveDialog
-            ) {
-                return@handler false
-            }
-
             val action = tvPlayerRemoteKeyAction(
                 keyCode = event.keyCode,
                 action = event.action,
                 repeatCount = event.repeatCount,
             )
+            if (playerState.hudOpen || playerState.showSubtitleMenu ||
+                playerState.showSubtitleStyleDialog || latestShowLeaveDialog ||
+                // The Up-Next overlay is a focus-trapping Compose surface that
+                // owns its own remote input (Play Now / Keep Watching / Back) —
+                // don't let the transport bridge toggle play/pause underneath it.
+                playerState.showNextUp
+            ) {
+                // While the Up-Next overlay is visible, swallow media Play/Pause
+                // keys here so they can't reach Media3 / the system media-key
+                // fallback and toggle playback underneath the countdown. The
+                // overlay's own buttons (Play Now / Keep Watching) drive the
+                // transition. D-pad and other keys still fall through (false) so
+                // the overlay's focused buttons keep receiving navigation input.
+                if (playerState.showNextUp &&
+                    (action == TvPlayerRemoteKeyAction.PlayPause ||
+                        action == TvPlayerRemoteKeyAction.ConsumeOnly)
+                ) {
+                    return@handler true
+                }
+                return@handler false
+            }
+
             when (action) {
                 TvPlayerRemoteKeyAction.PlayPause -> {
                     val canPlayPauseInRoom = roomController == null ||
@@ -544,7 +568,7 @@ fun TvPlayerScreen(
                     viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
                     // F2 fallback: if the stream ends without a credits marker
                     // having fired the trigger, auto-advance / prompt now.
-                    if (playbackState == Player.STATE_ENDED) viewModel.onApproachingEnd()
+                    if (playbackState == Player.STATE_ENDED) viewModel.onApproachingEnd(videoEnded = true)
                 }
                 override fun onTracksChanged(tracks: Tracks) {
                     val audio = extractTrackEntries(tracks, C.TRACK_TYPE_AUDIO)
@@ -862,7 +886,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showControls && !state.hudOpen) {
+                if (state.showControls && !state.hudOpen && !state.showNextUp) {
                     // In a room, transport authority gates what the local
                     // member may drive: a guest who can't seek gets a disabled
                     // scrubber + skip; play/pause only under guest_play_pause.
@@ -876,6 +900,9 @@ fun TvPlayerScreen(
                     ).coerceAtLeast(0L) / 1000.0
                     TvPlayerIdleOverlay(
                         title = state.title,
+                        episodeTag = state.seasonNumber?.let { season ->
+                            state.episodeNumber?.let { ep -> "S$season·E$ep" }
+                        },
                         positionSec = state.position,
                         durationSec = state.duration,
                         isPaused = state.isPaused,
@@ -883,6 +910,9 @@ fun TvPlayerScreen(
                         scrubPreviewSec = state.scrubPreviewSec,
                         bufferedAheadSec = bufferedAheadSec,
                         chapters = state.chapters,
+                        introRange = state.intro,
+                        isBuffering = state.isBuffering,
+                        sleepTimerState = sleepTimerState,
                         // In a room, skip/scrub/seek are routed through the
                         // controller (transport_request → server → broadcast
                         // command → engine applies the seek locally). Solo
@@ -1148,15 +1178,21 @@ fun TvPlayerScreen(
             )
         }
 
-        // F2: pass-out "Still watching?" prompt — shown instead of auto-advancing
-        // once the consecutive-auto-advance streak hits the threshold.
-        if (state.stillWatchingPrompt) {
-            TvStillWatchingDialog(
-                nextEpisodeLabel = state.nextEpisode?.let { ep ->
-                    "S${ep.seasonNumber}·E${ep.episodeNumber}${ep.title?.let { " — $it" }.orEmpty()}"
-                },
-                onContinue = viewModel::onStillWatchingContinue,
-                onStop = viewModel::onStillWatchingStop,
+        // F2 / Up-Next end-of-playback surface. Replaces the old "Still
+        // watching?" dialog: a 16:9 mini-player (the still-playing video,
+        // visible behind a bordered frame) beside a next-episode panel with
+        // Play Now / Keep Watching / Back and an auto-play countdown ring.
+        if (state.showNextUp) {
+            TvPlayerNextUpOverlay(
+                nextEpisode = state.nextEpisode,
+                videoEnded = state.nextUpVideoEnded,
+                countdownSeconds = state.nextUpCountdownSeconds,
+                countdownTotalSeconds = state.nextUpCountdownTotalSeconds,
+                autoPlayEnabled = autoPlayNextEnabled,
+                onPlayNow = viewModel::playNextEpisodeNow,
+                onKeepWatching = viewModel::dismissNextUp,
+                onToggleAutoPlay = { viewModel.onSetAutoPlayNext(!autoPlayNextEnabled) },
+                onBack = { stopPlaybackAndExit() },
             )
         }
 
@@ -1187,10 +1223,14 @@ fun TvPlayerScreen(
             }
         }
 
-        // Buffering / outage spinner. Shows during native ExoPlayer buffering
-        // (state.isBuffering) OR while the lifecycle is in Reconnecting (the
-        // server-outage probe loop, which the player itself can't observe).
-        val showSpinner = state.isBuffering || sessionState is SessionState.Reconnecting
+        // Outage spinner. Native ExoPlayer buffering now surfaces as the
+        // top-right Buffering capsule inside the idle overlay's statusColumn
+        // (mirroring tvOS), so the centered full-screen spinner is reserved for
+        // the lifecycle Reconnecting state (the server-outage probe loop, which
+        // the player itself can't observe) — and only when the idle overlay
+        // isn't already showing the chip. The Up-Next overlay owns its own
+        // loading state, so no spinner there either.
+        val showSpinner = sessionState is SessionState.Reconnecting && !state.showNextUp
         if (showSpinner) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -1215,6 +1255,7 @@ fun TvPlayerScreen(
 @Composable
 private fun TvPlayerIdleOverlay(
     title: String,
+    episodeTag: String?,
     positionSec: Double,
     durationSec: Double,
     isPaused: Boolean,
@@ -1222,6 +1263,9 @@ private fun TvPlayerIdleOverlay(
     scrubPreviewSec: Double,
     bufferedAheadSec: Double,
     chapters: List<com.continuum.app.model.catalog.VersionChapter>,
+    introRange: com.continuum.app.model.catalog.TimeRange?,
+    isBuffering: Boolean,
+    sleepTimerState: SleepTimerState,
     onPlayPause: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
@@ -1308,6 +1352,9 @@ private fun TvPlayerIdleOverlay(
                         title = it.title.ifBlank { null },
                     )
                 },
+                introRangeSec = introRange
+                    ?.takeIf { it.end > it.start }
+                    ?.let { it.start..it.end },
                 cancelOnBlur = false,
                 onSkipBack = onSkipBack,
                 onSkipForward = onSkipForward,
@@ -1339,26 +1386,97 @@ private fun TvPlayerIdleOverlay(
             )
         }
 
+        // Top-right status chips — buffering capsule (spinner + "Buffering")
+        // and a sleep-timer countdown chip — mirroring tvOS statusColumn.
+        // Replaces the full-screen buffering spinner during playback.
+        val sleepRemaining = (sleepTimerState as? SleepTimerState.Active)?.remainingSeconds
+        if (isBuffering || sleepRemaining != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 64.dp, end = 80.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (isBuffering) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(percent = 50))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        androidx.tv.material3.Text(
+                            text = "Buffering",
+                            color = Color.White.copy(alpha = 0.85f),
+                            style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+                if (sleepRemaining != null) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(percent = 50))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.tv.material3.Icon(
+                            imageVector = Icons.Filled.Bedtime,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        androidx.tv.material3.Text(
+                            text = formatSleepCountdown(sleepRemaining),
+                            color = Color.White.copy(alpha = 0.85f),
+                            style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Quiet bottom-left title footer above the scrubber column (tvOS
+        // titleFooter idiom) — series / title / episode tag, shadowed, no box,
+        // no "Playing" literal. Sits above the transport stack's top padding.
         if (title.isNotBlank()) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 80.dp, top = 72.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.Black.copy(alpha = 0.42f))
-                    .padding(horizontal = 22.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                    .align(Alignment.BottomStart)
+                    .padding(start = 80.dp, bottom = 196.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                androidx.tv.material3.Text(
-                    text = title,
-                    color = Color.White,
-                    style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
-                )
-                androidx.tv.material3.Text(
-                    text = "Playing",
-                    color = Color.White.copy(alpha = 0.70f),
-                    style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.tv.material3.Text(
+                        text = title,
+                        color = Color.White,
+                        style = androidx.tv.material3.MaterialTheme.typography.titleMedium.copy(
+                            shadow = androidx.compose.ui.graphics.Shadow(
+                                color = Color.Black.copy(alpha = 0.55f),
+                                offset = androidx.compose.ui.geometry.Offset(0f, 1f),
+                                blurRadius = 6f,
+                            ),
+                        ),
+                    )
+                    if (episodeTag != null) {
+                        androidx.tv.material3.Text(
+                            text = episodeTag,
+                            color = Color.White.copy(alpha = 0.62f),
+                            style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
             }
         }
 
@@ -1376,6 +1494,13 @@ private fun TvPlayerIdleOverlay(
             )
         }
     }
+}
+
+private fun formatSleepCountdown(seconds: Int): String {
+    val s = seconds.coerceAtLeast(0)
+    val m = s / 60
+    val sec = s % 60
+    return if (m > 0) "${m}m ${sec}s" else "${sec}s"
 }
 
 /**
@@ -1420,60 +1545,228 @@ private fun TvRoomIndicator(
 }
 
 /**
- * Host close-confirm dialog. Uses the [TvDialogActionRow] idiom (shared with
- * the subtitle search dialog). "Close room for everyone" tears the room down
- * for all members (server broadcasts room_closed); "Keep watching" resumes.
+ * End-of-playback Up-Next overlay (mirrors tvOS `PlayerNextUpScreen`). A 16:9
+ * mini-player pane on the left — the still-playing video shows through a
+ * lighter scrim in that region, framed with a rounded border — beside a
+ * next-episode panel on the right: an "Up Next" / "Playing Next" eyebrow,
+ * series-context-free episode metadata ("S·E · title" + overview), a Play Now
+ * primary button, a Keep Watching dismiss button, a Back button, an auto-play
+ * countdown ring (counts to zero then plays the next episode), and finished /
+ * loading states when no next episode is available.
+ *
+ * Replaces the old "Still watching?" dialog as the sole end-of-playback
+ * surface; the pass-out gate now manifests as the overlay appearing WITHOUT a
+ * countdown ring (the user must explicitly choose).
  */
 @Composable
-private fun TvStillWatchingDialog(
-    nextEpisodeLabel: String?,
-    onContinue: () -> Unit,
-    onStop: () -> Unit,
+private fun TvPlayerNextUpOverlay(
+    nextEpisode: NextEpisodeState?,
+    videoEnded: Boolean,
+    countdownSeconds: Int?,
+    countdownTotalSeconds: Int,
+    autoPlayEnabled: Boolean,
+    onPlayNow: () -> Unit,
+    onKeepWatching: () -> Unit,
+    onToggleAutoPlay: () -> Unit,
+    onBack: () -> Unit,
 ) {
-    val continueFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { continueFocus.requestFocus() } }
-    BackHandler(enabled = true) { onStop() }
+    val primaryFocus = remember { FocusRequester() }
+    LaunchedEffect(nextEpisode?.contentId, videoEnded) {
+        runCatching { primaryFocus.requestFocus() }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f)),
-        contentAlignment = Alignment.Center,
+            .background(
+                Brush.horizontalGradient(
+                    0.00f to Color.Black.copy(alpha = 0.30f),
+                    0.42f to Color.Black.copy(alpha = 0.66f),
+                    1.00f to Color.Black.copy(alpha = 0.92f),
+                ),
+            ),
     ) {
-        Column(
+        Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color.Black.copy(alpha = 0.92f))
-                .padding(40.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 80.dp),
+            horizontalArrangement = Arrangement.spacedBy(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            androidx.tv.material3.Text(
-                text = "Still watching?",
-                color = Color.White,
-                style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
-            )
-            nextEpisodeLabel?.let { label ->
-                androidx.tv.material3.Text(
-                    text = "Up next: $label",
-                    color = Color.White.copy(alpha = 0.80f),
-                    style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
-                )
-            }
-            TvDialogActionRow(
-                title = "Continue",
-                onClick = onContinue,
+            // 16:9 mini-player frame. The live video plays behind the lighter
+            // left edge of the scrim; this is just the bordered frame over it.
+            Box(
                 modifier = Modifier
-                    .width(360.dp)
-                    .focusRequester(continueFocus),
+                    .weight(1f)
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.10f))
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(8.dp),
+                    ),
             )
-            TvDialogActionRow(
-                title = "Stop",
-                onClick = onStop,
-                modifier = Modifier.width(360.dp),
-            )
+
+            // Next-episode panel.
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                val eyebrow = when {
+                    nextEpisode == null -> if (videoEnded) "Finished" else "More To Watch"
+                    videoEnded -> "Playing Next"
+                    else -> "Up Next"
+                }
+                androidx.tv.material3.Text(
+                    text = eyebrow.uppercase(),
+                    color = Color.White.copy(alpha = 0.52f),
+                    style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
+                )
+
+                if (nextEpisode != null) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            androidx.tv.material3.Text(
+                                text = "S${nextEpisode.seasonNumber}·E${nextEpisode.episodeNumber}",
+                                color = Color.White.copy(alpha = 0.62f),
+                                style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                            )
+                            androidx.tv.material3.Text(
+                                text = nextEpisode.title ?: "Next Episode",
+                                color = Color.White,
+                                style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                                maxLines = 2,
+                            )
+                        }
+                        nextEpisode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                            androidx.tv.material3.Text(
+                                text = overview,
+                                color = Color.White.copy(alpha = 0.58f),
+                                style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                                maxLines = 3,
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TvDialogActionRow(
+                            title = "Play Now",
+                            onClick = onPlayNow,
+                            modifier = Modifier
+                                .width(220.dp)
+                                .focusRequester(primaryFocus),
+                        )
+                        if (countdownSeconds != null) {
+                            TvCountdownRing(
+                                seconds = countdownSeconds,
+                                totalSeconds = countdownTotalSeconds,
+                            )
+                        }
+                    }
+
+                    if (!videoEnded) {
+                        TvDialogActionRow(
+                            title = "Keep Watching",
+                            onClick = onKeepWatching,
+                            modifier = Modifier.width(260.dp),
+                        )
+                    }
+                    TvDialogActionRow(
+                        title = "Back",
+                        onClick = onBack,
+                        modifier = Modifier.width(160.dp),
+                    )
+                    androidx.tv.material3.Text(
+                        text = "Auto-play is ${if (autoPlayEnabled) "On" else "Off"}",
+                        color = Color.White.copy(alpha = 0.54f),
+                        style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .focusable()
+                            .clip(RoundedCornerShape(percent = 50)),
+                    )
+                } else {
+                    // Finished / no-next-episode state.
+                    androidx.tv.material3.Text(
+                        text = if (videoEnded) "End of playback" else "Almost finished",
+                        color = Color.White,
+                        style = androidx.tv.material3.MaterialTheme.typography.headlineSmall,
+                    )
+                    androidx.tv.material3.Text(
+                        text = "No next episode is available.",
+                        color = Color.White.copy(alpha = 0.62f),
+                        style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                    )
+                    if (!videoEnded) {
+                        TvDialogActionRow(
+                            title = "Keep Watching",
+                            onClick = onKeepWatching,
+                            modifier = Modifier
+                                .width(260.dp)
+                                .focusRequester(primaryFocus),
+                        )
+                        TvDialogActionRow(
+                            title = "Back",
+                            onClick = onBack,
+                            modifier = Modifier.width(160.dp),
+                        )
+                    } else {
+                        TvDialogActionRow(
+                            title = "Back",
+                            onClick = onBack,
+                            modifier = Modifier
+                                .width(160.dp)
+                                .focusRequester(primaryFocus),
+                        )
+                    }
+                }
+            }
         }
     }
 }
+
+/**
+ * Auto-play countdown ring (tvOS CountdownRing). A circular track with a white
+ * progress arc draining as the countdown runs, the remaining seconds centered.
+ */
+@Composable
+private fun TvCountdownRing(seconds: Int, totalSeconds: Int) {
+    val progress = if (totalSeconds > 0) {
+        (seconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+    Box(
+        modifier = Modifier.size(58.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 3.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.12f),
+                style = stroke,
+            )
+            drawArc(
+                color = Color.White,
+                startAngle = -90f,
+                sweepAngle = 360f * progress,
+                useCenter = false,
+                style = stroke,
+            )
+        }
+        androidx.tv.material3.Text(
+            text = "$seconds",
+            color = Color.White,
+            style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+        )
+    }
+}
+
 
 @Composable
 private fun TvRoomCloseConfirmDialog(

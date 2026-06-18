@@ -238,6 +238,112 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
+    fun endOfPlaybackSurfaceIsUpNextOverlayNotStillWatchingDialog() {
+        // The pass-out "Still watching?" dialog is retired; the end-of-playback
+        // surface is now the Up-Next overlay (16:9 mini-player + next-episode
+        // panel with Play Now / Keep Watching / Back + a countdown ring).
+        assertTrue(screenSource.contains("fun TvPlayerNextUpOverlay("))
+        assertTrue(screenSource.contains("if (state.showNextUp) {"))
+        assertTrue(screenSource.contains("title = \"Play Now\""))
+        assertTrue(screenSource.contains("title = \"Keep Watching\""))
+        assertTrue(screenSource.contains("fun TvCountdownRing("))
+        assertFalse(screenSource.contains("fun TvStillWatchingDialog("))
+        // The overlay is wired to the VM's next-episode + auto-advance state.
+        assertTrue(viewModelSource.contains("val showNextUp: Boolean"))
+        assertTrue(viewModelSource.contains("fun playNextEpisodeNow()"))
+        assertTrue(viewModelSource.contains("fun dismissNextUp()"))
+        assertTrue(viewModelSource.contains("nextUpCountdownSeconds"))
+    }
+
+    @Test
+    fun upNextOverlayAutoPlaysNextEpisodeWhenCountdownReachesZero() {
+        // The countdown ticker plays the next episode at zero (auto-advance),
+        // and the pass-out gate suppresses the countdown (overlay shows with no
+        // ring → explicit choice required) rather than blocking the surface.
+        assertTrue(viewModelSource.contains("fun startNextUpCountdown()"))
+        assertTrue(viewModelSource.contains("playNextEpisodeNow()"))
+        assertTrue(viewModelSource.contains("val passOutGated ="))
+        assertTrue(viewModelSource.contains("if (autoCountdown) startNextUpCountdown()"))
+    }
+
+    @Test
+    fun explicitPlayNowResetsPassOutStreakWhileCountdownIncrementsIt() {
+        // Bug #2: an explicit "Play Now" is active watching, so it RESETS the
+        // pass-out / still-watching streak to 0. Only the automatic
+        // countdown-expiry advance keeps incrementing it.
+        val playNowBody = viewModelSource
+            .substringAfter("fun playNextEpisodeNow() {")
+            .substringBefore("}")
+        assertTrue(
+            playNowBody.contains("advanceToNextEpisode(nextAutoAdvanceCount = 0)"),
+            "explicit Play Now must reset the pass-out streak to 0",
+        )
+        // The countdown-expiry path increments the streak.
+        assertTrue(
+            viewModelSource.contains("advanceToNextEpisode(nextAutoAdvanceCount = autoAdvanceCount + 1)"),
+            "automatic countdown-expiry advance must keep incrementing the streak",
+        )
+    }
+
+    @Test
+    fun upNextDoesNotLatchUntilNextEpisodeResolvesSoCountdownReArms() {
+        // Bug #3: don't latch autoAdvanceHandled before nextEpisode is resolved,
+        // and re-arm the overlay countdown when nextEpisode arrives afterward.
+        assertTrue(viewModelSource.contains("private fun commitApproachingEnd("))
+        assertTrue(viewModelSource.contains("pendingApproachingEndVideoEnded"))
+        // resolveNextEpisode completes a deferred end-of-playback arming.
+        val resolveBody = viewModelSource
+            .substringAfter("private fun resolveNextEpisode() {")
+        assertTrue(
+            resolveBody.contains("commitApproachingEnd(nextState"),
+            "nextEpisode resolution must re-arm a pending end-of-playback overlay",
+        )
+    }
+
+    @Test
+    fun scrubberDrawsIntroRegionAsCyanBandWhenKnown() {
+        val scrubberSource = File(
+            "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScrubber.kt",
+        ).readText()
+        assertTrue(scrubberSource.contains("introRangeSec"))
+        assertTrue(scrubberSource.contains("Color.Cyan"))
+        // Screen passes the session intro range through to the scrubber.
+        assertTrue(screenSource.contains("introRangeSec = introRange"))
+    }
+
+    @Test
+    fun idleOverlayShowsStatusChipsInsteadOfFullScreenBufferingSpinner() {
+        // Buffering surfaces as a top-right capsule (spinner + "Buffering") in
+        // the idle overlay's statusColumn, plus a sleep-timer countdown chip —
+        // mirroring tvOS. The centered full-screen spinner is now reserved for
+        // the lifecycle Reconnecting state only.
+        assertTrue(screenSource.contains("text = \"Buffering\""))
+        assertTrue(screenSource.contains("Icons.Filled.Bedtime"))
+        assertTrue(screenSource.contains("sessionState is SessionState.Reconnecting && !state.showNextUp"))
+        assertFalse(screenSource.contains("val showSpinner = state.isBuffering"))
+    }
+
+    @Test
+    fun titleMovesToQuietBottomLeftFooterWithoutPlayingChip() {
+        // The boxed top-left "Playing" chip is replaced by a quiet bottom-left
+        // caption above the scrubber: title + episode tag, shadowed, no box,
+        // no "Playing" literal.
+        assertTrue(screenSource.contains(".align(Alignment.BottomStart)"))
+        assertFalse(screenSource.contains("text = \"Playing\""))
+    }
+
+    @Test
+    fun holdSeekIndicatorUsesVerticalChipOverBarOverHintLayout() {
+        val holdSeekSource = File(
+            "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvHoldSeekIndicator.kt",
+        ).readText()
+        // Vertical Column layout, large rate label, wider bar (520dp).
+        assertTrue(holdSeekSource.contains("fontSize = 44.sp"))
+        assertTrue(holdSeekSource.contains(".width(520.dp)"))
+        assertTrue(holdSeekSource.contains("chip-over-bar-over-hint"))
+    }
+
+    @Test
     fun tvPlayerDetectsDirectStartupStallsAndUsesExistingFallbackPath() {
         assertTrue(screenSource.contains("PlaybackStartupStallDetector"))
         assertTrue(screenSource.contains("startupStallDetector.onMounted("))
