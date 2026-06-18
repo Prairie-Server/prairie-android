@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -25,7 +24,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,14 +96,27 @@ internal fun TvDetailHero(
     modifier: Modifier = Modifier,
 ) {
     // heroHeight = 980 of a 1080-pt tvOS canvas ≈ 0.907 × viewport height.
-    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-    val heroHeight = screenHeight * HERO_HEIGHT_FRACTION
+    // Compute from the real pixel height: `screenHeightDp` is expressed in the
+    // device's system density, but this subtree runs under the TV density
+    // override (LocalDensity ≈ deviceDensity × 0.86), so multiplying the config
+    // dp by the fraction and rendering it here lands ~14% short. Going via raw
+    // pixels keeps the hero a true 0.907 of the viewport regardless of override.
+    val screenHeightPx = LocalContext.current.resources.displayMetrics.heightPixels
+    val heroHeight = with(LocalDensity.current) { (screenHeightPx * HERO_HEIGHT_FRACTION).toDp() }
     val contentMaxWidth = 1200.dp
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(heroHeight),
+            // Minimum, NOT a fixed height. The bottom-anchored editorial + action
+            // column can measure taller than 0.907×viewport (large display title,
+            // 3-line synopsis, action row + selector row). A fixed `.height`
+            // clamps the Column's measure constraints, so `Column` hands the
+            // trailing action/selector rows ~0 remaining height and collapses them
+            // — they stay focusable but paint nothing. A min height lets the hero
+            // grow to fit; the backdrop/gradients track the final size via
+            // `matchParentSize` (they can't `fillMaxSize` under an unbounded max).
+            .heightIn(min = heroHeight),
     ) {
         // Backdrop (fill; else continuumSurface).
         if (!backdropUrl.isNullOrEmpty() || !backdropThumbhash.isNullOrEmpty()) {
@@ -112,17 +125,17 @@ internal fun TvDetailHero(
                 thumbhash = backdropThumbhash,
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.matchParentSize(),
             )
         } else {
-            Box(modifier = Modifier.fillMaxSize().background(DarkSurface))
+            Box(modifier = Modifier.matchParentSize().background(DarkSurface))
         }
 
         // Heavy left-side darkening — clears toward the right so the imagery
         // breathes while text stays legible. (leading → trailing)
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .matchParentSize()
                 .background(
                     Brush.horizontalGradient(
                         0.00f to Color.Black.copy(alpha = 0.92f),
@@ -137,7 +150,7 @@ internal fun TvDetailHero(
         // hint of the next rail peeks through the seam. (top → bottom)
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .matchParentSize()
                 .background(
                     Brush.verticalGradient(
                         0.00f to Color.Transparent,
@@ -162,15 +175,17 @@ internal fun TvDetailHero(
                 textAlign = TextAlign.End,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                // Apple: `.overlay(alignment: .trailing)` (vertically CENTERED)
-                // + `.padding(.bottom, heroHeight*0.45)` lifting it up — so
-                // center-end, not bottom-end. + the trailing shadow.
+                // tvOS floats "Starring …" high in the trailing margin, roughly a
+                // sixth of the way down — clear of the bottom-anchored editorial
+                // column. Anchoring top-end (not center-end) keeps it pinned there
+                // even as the hero grows to fit a taller editorial column. + the
+                // trailing shadow.
                 style = TextStyle(
                     shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 2f), blurRadius = 6f),
                 ),
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = Spacing.safeArea, bottom = heroHeight * 0.45f)
+                    .align(Alignment.TopEnd)
+                    .padding(top = heroHeight * 0.17f, end = Spacing.safeArea)
                     .widthIn(max = 460.dp),
             )
         }
