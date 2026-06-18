@@ -207,6 +207,11 @@ val androidTvModule = module {
     // Preferences (per-profile DataStore for the Libraries tab's selected library).
     single { TvLibrarySelectionStore(androidContext(), get()) }
 
+    // Skyline per-profile·server·type library scope (persisted across launches).
+    single {
+        com.continuum.app.tv.data.preferences.TvLibraryScopeStore(androidContext(), get())
+    }
+
     // One-shot legacy `tv_prefs` import (playback settings → server device
     // overrides; selected-library id → active profile's selection store).
     // Sentinel-gated; invoked from TvSettingsViewModel.loadSettings and
