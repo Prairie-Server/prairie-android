@@ -101,8 +101,8 @@ fun TvSeasonPicker(
             )
             .focusGroup(),
         state = listState,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        contentPadding = PaddingValues(vertical = 6.dp),
     ) {
         items(seasons, key = { it.seasonNumber }) { season ->
             TvSeasonChip(
@@ -174,13 +174,13 @@ private fun TvSeasonChip(
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 26.dp, vertical = 14.dp),
+            .padding(horizontal = 13.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = season.displayLabel(),
             style = MaterialTheme.typography.titleLarge.copy(
-                fontSize = 22.sp,
+                fontSize = 16.sp,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
             ),
             color = labelColor,

@@ -132,8 +132,8 @@ fun TvCollectionsScreen(
                 EmptyState(onCreateClick = viewModel::showCreateSheet)
             else -> LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
-                horizontalArrangement = Arrangement.spacedBy(32.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(
                     start = tvPageStartPadding(),
                     end = Spacing.safeArea,
@@ -396,7 +396,7 @@ private fun Header(
                     imageVector = Icons.Filled.Collections,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.82f),
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(16.dp),
                 )
                 Text(
                     text = "Collections",
@@ -409,24 +409,24 @@ private fun Header(
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 Button(
                     onClick = onAddGroupClick,
-                    contentPadding = PaddingValues(horizontal = 28.dp, vertical = 16.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.CreateNewFolder,
                         contentDescription = null,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(text = "Add Group", style = MaterialTheme.typography.titleMedium)
                 }
                 Button(
                     onClick = onCreateClick,
-                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Add,
                         contentDescription = null,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -467,7 +467,7 @@ private fun SectionHeader(
                     imageVector = Icons.Filled.Edit,
                     contentDescription = "Group actions",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp).size(24.dp),
+                    modifier = Modifier.padding(8.dp).size(12.dp),
                 )
             }
         }
@@ -499,7 +499,7 @@ private fun EmptyState(onCreateClick: () -> Unit) {
                 imageVector = Icons.Filled.Collections,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(96.dp),
+                modifier = Modifier.size(48.dp),
             )
             Text(
                 text = "No collections yet",
@@ -513,12 +513,12 @@ private fun EmptyState(onCreateClick: () -> Unit) {
             )
             Button(
                 onClick = onCreateClick,
-                contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(16.dp),
                 )
                 Spacer(modifier = Modifier.width(Spacing.sm))
                 Text(text = "Create Collection")
@@ -538,16 +538,16 @@ private fun CollectionCard(
     Card(
         onClick = onClick,
         onLongClick = onLongClick,
-        shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
+        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .fillMaxWidth()
-            .height(180.dp),
+            .height(90.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(12.dp),
             contentAlignment = Alignment.BottomStart,
         ) {
             Column {

@@ -81,8 +81,8 @@ private fun AdminStatsGrid(stats: AdminStats) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         contentPadding = PaddingValues(horizontal = Spacing.safeArea, vertical = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(32.dp),
-        verticalArrangement = Arrangement.spacedBy(32.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         items(tiles, key = { it.label }) { tile ->
             AdminStatCard(tile)
@@ -98,13 +98,13 @@ private fun AdminStatCard(tile: StatTile) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(180.dp)
-            .auroraGlass(cornerRadius = 20.dp),
+            .height(90.dp)
+            .auroraGlass(cornerRadius = 10.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(

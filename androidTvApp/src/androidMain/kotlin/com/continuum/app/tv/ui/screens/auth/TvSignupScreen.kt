@@ -98,10 +98,10 @@ fun TvSignupScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .width(840.dp)
+                .width(420.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 48.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
+                .padding(top = 24.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
         ) {
             BrandHeader()
 
@@ -217,8 +217,8 @@ fun TvSignupScreen(
                         label = if (state.isLoading) "Signing up…" else "Sign Up",
                         icon = Icons.AutoMirrored.Filled.ArrowForward,
                         variant = TvPillVariant.Filled,
-                        heightOverride = 64.dp,
-                        horizontalPaddingOverride = 38.dp,
+                        heightOverride = 32.dp,
+                        horizontalPaddingOverride = 19.dp,
                         labelStyle = TvAuthFormTextStyles.Button,
                         onClick = viewModel::onSignupClick,
                     )
@@ -227,8 +227,8 @@ fun TvSignupScreen(
                     label = "Sign In Instead",
                     icon = Icons.AutoMirrored.Filled.Login,
                     variant = TvPillVariant.Hollow,
-                    heightOverride = 64.dp,
-                    horizontalPaddingOverride = 38.dp,
+                    heightOverride = 32.dp,
+                    horizontalPaddingOverride = 19.dp,
                     labelStyle = TvAuthFormTextStyles.Button,
                     onClick = onBackToLogin,
                 )
@@ -249,8 +249,8 @@ private fun BrandHeader() {
             painter = painterResource(id = R.drawable.silo_wordmark),
             contentDescription = "Silo",
             modifier = Modifier
-                .width(132.dp)
-                .height(69.dp),
+                .width(66.dp)
+                .height(35.dp),
             contentScale = ContentScale.Fit,
         )
     }

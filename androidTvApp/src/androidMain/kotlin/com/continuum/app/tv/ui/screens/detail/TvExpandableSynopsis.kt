@@ -57,7 +57,7 @@ internal fun TvExpandableSynopsis(
     var expanded by remember(overview) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RoundedCornerShape(4.dp)
 
     // Best-effort reduce-motion: animator duration scale of 0 means the user
     // (or the OS) has disabled animations.
@@ -78,7 +78,7 @@ internal fun TvExpandableSynopsis(
 
     Column(
         modifier = modifier
-            .widthIn(max = 1200.dp)
+            .widthIn(max = 600.dp)
             .then(
                 if (isFocused) {
                     Modifier.background(
@@ -93,9 +93,9 @@ internal fun TvExpandableSynopsis(
                 interactionSource = interactionSource,
                 indication = null,
             ) { expanded = !expanded }
-            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .padding(horizontal = 10.dp, vertical = 7.dp)
             .then(sizeModifier),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (expanded && !tagline.isNullOrBlank()) {
             Text(
@@ -103,16 +103,16 @@ internal fun TvExpandableSynopsis(
                 fontFamily = FontFamily.Serif,
                 fontStyle = FontStyle.Italic,
                 fontWeight = FontWeight.Normal,
-                fontSize = 28.sp,
-                lineHeight = 36.sp,
+                fontSize = 16.sp,
+                lineHeight = 18.sp,
                 color = Color.White.copy(alpha = 0.85f),
             )
         }
         Text(
             text = overview,
             fontWeight = FontWeight.Normal,
-            fontSize = 26.sp,
-            lineHeight = 34.sp,
+            fontSize = 16.sp,
+            lineHeight = 17.sp,
             color = Color.White.copy(alpha = 0.82f),
             maxLines = if (expanded) Int.MAX_VALUE else 3,
             overflow = TextOverflow.Ellipsis,

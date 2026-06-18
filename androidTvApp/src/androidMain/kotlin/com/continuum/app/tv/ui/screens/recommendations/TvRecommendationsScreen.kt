@@ -92,7 +92,7 @@ fun TvRecommendationsScreen(
                     imageVector = Icons.Outlined.AutoAwesome,
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.72f),
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier.size(28.dp),
                 )
                 Text(
                     text = "Not enough data yet",
@@ -111,10 +111,10 @@ fun TvRecommendationsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background),
-                verticalArrangement = Arrangement.spacedBy(36.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
                 contentPadding = PaddingValues(
                     top = Spacing.heroTopSafe,
-                    bottom = 48.dp,
+                    bottom = 24.dp,
                 ),
             ) {
                 items(visibleSections, key = { it.id }) { section ->

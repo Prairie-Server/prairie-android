@@ -97,13 +97,13 @@ fun TvJoinCodeDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 72.dp, top = 80.dp, end = 72.dp, bottom = 60.dp),
+                .padding(start = 36.dp, top = 40.dp, end = 36.dp, bottom = 30.dp),
             contentAlignment = Alignment.Center,
         ) {
-            val panelShape = RoundedCornerShape(28.dp)
+            val panelShape = RoundedCornerShape(14.dp)
             Column(
                 modifier = Modifier
-                    .width(560.dp)
+                    .width(280.dp)
                     .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
                     .border(1.2.dp, Color.White.copy(alpha = 0.20f), panelShape)
                     .padding(horizontal = 14.dp, vertical = 14.dp),
@@ -128,7 +128,7 @@ fun TvJoinCodeDialog(
                     text = display,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 32.sp,
+                        fontSize = 16.sp,
                         letterSpacing = 2.sp,
                         fontWeight = FontWeight.Bold,
                     ),
@@ -231,7 +231,7 @@ private fun JoinCodeKey(
             ),
         ),
         modifier = modifier
-            .height(48.dp)
+            .height(24.dp)
             .then(
                 if (isFocused) {
                     Modifier.border(2.dp, Color.White.copy(alpha = 0.98f), shape)

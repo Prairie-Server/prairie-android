@@ -143,12 +143,12 @@ private fun ActionCard(title: String, subtitle: String, enabled: Boolean, onClic
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .height(88.dp),
+            .height(44.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 16.dp),
+                .padding(horizontal = 14.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
@@ -175,12 +175,12 @@ private fun LibraryRow(library: UserLibrary, busy: Boolean, onClick: () -> Unit)
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .height(88.dp),
+            .height(44.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 16.dp),
+                .padding(horizontal = 14.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {

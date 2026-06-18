@@ -65,13 +65,13 @@ fun TvCreateCollectionDialog(
         ) {
             Card(
                 onClick = {},
-                shape = CardDefaults.shape(shape = RoundedCornerShape(24.dp)),
+                shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
             ) {
                 Column(
                     modifier = Modifier
-                        .width(640.dp)
-                        .padding(48.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                        .width(320.dp)
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "New Collection",
@@ -100,7 +100,7 @@ fun TvCreateCollectionDialog(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(82.dp),
+                            .height(41.dp),
                     )
                     Text(
                         text = "Type",
@@ -136,15 +136,15 @@ fun TvCreateCollectionDialog(
                         )
                     }
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Spacer(modifier = Modifier.weight(1f))
                         Button(
                             onClick = onDismiss,
                             contentPadding = PaddingValues(
-                                horizontal = 32.dp,
-                                vertical = 12.dp,
+                                horizontal = 16.dp,
+                                vertical = 6.dp,
                             ),
                         ) {
                             Text(text = "Cancel", style = TvCreateCollectionTextStyles.Button)
@@ -153,8 +153,8 @@ fun TvCreateCollectionDialog(
                             onClick = { if (!isCreating && name.isNotBlank()) onCreate(name) },
                             enabled = !isCreating,
                             contentPadding = PaddingValues(
-                                horizontal = 32.dp,
-                                vertical = 12.dp,
+                                horizontal = 16.dp,
+                                vertical = 6.dp,
                             ),
                         ) {
                             Text(
@@ -172,8 +172,8 @@ fun TvCreateCollectionDialog(
 private object TvCreateCollectionTextStyles {
     val Title = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
+        fontSize = 16.sp,
+        lineHeight = 17.sp,
         letterSpacing = 0.sp,
     )
 
@@ -186,8 +186,8 @@ private object TvCreateCollectionTextStyles {
 
     val Field = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
         color = Color.White,
     )

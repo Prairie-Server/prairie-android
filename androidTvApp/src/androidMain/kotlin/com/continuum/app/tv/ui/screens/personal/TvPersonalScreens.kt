@@ -168,7 +168,7 @@ private fun PersonalGrid(
                     imageVector = icon,
                     contentDescription = null,
                     tint = ContinuumBlue,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.size(20.dp),
                 )
                 Text(
                     text = title,
@@ -213,9 +213,9 @@ private fun EmptyState(message: String, icon: ImageVector) {
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(96.dp),
+                modifier = Modifier.size(48.dp),
             )
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.headlineSmall,

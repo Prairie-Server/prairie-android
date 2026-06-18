@@ -98,10 +98,10 @@ fun TvSetupScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .width(840.dp)
+                .width(420.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 48.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
+                .padding(top = 24.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
         ) {
             BrandHeader()
 
@@ -194,8 +194,8 @@ fun TvSetupScreen(
                     label = if (state.isLoading) "Creating account…" else "Create Account",
                     icon = Icons.AutoMirrored.Filled.ArrowForward,
                     variant = TvPillVariant.Filled,
-                    heightOverride = 64.dp,
-                    horizontalPaddingOverride = 38.dp,
+                    heightOverride = 32.dp,
+                    horizontalPaddingOverride = 19.dp,
                     labelStyle = TvAuthFormTextStyles.Button,
                     onClick = viewModel::onCreateAccountClick,
                 )
@@ -216,8 +216,8 @@ private fun BrandHeader() {
             painter = painterResource(id = R.drawable.silo_wordmark),
             contentDescription = "Silo",
             modifier = Modifier
-                .width(132.dp)
-                .height(69.dp),
+                .width(66.dp)
+                .height(35.dp),
             contentScale = ContentScale.Fit,
         )
     }
@@ -227,8 +227,8 @@ private fun BrandHeader() {
 internal object TvAuthFormTextStyles {
     val Title = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 34.sp,
-        lineHeight = 40.sp,
+        fontSize = 17.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp,
     )
     val Body = TextStyle(
@@ -239,27 +239,27 @@ internal object TvAuthFormTextStyles {
     )
     val FieldLabel = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 26.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
     )
     val FieldText = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
         color = Color.White,
     )
     val Button = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 26.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
     )
     val Error = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 24.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
     )
 }

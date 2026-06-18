@@ -148,7 +148,7 @@ private fun TvPersonDetailContent(
         header = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(28.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 PersonHeader(person = person)
                 FilmographyHeader(
@@ -172,21 +172,21 @@ private fun TvPersonDetailContent(
 private fun PersonHeader(person: Person) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(36.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
         verticalAlignment = Alignment.Top,
     ) {
         PersonPortrait(person = person)
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Text(
                 text = person.name,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 56.sp,
-                lineHeight = 60.sp,
-                letterSpacing = (-1.4).sp,
+                fontSize = 28.sp,
+                lineHeight = 30.sp,
+                letterSpacing = (-0.7).sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -206,7 +206,7 @@ private fun PersonHeader(person: Person) {
                     text = bio,
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = 0.78f),
-                    lineHeight = 30.sp,
+                    lineHeight = 16.sp,
                     // TV can't D-pad-scroll an inner text box and the auto-focus
                     // lands on the grid below, so keep the bio to a viewport-sized
                     // block (more than the old 6-line clip, but not so tall it
@@ -278,7 +278,7 @@ private fun FilmographyHeader(
     onSelect: (TvPersonMediaFilter) -> Unit,
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
@@ -384,4 +384,4 @@ private fun FilterChoiceChip(
 }
 
 private const val PersonGridColumns = 6
-private val PersonGridItemSpacing = 40.dp
+private val PersonGridItemSpacing = 20.dp

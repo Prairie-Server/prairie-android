@@ -295,7 +295,7 @@ private fun FilterSegment(
         modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -418,7 +418,7 @@ private fun ChevronButton(arrow: NavArrow, onClick: () -> Unit) {
             pressedContentColor = FocusedContent,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        modifier = Modifier.size(56.dp),
+        modifier = Modifier.size(28.dp),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Icon(
@@ -453,7 +453,7 @@ private fun TodayButton(onClick: () -> Unit) {
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -503,7 +503,7 @@ private fun DayCell(
             ),
             focusedBorder = Border.None,
         ),
-        modifier = Modifier.size(width = 78.dp, height = 92.dp),
+        modifier = Modifier.size(width = 39.dp, height = 46.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -571,9 +571,9 @@ private fun DayList(
             .focusGroup(),
         contentPadding = PaddingValues(
             top = Spacing.sm,
-            bottom = 56.dp,
+            bottom = 28.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         // Render EVERY weekday so the week keeps its shape; event-less days get
         // a "Nothing scheduled" stub instead of being skipped.
@@ -633,7 +633,7 @@ private fun DayShelf(
                     top = 12.dp,
                     bottom = 12.dp,
                 ),
-                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(items, key = { "$date-${it.contentId}" }) { item ->
                     CalendarEventCard(
@@ -749,7 +749,7 @@ private fun CalendarEventCard(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(10.dp)
-                            .size(34.dp)
+                            .size(17.dp)
                             .background(Color.White, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -846,7 +846,7 @@ private fun CalendarMessage(title: String, subtitle: String, action: CalendarAct
                 imageVector = Icons.Filled.CalendarMonth,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.62f),
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(28.dp),
             )
             Text(
                 text = title,
@@ -874,8 +874,8 @@ private fun CalendarMessage(title: String, subtitle: String, action: CalendarAct
             ) {
                 Box(
                     modifier = Modifier
-                        .width(280.dp)
-                        .padding(vertical = 14.dp),
+                        .width(140.dp)
+                        .padding(vertical = 7.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(

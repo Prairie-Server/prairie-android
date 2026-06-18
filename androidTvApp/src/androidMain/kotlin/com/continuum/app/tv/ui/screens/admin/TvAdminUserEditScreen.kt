@@ -89,13 +89,13 @@ fun TvAdminUserEditScreen(
             text = if (isEdit) "Edit user" else "Create user",
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 12.dp),
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 6.dp),
         )
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 48.dp, end = 48.dp, top = 8.dp, bottom = 48.dp,
+                start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -288,7 +288,7 @@ private fun ToggleCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 18.dp),
+                .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {

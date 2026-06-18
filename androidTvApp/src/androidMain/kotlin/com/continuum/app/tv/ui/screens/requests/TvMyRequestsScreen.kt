@@ -180,7 +180,7 @@ private fun EmptyMyRequests() {
                 imageVector = Icons.Filled.Inbox,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.62f),
-                modifier = Modifier.height(60.dp),
+                modifier = Modifier.height(30.dp),
             )
             Text(
                 text = "No requests yet",

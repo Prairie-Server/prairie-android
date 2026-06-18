@@ -74,7 +74,7 @@ fun TvCastCrewSection(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         TvDetailSectionHeader(eyebrow = "Cast", title = "& Crew")
 
@@ -104,8 +104,8 @@ fun TvCastCrewSection(
                     },
                 )
                 .focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(44.dp),
-            contentPadding = PaddingValues(vertical = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
+            contentPadding = PaddingValues(vertical = 12.dp),
         ) {
             itemsIndexed(
                 cast.take(24),
@@ -176,13 +176,13 @@ private fun TvCastCard(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = member.name,
             style = MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 22.sp,
-                lineHeight = 26.sp,
+                fontSize = 16.sp,
+                lineHeight = 16.sp,
             ),
             color = if (isFocused) Color.White else Color.White.copy(alpha = 0.88f),
             // Reserve two lines so single- and two-line names bottom-align,

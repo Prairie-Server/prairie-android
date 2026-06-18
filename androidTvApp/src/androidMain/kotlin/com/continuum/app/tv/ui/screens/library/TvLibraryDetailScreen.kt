@@ -778,9 +778,9 @@ private fun LibraryHeader(
                     text = title,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 64.sp,
-                    lineHeight = 68.sp,
-                    letterSpacing = (-1.6).sp,
+                    fontSize = 32.sp,
+                    lineHeight = 34.sp,
+                    letterSpacing = (-0.8).sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1364,6 +1364,6 @@ private fun collectionsSubtitle(state: TvLibraryDetailViewModel.UiState): String
 // right-edge alphabet rail (tvOS shrinks the same way).
 private const val LibraryGridColumns = 6
 private const val LibraryBrowseGridColumns = 5
-private val LibraryGridColumnSpacing = 40.dp
-private val LibraryGridRowSpacing = 60.dp
+private val LibraryGridColumnSpacing = 20.dp
+private val LibraryGridRowSpacing = 30.dp
 private const val LibraryGridLoadMoreRowsThreshold = 8

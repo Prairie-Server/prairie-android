@@ -334,7 +334,7 @@ private fun InboxEmptyState() {
                 imageVector = Icons.Filled.NotificationsNone,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.62f),
-                modifier = Modifier.size(60.dp),
+                modifier = Modifier.size(30.dp),
             )
             Text(
                 text = "You're all caught up",

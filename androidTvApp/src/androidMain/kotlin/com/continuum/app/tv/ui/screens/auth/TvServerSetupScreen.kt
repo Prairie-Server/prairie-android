@@ -133,10 +133,10 @@ fun TvServerSetupScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .width(840.dp)
+                .width(420.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 48.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
+                .padding(top = 24.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
         ) {
             BrandHeader()
 
@@ -252,8 +252,8 @@ private fun PairingPanel(status: PairingReceiverStatus) {
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         modifier = Modifier
             .fillMaxWidth()
-            .auroraGlass(20.dp)
-            .padding(horizontal = 28.dp, vertical = 22.dp),
+            .auroraGlass(10.dp)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
     ) {
         AuroraEyebrow(text = "Companion pairing")
         Spacer(modifier = Modifier.height(Spacing.xs))
@@ -273,37 +273,37 @@ private fun PairingPanel(status: PairingReceiverStatus) {
 private object TvServerSetupTextStyles {
     val Title = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 34.sp,
-        lineHeight = 40.sp,
+        fontSize = 17.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp,
     )
 
     val FieldLabel = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 26.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
     )
 
     val FieldText = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
         color = Color.White,
     )
 
     val Button = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 26.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
     )
 
     val Error = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 24.sp,
+        fontSize = 16.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.sp,
     )
 
@@ -327,8 +327,8 @@ private fun BrandHeader() {
             painter = painterResource(id = R.drawable.silo_wordmark),
             contentDescription = "Silo",
             modifier = Modifier
-                .width(132.dp)
-                .height(69.dp),
+                .width(66.dp)
+                .height(35.dp),
             contentScale = ContentScale.Fit,
         )
     }

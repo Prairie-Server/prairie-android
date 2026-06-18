@@ -427,8 +427,8 @@ private fun RequestsHeader(
                     androidx.compose.material3.Text(
                         text = "Search movies and series to request",
                         style = MaterialTheme.typography.bodyLarge.copy(
-                            fontSize = 20.sp,
-                            lineHeight = 24.sp,
+                            fontSize = 16.sp,
+                            lineHeight = 16.sp,
                             letterSpacing = 0.sp,
                         ),
                         color = Color.White.copy(alpha = 0.56f),
@@ -436,8 +436,8 @@ private fun RequestsHeader(
                 },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = 20.sp,
-                    lineHeight = 24.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 16.sp,
                     letterSpacing = 0.sp,
                     color = Color.White,
                 ),
@@ -462,10 +462,10 @@ private fun RequestsHeader(
                     focusedBorderColor = Color.White.copy(alpha = 0.34f),
                     unfocusedBorderColor = ContinuumBlueBorderIdle,
                 ),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(9.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(62.dp)
+                    .height(31.dp)
                     .focusRequester(searchFieldFocusRequester)
                     .focusProperties { down = firstFilterChipFocusRequester },
             )
@@ -537,7 +537,7 @@ private fun RequestsEmptyState(message: String) {
                 imageVector = Icons.Filled.Movie,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.62f),
-                modifier = Modifier.height(60.dp),
+                modifier = Modifier.height(30.dp),
             )
             Text(
                 text = message,

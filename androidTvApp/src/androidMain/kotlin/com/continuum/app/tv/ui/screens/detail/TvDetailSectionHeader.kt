@@ -28,14 +28,14 @@ internal fun TvDetailSectionHeader(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Text(
             text = eyebrow.uppercase(),
             style = MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                lineHeight = 24.sp,
+                fontSize = 16.sp,
+                lineHeight = 16.sp,
                 letterSpacing = 3.sp,
             ),
             color = Color.White.copy(alpha = 0.55f),
@@ -44,8 +44,8 @@ internal fun TvDetailSectionHeader(
             text = title,
             style = MaterialTheme.typography.displaySmall.copy(
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 42.sp,
-                lineHeight = 46.sp,
+                fontSize = 21.sp,
+                lineHeight = 23.sp,
             ),
             color = Color.White,
         )

@@ -98,7 +98,7 @@ fun TvSearchScreen(
             contentPadding = tvPageContentPadding(
                 top = TvTopMenuLayout.contentTopInset,
                 bottom = Spacing.xxxl,
-                end = 48.dp,
+                end = 24.dp,
                 expandedGap = Spacing.md,
             ),
             horizontalSpacing = 14.dp,
@@ -179,7 +179,7 @@ private fun SearchStage(
             .fillMaxWidth()
             .padding(
                 start = startPadding,
-                end = 48.dp,
+                end = 24.dp,
                 top = 0.dp,
                 bottom = Spacing.xs,
             )
@@ -216,8 +216,8 @@ private fun SearchStage(
                 androidx.compose.material3.Text(
                     text = "Search titles, movies, series, and audiobooks",
                     style = MaterialTheme.typography.bodyLarge.copy(
-                        fontSize = 20.sp,
-                        lineHeight = 24.sp,
+                        fontSize = 16.sp,
+                        lineHeight = 16.sp,
                         letterSpacing = 0.sp,
                     ),
                     color = Color.White.copy(alpha = 0.56f),
@@ -225,8 +225,8 @@ private fun SearchStage(
             },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(
-                fontSize = 20.sp,
-                lineHeight = 24.sp,
+                fontSize = 16.sp,
+                lineHeight = 16.sp,
                 letterSpacing = 0.sp,
                 color = Color.White,
             ),
@@ -252,10 +252,10 @@ private fun SearchStage(
                 focusedBorderColor = Color.White.copy(alpha = 0.34f),
                 unfocusedBorderColor = ContinuumBlueBorderIdle,
             ),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(9.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
+                .height(31.dp)
                 .focusRequester(searchFieldFocusRequester)
                 // Pin DOWN to the chip rail so the user can always step from
                 // the search field onto the All/Movies/Series filters,
@@ -323,7 +323,7 @@ private fun SearchFeedbackCard(
     body: String,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(12.dp)
 
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -332,13 +332,13 @@ private fun SearchFeedbackCard(
                 .clip(shape)
                 .background(ElevatedSurface)
                 .border(1.dp, Color.White.copy(alpha = 0.05f), shape)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(18.dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.06f)),
                 contentAlignment = Alignment.Center,

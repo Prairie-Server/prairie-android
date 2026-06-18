@@ -123,7 +123,7 @@ fun TvLoginScreen(
                 .align(Alignment.TopCenter)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 64.dp, bottom = Spacing.lg, start = Spacing.lg, end = Spacing.lg),
+                .padding(top = 32.dp, bottom = Spacing.lg, start = Spacing.lg, end = Spacing.lg),
         ) {
             BrandHeader()
 
@@ -147,7 +147,7 @@ fun TvLoginScreen(
                     onCreateAccount = onCreateAccount,
                     onBackToPhone = { showPasswordForm = false },
                     scope = scope,
-                    modifier = Modifier.width(680.dp),
+                    modifier = Modifier.width(340.dp),
                 )
             } else {
                 Row(
@@ -157,7 +157,7 @@ fun TvLoginScreen(
                 ) {
                     PhoneSignInHero(
                         state = deviceState,
-                        modifier = Modifier.width(720.dp),
+                        modifier = Modifier.width(360.dp),
                     )
 
                     QrLoginCard(
@@ -165,7 +165,7 @@ fun TvLoginScreen(
                         onRetry = viewModel::restartDeviceLogin,
                         onUsePassword = { showPasswordForm = true },
                         usePasswordFocus = usePasswordFocus,
-                        modifier = Modifier.width(520.dp),
+                        modifier = Modifier.width(260.dp),
                     )
                 }
             }
@@ -227,8 +227,8 @@ private fun BrandHeader() {
             painter = painterResource(id = R.drawable.silo_wordmark),
             contentDescription = "Silo",
             modifier = Modifier
-                .width(132.dp)
-                .height(69.dp),
+                .width(66.dp)
+                .height(35.dp),
             contentScale = ContentScale.Fit,
         )
     }
@@ -254,8 +254,8 @@ private fun CredentialFormCard(
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = modifier
-            .auroraGlass(24.dp)
-            .padding(horizontal = 32.dp, vertical = 28.dp),
+            .auroraGlass(12.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
             text = "Sign in",
@@ -356,8 +356,8 @@ private fun CredentialFormCard(
                 label = "Create Account",
                 icon = Icons.Default.AccountCircle,
                 variant = TvPillVariant.Hollow,
-                heightOverride = 56.dp,
-                horizontalPaddingOverride = 32.dp,
+                heightOverride = 28.dp,
+                horizontalPaddingOverride = 16.dp,
                 labelStyle = TvLoginTextStyles.Button,
                 onClick = onCreateAccount,
             )
@@ -376,44 +376,44 @@ private fun CredentialFormCard(
 private object TvLoginTextStyles {
     val Hero = TextStyle(
         fontWeight = FontWeight.Bold,
-        fontSize = 52.sp,
-        lineHeight = 58.sp,
+        fontSize = 26.sp,
+        lineHeight = 30.sp,
         letterSpacing = (-0.5).sp,
     )
 
     val Title = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 30.sp,
-        lineHeight = 36.sp,
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp,
     )
 
     val Body = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 18.sp,
-        lineHeight = 24.sp,
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp,
     )
 
     val Field = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp,
         color = Color.White,
     )
 
     val Error = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 18.sp,
-        lineHeight = 24.sp,
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp,
     )
 
     val Button = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 24.sp,
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.sp,
     )
 }
@@ -443,23 +443,23 @@ private fun QrLoginCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = modifier
-            .auroraGlass(24.dp, emphasized = true)
-            .padding(horizontal = 32.dp, vertical = 28.dp),
+            .auroraGlass(12.dp, emphasized = true)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         when (state) {
             DeviceLoginRepository.DeviceLoginState.Idle,
             DeviceLoginRepository.DeviceLoginState.Initiating -> {
                 Box(
                     modifier = Modifier
-                        .size(300.dp)
+                        .size(150.dp)
                         .background(
                             Color.White.copy(alpha = 0.06f),
-                            RoundedCornerShape(16.dp),
+                            RoundedCornerShape(8.dp),
                         )
                         .border(
                             width = 1.dp,
                             color = Color.White.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(8.dp),
                         ),
                 )
                 Text(
@@ -471,7 +471,7 @@ private fun QrLoginCard(
             is DeviceLoginRepository.DeviceLoginState.Awaiting -> {
                 QrCodePanel(
                     content = state.session.verificationUriComplete,
-                    size = 300.dp,
+                    size = 150.dp,
                 )
                 MatchCodeTiles(code = state.session.matchCode)
             }
@@ -500,7 +500,7 @@ private fun QrLoginCard(
         Spacer(modifier = Modifier.height(Spacing.xs))
         Box(
             modifier = Modifier
-                .width(300.dp)
+                .width(150.dp)
                 .height(1.dp)
                 .background(Color.White.copy(alpha = 0.10f)),
         )
@@ -538,22 +538,22 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
             ),
             color = Color.White.copy(alpha = 0.6f),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             code.uppercase().forEach { ch ->
                 val isSep = ch == '-' || ch == ' '
                 if (isSep) {
                     Text(
                         text = "–",
-                        style = TextStyle(fontSize = 30.sp, fontWeight = FontWeight.Bold),
+                        style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
                         color = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.width(20.dp),
+                        modifier = Modifier.width(10.dp),
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(width = 48.dp, height = 60.dp)
-                            .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(12.dp)),
+                            .size(width = 24.dp, height = 30.dp)
+                            .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -561,7 +561,7 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
                             style = TextStyle(
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 30.sp,
+                                fontSize = 16.sp,
                             ),
                             color = MaterialTheme.colorScheme.onBackground,
                         )

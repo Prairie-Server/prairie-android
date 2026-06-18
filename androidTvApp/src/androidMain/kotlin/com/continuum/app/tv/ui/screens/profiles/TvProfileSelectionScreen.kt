@@ -146,9 +146,13 @@ fun TvProfileSelectionScreen(
                     // uses an adaptive LazyVGrid that wraps to multiple rows) —
                     // not a single horizontal scroller.
                     FlowRow(
-                        modifier = Modifier.widthIn(max = 1480.dp),
-                        horizontalArrangement = Arrangement.spacedBy(56.dp, Alignment.CenterHorizontally),
-                        verticalArrangement = Arrangement.spacedBy(72.dp),
+                        // tvOS ProfileSelectionView uses 280pt tiles / 56pt gaps in
+                        // its 1920pt canvas; Android TV is a 960dp canvas (~half),
+                        // so tile + gaps are halved or the household overflows and
+                        // clips. 5×140 + 4×28 ≈ 812dp fits within 960.
+                        modifier = Modifier.widthIn(max = 820.dp),
+                        horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(36.dp),
                         maxItemsInEachRow = 5,
                     ) {
                         state.profiles.forEachIndexed { index, profile ->
@@ -251,7 +255,7 @@ private fun TvProfileCard(
             ?.let { resolveAvatarUrl(serverUrl, it) }
     }
 
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedCornerShape(18.dp)
     val cardFocus = continuumCardDefaults(shape = shape)
     val tileTint = profile.tintColor()
     // Per-profile tinted focus halo ("this profile is alive"), mirroring tvOS
@@ -259,7 +263,7 @@ private fun TvProfileCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val haloElevation by animateDpAsState(
-        targetValue = if (isFocused) 40.dp else 0.dp,
+        targetValue = if (isFocused) 20.dp else 0.dp,
         label = "profileTileHalo",
     )
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -271,7 +275,7 @@ private fun TvProfileCard(
             border = cardFocus.border,
             glow = cardFocus.glow,
             modifier = modifier
-                .size(280.dp)
+                .size(140.dp)
                 .shadow(
                     elevation = haloElevation,
                     shape = shape,
@@ -314,9 +318,9 @@ private fun TvProfileCard(
                     Text(
                         text = avatarText,
                         fontSize = if (!profile.avatar.isNullOrBlank() && !isImageAvatar(profile.avatar)) {
-                            104.sp
+                            70.sp
                         } else {
-                            88.sp
+                            60.sp
                         },
                         fontWeight = FontWeight.Bold,
                         color = Color.White.copy(alpha = 0.94f),
@@ -342,9 +346,9 @@ private fun TvProfileCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(10.dp)
-                            .size(34.dp)
-                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(17.dp)),
+                            .padding(8.dp)
+                            .size(26.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(13.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -378,7 +382,7 @@ private fun TvProfileCard(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvAddProfileCard(onClick: () -> Unit) {
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedCornerShape(18.dp)
     val cardFocus = continuumCardDefaults(shape = shape)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Card(
@@ -387,7 +391,7 @@ private fun TvAddProfileCard(onClick: () -> Unit) {
             scale = cardFocus.scale,
             border = cardFocus.border,
             glow = cardFocus.glow,
-            modifier = Modifier.size(280.dp),
+            modifier = Modifier.size(140.dp),
         ) {
             Box(
                 modifier = Modifier
@@ -404,7 +408,7 @@ private fun TvAddProfileCard(onClick: () -> Unit) {
                     imageVector = Icons.Filled.Add,
                     contentDescription = "Add profile",
                     tint = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier.size(28.dp),
                 )
             }
         }

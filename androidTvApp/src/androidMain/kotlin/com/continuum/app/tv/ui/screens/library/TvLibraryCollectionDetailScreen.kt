@@ -87,7 +87,7 @@ fun TvLibraryCollectionDetailScreen(
                     end = Spacing.safeArea,
                     bottom = Spacing.xxxl,
                 ),
-                horizontalSpacing = 24.dp,
+                horizontalSpacing = 12.dp,
                 firstItemFocusRequester = firstItemFocusRequester,
                 emptyState = {
                     TvCatalogEmptyState(message = "This collection is empty.")

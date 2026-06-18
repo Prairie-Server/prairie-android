@@ -137,9 +137,9 @@ internal fun TvDetailEpisodeRail(
         state = listState,
         contentPadding = PaddingValues(
             horizontal = Spacing.safeArea,
-            vertical = 32.dp,
+            vertical = 16.dp,
         ),
-        horizontalArrangement = Arrangement.spacedBy(36.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         items(episodes, key = { it.contentId }) { episode ->
             val isCurrent = episode.contentId == currentContentId
@@ -166,7 +166,7 @@ private fun TvDetailEpisodeCard(
 ) {
     val cardWidth = 460.dp
     val stillHeight = 260.dp
-    val cornerRadius = 10.dp
+    val cornerRadius = 5.dp
     val shape = RoundedCornerShape(cornerRadius)
 
     val interactionSource = remember { MutableInteractionSource() }
@@ -190,7 +190,7 @@ private fun TvDetailEpisodeCard(
                 indication = null,
                 onClick = onClick,
             ),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         // Still
         Box(
@@ -227,7 +227,7 @@ private fun TvDetailEpisodeCard(
                     contentDescription = null,
                     tint = ContinuumSecondaryText,
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(24.dp)
                         .align(Alignment.Center),
                 )
             }
@@ -240,8 +240,8 @@ private fun TvDetailEpisodeCard(
                 )
                 Box(
                     modifier = Modifier
-                        .padding(12.dp)
-                        .size(40.dp)
+                        .padding(6.dp)
+                        .size(20.dp)
                         .clip(CircleShape)
                         .background(Color.White)
                         .align(Alignment.TopEnd),
@@ -251,7 +251,7 @@ private fun TvDetailEpisodeCard(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
                         tint = Color.Black,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(9.dp),
                     )
                 }
             }
@@ -278,11 +278,11 @@ private fun TvDetailEpisodeCard(
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
                     text = episodeEyebrow(episode),
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.0.sp,
                     color = ContinuumOnSurface.copy(alpha = 0.55f),
@@ -295,7 +295,7 @@ private fun TvDetailEpisodeCard(
 
             Text(
                 text = episode.title ?: "Episode ${episode.episodeNumber}",
-                fontSize = 26.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = when {
                     isCurrent -> ContinuumOnSurface
@@ -313,15 +313,15 @@ private fun TvDetailEpisodeCard(
                 // card metrics.
                 Text(
                     text = overview,
-                    fontSize = 20.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Normal,
                     color = ContinuumSecondaryText,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 23.sp,
+                    lineHeight = 16.sp,
                     modifier = Modifier
                         .padding(top = 4.dp)
-                        .height((23 * 3).dp),
+                        .height((16 * 3).dp),
                 )
             }
         }
@@ -332,7 +332,7 @@ private fun TvDetailEpisodeCard(
 private fun NowViewingTag() {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(100.dp))
+            .clip(RoundedCornerShape(50.dp))
             .background(Color.White)
             .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {

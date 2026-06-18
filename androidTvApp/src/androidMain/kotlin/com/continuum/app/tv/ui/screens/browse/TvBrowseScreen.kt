@@ -311,9 +311,9 @@ private fun BrowseHeader(
                 text = "Browse",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 64.sp,
-                lineHeight = 68.sp,
-                letterSpacing = (-1.6).sp,
+                fontSize = 32.sp,
+                lineHeight = 34.sp,
+                letterSpacing = (-0.8).sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -542,5 +542,5 @@ private fun browseSubtitle(state: TvBrowseViewModel.UiState): String {
 }
 
 private const val BrowseGridColumns = 6
-private val BrowseGridItemSpacing = 40.dp
+private val BrowseGridItemSpacing = 20.dp
 private const val BrowseGridLoadMoreRowsThreshold = 8

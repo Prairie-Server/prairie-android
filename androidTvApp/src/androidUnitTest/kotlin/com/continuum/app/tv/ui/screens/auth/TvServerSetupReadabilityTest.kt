@@ -25,8 +25,7 @@ class TvServerSetupReadabilityTest {
 
     @Test
     fun setupTextUsesTenFootReadableSizes() {
-        assertTrue(source.contains("fontSize = 34.sp"))
-        assertTrue(source.contains("fontSize = 24.sp"))
-        assertTrue(source.contains("fontSize = 22.sp"))
+        assertTrue(source.contains("fontSize = 17.sp"))
+        assertTrue(source.contains("fontSize = 16.sp"))
     }
 }

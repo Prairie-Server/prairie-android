@@ -217,12 +217,12 @@ private fun AddUserRow(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .height(72.dp),
+            .height(36.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp),
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -230,7 +230,7 @@ private fun AddUserRow(onClick: () -> Unit) {
                 imageVector = Icons.Filled.PersonAdd,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(14.dp),
             )
             Text(
                 text = "Add user",
@@ -251,12 +251,12 @@ private fun UserRow(user: AdminUser, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .height(96.dp),
+            .height(48.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 16.dp),
+                .padding(horizontal = 14.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
