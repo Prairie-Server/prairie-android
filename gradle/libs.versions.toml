@@ -26,8 +26,13 @@ robolectric = "4.13"
 ksp = "2.1.20-2.0.1"
 room = "2.8.4"
 androidx-test-core = "1.6.1"
+bouncycastle = "1.78.1"
 
 [libraries]
+# BouncyCastle — TLS-PSK server for the LAN companion-pairing receiver
+# (Android's stdlib JSSE does not expose PSK cipher suites).
+bouncycastle-prov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+bouncycastle-tls = { module = "org.bouncycastle:bctls-jdk18on", version.ref = "bouncycastle" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }

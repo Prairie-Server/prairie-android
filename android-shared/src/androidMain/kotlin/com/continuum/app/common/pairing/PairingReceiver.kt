@@ -1,0 +1,285 @@
+package com.continuum.app.common.pairing
+
+import com.continuum.app.pairing.PairingMessage
+import com.continuum.app.pairing.PairingReceiverState
+import com.continuum.app.pairing.PairingProtocol
+import com.continuum.app.pairing.PairingServerStatus
+import com.continuum.app.repository.DeviceLoginRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+/**
+ * Identity + state the receiver advertises and announces in its [PairingMessage.Hello].
+ */
+data class PairingDeviceIdentity(
+    val name: String,
+    val deviceId: String,
+    /** "Android TV" — passed to device-login start as the platform. */
+    val platform: String = "Android TV",
+)
+
+/**
+ * UI-facing status of the TV pairing receiver. Mirrors the tvOS
+ * `ReceiverPairingCoordinator.State`.
+ */
+sealed class PairingReceiverStatus {
+    /** Not advertising / not connected. */
+    data object Idle : PairingReceiverStatus()
+
+    /** Advertising on the LAN, waiting for a phone to connect. */
+    data object Advertising : PairingReceiverStatus()
+
+    /** A phone connected and is choosing servers on its end. */
+    data object Connected : PairingReceiverStatus()
+
+    /** Device-login started for a pushed server (interim). */
+    data class Pairing(val serverURL: String) : PairingReceiverStatus()
+
+    /** Showing the match code for a pushed server while the phone approves. */
+    data class AwaitingApproval(val serverURL: String, val matchCode: String) : PairingReceiverStatus()
+
+    /** A server finished signing in. */
+    data object SignedIn : PairingReceiverStatus()
+
+    /** Terminal failure. */
+    data class Failed(val message: String) : PairingReceiverStatus()
+}
+
+/**
+ * State machine for the TV side of a companion-pairing connection. Coroutine
+ * driven and transport-agnostic: it consumes one [PairingTransport] (real
+ * TLS-PSK socket in production, in-memory fake in tests) and drives the flow:
+ *
+ *  1. send [PairingMessage.Hello] (state = current setup/login).
+ *  2. on [PairingMessage.PushServer]: set the server via [AuthRepository], then
+ *     run [DeviceLoginRepository.begin]; while it runs, observe its `state` —
+ *     on Awaiting send [PairingMessage.DeviceStarted]; on Approved send
+ *     [PairingMessage.ServerResult] signedIn; on Failed send `failed`.
+ *  3. on [PairingMessage.Done] / [PairingMessage.Cancel] / EOF / error: finish.
+ *
+ * One [run] call drives exactly one connection. The real advertiser serializes
+ * connections (one at a time) and calls [run] per accepted connection.
+ *
+ * Mirrors the silo-apple `ReceiverPairingCoordinator`.
+ */
+class PairingReceiver(
+    private val authPort: PairingAuthPort,
+    private val deviceLogin: DeviceLoginPort,
+    private val identityProvider: () -> PairingDeviceIdentity,
+    private val receiverStateProvider: () -> PairingReceiverState,
+) {
+    private val _status = MutableStateFlow<PairingReceiverStatus>(PairingReceiverStatus.Idle)
+    val status: StateFlow<PairingReceiverStatus> = _status.asStateFlow()
+
+    /** True while a server's device-login is in flight; the protocol is one at a time. */
+    private var pollingServerUrl: String? = null
+
+    /** The in-flight device-login child job, so EOF/Cancel teardown can cancel it. */
+    private var pushJob: Job? = null
+
+    fun setAdvertising() {
+        _status.value = PairingReceiverStatus.Advertising
+    }
+
+    fun setIdle() {
+        _status.value = PairingReceiverStatus.Idle
+    }
+
+    /**
+     * Drive one connection to completion. Returns when the peer finishes
+     * (Done), cancels, the stream ends, or an error is thrown. Always closes the
+     * [transport] before returning. Safe to cancel — cancellation propagates to
+     * the in-flight device-login and the transport is closed.
+     */
+    suspend fun run(transport: PairingTransport) {
+        pollingServerUrl = null
+        pushJob = null
+        try {
+            val identity = identityProvider()
+            transport.send(
+                PairingMessage.Hello(
+                    tvName = identity.name,
+                    tvDeviceId = identity.deviceId,
+                    state = receiverStateProvider(),
+                    supportedVersions = listOf(PairingProtocol.VERSION),
+                ),
+            )
+            _status.value = PairingReceiverStatus.Connected
+
+            // Collect inbound messages on the session scope. PushServer launches
+            // the device-login work as a CHILD coroutine (rather than blocking the
+            // collector) so a phone disconnect / Cancel / EOF mid-approval is still
+            // observed promptly and tears the session down.
+            coroutineScope {
+                val sessionScope = this
+                transport.incoming.collectMessage { message ->
+                    when (message) {
+                        is PairingMessage.PushServer ->
+                            handlePushServer(message, transport, sessionScope)
+                        is PairingMessage.Done -> return@collectMessage false
+                        is PairingMessage.Cancel -> return@collectMessage false
+                        else -> {
+                            // Receiver only consumes phone→TV message kinds; ignore others.
+                        }
+                    }
+                    true
+                }
+                // Stream ended (Done/Cancel/EOF) — cancel any in-flight device-login.
+                pushJob?.cancel()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            // Transport / decode error: connection dropped mid-session.
+        } finally {
+            pushJob?.cancel()
+            pushJob = null
+            transport.close()
+        }
+    }
+
+    /**
+     * Start device-login against the pushed (not-yet-trusted) server and drive
+     * its outcome back to the phone. One at a time — an overlapping PushServer
+     * while a poll is in flight is ignored.
+     */
+    private fun handlePushServer(
+        message: PairingMessage.PushServer,
+        transport: PairingTransport,
+        sessionScope: CoroutineScope,
+    ) {
+        if (pollingServerUrl != null) return // one at a time; ignore overlap.
+        val serverURL = message.serverURL
+        pollingServerUrl = serverURL
+        // Run the device-login begin/await CONCURRENTLY with continued inbound
+        // reading so Cancel/EOF can cancel this job and tear the session down.
+        pushJob = sessionScope.launch {
+            try {
+                runDeviceLogin(serverURL, transport)
+            } finally {
+                deviceLogin.reset()
+                pollingServerUrl = null
+            }
+        }
+    }
+
+    private suspend fun runDeviceLogin(
+        serverURL: String,
+        transport: PairingTransport,
+    ) {
+        // Point the auth/network stack at the pushed candidate. AuthRepository
+        // upserts into the ServerRegistry and switches to it.
+        authPort.setServerUrl(serverURL)
+        _status.value = PairingReceiverStatus.Pairing(serverURL)
+
+        val identity = identityProvider()
+        var deviceStartedSent = false
+
+        coroutineScope {
+            // Observe the device-login state machine while begin() runs the
+            // poll loop. Cancel the collector once we reach a terminal state.
+            val observer = launch {
+                deviceLogin.state.collectMessage { state ->
+                    when (state) {
+                        is DeviceLoginRepository.DeviceLoginState.Awaiting -> {
+                                if (!deviceStartedSent) {
+                                    deviceStartedSent = true
+                                    val session = state.session
+                                    _status.value = PairingReceiverStatus.AwaitingApproval(
+                                        serverURL = serverURL,
+                                        matchCode = session.matchCode,
+                                    )
+                                    transport.send(
+                                        PairingMessage.DeviceStarted(
+                                            serverURL = serverURL,
+                                            userCode = session.userCode,
+                                            matchCode = session.matchCode,
+                                        ),
+                                    )
+                                }
+                                true
+                            }
+                            is DeviceLoginRepository.DeviceLoginState.Approved -> {
+                                // Persist the approved session's tokens BEFORE
+                                // signaling SignedIn — same as the credential / QR
+                                // login flow (TvLoginViewModel.handleDeviceLoginApproved).
+                                // Without this the TV navigates to profile selection
+                                // unauthenticated. The repository already guards
+                                // against null tokens (Failed.MissingTokens).
+                                val response = state.response
+                                val accessToken = response.accessToken
+                                val refreshToken = response.refreshToken
+                                if (!accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()) {
+                                    authPort.persistApprovedTokens(
+                                        accessToken = accessToken,
+                                        refreshToken = refreshToken,
+                                        expiresIn = response.expiresIn ?: 0L,
+                                    )
+                                }
+                                _status.value = PairingReceiverStatus.SignedIn
+                                transport.send(
+                                    PairingMessage.ServerResult(
+                                        serverURL = serverURL,
+                                        status = PairingServerStatus.SignedIn,
+                                        error = null,
+                                    ),
+                                )
+                                false // terminal — stop observing.
+                            }
+                            is DeviceLoginRepository.DeviceLoginState.Failed -> {
+                                _status.value = PairingReceiverStatus.Failed(
+                                    state.message ?: state.reason.name,
+                                )
+                                transport.send(
+                                    PairingMessage.ServerResult(
+                                        serverURL = serverURL,
+                                        status = PairingServerStatus.Failed,
+                                        error = state.message ?: state.reason.name,
+                                    ),
+                                )
+                                false // terminal — stop observing.
+                            }
+                            else -> true // Idle / Initiating — keep observing.
+                        }
+                    }
+                }
+
+                deviceLogin.begin(
+                    deviceName = identity.name,
+                    devicePlatform = identity.platform,
+                )
+                // begin() has reached a terminal state; let the observer drain it
+                // (it stops itself on the terminal value).
+                observer.join()
+            }
+    }
+}
+
+/**
+ * Collect [this] flow, invoking [block] for each value; stop collecting as soon
+ * as [block] returns false. A tiny helper so the state machine reads top-down.
+ */
+private suspend fun <T> kotlinx.coroutines.flow.Flow<T>.collectMessage(
+    block: suspend (T) -> Boolean,
+) {
+    val flow = this
+    try {
+        flow.collect { value ->
+            if (!block(value)) {
+                throw StopCollect
+            }
+        }
+    } catch (e: StopCollectException) {
+        // Normal termination signal — swallow.
+        if (e !== StopCollect) throw e
+    }
+}
+
+private object StopCollect : StopCollectException()
+private open class StopCollectException : CancellationException("stop-collect")

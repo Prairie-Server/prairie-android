@@ -145,6 +145,14 @@ fun TvAppNavigation(
                     }
                 },
                 onNeedsSetup = { navController.navigate(TvRoute.Setup.route) },
+                // Companion pairing pushed a server AND completed device-login,
+                // so the TV is already authenticated — skip the login screen and
+                // go straight to profile selection (same as a successful sign-in).
+                onPairedSignIn = {
+                    navController.navigate(TvRoute.ProfileSelection.route) {
+                        popUpTo(TvRoute.ServerSetup.route) { inclusive = true }
+                    }
+                },
             )
         }
 

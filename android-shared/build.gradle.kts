@@ -81,6 +81,12 @@ kotlin {
             // plugin (applied above) drives schema export to $projectDir/schemas.
             implementation(libs.androidx.room.runtime)
             implementation(libs.androidx.room.ktx)
+
+            // BouncyCastle — TLS-PSK server for the LAN companion-pairing
+            // receiver (TV). Android's stdlib JSSE does not expose PSK cipher
+            // suites, so the receiver drives TlsServerProtocol / PSKTlsServer.
+            implementation(libs.bouncycastle.prov)
+            implementation(libs.bouncycastle.tls)
         }
 
         // First tests in this module — JUnit 4 via kotlin-test-junit, which

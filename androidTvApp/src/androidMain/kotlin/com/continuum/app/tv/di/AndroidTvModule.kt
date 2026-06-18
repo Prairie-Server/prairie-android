@@ -251,6 +251,45 @@ val androidTvModule = module {
     // that might be the active destination at the moment the link arrives.
     single<MutableStateFlow<Uri?>>(named("pendingDeepLink")) { MutableStateFlow(null) }
 
+    // LAN companion-pairing receiver engine (TV). The advertiser owns the NSD +
+    // TLS-PSK socket lifecycle; the receiver is the transport-agnostic state
+    // machine. A later step wires the UI to PairingReceiver.status.
+    single {
+        com.continuum.app.common.pairing.PairingReceiver(
+            authPort = com.continuum.app.common.pairing.AuthRepositoryPairingPort(get(), get()),
+            deviceLogin = com.continuum.app.common.pairing.DeviceLoginRepositoryPort(get()),
+            identityProvider = {
+                com.continuum.app.common.pairing.PairingDeviceIdentity(
+                    name = android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android TV",
+                    deviceId = com.continuum.app.common.pairing.PairingDeviceId
+                        .stable(androidContext()),
+                )
+            },
+            receiverStateProvider = {
+                val registry = get<ServerRegistry>()
+                if (registry.activeServerId.value == null) {
+                    com.continuum.app.pairing.PairingReceiverState.Setup
+                } else {
+                    com.continuum.app.pairing.PairingReceiverState.Login
+                }
+            },
+        )
+    }
+    single {
+        com.continuum.app.common.pairing.TvPairingAdvertiser(
+            context = androidContext(),
+            receiver = get(),
+            receiverStateProvider = {
+                val registry = get<ServerRegistry>()
+                if (registry.activeServerId.value == null) {
+                    com.continuum.app.pairing.PairingReceiverState.Setup
+                } else {
+                    com.continuum.app.pairing.PairingReceiverState.Login
+                }
+            },
+        )
+    }
+
     // Auth ViewModels
     viewModel { TvServerSetupViewModel(get()) }
     viewModel { com.continuum.app.tv.ui.screens.auth.TvSetupViewModel(get()) }

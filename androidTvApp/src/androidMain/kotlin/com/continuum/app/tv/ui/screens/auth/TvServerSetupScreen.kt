@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,12 +47,17 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.tv.R
+import com.continuum.app.common.pairing.PairingReceiver
+import com.continuum.app.common.pairing.PairingReceiverStatus
+import com.continuum.app.common.pairing.TvPairingAdvertiser
 import com.continuum.app.tv.ui.components.AuroraEyebrow
+import com.continuum.app.tv.ui.components.auroraGlass
 import com.continuum.app.tv.ui.components.AuroraPrimaryButton
 import com.continuum.app.tv.ui.components.TvAuroraBackdrop
 import com.continuum.app.tv.ui.components.TvAuroraVariant
 import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
 import com.continuum.app.tv.ui.theme.Spacing
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -69,13 +75,32 @@ import org.koin.compose.viewmodel.koinViewModel
 fun TvServerSetupScreen(
     onContinueToLogin: (signupEnabled: Boolean) -> Unit,
     onNeedsSetup: () -> Unit,
+    onPairedSignIn: () -> Unit = {},
     viewModel: TvServerSetupViewModel = koinViewModel(),
+    pairingReceiver: PairingReceiver = koinInject(),
+    pairingAdvertiser: TvPairingAdvertiser = koinInject(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val pairingStatus by pairingReceiver.status.collectAsState()
     val focusRequester = remember { FocusRequester() }
     val urlBringIntoView = remember { BringIntoViewRequester() }
     val connectBringIntoView = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
+
+    // Companion LAN pairing: advertise `_silopair._tcp` while this screen is on
+    // so a phone running Silo can push the server URL + drive device-login,
+    // sparing the viewer from typing a URL on the remote. Advertising stops
+    // when the screen leaves the composition.
+    DisposableEffect(Unit) {
+        pairingAdvertiser.start()
+        onDispose { pairingAdvertiser.stop() }
+    }
+    LaunchedEffect(pairingStatus) {
+        if (pairingStatus is PairingReceiverStatus.SignedIn) {
+            pairingAdvertiser.stop()
+            onPairedSignIn()
+        }
+    }
 
     LaunchedEffect(state.navigateTo) {
         when (val dest = state.navigateTo) {
@@ -192,7 +217,56 @@ fun TvServerSetupScreen(
                     onClick = viewModel::onConnectClick,
                 )
             }
+
+            Spacer(modifier = Modifier.height(Spacing.lg))
+            PairingPanel(status = pairingStatus)
         }
+    }
+}
+
+/**
+ * Companion-pairing status panel — passive (no focus target): tells the viewer
+ * they can configure this TV from a phone on the same network, and reflects the
+ * live [PairingReceiver] state once a phone connects. Mirrors tvOS
+ * `TVPairingReceiverView` shown in-place inside server setup.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PairingPanel(status: PairingReceiverStatus) {
+    val (headline, detail) = when (status) {
+        is PairingReceiverStatus.AwaitingApproval ->
+            "Confirm on your phone" to "Match code ${status.matchCode} — approve the sign-in on your phone."
+        is PairingReceiverStatus.Pairing ->
+            "Pairing…" to "Setting up ${status.serverURL} from your phone."
+        PairingReceiverStatus.Connected ->
+            "Phone connected" to "Choose a server on your phone to continue."
+        PairingReceiverStatus.SignedIn ->
+            "Signed in" to "Finishing up…"
+        is PairingReceiverStatus.Failed ->
+            "Pairing failed" to status.message
+        else ->
+            "Or pair from your phone" to "Open Silo on a phone on this network to set up this TV — no typing required."
+    }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        modifier = Modifier
+            .fillMaxWidth()
+            .auroraGlass(20.dp)
+            .padding(horizontal = 28.dp, vertical = 22.dp),
+    ) {
+        AuroraEyebrow(text = "Companion pairing")
+        Spacer(modifier = Modifier.height(Spacing.xs))
+        Text(
+            text = headline,
+            style = TvServerSetupTextStyles.FieldLabel,
+            color = Color.White,
+        )
+        Text(
+            text = detail,
+            style = TvServerSetupTextStyles.PairingDetail,
+            color = Color.White.copy(alpha = 0.72f),
+        )
     }
 }
 
@@ -229,6 +303,13 @@ private object TvServerSetupTextStyles {
     val Error = TextStyle(
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp,
+    )
+
+    val PairingDetail = TextStyle(
+        fontWeight = FontWeight.Normal,
+        fontSize = 18.sp,
         lineHeight = 24.sp,
         letterSpacing = 0.sp,
     )

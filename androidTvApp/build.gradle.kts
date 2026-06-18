@@ -121,6 +121,13 @@ android {
             isReturnDefaultValues = true
         }
     }
+    packaging {
+        resources {
+            // BouncyCastle (bcprov/bctls/bcutil) + jspecify each ship this OSGi
+            // multi-release stub; drop the duplicates so the APK packages.
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
 }
 
 dependencies {
