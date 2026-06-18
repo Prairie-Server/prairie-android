@@ -54,12 +54,14 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.repository.DeviceLoginRepository
 import com.continuum.app.tv.R
+import com.continuum.app.tv.ui.components.AuroraEyebrow
+import com.continuum.app.tv.ui.components.AuroraPrimaryButton
+import com.continuum.app.tv.ui.components.auroraGlass
 import com.continuum.app.tv.ui.components.TvAuroraBackdrop
 import com.continuum.app.tv.ui.components.TvAuroraVariant
 import com.continuum.app.tv.ui.components.TvHeroActionPill
 import com.continuum.app.tv.ui.components.TvPillVariant
 import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
-import com.continuum.app.tv.ui.theme.ElevatedSurface
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -109,6 +111,10 @@ fun TvLoginScreen(
                 .padding(top = 64.dp, bottom = Spacing.lg, start = Spacing.lg, end = Spacing.lg),
         ) {
             BrandHeader()
+
+            Spacer(modifier = Modifier.height(Spacing.sm))
+
+            AuroraEyebrow(text = "Step 02 — Sign in")
 
             Spacer(modifier = Modifier.height(Spacing.sm))
 
@@ -179,12 +185,7 @@ private fun CredentialFormCard(
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = modifier
-            .background(ElevatedSurface, RoundedCornerShape(24.dp))
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(24.dp),
-            )
+            .auroraGlass(24.dp)
             .padding(horizontal = 32.dp, vertical = 28.dp),
     ) {
         Text(
@@ -265,14 +266,11 @@ private fun CredentialFormCard(
                     if (fs.hasFocus) scope.launch { signInBringIntoView.bringIntoView() }
                 },
         ) {
-            TvHeroActionPill(
+            AuroraPrimaryButton(
                 label = if (state.isLoading) "Signing in…" else "Sign In",
                 icon = Icons.AutoMirrored.Filled.Login,
-                variant = TvPillVariant.Filled,
-                heightOverride = 64.dp,
-                horizontalPaddingOverride = 38.dp,
-                labelStyle = TvLoginTextStyles.Button,
                 onClick = onLoginClick,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
 
@@ -359,12 +357,7 @@ private fun QrLoginCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = modifier
-            .background(ElevatedSurface, RoundedCornerShape(24.dp))
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(24.dp),
-            )
+            .auroraGlass(24.dp, emphasized = true)
             .padding(horizontal = 32.dp, vertical = 28.dp),
     ) {
         Text(

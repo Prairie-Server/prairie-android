@@ -46,10 +46,10 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.tv.R
+import com.continuum.app.tv.ui.components.AuroraEyebrow
+import com.continuum.app.tv.ui.components.AuroraPrimaryButton
 import com.continuum.app.tv.ui.components.TvAuroraBackdrop
 import com.continuum.app.tv.ui.components.TvAuroraVariant
-import com.continuum.app.tv.ui.components.TvHeroActionPill
-import com.continuum.app.tv.ui.components.TvPillVariant
 import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
 import com.continuum.app.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
@@ -116,6 +116,8 @@ fun TvServerSetupScreen(
             BrandHeader()
 
             Spacer(modifier = Modifier.height(Spacing.xs))
+
+            AuroraEyebrow(text = "Step 01 — Connect")
 
             Text(
                 text = "Connect to your server",
@@ -184,13 +186,9 @@ fun TvServerSetupScreen(
                         if (fs.hasFocus) scope.launch { connectBringIntoView.bringIntoView() }
                     },
             ) {
-                TvHeroActionPill(
+                AuroraPrimaryButton(
                     label = if (state.isLoading) "Connecting…" else "Connect",
                     icon = Icons.AutoMirrored.Filled.ArrowForward,
-                    variant = TvPillVariant.Filled,
-                    heightOverride = 72.dp,
-                    horizontalPaddingOverride = 44.dp,
-                    labelStyle = TvServerSetupTextStyles.Button,
                     onClick = viewModel::onConnectClick,
                 )
             }
