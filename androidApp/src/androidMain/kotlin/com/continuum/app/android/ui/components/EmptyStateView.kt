@@ -37,34 +37,40 @@ fun EmptyStateView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        // iOS EmptyStateView.swift: 44pt icon at onSurface 0.3 opacity.
         Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(44.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // iOS uses VStack(spacing: 12) between all elements.
+        Spacer(modifier = Modifier.height(12.dp))
 
+        // iOS title: .continuumSubheadline (14sp) at onSurface.
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
 
         if (subtitle != null) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
+            // iOS subtitle: .continuumCaption (12sp) at secondary text, with
+            // largePadding (24dp) horizontal inset.
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp),
             )
         }
     }
