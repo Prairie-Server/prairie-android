@@ -1172,7 +1172,7 @@ private fun HudSubtitlesPane(
             }
             if (appearance.textOutline) {
                 StyleSection("Outline color") {
-                    TEXT_COLOR_SWATCHES.forEach { hex ->
+                    OUTLINE_COLOR_SWATCHES.forEach { hex ->
                         StyleColorSwatch(hex, appearance.textOutlineColor.equals(hex, ignoreCase = true), enabled) {
                             onAppearanceChanged(appearance.copy(textOutlineColor = hex))
                         }
@@ -1252,6 +1252,7 @@ private val POSITIONS = TvSubtitleAppearanceOptions.POSITIONS
 private val OPACITY_STEPS = TvSubtitleAppearanceOptions.OPACITY_STEPS
 private val TEXT_COLOR_SWATCHES = TvSubtitleAppearanceOptions.TEXT_COLOR_SWATCHES
 private val BACKGROUND_COLOR_SWATCHES = TvSubtitleAppearanceOptions.BACKGROUND_COLOR_SWATCHES
+private val OUTLINE_COLOR_SWATCHES = TvSubtitleAppearanceOptions.OUTLINE_COLOR_SWATCHES
 
 /** Signed delay label — matches the phone's formatDelayMs (true minus sign). */
 private fun delayLabel(valueMs: Int): String =

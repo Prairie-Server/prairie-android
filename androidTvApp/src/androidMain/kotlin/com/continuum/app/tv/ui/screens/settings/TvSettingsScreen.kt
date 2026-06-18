@@ -590,7 +590,7 @@ private fun TvSubtitleSettingsScreen(
                 )
                 SettingsValueRow(
                     label = "Outline Color",
-                    value = TvSubtitleAppearanceOptions.fontColorLabel(appearance.textOutlineColor),
+                    value = TvSubtitleAppearanceOptions.outlineColorLabel(appearance.textOutlineColor),
                     onClick = { activePicker = SubtitlePicker.OutlineColor },
                 )
                 SettingsValueRow(
@@ -680,7 +680,7 @@ private fun TvSubtitleSettingsScreen(
         )
         SubtitlePicker.OutlineColor -> TvSettingsPickerSheet(
             title = "Outline Color",
-            options = TvSubtitleAppearanceOptions.FONT_COLORS.map { PickerOption(it.first, it.second) },
+            options = TvSubtitleAppearanceOptions.OUTLINE_COLORS.map { PickerOption(it.first, it.second) },
             selectedId = appearance.textOutlineColor.lowercase(),
             onSelect = { id ->
                 onSubtitleTextOutlineColorChanged(id)
@@ -702,7 +702,7 @@ private fun TvSubtitleSettingsScreen(
         )
         SubtitlePicker.BackgroundOpacity -> TvSettingsPickerSheet(
             title = "Background Opacity",
-            options = TvSubtitleAppearanceOptions.OPACITY_STEPS.map { PickerOption(it.toString(), "$it%") },
+            options = TvSubtitleAppearanceOptions.OPACITY_PERCENT_STEPS.map { PickerOption(it.toString(), "$it%") },
             selectedId = appearance.backgroundOpacity.toString(),
             onSelect = { id ->
                 id.toIntOrNull()?.let { onSubtitleBackgroundOpacityChanged(it) }
