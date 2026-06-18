@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -834,7 +835,11 @@ fun TvMainShell(
         // alpha-0 and focus-blocked; the active one fades in and accepts focus.
         // Positioned under their tab anchor, clamped to the safe-area X.
         val density = LocalDensity.current
-        val panelWidthDp = 760.dp
+        // The panel wraps its content (library column, plus the sections flyout
+        // once revealed) up to this cap, and is left-anchored under its tab — so
+        // a collapsed panel is just the library list and it grows rightward when
+        // the flyout opens, instead of a fixed slab with dead space.
+        val maxPanelWidthDp = 640.dp
         visibleRoots.forEach { dest ->
             if (dest is TvRootDestination.LibraryType) {
                 val panel = TvTopMenuPanel.Root(dest)
@@ -845,14 +850,14 @@ fun TvMainShell(
                         .absoluteOffset {
                             cascadePanelOffset(
                                 anchor = anchor,
-                                panelWidthPx = with(density) { panelWidthDp.toPx() },
+                                maxPanelWidthPx = with(density) { maxPanelWidthDp.toPx() },
                                 safeAreaXPx = with(density) { TvSkyline.safeAreaX.toPx() },
                                 panelTopPx = with(density) {
                                     (TvSkyline.barTopInset + TvSkyline.barHeight).toPx()
                                 },
                             )
                         }
-                        .width(panelWidthDp)
+                        .widthIn(max = maxPanelWidthDp)
                         .alpha(if (active) 1f else 0f)
                         .focusProperties { canFocus = active }
                         .zIndex(2f)
@@ -1014,7 +1019,7 @@ private fun TvLibraryPill.toLibraryTab(): TvLibraryTab = when (this) {
  */
 private fun cascadePanelOffset(
     anchor: LayoutCoordinates?,
-    panelWidthPx: Float,
+    maxPanelWidthPx: Float,
     safeAreaXPx: Float,
     panelTopPx: Float,
 ): IntOffset {
@@ -1022,10 +1027,11 @@ private fun cascadePanelOffset(
         return IntOffset(-100_000, 0)
     }
     val rootWidthPx = anchor.findRootCoordinates().size.width.toFloat()
-    val anchorCenterX = anchor.positionInRoot().x + anchor.size.width / 2f
-    val rawX = anchorCenterX - panelWidthPx / 2f
-    val maxX = (rootWidthPx - safeAreaXPx - panelWidthPx).coerceAtLeast(safeAreaXPx)
-    val clampedX = rawX.coerceIn(safeAreaXPx, maxX)
+    // Left-align the panel's leading edge to the tab, clamped so that even at
+    // its maximum (flyout-expanded) width it never crosses the right safe area.
+    val anchorLeftX = anchor.positionInRoot().x
+    val maxX = (rootWidthPx - safeAreaXPx - maxPanelWidthPx).coerceAtLeast(safeAreaXPx)
+    val clampedX = anchorLeftX.coerceIn(safeAreaXPx, maxX)
     return IntOffset(clampedX.roundToInt(), panelTopPx.roundToInt())
 }
 

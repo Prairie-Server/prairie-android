@@ -236,7 +236,7 @@ fun TvCascadeSelector(
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier
-                        .widthIn(min = 280.dp)
+                        .width(300.dp)
                         .heightIn(max = 360.dp),
                 ) {
                     items(libraries) { library ->
@@ -273,21 +273,18 @@ fun TvCascadeSelector(
                     }
                 }
             } else {
-                Column(modifier = Modifier.widthIn(min = 280.dp)) {
+                Column(modifier = Modifier.width(300.dp)) {
                     rowsContent()
                 }
             }
         }
 
         // LEVEL 2 — sections flyout. For a single-library tab it is the only
-        // column; otherwise it is revealed (composed) only after Right and is
-        // offset down to align with the anchor row.
-        val flyoutOffset = if (isSingleLibrary) 0f else (rowTops[anchorId] ?: 0f)
+        // column; otherwise it is revealed (composed) only after Right, as a
+        // second column beside the library list (top-aligned).
         if (anchorLibrary != null && flyoutVisible) {
             Column(
-                modifier = Modifier
-                    .offset { IntOffset(0, flyoutOffset.roundToInt()) }
-                    .width(260.dp),
+                modifier = Modifier.width(260.dp),
             ) {
                 pills.forEach { pill ->
                     val requester = pillRequesters.getOrPut(pill) { FocusRequester() }
