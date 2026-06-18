@@ -35,10 +35,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -103,7 +105,7 @@ fun TvCastCrewSection(
                 )
                 .focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(44.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
+            contentPadding = PaddingValues(vertical = 24.dp),
         ) {
             itemsIndexed(
                 cast.take(24),
@@ -131,7 +133,7 @@ private fun TvCastCard(
     onClick: () -> Unit = {},
 ) {
     val shape = CircleShape
-    val cardFocus = continuumCardDefaults(shape = shape, focusedScale = 1.06f)
+    val cardFocus = continuumCardDefaults(shape = shape, focusedScale = 1.05f)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
@@ -177,8 +179,15 @@ private fun TvCastCard(
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = member.name,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 22.sp,
+                lineHeight = 26.sp,
+            ),
             color = if (isFocused) Color.White else Color.White.copy(alpha = 0.88f),
+            // Reserve two lines so single- and two-line names bottom-align,
+            // mirroring tvOS `lineLimit(2, reservesSpace: true)`.
+            minLines = 2,
             maxLines = 2,
             textAlign = TextAlign.Center,
             overflow = TextOverflow.Ellipsis,

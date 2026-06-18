@@ -61,6 +61,7 @@ import com.continuum.app.tv.ui.theme.ContinuumSecondaryText
 import com.continuum.app.tv.ui.theme.DarkSurfaceElevated
 import com.continuum.app.tv.ui.theme.ProgressFill
 import com.continuum.app.tv.ui.theme.Spacing
+import com.continuum.app.tv.ui.theme.capsuleCaps
 
 /**
  * Horizontal rail of episode cards for the series/season/episode detail
@@ -337,9 +338,7 @@ private fun NowViewingTag() {
     ) {
         Text(
             text = "NOW VIEWING",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.6.sp,
+            style = capsuleCaps,
             color = Color.Black,
         )
     }

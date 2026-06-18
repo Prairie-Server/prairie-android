@@ -55,6 +55,9 @@ fun TvMediaRow(
     rowTopPadding: androidx.compose.ui.unit.Dp = 24.dp,
     rowBottomPadding: androidx.compose.ui.unit.Dp = 24.dp,
     eyebrow: String? = null,
+    /** When false, the built-in [TvSectionHeader] is omitted so callers can supply
+     *  their own header above a bare rail (e.g. the detail "More Like This" rail). */
+    showHeader: Boolean = true,
     itemCardModifier: Modifier = Modifier,
     upFocusRequester: FocusRequester? = null,
     firstItemFocusRequester: FocusRequester? = null,
@@ -78,13 +81,15 @@ fun TvMediaRow(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        TvSectionHeader(
-            title = title,
-            icon = icon,
-            onSeeAllClick = onSeeAllClick,
-            eyebrow = eyebrow,
-            modifier = Modifier.padding(start = startPadding, end = endPadding),
-        )
+        if (showHeader) {
+            TvSectionHeader(
+                title = title,
+                icon = icon,
+                onSeeAllClick = onSeeAllClick,
+                eyebrow = eyebrow,
+                modifier = Modifier.padding(start = startPadding, end = endPadding),
+            )
+        }
         LazyRow(
             state = rowState,
             // focusRestorer remembers the last-focused card inside this row.

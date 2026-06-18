@@ -21,6 +21,14 @@ internal object TvDetailMetadata {
             add("TV Show")
             detail.genres.filter { it.isNotBlank() }.take(2).forEach { add(it) }
         }
+        detail.type.equals("season", ignoreCase = true) -> buildList {
+            // tvOS `TVSeasonDetailView.sourceTokens`: leading episode-count token,
+            // then up to two genres.
+            detail.episodeCount?.takeIf { it > 0 }?.let {
+                add("$it Episode${if (it == 1) "" else "s"}")
+            }
+            detail.genres.filter { it.isNotBlank() }.take(2).forEach { add(it) }
+        }
         isAudiobookItemType(detail.type) -> listOfNotNull(
             "Audiobook",
             detail.audiobook?.publisher,
@@ -55,6 +63,11 @@ internal object TvDetailMetadata {
 
     fun eyebrow(detail: ItemDetail): String? {
         if (detail.type.equals("episode", ignoreCase = true)) {
+            return detail.seriesTitle?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        if (detail.type.equals("season", ignoreCase = true)) {
+            // tvOS `TVSeasonDetailView`: the season hero eyebrow carries the
+            // parent-series title.
             return detail.seriesTitle?.trim()?.takeIf { it.isNotEmpty() }
         }
         if (detail.type.equals("series", ignoreCase = true)) {

@@ -84,6 +84,7 @@ import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.HeroDimens
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.theme.SubtleSurface
+import com.continuum.app.tv.ui.theme.monoGroupHeader
 import java.time.Year
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -735,10 +736,8 @@ private fun CollectionsTab(
 private fun CollectionsGroupHeader(name: String) {
     Text(
         text = name.uppercase(),
+        style = monoGroupHeader,
         color = Color.White.copy(alpha = 0.38f),
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-        fontSize = 14.sp,
-        letterSpacing = 3.6.sp,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )

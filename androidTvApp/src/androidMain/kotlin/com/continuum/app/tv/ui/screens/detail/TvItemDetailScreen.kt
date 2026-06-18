@@ -137,6 +137,7 @@ fun TvItemDetailScreen(
             onItemDetail = onItemDetail,
             onSeriesClick = onSeriesClick,
             onSeasonClick = onSeasonClick,
+            onWatchTogether = onWatchTogether,
             onOpenPerson = onOpenPerson,
         )
     }
@@ -152,6 +153,7 @@ private fun TvDetailContent(
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
+    onWatchTogether: (RoomSnapshot) -> Unit,
     onOpenPerson: (personId: Int) -> Unit,
 ) {
     val playFocus = remember { FocusRequester() }
@@ -220,6 +222,7 @@ private fun TvDetailContent(
                                 onPlay = onPlay,
                                 onSeriesClick = onSeriesClick,
                                 onSeasonClick = onSeasonClick,
+                                onWatchTogether = onWatchTogether,
                             )
                         },
                     )
@@ -275,24 +278,34 @@ private fun TvDetailContent(
                         }
 
                         if (showsSimilarRail) {
-                            TvMediaRow(
-                                title = "More Like This",
-                                eyebrow = "Recommended",
-                                items = state.moreLikeThis,
-                                onItemClick = onItemDetail,
-                                style = TvRowStyle.Poster,
-                                horizontalPadding = Spacing.safeArea,
-                                rowTopPadding = 16.dp,
-                                firstItemFocusRequester = firstSimilarFocus,
-                                // When Similar is the first body rail (movie with no
-                                // episode rail and no cast), Up returns to the hero
-                                // Play button instead of relying on geometry.
-                                upFocusRequester = if (!showsEpisodeRail && !showsCastSection) {
-                                    playFocus
-                                } else {
-                                    null
-                                },
-                            )
+                            // tvOS `TVSimilarRail`: an editorial detail section
+                            // header (Recommended / More Like This) over a bare
+                            // poster rail — no See-all on the detail page.
+                            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                                TvDetailSectionHeader(
+                                    eyebrow = "Recommended",
+                                    title = "More Like This",
+                                    modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                                )
+                                TvMediaRow(
+                                    title = "More Like This",
+                                    showHeader = false,
+                                    items = state.moreLikeThis,
+                                    onItemClick = onItemDetail,
+                                    style = TvRowStyle.Poster,
+                                    horizontalPadding = Spacing.safeArea,
+                                    rowTopPadding = 0.dp,
+                                    firstItemFocusRequester = firstSimilarFocus,
+                                    // When Similar is the first body rail (movie with no
+                                    // episode rail and no cast), Up returns to the hero
+                                    // Play button instead of relying on geometry.
+                                    upFocusRequester = if (!showsEpisodeRail && !showsCastSection) {
+                                        playFocus
+                                    } else {
+                                        null
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -311,15 +324,41 @@ private fun HeroActionRow(
     onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
+    onWatchTogether: (RoomSnapshot) -> Unit,
 ) {
     var moreOpen by remember(detail.contentId) { mutableStateOf(false) }
     var mediaInfoOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var ratingOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var watchTogetherOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var joinByCodeOpen by remember(detail.contentId) { mutableStateOf(false) }
+    // True only while the user is actively in the Watch Together flow. If they
+    // back out of the dialogs while a createRoom/joinRoom is still in flight we
+    // clear this, so the room result that lands afterwards is ignored instead of
+    // force-navigating into the player.
+    var wtFlowActive by remember(detail.contentId) { mutableStateOf(false) }
+    val watchTogetherViewModel: TvWatchTogetherViewModel = koinViewModel()
+    val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
+    // Route the one-shot room result out to navigation, then clear it so a
+    // recomposition doesn't re-fire. Only navigate if the flow is still active.
+    LaunchedEffect(watchTogetherState.result) {
+        watchTogetherState.result?.let { room ->
+            if (wtFlowActive) {
+                wtFlowActive = false
+                watchTogetherOpen = false
+                joinByCodeOpen = false
+                onWatchTogether(room)
+            }
+            watchTogetherViewModel.consumeResult()
+        }
+    }
     val resumePosition = remember(detail.userData) { detail.resumePositionSeconds() }
     val hasResume = resumePosition != null
-    // tvOS overflow: episode-only Go-to-Series / Go-to-Season navigation, plus
-    // Media Info (the only access to stream info on Android until the player-HUD
-    // parity sub-project). Show the ⋯ button when it would hold ≥1 item.
-    val hasOverflowNavigation = detail.type == "episode" && detail.seriesId != null
+    // tvOS overflow: episode Go-to-Series / Go-to-Season navigation and season
+    // Go-to-Series (mirrors `TVSeasonDetailView.moreMenu`), plus Media Info (the
+    // only access to stream info on Android until the player-HUD parity
+    // sub-project). Show the ⋯ button when it would hold ≥1 item.
+    val hasSeriesNavigation = detail.type in setOf("episode", "season") && detail.seriesId != null
+    val hasOverflowNavigation = hasSeriesNavigation
     val hasMediaInfo = detail.versions.isNotEmpty()
     val hasOverflowMenu = hasOverflowNavigation || hasMediaInfo
     val selectedFileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
@@ -402,6 +441,31 @@ private fun HeroActionRow(
                 onClick = viewModel::onToggleWatched,
             )
 
+            // Android extras kept in the tvOS square-control grammar: Rate opens
+            // the star rating dialog; Watch Together opens the host/join entry.
+            TvSquareToggleButton(
+                icon = Icons.Outlined.StarBorder,
+                iconActive = Icons.Filled.Star,
+                isActive = state.userRating != null,
+                contentDescription = if (state.userRating != null) "Edit your rating" else "Rate this title",
+                onClick = { ratingOpen = true },
+            )
+
+            // Watch Together is video-only — audiobooks use a separate player
+            // with no room support, so hide it for them.
+            if (!isAudiobook) {
+                TvSquareToggleButton(
+                    icon = Icons.Filled.Groups,
+                    iconActive = Icons.Filled.Groups,
+                    isActive = false,
+                    contentDescription = "Watch Together",
+                    onClick = {
+                        wtFlowActive = true
+                        watchTogetherOpen = true
+                    },
+                )
+            }
+
             if (hasOverflowMenu) {
                 TvSquareToggleButton(
                     icon = Icons.Filled.MoreHoriz,
@@ -437,18 +501,22 @@ private fun HeroActionRow(
         val options = buildList {
             if (hasOverflowNavigation) {
                 detail.seriesId?.let { seriesId ->
-                    detail.seasonNumber?.takeIf { it > 0 }?.let { season ->
-                        add(
-                            TvDialogOption(
-                                key = "season-$season",
-                                title = "Go to Season $season",
-                                subtitle = detail.seriesTitle,
-                                onClick = {
-                                    moreOpen = false
-                                    onSeasonClick(seriesId, season)
-                                },
-                            ),
-                        )
+                    // "Go to Season" is episode-only — a season page is already at
+                    // the season level, so it offers just "Go to Series".
+                    if (detail.type == "episode") {
+                        detail.seasonNumber?.takeIf { it > 0 }?.let { season ->
+                            add(
+                                TvDialogOption(
+                                    key = "season-$season",
+                                    title = "Go to Season $season",
+                                    subtitle = detail.seriesTitle,
+                                    onClick = {
+                                        moreOpen = false
+                                        onSeasonClick(seriesId, season)
+                                    },
+                                ),
+                            )
+                        }
                     }
                     add(
                         TvDialogOption(
@@ -488,6 +556,54 @@ private fun HeroActionRow(
         TvMediaInfoDialog(
             versions = detail.versions,
             onDismiss = { mediaInfoOpen = false },
+        )
+    }
+
+    if (ratingOpen) {
+        TvRatingDialog(
+            currentRating = state.userRating,
+            onSetRating = { stars ->
+                viewModel.onSetRating(stars)
+                ratingOpen = false
+            },
+            onClearRating = {
+                viewModel.onClearRating()
+                ratingOpen = false
+            },
+            onDismiss = { ratingOpen = false },
+        )
+    }
+
+    if (watchTogetherOpen) {
+        TvWatchTogetherEntryDialog(
+            isBusy = watchTogetherState.isBusy,
+            error = watchTogetherState.error,
+            onHost = { watchTogetherViewModel.createRoom(detail.contentId, selectedFileId) },
+            onJoin = {
+                watchTogetherViewModel.clearError()
+                watchTogetherOpen = false
+                joinByCodeOpen = true
+            },
+            onDismiss = {
+                watchTogetherViewModel.clearError()
+                watchTogetherViewModel.consumeResult()
+                wtFlowActive = false
+                watchTogetherOpen = false
+            },
+        )
+    }
+
+    if (joinByCodeOpen) {
+        TvJoinCodeDialog(
+            isBusy = watchTogetherState.isBusy,
+            error = watchTogetherState.error,
+            onJoin = { code -> watchTogetherViewModel.joinRoom(code) },
+            onDismiss = {
+                watchTogetherViewModel.clearError()
+                watchTogetherViewModel.consumeResult()
+                wtFlowActive = false
+                joinByCodeOpen = false
+            },
         )
     }
 }
