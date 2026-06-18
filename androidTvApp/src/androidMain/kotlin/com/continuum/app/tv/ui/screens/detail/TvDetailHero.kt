@@ -190,12 +190,16 @@ internal fun TvDetailHero(
             )
         }
 
-        // Bottom-anchored editorial column + action cluster.
+        // Bottom-anchored editorial column + action cluster. Bottom inset +
+        // inter-row gaps kept tight so the full stack (tagline → title →
+        // synopsis → facts → actions → selector) fits within heroHeight on a
+        // 540dp-tall canvas instead of overflowing and clipping the tagline off
+        // the top. (tvOS point values were ~2x these.)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = 120.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+                .padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             EditorialColumn(
                 title = title,
