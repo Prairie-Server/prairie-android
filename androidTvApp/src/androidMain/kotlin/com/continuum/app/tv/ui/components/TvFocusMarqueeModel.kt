@@ -43,10 +43,16 @@ data class TvMarqueeContent(
      *  the same (debounced) card the marquee + backdrop show. */
     val source: SectionItem,
 ) {
-    /** Backdrop art for the root hero — episodes prefer a series backdrop over
-     *  their low-res still, falling back to whatever they carry. */
-    val heroBackdropUrl: String? get() = backdropUrl ?: posterUrl
-    val heroBackdropThumbhash: String? get() = backdropThumbhash ?: posterThumbhash
+    /** Backdrop art for the root hero. Episodes carry only a low-res episode
+     *  still in the section payload, which is the wrong image for the cinematic
+     *  hero — showing it first and then swapping to the enriched SERIES backdrop
+     *  reads as a banner "switch". So for episodes the hero stays on the ambient
+     *  wash (null) until [withEnrichment] folds in the series backdrop; only the
+     *  correct banner ever appears. Non-episodes use their own section backdrop
+     *  (poster fallback) immediately. */
+    val heroBackdropUrl: String? get() = if (isEpisode) backdropUrl else (backdropUrl ?: posterUrl)
+    val heroBackdropThumbhash: String? get() =
+        if (isEpisode) backdropThumbhash else (backdropThumbhash ?: posterThumbhash)
 
     /** Stable per-item key for the §9 enrichment cache + stale-fetch guard. */
     val contentId: String get() = source.contentId
@@ -102,8 +108,10 @@ data class TvMarqueeContent(
                 metaParts = meta,
                 synopsis = item.overview?.takeIf { it.isNotBlank() },
                 detailLine = null,
-                backdropUrl = item.backdropUrl?.takeIf { it.isNotBlank() },
-                backdropThumbhash = item.backdropThumbhash,
+                // Episodes drop their low-res still here; the cinematic hero
+                // waits for the enriched series backdrop (see heroBackdropUrl).
+                backdropUrl = if (isEpisode) null else item.backdropUrl?.takeIf { it.isNotBlank() },
+                backdropThumbhash = if (isEpisode) null else item.backdropThumbhash,
                 posterUrl = item.posterUrl?.takeIf { it.isNotBlank() },
                 posterThumbhash = item.posterThumbhash,
                 isEpisode = isEpisode,
@@ -265,8 +273,10 @@ class TvFocusMarqueeState internal constructor() {
         val current = content ?: return null
         return current.copy(
             detailLine = null,
-            backdropUrl = current.source.backdropUrl?.takeIf { it.isNotBlank() },
-            backdropThumbhash = current.source.backdropThumbhash,
+            // Mirror `from()`: episodes carry no still here (hero waits for the
+            // enriched series backdrop), so the base compares equal on re-focus.
+            backdropUrl = if (current.isEpisode) null else current.source.backdropUrl?.takeIf { it.isNotBlank() },
+            backdropThumbhash = if (current.isEpisode) null else current.source.backdropThumbhash,
         )
     }
 

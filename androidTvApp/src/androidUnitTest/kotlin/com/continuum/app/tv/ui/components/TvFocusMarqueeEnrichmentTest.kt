@@ -119,11 +119,16 @@ class TvFocusMarqueeEnrichmentTest {
     }
 
     @Test
-    fun `episode keeps its own backdrop when enrichment carries none`() {
+    fun `episode shows no hero backdrop until a series backdrop is enriched in`() {
+        // The low-res episode still is the wrong image for the cinematic hero,
+        // so episodes stay on the ambient wash (null) rather than flashing the
+        // still and then swapping to the series backdrop. With no series
+        // backdrop available, the hero simply has no image.
         val content = episodeContent()
+        assertEquals(null, content.heroBackdropUrl)
         val enriched = content.withEnrichment(
             TvMarqueeEnrichment.from(detail(backdropUrl = null, backdropThumbhash = null)),
         )
-        assertEquals("https://still/episode.jpg", enriched.heroBackdropUrl)
+        assertEquals(null, enriched.heroBackdropUrl)
     }
 }

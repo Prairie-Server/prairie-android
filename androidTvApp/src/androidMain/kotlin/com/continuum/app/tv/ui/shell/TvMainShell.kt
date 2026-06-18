@@ -645,6 +645,7 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Movies,
                         library = activeLibrary(TvLibraryTabType.Movies),
+                        emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Movies.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Movies] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Movies] ?: 0,
                         onItemClick = onOpenItemDetail,
@@ -656,6 +657,7 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Series,
                         library = activeLibrary(TvLibraryTabType.Series),
+                        emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Series.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Series] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Series] ?: 0,
                         onItemClick = onOpenItemDetail,
@@ -667,6 +669,7 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Music,
                         library = activeLibrary(TvLibraryTabType.Music),
+                        emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Music.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Music] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Music] ?: 0,
                         onItemClick = onOpenItemDetail,
@@ -678,6 +681,7 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Audiobooks,
                         library = activeLibrary(TvLibraryTabType.Audiobooks),
+                        emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Audiobooks.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Audiobooks] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Audiobooks] ?: 0,
                         onItemClick = onOpenItemDetail,
@@ -983,6 +987,7 @@ fun TvMainShell(
 private fun TvLibraryTypeContent(
     type: TvLibraryTabType,
     library: UserLibrary?,
+    emptyConfirmed: Boolean,
     selectedPill: TvLibraryPill,
     sectionRequestNonce: Int,
     onItemClick: (contentId: String) -> Unit,
@@ -990,12 +995,25 @@ private fun TvLibraryTypeContent(
     onInitialContentFocus: () -> Unit,
 ) {
     if (library == null) {
-        TvCatalogEmptyState(
-            message = "No ${type.title} libraries available for this profile.",
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
-        )
+        // Only assert "no libraries" once loading has settled AND this type
+        // genuinely has none ([emptyConfirmed]). While libraries are still
+        // loading/resolving — e.g. the brief window when the shell re-enters
+        // after backing out of detail/player — show a quiet background instead
+        // of flashing the empty-state message.
+        if (emptyConfirmed) {
+            TvCatalogEmptyState(
+                message = "No ${type.title} libraries available for this profile.",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+            )
+        }
         return
     }
     // Key on the library id so switching the active library rebuilds the
