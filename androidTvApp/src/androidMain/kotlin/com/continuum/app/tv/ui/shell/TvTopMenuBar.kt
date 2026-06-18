@@ -386,11 +386,17 @@ fun TvTopMenuBar(
     }
 }
 
-/** Minimal account view-data the menu bar renders. */
+/** Minimal account view-data the menu bar + profile dropdown render. */
 data class TvAccountState(
     val displayName: String = "Profile",
     val avatar: String? = null,
     val avatarUrl: String? = null,
+    /** Secondary line under the name in the dropdown header (role / username). */
+    val subtitle: String = "",
+    /** Active server display name, shown in the dropdown header. */
+    val serverName: String = "",
+    /** Whether the signed-in user is an acting admin (gates the Admin row). */
+    val isAdmin: Boolean = false,
 )
 
 /** Heavy, tracked SILO wordmark at the bar's leading edge (§5.1). */

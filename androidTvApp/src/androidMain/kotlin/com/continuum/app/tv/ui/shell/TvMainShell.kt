@@ -10,14 +10,28 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -67,14 +82,24 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.continuum.app.tv.ui.theme.ContinuumOnSurface
+import com.continuum.app.tv.ui.theme.DarkBackground
+import com.continuum.app.common.ui.components.profileAvatarDisplayText
 import com.continuum.app.common.ui.components.rememberProfileServerUrl
+import com.continuum.app.model.admin.shouldShowClientAdminSurface
+import com.continuum.app.model.auth.isActingAdmin
 import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.network.ApiResult
+import com.continuum.app.network.ServerRegistry
 import com.continuum.app.repository.AuthRepository
 import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.repository.PersonalDataRepository
@@ -228,16 +253,30 @@ fun TvMainShell(
     val tabAnchors = remember { mutableStateMapOf<TvTopMenuPanel, LayoutCoordinates>() }
     val panelScope = rememberCoroutineScope()
 
+    val serverRegistry: ServerRegistry = koinInject()
+    val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val accountSnapshot by produceState(
         initialValue = TvAccountState(),
         authRepository,
         profileRepository,
+        activeServerEntry,
     ) {
         val user = (authRepository.getCurrentUser() as? ApiResult.Success)?.data
         val activeProfile = profileRepository.getActiveProfile()
+        // Subtitle mirrors tvOS §5.8: role when known, falling back to username.
+        val subtitle = user?.role?.takeIf { it.isNotBlank() }
+            ?.replaceFirstChar { it.uppercase() }
+            ?: user?.username.orEmpty()
         value = TvAccountState(
             displayName = activeProfile?.name ?: user?.username ?: "Profile",
             avatar = activeProfile?.avatar,
+            subtitle = subtitle,
+            serverName = activeServerEntry?.displayName.orEmpty(),
+            // Gate via the shared client-admin policy (same as the Settings
+            // admin entry), not raw isActingAdmin — so the Admin row honors
+            // CLIENT_ADMIN_SURFACE_ENABLED and stays consistent with the rest
+            // of the TV client.
+            isAdmin = shouldShowClientAdminSurface(isActingAdmin(user, activeProfile)),
         )
     }
 
@@ -381,13 +420,6 @@ fun TvMainShell(
         profileMenuOpen = false
         navigateToSecondary(TvMainRoute.Inbox.route)
         moveFocusToContent(TvMainRoute.Inbox.route)
-    }
-
-    // Open the full Calendar (upcoming releases by week) from the profile menu.
-    val openCalendar: () -> Unit = {
-        profileMenuOpen = false
-        navigateToSecondary(TvMainRoute.Calendar.route)
-        moveFocusToContent(TvMainRoute.Calendar.route)
     }
 
     // Scroll-driven visibility for the top menu bar. Mirrors Apple's
@@ -881,20 +913,30 @@ fun TvMainShell(
         }
 
         if (profileMenuOpen) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.58f))
-                    .zIndex(1f),
-            )
-            TvProfileActionsPanel(
+            TvProfileDropdown(
+                accountState = accountSnapshot,
                 onNotifications = openInbox,
-                onCalendar = openCalendar,
+                onSwitchProfile = closeMenuAnd(onSwitchProfile),
+                onWatchlist = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.Watchlist.route)
+                    moveFocusToContent(TvMainRoute.Watchlist.route)
+                },
+                onFavorites = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.Favorites.route)
+                    moveFocusToContent(TvMainRoute.Favorites.route)
+                },
+                onHistory = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.History.route)
+                    moveFocusToContent(TvMainRoute.History.route)
+                },
                 onSettings = closeMenuAnd {
                     navigateToRoute(TvMainRoute.Settings.route)
                     moveFocusToContent(TvMainRoute.Settings.route)
                 },
-                onSwitchProfile = closeMenuAnd(onSwitchProfile),
+                onAdminDashboard = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.AdminHub.route)
+                    moveFocusToContent(TvMainRoute.AdminHub.route)
+                },
                 onSwitchServer = closeMenuAnd(onSwitchServer),
                 onSignOut = closeMenuAnd(onSignedOut),
                 onDismiss = {
@@ -903,7 +945,7 @@ fun TvMainShell(
                 },
                 modifier = Modifier
                     // The profile avatar now leads the *trailing* cluster, so the
-                    // menu anchors at the bar's end edge (Stage 3 moved it there).
+                    // dropdown anchors at the bar's end edge, under the avatar.
                     .align(Alignment.TopEnd)
                     .padding(
                         top = TvTopMenuLayout.profileMenuTopInset,
@@ -1036,39 +1078,47 @@ private fun cascadePanelOffset(
 }
 
 /**
- * Profile dropdown — fires from the avatar button on the top menu. tvOS uses
- * `TVProfileActionsPanel` (a dimmed full-screen overlay anchored top-left);
- * we render the same interaction model as an anchored card with a scrim so
- * content behind the menu cannot visually merge with the actions.
+ * Anchored profile dropdown — fires from the avatar button on the top menu.
+ * Faithful Compose-for-TV port of tvOS `TVProfileDropdown` (§5.8): the shared
+ * Skyline panel chrome ([tvSkylinePanelChrome]) floats under the avatar on its
+ * own shadow — NO full-screen page scrim. The panel is a focus group that
+ * consumes input and focuses its first row on open; Back/Menu closes it and
+ * returns focus to the avatar via [onDismiss].
+ *
+ * Row set + order mirrors tvOS, plus the Android-only Notifications row near
+ * the top: Notifications · Switch Profile · Watchlist · Favorites · History ·
+ * Settings · (Admin Dashboard, admin only) · Switch Server · Sign Out.
+ * Calendar is no longer here — it is a top-level tab.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun TvProfileActionsPanel(
+private fun TvProfileDropdown(
+    accountState: TvAccountState,
     onNotifications: () -> Unit,
-    onCalendar: () -> Unit,
-    onSettings: () -> Unit,
     onSwitchProfile: () -> Unit,
+    onWatchlist: () -> Unit,
+    onFavorites: () -> Unit,
+    onHistory: () -> Unit,
+    onSettings: () -> Unit,
+    onAdminDashboard: () -> Unit,
     onSwitchServer: () -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val firstFocus = remember { FocusRequester() }
+    // Opening focuses the first row; Back/Menu closes and returns to the avatar.
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
     Column(
         modifier = modifier
-            .width(300.dp)
-            .background(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(18.dp),
-            )
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.16f),
-                shape = RoundedCornerShape(18.dp),
-            )
+            .width(320.dp)
+            .tvSkylinePanelChrome()
             .padding(vertical = 12.dp)
             .focusGroup()
+            // No page scrim, so trap directional focus inside the dropdown —
+            // arrows can't leak into the bar/content behind it; only Back closes.
+            .focusProperties { exit = { FocusRequester.Cancel } }
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyUp &&
                     (ev.key == Key.Back || ev.key == Key.Escape)
@@ -1079,55 +1129,163 @@ private fun TvProfileActionsPanel(
             },
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        ProfileActionRow(label = "Notifications", focusRequester = firstFocus, onClick = onNotifications)
-        ProfileActionRow(label = "Calendar", onClick = onCalendar)
-        ProfileActionRow(label = "Switch Profile", onClick = onSwitchProfile)
-        ProfileActionRow(label = "Settings", onClick = onSettings)
-        ProfileActionRow(label = "Switch Server", onClick = onSwitchServer)
-        ProfileActionRow(label = "Sign Out", onClick = onSignOut)
+        ProfileDropdownHeader(accountState)
+
+        ProfileDropdownDivider()
+
+        ProfileDropdownRow(
+            label = "Notifications",
+            icon = Icons.Filled.Notifications,
+            focusRequester = firstFocus,
+            onClick = onNotifications,
+        )
+        ProfileDropdownRow(label = "Switch Profile", icon = Icons.Filled.People, onClick = onSwitchProfile)
+        ProfileDropdownRow(label = "Watchlist", icon = Icons.Filled.Bookmark, onClick = onWatchlist)
+        ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
+        ProfileDropdownRow(label = "History", icon = Icons.Filled.History, onClick = onHistory)
+
+        ProfileDropdownDivider()
+
+        ProfileDropdownRow(label = "Settings", icon = Icons.Filled.Settings, onClick = onSettings)
+        if (accountState.isAdmin) {
+            ProfileDropdownRow(
+                label = "Admin Dashboard",
+                icon = Icons.Filled.AdminPanelSettings,
+                onClick = onAdminDashboard,
+            )
+        }
+        ProfileDropdownRow(label = "Switch Server", icon = Icons.Filled.Dns, onClick = onSwitchServer)
+        ProfileDropdownRow(
+            label = "Sign Out",
+            icon = Icons.AutoMirrored.Filled.Logout,
+            onClick = onSignOut,
+        )
+    }
+}
+
+/** Avatar + display name + subtitle + server name header (tvOS §5.8). */
+@Composable
+private fun ProfileDropdownHeader(accountState: TvAccountState) {
+    val avatarText = remember(accountState.avatar, accountState.displayName) {
+        profileAvatarDisplayText(accountState.avatar, accountState.displayName)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 22.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = avatarText,
+                color = ContinuumOnSurface,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = accountState.displayName,
+                color = ContinuumOnSurface,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val subtitle = listOf(accountState.subtitle, accountState.serverName)
+                .filter { it.isNotBlank() }
+                .joinToString("  ·  ")
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    text = subtitle.uppercase(),
+                    color = ContinuumOnSurface.copy(alpha = 0.38f),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun ProfileActionRow(
+private fun ProfileDropdownDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .height(1.dp)
+            .background(Color.White.copy(alpha = 0.10f)),
+    )
+}
+
+/**
+ * Inverted-capsule dropdown row (tvOS §5.8 / cascade grammar): a leading icon
+ * and label that invert to a solid [ContinuumOnSurface] fill with
+ * [DarkBackground] content on focus, bare at rest.
+ */
+@Composable
+private fun ProfileDropdownRow(
     label: String,
+    icon: ImageVector,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    val contentColor = if (isFocused) DarkBackground else ContinuumOnSurface.copy(alpha = 0.9f)
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
             .padding(horizontal = 10.dp)
             .let { if (focusRequester != null) it.focusRequester(focusRequester) else it },
         onClick = onClick,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            focusedContainerColor = Color.White.copy(alpha = 0.92f),
-            focusedContentColor = Color.Black,
-            pressedContainerColor = Color.White.copy(alpha = 0.86f),
-            pressedContentColor = Color.Black,
+            contentColor = ContinuumOnSurface,
+            focusedContainerColor = ContinuumOnSurface,
+            focusedContentColor = DarkBackground,
+            pressedContainerColor = ContinuumOnSurface,
+            pressedContentColor = DarkBackground,
         ),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.96f)),
-                shape = RoundedCornerShape(12.dp),
-            ),
+            border = Border(border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(12.dp)),
+            focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(12.dp)),
         ),
     ) {
-        Text(
-            text = label,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            style = MaterialTheme.typography.titleSmall,
-            color = if (isFocused) Color.Black else MaterialTheme.colorScheme.onSurface,
-        )
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(22.dp),
+            )
+            Text(
+                text = label,
+                color = contentColor,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(modifier = Modifier.width(0.dp))
+        }
     }
 }
