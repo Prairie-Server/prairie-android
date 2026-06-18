@@ -32,6 +32,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusDirection
@@ -119,6 +120,7 @@ import org.koin.compose.koinInject
  * from the Settings screen (opened via the profile menu) and remain navigable
  * by route inside the same NavHost so deep links keep working.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TvMainShell(
     onOpenItemDetail: (contentId: String) -> Unit,
@@ -496,6 +498,23 @@ fun TvMainShell(
                 .nestedScroll(nestedScrollConnection)
                 .focusRequester(contentFocusRequester)
                 .focusRestorer()
+                // Block any GEOMETRIC focus escape upward out of the content
+                // group. Without this, moveFocus(Up) from the top content row
+                // does a 2D search into the sibling top bar and lands on the
+                // nearest button (the trailing profile avatar) — bypassing the
+                // bar's `enter`/selected-tab routing. Cancelling the exit makes
+                // the manual moveFocus(Up) below return false at the top row, so
+                // the `!moved` branch routes to the bar's SELECTED tab via
+                // menuFocusRequest++. Intra-content row moves don't hit `exit`.
+                .focusProperties {
+                    exit = { direction ->
+                        if (direction == FocusDirection.Up) {
+                            FocusRequester.Cancel
+                        } else {
+                            FocusRequester.Default
+                        }
+                    }
+                }
                 .focusGroup()
                 .onPreviewKeyEvent { ev ->
                     when {

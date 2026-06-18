@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -124,6 +125,24 @@ fun TvCascadeSelector(
     // Whether any pill in the flyout currently holds focus.
     var focusedPill by remember { mutableStateOf<TvLibraryPill?>(null) }
 
+    // Whether the level-2 sections flyout is revealed. Always shown for a
+    // single-library tab (it is the only column); for a multi-library tab it is
+    // hidden until the user presses Right on a library row, then hidden again on
+    // Left. Composing it conditionally (rather than leaving an always-present
+    // zero-interaction column) is what makes the Right gesture actually "reveal"
+    // it — matching the tvOS §5.3 cascade.
+    var flyoutVisible by remember { mutableStateOf(isSingleLibrary) }
+    // Bumped when the flyout is revealed via Right so the first pill is focused
+    // AFTER it has been composed (and its FocusRequester attached) on the next
+    // frame — a synchronous requestFocus in the key handler would target an
+    // unattached requester and silently no-op.
+    var focusFirstPillToken by remember { mutableIntStateOf(0) }
+    LaunchedEffect(focusFirstPillToken) {
+        if (focusFirstPillToken > 0) {
+            pills.firstOrNull()?.let { pillRequesters[it]?.requestFocus() }
+        }
+    }
+
     val anchorLibrary = libraries.firstOrNull { it.id == anchorId } ?: libraries.firstOrNull()
 
     // Drive onPanelFocusChanged from whether ANY row or pill is focused.
@@ -143,6 +162,10 @@ fun TvCascadeSelector(
             if (isSingleLibrary) {
                 pills.firstOrNull()?.let { pillRequesters[it]?.requestFocus() }
             } else {
+                // Re-entering a multi-library panel always starts on a library
+                // row with the flyout collapsed, so a stale reveal from a prior
+                // visit doesn't linger.
+                flyoutVisible = false
                 val target = currentScopeId ?: libraries.firstOrNull()?.id
                 target?.let { id ->
                     anchorId = id
@@ -190,7 +213,12 @@ fun TvCascadeSelector(
                             anchorId = library.id
                             val firstPill = pills.firstOrNull()
                             if (firstPill != null) {
-                                pillRequesters[firstPill]?.requestFocus()
+                                // Reveal the flyout for this row, then focus its
+                                // first pill. requestFocus is posted so it runs
+                                // after the just-composed pill attaches its
+                                // FocusRequester.
+                                flyoutVisible = true
+                                focusFirstPillToken++
                                 true
                             } else {
                                 false
@@ -252,9 +280,10 @@ fun TvCascadeSelector(
         }
 
         // LEVEL 2 — sections flyout. For a single-library tab it is the only
-        // column; otherwise it is offset down to align with the anchor row.
+        // column; otherwise it is revealed (composed) only after Right and is
+        // offset down to align with the anchor row.
         val flyoutOffset = if (isSingleLibrary) 0f else (rowTops[anchorId] ?: 0f)
-        if (anchorLibrary != null) {
+        if (anchorLibrary != null && flyoutVisible) {
             Column(
                 modifier = Modifier
                     .offset { IntOffset(0, flyoutOffset.roundToInt()) }
@@ -275,7 +304,10 @@ fun TvCascadeSelector(
                             } else {
                                 val target = anchorId ?: libraries.firstOrNull()?.id
                                 if (target != null) {
+                                    // Return focus to the anchor library row, then
+                                    // collapse the flyout so Right can re-reveal it.
                                     libraryRequesters[target]?.requestFocus()
+                                    flyoutVisible = false
                                     true
                                 } else {
                                     false
@@ -324,10 +356,16 @@ private fun CascadeLibraryRow(
         focusable = entersPanel,
         onTopChanged = onTopChanged,
         onKey = { event ->
-            if (event.type != KeyEventType.KeyDown) return@CascadeRowChrome false
             when (event.key) {
-                Key.DirectionRight -> onMoveRight()
-                Key.DirectionCenter, Key.Enter -> onSelect()
+                // Commit on key-UP and consume BOTH phases of Center/Enter. The
+                // key-DOWN is swallowed (returns true) so the trailing key-UP that
+                // would otherwise reach the newly-focused content card after
+                // commit has nothing to act on — fixing the "commit key bleed".
+                Key.DirectionCenter, Key.Enter -> {
+                    if (event.type == KeyEventType.KeyUp) onSelect() else true
+                }
+                Key.DirectionRight ->
+                    if (event.type == KeyEventType.KeyDown) onMoveRight() else false
                 else -> false
             }
         },
@@ -361,10 +399,14 @@ private fun CascadeSectionRow(
         focusable = entersPanel,
         onTopChanged = null,
         onKey = { event ->
-            if (event.type != KeyEventType.KeyDown) return@CascadeRowChrome false
             when (event.key) {
-                Key.DirectionLeft -> onMoveLeft()
-                Key.DirectionCenter, Key.Enter -> onSelect()
+                // Same commit-on-UP + consume-both contract as the library row so
+                // committing a section can't bleed the key-up into content.
+                Key.DirectionCenter, Key.Enter -> {
+                    if (event.type == KeyEventType.KeyUp) onSelect() else true
+                }
+                Key.DirectionLeft ->
+                    if (event.type == KeyEventType.KeyDown) onMoveLeft() else false
                 else -> false
             }
         },
