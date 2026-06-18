@@ -147,6 +147,7 @@ fun TvTopMenuBar(
     onMenuFocusChange: (Boolean) -> Unit,
     isFocusSuppressed: Boolean,
     focusRequest: Int,
+    profileFocusRequest: Int = 0,
     isSearchActive: Boolean = false,
     visibility: Float = 1f,
     openPanel: TvTopMenuPanel? = null,
@@ -170,11 +171,16 @@ fun TvTopMenuBar(
     // (which is unreliable while the parent suppresses focus mid-animation).
     var focusedButton by remember { mutableStateOf<TvTopMenuFocus?>(null) }
 
-    // `LaunchedEffect(focusRequest, isFocusSuppressed)` means a request that
-    // arrives while the bar is still suppressed won't be silently dropped —
-    // when suppression lifts, we re-evaluate and request focus.
+    // Focus the selected tab when `focusRequest` actually changes (the
+    // content→bar Up path). We track the last-handled value so a bare
+    // suppression lift (e.g. closing the profile dropdown, which flips
+    // isFocusSuppressed false) does NOT also re-grab the selected tab and fight
+    // the dedicated profile-avatar focus path below.
+    var lastHandledFocusRequest by remember { mutableStateOf(0) }
     LaunchedEffect(focusRequest, isFocusSuppressed) {
         if (isFocusSuppressed) return@LaunchedEffect
+        if (focusRequest == lastHandledFocusRequest) return@LaunchedEffect
+        lastHandledFocusRequest = focusRequest
         val target = when (val root = selectedRoot) {
             TvRootDestination.Home -> homeFocusRequester
             TvRootDestination.Calendar -> calendarFocusRequester
@@ -186,6 +192,16 @@ fun TvTopMenuBar(
 
     LaunchedEffect(focusedButton) {
         onMenuFocusChange(focusedButton != null)
+    }
+
+    // Dedicated focus path for closing the profile dropdown: return focus to the
+    // profile avatar that opened it, rather than the selected tab (which is what
+    // `focusRequest`/`menuFocusRequest` targets). Guarded on >0 so it never runs
+    // on first compose.
+    LaunchedEffect(profileFocusRequest) {
+        if (profileFocusRequest > 0) {
+            runCatching { profileFocusRequester.requestFocus() }
+        }
     }
 
     // Dwell-to-preview (tvOS `TVTopMenuBar` per-tab dwell timer): resting focus

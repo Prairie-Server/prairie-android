@@ -233,6 +233,11 @@ fun TvMainShell(
     // bar to re-request focus on its currently selected button. The bar's
     // `LaunchedEffect(focusRequest, isFocusSuppressed)` reacts.
     var menuFocusRequest by remember { mutableIntStateOf(0) }
+    // Dedicated counter for returning focus to the profile AVATAR (not the
+    // selected tab) when the profile dropdown closes. Kept separate from
+    // `menuFocusRequest` (which always targets the selected tab) so closing the
+    // dropdown lands back on the avatar that opened it.
+    var profileFocusRequest by remember { mutableIntStateOf(0) }
     var contentFocusRequest by remember { mutableIntStateOf(0) }
     var isMenuFocused by remember { mutableStateOf(false) }
 
@@ -495,7 +500,7 @@ fun TvMainShell(
                         }
                         profileMenuOpen -> {
                             profileMenuOpen = false
-                            menuFocusRequest++
+                            profileFocusRequest++
                             true
                         }
                         isMenuFocused -> {
@@ -858,6 +863,7 @@ fun TvMainShell(
             onMenuFocusChange = { isMenuFocused = it },
             isFocusSuppressed = profileMenuOpen,
             focusRequest = menuFocusRequest,
+            profileFocusRequest = profileFocusRequest,
             isSearchActive = currentRoute == TvMainRoute.Search.route,
             visibility = menuVisibility.value,
             openPanel = openPanel,
@@ -949,7 +955,7 @@ fun TvMainShell(
                 onSignOut = closeMenuAnd(onSignedOut),
                 onDismiss = {
                     profileMenuOpen = false
-                    menuFocusRequest++
+                    profileFocusRequest++
                 },
                 modifier = Modifier
                     // The profile avatar now leads the *trailing* cluster, so the
