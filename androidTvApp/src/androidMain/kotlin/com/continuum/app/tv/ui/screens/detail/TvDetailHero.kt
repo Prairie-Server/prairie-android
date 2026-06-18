@@ -103,7 +103,7 @@ internal fun TvDetailHero(
     // pixels keeps the hero a true 0.907 of the viewport regardless of override.
     val screenHeightPx = LocalContext.current.resources.displayMetrics.heightPixels
     val heroHeight = with(LocalDensity.current) { (screenHeightPx * HERO_HEIGHT_FRACTION).toDp() }
-    val contentMaxWidth = 1200.dp
+    val contentMaxWidth = 640.dp
 
     Box(
         modifier = modifier
@@ -290,8 +290,8 @@ private fun TitleBlock(
             // loading/failed logo can't measure as 0 and collapse the editorial
             // stack. Fixed height + Fit keeps the logo's aspect within it.
             modifier = Modifier
-                .height(220.dp)
-                .widthIn(max = 620.dp),
+                .height(120.dp)
+                .widthIn(max = 360.dp),
         )
         else -> HeroTextTitle(title = title)
     }
@@ -312,8 +312,8 @@ private fun HeroTextTitle(title: String) {
                 text = sub.uppercase(),
                 style = heroDisplayHero.copy(
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 40.sp,
-                    lineHeight = 44.sp,
+                    fontSize = 26.sp,
+                    lineHeight = 30.sp,
                     letterSpacing = 1.5.sp,
                 ),
                 color = Color.White.copy(alpha = 0.95f),
@@ -337,8 +337,8 @@ private fun EpisodeHierarchyTitle(seriesTitle: String, episodeTitle: String) {
             text = parts.first,
             style = heroDisplayHero.copy(
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 50.sp,
-                lineHeight = 54.sp,
+                fontSize = 30.sp,
+                lineHeight = 34.sp,
             ),
             color = Color.White.copy(alpha = 0.94f),
             maxLines = 2,
@@ -348,8 +348,8 @@ private fun EpisodeHierarchyTitle(seriesTitle: String, episodeTitle: String) {
                 text = sub.uppercase(),
                 style = heroDisplayHero.copy(
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 32.sp,
-                    lineHeight = 36.sp,
+                    fontSize = 20.sp,
+                    lineHeight = 24.sp,
                     letterSpacing = 1.2.sp,
                 ),
                 color = Color.White.copy(alpha = 0.82f),
@@ -537,8 +537,11 @@ private const val HERO_HEIGHT_FRACTION = 0.907f
 private val heroDisplayHero = TextStyle(
     fontFamily = FontFamily.Default,
     fontWeight = FontWeight.Black,
-    fontSize = 92.sp,
-    lineHeight = 92.sp,
+    // tvOS uses 92pt in its 1920x1080 POINT canvas; Android TV is a 960x540 DP
+    // canvas (≈half), so the point value must be ~halved or the title overflows
+    // the hero. 56sp sits just above the shared home `heroDisplay` (58sp).
+    fontSize = 56.sp,
+    lineHeight = 58.sp,
     letterSpacing = (-1).sp,
     // Apple shadows the hero title (black@0.55, r16, y4) for legibility on
     // bright backdrops. Inherited by the subtitle/episode `.copy()` variants.
