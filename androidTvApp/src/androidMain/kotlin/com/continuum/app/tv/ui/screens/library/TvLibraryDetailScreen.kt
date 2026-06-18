@@ -114,12 +114,30 @@ fun TvLibraryDetailScreen(
     onItemClick: (contentId: String) -> Unit,
     onCollectionClick: (collectionId: String, title: String) -> Unit,
     onInitialContentFocus: () -> Unit = {},
+    // When the screen is opened from the Skyline cascade with a committed
+    // section pill, this drives the initial tab (Recommended / Library /
+    // Collections). Null leaves the ViewModel's default (Recommended) and any
+    // user-driven tab changes alone.
+    initialSection: TvLibraryTab? = null,
+    // Monotonic nonce bumped by the host on every cascade commit. Keying the
+    // section-apply effect on it (not just initialSection) makes re-committing
+    // the SAME pill re-apply the section instead of being a silent no-op.
+    sectionRequestNonce: Int = 0,
     viewModel: TvLibraryDetailViewModel = koinViewModel(
         key = "library-$libraryId",
         parameters = { parametersOf(libraryId, libraryTitle, libraryType) },
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Apply the committed cascade section on entry / whenever the commit
+    // changes it. Keyed on sectionRequestNonce (bumped on every commit) AND the
+    // section value, so re-committing the SAME pill re-applies the section
+    // rather than being a silent no-op, while a non-commit recomposition leaves
+    // manual in-screen tab moves untouched.
+    LaunchedEffect(sectionRequestNonce, initialSection) {
+        initialSection?.let(viewModel::onTabSelected)
+    }
 
     Box(
         modifier = Modifier

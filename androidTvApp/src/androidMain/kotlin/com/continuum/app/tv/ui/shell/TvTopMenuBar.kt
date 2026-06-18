@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,9 +29,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -41,6 +44,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -127,7 +132,7 @@ private sealed class TvTopMenuFocus {
  * - When `isFocusSuppressed` is true the bar drops any current focus so D-pad
  *   navigation in the content area below cannot pull focus back into the menu.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun TvTopMenuBar(
     selectedRoot: TvRootDestination?,
@@ -144,6 +149,10 @@ fun TvTopMenuBar(
     focusRequest: Int,
     isSearchActive: Boolean = false,
     visibility: Float = 1f,
+    openPanel: TvTopMenuPanel? = null,
+    onDwell: (TvTopMenuPanel?) -> Unit = {},
+    onEnterPanel: (TvTopMenuPanel) -> Unit = {},
+    onTabAnchor: (TvTopMenuPanel, androidx.compose.ui.layout.LayoutCoordinates) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val homeFocusRequester = remember { FocusRequester() }
@@ -179,6 +188,21 @@ fun TvTopMenuBar(
         onMenuFocusChange(focusedButton != null)
     }
 
+    // Dwell-to-preview (tvOS `TVTopMenuBar` per-tab dwell timer): resting focus
+    // on a library-type tab for ~700ms opens its cascade panel in preview;
+    // moving focus re-keys this effect (auto-cancelling the pending delay).
+    // Landing on any non-panel button (or losing focus) closes the preview
+    // immediately so a stale panel never lingers under the wrong tab.
+    LaunchedEffect(focusedButton) {
+        val focus = focusedButton
+        if (focus is TvTopMenuFocus.Tab) {
+            delay(700)
+            onDwell(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
+        } else {
+            onDwell(null)
+        }
+    }
+
     // Focus-driven dim (§5.1): full opacity while the bar is focused, dimmed
     // otherwise. Composed (multiplied) with the scroll-visibility alpha below
     // so the hide-on-scroll slide still fades the bar all the way out.
@@ -188,7 +212,23 @@ fun TvTopMenuBar(
         label = "tvTopMenuBarDim",
     )
 
-    Box(
+    // Where focus lands when it enters the bar from content (UP) — always the
+    // currently-selected tab, not whatever the geometric focus search would
+    // pick (which, with the old align-zoned layout, wrongly landed in the
+    // trailing cluster). On non-tab routes (Search) we enter the search icon.
+    val barEntryRequester = when (val root = selectedRoot) {
+        TvRootDestination.Home -> homeFocusRequester
+        TvRootDestination.Calendar -> calendarFocusRequester
+        is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
+        null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
+    }
+
+    // Single full-width Row (wordmark · flexible gap · centered tabs · flexible
+    // gap · trailing search+profile) so D-pad Left/Right traverse the whole bar
+    // in one ordered focus group — the three-zone `align` layout couldn't be
+    // crossed by Compose's 2D focus search (Right off the last tab, or Left off
+    // search, escaped into content instead of moving along the bar).
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .height(TvSkyline.barTopInset + TvSkyline.barHeight)
@@ -209,32 +249,40 @@ fun TvTopMenuBar(
                 ),
             )
             .focusGroup()
+            .focusProperties { enter = { barEntryRequester } }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
-                    onMoveDown()
+                    // On a library-type tab, d-pad-down opens that tab's cascade
+                    // panel (and focuses into it) instead of diving to content.
+                    // Home/Calendar/Search keep the move-to-content behavior.
+                    val focus = focusedButton
+                    if (focus is TvTopMenuFocus.Tab) {
+                        onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
+                    } else {
+                        onMoveDown()
+                    }
                     true
                 } else {
                     false
                 }
             },
+        verticalAlignment = Alignment.Bottom,
     ) {
         // Leading: SILO wordmark.
         Box(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = TvSkyline.safeAreaX, top = TvSkyline.barTopInset)
+                .padding(start = TvSkyline.safeAreaX)
                 .height(TvSkyline.barHeight),
             contentAlignment = Alignment.Center,
         ) {
             TvSiloWordmark()
         }
 
+        Spacer(modifier = Modifier.weight(1f))
+
         // Center cluster: Home · library-type tabs · Calendar.
         Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = TvSkyline.barTopInset)
-                .height(TvSkyline.barHeight),
+            modifier = Modifier.height(TvSkyline.barHeight),
             horizontalArrangement = Arrangement.spacedBy(TvSkyline.tabSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -257,6 +305,7 @@ fun TvTopMenuBar(
 
                     is TvRootDestination.LibraryType -> {
                         val type = destination.type
+                        val panel = TvTopMenuPanel.Root(destination)
                         TvTopMenuTab(
                             label = type.title,
                             isSelected = selectedRoot == destination,
@@ -270,6 +319,13 @@ fun TvTopMenuBar(
                                 }
                             },
                             onClick = { onSelectRoot(destination) },
+                            // Library-type tabs publish their anchor so the shell
+                            // can position the cascade panel under them. The
+                            // d-pad-down → enter-panel intercept lives on the
+                            // bar's own preview key handler (ancestor of the tab),
+                            // which fires before any tab-level handler would.
+                            modifier = Modifier
+                                .onGloballyPositioned { onTabAnchor(panel, it) },
                         )
                     }
 
@@ -291,11 +347,12 @@ fun TvTopMenuBar(
             }
         }
 
+        Spacer(modifier = Modifier.weight(1f))
+
         // Trailing cluster: Search icon + profile avatar (with unread badge).
         Row(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(end = TvSkyline.safeAreaX, top = TvSkyline.barTopInset)
+                .padding(end = TvSkyline.safeAreaX)
                 .height(TvSkyline.barHeight),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(TvSkyline.barTrailingSpacing),
@@ -367,6 +424,7 @@ private fun TvTopMenuTab(
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isInteractionFocused by interactionSource.collectIsFocusedAsState()
@@ -408,7 +466,7 @@ private fun TvTopMenuTab(
             border = Border(border = BorderStroke(1.dp, borderColor), shape = shape),
             focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
         ),
-        modifier = Modifier
+        modifier = modifier
             .focusRequester(focusRequester)
             .height(TvSkyline.barHeight),
     ) {

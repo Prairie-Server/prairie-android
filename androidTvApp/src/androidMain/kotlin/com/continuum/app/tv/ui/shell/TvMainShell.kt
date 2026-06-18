@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -32,12 +33,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -50,6 +58,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -69,9 +78,12 @@ import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.tv.data.preferences.TvLibraryScopeStore
+import com.continuum.app.tv.ui.components.TvCascadeSelector
 import com.continuum.app.tv.ui.components.TvCatalogEmptyState
+import com.continuum.app.tv.ui.components.tvSkylinePanelChrome
 import com.continuum.app.tv.ui.navigation.TvMainRoute
 import com.continuum.app.tv.ui.screens.library.TvLibraryDetailScreen
+import com.continuum.app.tv.ui.screens.library.TvLibraryTab
 import com.continuum.app.tv.ui.screens.notifications.TvInboxScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminHubScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminLogsScreen
@@ -95,6 +107,7 @@ import com.continuum.app.tv.ui.screens.requests.TvRequestsScreen
 import com.continuum.app.tv.ui.screens.search.TvSearchScreen
 import com.continuum.app.tv.ui.screens.settings.TvManageSessionsScreen
 import com.continuum.app.tv.ui.screens.settings.TvSettingsScreen
+import com.continuum.app.tv.ui.theme.TvSkyline
 import com.continuum.app.tv.ui.util.visibleOnTv
 import org.koin.compose.koinInject
 
@@ -158,6 +171,9 @@ fun TvMainShell(
     // (Stage 4 wires the cascade into these). Persistently composed.
     val scopeSelections: SnapshotStateMap<TvLibraryTabType, Int> = remember { mutableStateMapOf() }
     val pillSelections: SnapshotStateMap<TvLibraryTabType, TvLibraryPill> = remember { mutableStateMapOf() }
+    // Monotonic per-type "section request" nonce, bumped on every commitScope so
+    // re-committing the same section pill still re-applies (see TvLibraryDetailScreen).
+    val sectionRequestNonces: SnapshotStateMap<TvLibraryTabType, Int> = remember { mutableStateMapOf() }
 
     // Resolved active library per type. resolvedLibrary is suspend, so resolve
     // it off-composition in a LaunchedEffect keyed on (libraries, scopeSelections)
@@ -193,6 +209,21 @@ fun TvMainShell(
     var isMenuFocused by remember { mutableStateOf(false) }
 
     var profileMenuOpen by remember { mutableStateOf(false) }
+
+    // --- Skyline cascade panel host (Stage 4) ----------------------------------
+    // Mirrors tvOS `TVMainTabView.persistentPanels`. The cascade overlays are
+    // ALWAYS composed (one per visible library-type tab) and toggled by alpha +
+    // focus-block; we never add/remove them reactively (Compose-for-TV focus
+    // graph thrash). `openPanel` selects the active one; `panelEntersFocus` flips
+    // true only once the user commits to entering (d-pad-down or dwell+down) so a
+    // mere preview doesn't steal focus; `panelFocusEntryToken` re-fires the
+    // selector's focus-entry effect. `tabAnchors` carries each tab's measured
+    // coordinates for positioning.
+    var openPanel by remember { mutableStateOf<TvTopMenuPanel?>(null) }
+    var panelEntersFocus by remember { mutableStateOf(false) }
+    var panelFocusEntryToken by remember { mutableIntStateOf(0) }
+    val tabAnchors = remember { mutableStateMapOf<TvTopMenuPanel, LayoutCoordinates>() }
+    val panelScope = rememberCoroutineScope()
 
     val accountSnapshot by produceState(
         initialValue = TvAccountState(),
@@ -267,6 +298,62 @@ fun TvMainShell(
         if (route != currentRoute) {
             navigateToRoute(route)
         }
+        moveFocusToContent(route)
+    }
+
+    // --- Cascade panel choreography (tvOS openPanelPreview / openPanelAndEnter /
+    // closePanel). Preview shows the panel without taking focus; entering flips
+    // focus into it; closing returns focus to the originating bar tab. ----------
+    val handleDwell: (TvTopMenuPanel?) -> Unit = { panel ->
+        // An ENTERED panel (panelEntersFocus == true) is never changed or closed
+        // by dwell — only Back or a commit closes it. Dwell only manipulates a
+        // mere PREVIEW.
+        if (!panelEntersFocus) {
+            if (panel != null) {
+                // Preview the newly-focused tab (switching the preview if a
+                // different tab's preview was showing).
+                openPanel = panel
+            } else {
+                // Focus left the tabs to a non-panel button; drop the preview.
+                openPanel = null
+            }
+        }
+    }
+
+    val openPanelAndEnter: (TvTopMenuPanel) -> Unit = { panel ->
+        openPanel = panel
+        panelEntersFocus = true
+        panelFocusEntryToken++
+    }
+
+    val closePanel: (Boolean) -> Unit = { returnFocusToBar ->
+        openPanel = null
+        panelEntersFocus = false
+        // Return focus to the bar (lands on its selected tab) for a Back-close.
+        // A commit suppresses this so its moveFocusToContent isn't raced back to
+        // the bar by the menuFocusRequest bump.
+        if (returnFocusToBar) {
+            menuFocusRequest++
+        }
+    }
+
+    // Commit a scope (and optionally a section pill) from the cascade: persist
+    // the library scope, record the session pill, navigate to that type's route,
+    // close the panel, and move focus into the freshly-scoped content.
+    val commitScope: (TvLibraryTabType, UserLibrary, TvLibraryPill) -> Unit = { type, library, pill ->
+        scopeSelections[type] = library.id
+        pillSelections[type] = pill
+        // Bump the per-type section nonce so re-committing the SAME pill still
+        // re-applies the section in TvLibraryDetailScreen (its LaunchedEffect
+        // keys on the nonce, not just the section value).
+        sectionRequestNonces[type] = (sectionRequestNonces[type] ?: 0) + 1
+        panelScope.launch { tvLibraryScopeStore.setSelectedLibraryId(library.id, type) }
+        val route = TvRootDestination.LibraryType(type).toRoute()
+        if (route != currentRoute) {
+            navigateToRoute(route)
+        }
+        // Close WITHOUT returning focus to the bar; commit wants content focus.
+        closePanel(false)
         moveFocusToContent(route)
     }
 
@@ -363,6 +450,14 @@ fun TvMainShell(
                     (ev.key == Key.Back || ev.key == Key.Escape)
                 ) {
                     when {
+                        // An open cascade panel takes Back first: just close it
+                        // (returning focus to the bar) and fully consume — no
+                        // nav-pop / exit. Back is centralized here, not in the
+                        // selector, so it can't be double-handled.
+                        openPanel != null -> {
+                            closePanel(true)
+                            true
+                        }
                         profileMenuOpen -> {
                             profileMenuOpen = false
                             menuFocusRequest++
@@ -485,6 +580,8 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Movies,
                         library = activeLibrary(TvLibraryTabType.Movies),
+                        selectedPill = pillSelections[TvLibraryTabType.Movies] ?: TvLibraryPill.Recommended,
+                        sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Movies] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { profileMenuOpen = false },
@@ -494,6 +591,8 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Series,
                         library = activeLibrary(TvLibraryTabType.Series),
+                        selectedPill = pillSelections[TvLibraryTabType.Series] ?: TvLibraryPill.Recommended,
+                        sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Series] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { profileMenuOpen = false },
@@ -503,6 +602,8 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Music,
                         library = activeLibrary(TvLibraryTabType.Music),
+                        selectedPill = pillSelections[TvLibraryTabType.Music] ?: TvLibraryPill.Recommended,
+                        sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Music] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { profileMenuOpen = false },
@@ -512,6 +613,8 @@ fun TvMainShell(
                     TvLibraryTypeContent(
                         type = TvLibraryTabType.Audiobooks,
                         library = activeLibrary(TvLibraryTabType.Audiobooks),
+                        selectedPill = pillSelections[TvLibraryTabType.Audiobooks] ?: TvLibraryPill.Recommended,
+                        sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Audiobooks] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { profileMenuOpen = false },
@@ -697,11 +800,61 @@ fun TvMainShell(
             focusRequest = menuFocusRequest,
             isSearchActive = currentRoute == TvMainRoute.Search.route,
             visibility = menuVisibility.value,
+            openPanel = openPanel,
+            onDwell = handleDwell,
+            onEnterPanel = openPanelAndEnter,
+            onTabAnchor = { panel, coords -> tabAnchors[panel] = coords },
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopStart)
                 .zIndex(1f),
         )
+
+        // Persistent cascade overlays (tvOS `persistentPanels`): one Box per
+        // visible library-type tab, ALWAYS in the tree. Inactive panels are
+        // alpha-0 and focus-blocked; the active one fades in and accepts focus.
+        // Positioned under their tab anchor, clamped to the safe-area X.
+        val density = LocalDensity.current
+        val panelWidthDp = 760.dp
+        visibleRoots.forEach { dest ->
+            if (dest is TvRootDestination.LibraryType) {
+                val panel = TvTopMenuPanel.Root(dest)
+                val active = openPanel == panel
+                val anchor = tabAnchors[panel]
+                Box(
+                    modifier = Modifier
+                        .absoluteOffset {
+                            cascadePanelOffset(
+                                anchor = anchor,
+                                panelWidthPx = with(density) { panelWidthDp.toPx() },
+                                safeAreaXPx = with(density) { TvSkyline.safeAreaX.toPx() },
+                                panelTopPx = with(density) {
+                                    (TvSkyline.barTopInset + TvSkyline.barHeight).toPx()
+                                },
+                            )
+                        }
+                        .width(panelWidthDp)
+                        .alpha(if (active) 1f else 0f)
+                        .focusProperties { canFocus = active }
+                        .zIndex(2f)
+                        .let { if (active) it.tvSkylinePanelChrome() else it },
+                ) {
+                    TvCascadeSelector(
+                        type = dest.type,
+                        libraries = libraries.filter { dest.type.matches(it) },
+                        currentScopeId = activeLibrary(dest.type)?.id,
+                        selectedPill = pillSelections[dest.type] ?: TvLibraryPill.Recommended,
+                        entersPanel = active && panelEntersFocus,
+                        focusEntryToken = panelFocusEntryToken,
+                        onCommitLibrary = { lib -> commitScope(dest.type, lib, TvLibraryPill.Recommended) },
+                        onCommitSection = { lib, pill -> commitScope(dest.type, lib, pill) },
+                        onPanelFocusChanged = { /* optional bar-dim tracking */ },
+                        onClose = { closePanel(true) },
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+        }
 
         if (profileMenuOpen) {
             Box(
@@ -750,6 +903,8 @@ fun TvMainShell(
 private fun TvLibraryTypeContent(
     type: TvLibraryTabType,
     library: UserLibrary?,
+    selectedPill: TvLibraryPill,
+    sectionRequestNonce: Int,
     onItemClick: (contentId: String) -> Unit,
     onLibraryCollectionClick: (libraryId: Int, collectionId: String, title: String) -> Unit,
     onInitialContentFocus: () -> Unit,
@@ -778,6 +933,8 @@ private fun TvLibraryTypeContent(
                 onLibraryCollectionClick(library.id, collectionId, title)
             },
             onInitialContentFocus = onInitialContentFocus,
+            initialSection = selectedPill.toLibraryTab(),
+            sectionRequestNonce = sectionRequestNonce,
         )
     }
 }
@@ -817,6 +974,40 @@ private fun TvRootDestination.toRoute(): String = when (this) {
         TvLibraryTabType.Music -> TvMainRoute.Music.route
         TvLibraryTabType.Audiobooks -> TvMainRoute.Audiobooks.route
     }
+}
+
+/**
+ * Maps a committed cascade [TvLibraryPill] to the library detail screen's
+ * section tab. Recommended → Recommended, Browse → Library (the full grid),
+ * Collections → Collections.
+ */
+private fun TvLibraryPill.toLibraryTab(): TvLibraryTab = when (this) {
+    TvLibraryPill.Recommended -> TvLibraryTab.Recommended
+    TvLibraryPill.Browse -> TvLibraryTab.Library
+    TvLibraryPill.Collections -> TvLibraryTab.Collections
+}
+
+/**
+ * Top-left offset (in px) for a cascade panel: centered horizontally under its
+ * tab [anchor] and clamped so neither edge crosses the safe-area X; vertically
+ * just below the bar. Returns an offscreen offset when the anchor hasn't been
+ * measured yet (the panel is alpha-0 in that case anyway).
+ */
+private fun cascadePanelOffset(
+    anchor: LayoutCoordinates?,
+    panelWidthPx: Float,
+    safeAreaXPx: Float,
+    panelTopPx: Float,
+): IntOffset {
+    if (anchor == null || !anchor.isAttached) {
+        return IntOffset(-100_000, 0)
+    }
+    val rootWidthPx = anchor.findRootCoordinates().size.width.toFloat()
+    val anchorCenterX = anchor.positionInRoot().x + anchor.size.width / 2f
+    val rawX = anchorCenterX - panelWidthPx / 2f
+    val maxX = (rootWidthPx - safeAreaXPx - panelWidthPx).coerceAtLeast(safeAreaXPx)
+    val clampedX = rawX.coerceIn(safeAreaXPx, maxX)
+    return IntOffset(clampedX.roundToInt(), panelTopPx.roundToInt())
 }
 
 /**
