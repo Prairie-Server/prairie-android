@@ -155,6 +155,39 @@ fun AuroraPrimaryButton(
     }
 }
 
+/**
+ * Numbered onboarding step — a gold-outlined disc with the step number beside a
+ * line of ink copy. Ported from silo-apple's `AuroraStepRow`; used by the
+ * phone-first sign-in hero ("1 Scan with your phone's camera", …).
+ */
+@Composable
+fun AuroraStepRow(number: Int, text: String, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(AuroraAccent.copy(alpha = 0.14f))
+                .border(1.dp, AuroraAccent.copy(alpha = 0.55f), RoundedCornerShape(20.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = number.toString(),
+                color = AuroraAccent,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 19.sp,
+            )
+        }
+        Spacer(Modifier.width(20.dp))
+        Text(
+            text = text,
+            color = AuroraInk.copy(alpha = 0.92f),
+            fontWeight = FontWeight.Medium,
+            fontSize = 21.sp,
+        )
+    }
+}
+
 /** Tertiary ghost button (e.g. "Use a password instead", "Change server"). */
 @Composable
 fun AuroraGhostButton(

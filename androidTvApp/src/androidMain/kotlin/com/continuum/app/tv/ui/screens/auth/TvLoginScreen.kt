@@ -34,7 +34,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -55,7 +57,9 @@ import androidx.tv.material3.Text
 import com.continuum.app.repository.DeviceLoginRepository
 import com.continuum.app.tv.R
 import com.continuum.app.tv.ui.components.AuroraEyebrow
+import com.continuum.app.tv.ui.components.AuroraGhostButton
 import com.continuum.app.tv.ui.components.AuroraPrimaryButton
+import com.continuum.app.tv.ui.components.AuroraStepRow
 import com.continuum.app.tv.ui.components.auroraGlass
 import com.continuum.app.tv.ui.components.TvAuroraBackdrop
 import com.continuum.app.tv.ui.components.TvAuroraVariant
@@ -82,10 +86,16 @@ fun TvLoginScreen(
     val state by viewModel.uiState.collectAsState()
     val deviceState by viewModel.deviceLoginState.collectAsState()
     val usernameFocus = remember { FocusRequester() }
+    val usePasswordFocus = remember { FocusRequester() }
     val usernameBringIntoView = remember { BringIntoViewRequester() }
     val passwordBringIntoView = remember { BringIntoViewRequester() }
     val signInBringIntoView = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
+
+    // Phone-first IA (mirrors tvOS TVLoginView): the QR device-login leads, and
+    // the username/password form is one focus-step away behind "Use a password
+    // instead". Nothing to type on the remote unless the viewer opts in.
+    var showPasswordForm by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.loginSuccess) {
         if (state.loginSuccess) {
@@ -93,7 +103,12 @@ fun TvLoginScreen(
             onLoginSuccess()
         }
     }
-    LaunchedEffect(Unit) { usernameFocus.requestFocus() }
+    // Default focus follows the active surface: the password form focuses the
+    // username field; the phone-first surface focuses the "Use a password
+    // instead" affordance so the remote never lands on a non-actionable QR.
+    LaunchedEffect(showPasswordForm) {
+        if (showPasswordForm) usernameFocus.requestFocus() else usePasswordFocus.requestFocus()
+    }
 
     Box(
         modifier = Modifier
@@ -118,11 +133,7 @@ fun TvLoginScreen(
 
             Spacer(modifier = Modifier.height(Spacing.sm))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
-                verticalAlignment = Alignment.Top,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+            if (showPasswordForm) {
                 CredentialFormCard(
                     state = state,
                     usernameFocus = usernameFocus,
@@ -134,16 +145,73 @@ fun TvLoginScreen(
                     onLoginClick = viewModel::onLoginClick,
                     signupEnabled = signupEnabled,
                     onCreateAccount = onCreateAccount,
+                    onBackToPhone = { showPasswordForm = false },
                     scope = scope,
-                    modifier = Modifier.width(620.dp),
+                    modifier = Modifier.width(680.dp),
                 )
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xl),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    PhoneSignInHero(
+                        state = deviceState,
+                        modifier = Modifier.width(720.dp),
+                    )
 
-                QrLoginCard(
-                    state = deviceState,
-                    onRetry = viewModel::restartDeviceLogin,
-                    modifier = Modifier.width(480.dp),
-                )
+                    QrLoginCard(
+                        state = deviceState,
+                        onRetry = viewModel::restartDeviceLogin,
+                        onUsePassword = { showPasswordForm = true },
+                        usePasswordFocus = usePasswordFocus,
+                        modifier = Modifier.width(520.dp),
+                    )
+                }
             }
+        }
+    }
+}
+
+/**
+ * Left-hand hero for the phone-first sign-in: eyebrow already sits above; this
+ * is the headline, the lede, the three numbered steps, and a live "waiting"
+ * status while the device-login session is pending. Mirrors tvOS
+ * `TVLoginView.heroColumn`.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PhoneSignInHero(
+    state: DeviceLoginRepository.DeviceLoginState,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        modifier = modifier,
+    ) {
+        Text(
+            text = "Sign in with your phone.",
+            style = TvLoginTextStyles.Hero,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+            text = "Point your phone at the code, confirm the number, then approve. " +
+                "Nothing to type on the remote.",
+            style = TvLoginTextStyles.Body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Spacing.sm))
+        AuroraStepRow(number = 1, text = "Scan with your phone's camera")
+        AuroraStepRow(number = 2, text = "Confirm the matching number")
+        AuroraStepRow(number = 3, text = "Approve on your phone — you're in")
+
+        if (state is DeviceLoginRepository.DeviceLoginState.Awaiting) {
+            Spacer(Modifier.height(Spacing.sm))
+            Text(
+                text = "Waiting for approval…",
+                style = TvLoginTextStyles.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -179,6 +247,7 @@ private fun CredentialFormCard(
     onLoginClick: () -> Unit,
     signupEnabled: Boolean,
     onCreateAccount: () -> Unit,
+    onBackToPhone: () -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
@@ -293,10 +362,25 @@ private fun CredentialFormCard(
                 onClick = onCreateAccount,
             )
         }
+
+        Spacer(modifier = Modifier.height(Spacing.xs))
+
+        // Return to the phone-first surface (the QR pairing remains live).
+        AuroraGhostButton(
+            label = "Back to phone sign-in",
+            onClick = onBackToPhone,
+        )
     }
 }
 
 private object TvLoginTextStyles {
+    val Hero = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 52.sp,
+        lineHeight = 58.sp,
+        letterSpacing = (-0.5).sp,
+    )
+
     val Title = TextStyle(
         fontWeight = FontWeight.SemiBold,
         fontSize = 30.sp,
@@ -351,6 +435,8 @@ private object TvLoginTextStyles {
 private fun QrLoginCard(
     state: DeviceLoginRepository.DeviceLoginState,
     onRetry: () -> Unit,
+    onUsePassword: () -> Unit,
+    usePasswordFocus: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -360,23 +446,12 @@ private fun QrLoginCard(
             .auroraGlass(24.dp, emphasized = true)
             .padding(horizontal = 32.dp, vertical = 28.dp),
     ) {
-        Text(
-            text = "Sign in with your phone",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-
         when (state) {
             DeviceLoginRepository.DeviceLoginState.Idle,
             DeviceLoginRepository.DeviceLoginState.Initiating -> {
-                Text(
-                    text = "Loading device-login code…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Box(
                     modifier = Modifier
-                        .size(320.dp)
+                        .size(300.dp)
                         .background(
                             Color.White.copy(alpha = 0.06f),
                             RoundedCornerShape(16.dp),
@@ -387,22 +462,18 @@ private fun QrLoginCard(
                             shape = RoundedCornerShape(16.dp),
                         ),
                 )
-            }
-            is DeviceLoginRepository.DeviceLoginState.Awaiting -> {
                 Text(
-                    text = "Scan the code with your phone's camera",
+                    text = "Loading pairing code…",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            is DeviceLoginRepository.DeviceLoginState.Awaiting -> {
                 QrCodePanel(
                     content = state.session.verificationUriComplete,
-                    size = 320.dp,
+                    size = 300.dp,
                 )
-                Text(
-                    text = "Code: ${state.session.userCode}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                MatchCodeTiles(code = state.session.matchCode)
             }
             is DeviceLoginRepository.DeviceLoginState.Approved -> {
                 Text(
@@ -423,6 +494,79 @@ private fun QrLoginCard(
                     variant = TvPillVariant.Hollow,
                     onClick = onRetry,
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.xs))
+        Box(
+            modifier = Modifier
+                .width(300.dp)
+                .height(1.dp)
+                .background(Color.White.copy(alpha = 0.10f)),
+        )
+        Spacer(modifier = Modifier.height(Spacing.xs))
+
+        AuroraGhostButton(
+            label = "Use a password instead",
+            onClick = onUsePassword,
+            modifier = Modifier.focusRequester(usePasswordFocus),
+        )
+    }
+}
+
+/**
+ * Match-code confirmation tiles — "CONFIRM THIS CODE" over the server-issued
+ * code, one monospaced tile per character. Mirrors tvOS
+ * `TVLoginView.matchCodeTiles`; word/number separators render as a thin dash.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
+    if (code.isBlank()) return
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        modifier = modifier,
+    ) {
+        Text(
+            text = "CONFIRM THIS CODE",
+            style = TextStyle(
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                letterSpacing = 3.sp,
+            ),
+            color = Color.White.copy(alpha = 0.6f),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            code.uppercase().forEach { ch ->
+                val isSep = ch == '-' || ch == ' '
+                if (isSep) {
+                    Text(
+                        text = "–",
+                        style = TextStyle(fontSize = 30.sp, fontWeight = FontWeight.Bold),
+                        color = Color.White.copy(alpha = 0.4f),
+                        modifier = Modifier.width(20.dp),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 48.dp, height = 60.dp)
+                            .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = ch.toString(),
+                            style = TextStyle(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 30.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
+                }
             }
         }
     }
