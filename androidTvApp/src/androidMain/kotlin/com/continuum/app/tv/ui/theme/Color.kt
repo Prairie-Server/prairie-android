@@ -36,6 +36,13 @@ val ElevatedSurface = DarkSurfaceElevated.copy(alpha = 0.80f)
 
 val HeroIndicatorInactive = Color.White.copy(alpha = 0.32f)
 
+// Skyline top-bar capsule chrome — mirrors `continuumChromeSelectedFill` /
+// `continuumChromeSelectedBorder` in iOS `Theme/Colors.swift`. The focused
+// capsule inverts to a solid `ContinuumOnSurface` fill (white-on-background);
+// a selected-but-unfocused tab carries only this low-alpha chrome.
+val ChromeSelectedFill = Color.White.copy(alpha = 0.14f)
+val ChromeSelectedBorder = Color.White.copy(alpha = 0.10f)
+
 // Legacy lavender accent collapses to monochrome white-at-opacity. tvOS does not
 // use a chromatic accent — focus state is the lift+glow, progress is white-on-white.
 val AccentLavender = ContinuumOnSurface

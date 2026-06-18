@@ -725,10 +725,12 @@ fun TvMainShell(
                     menuFocusRequest++
                 },
                 modifier = Modifier
-                    .align(Alignment.TopStart)
+                    // The profile avatar now leads the *trailing* cluster, so the
+                    // menu anchors at the bar's end edge (Stage 3 moved it there).
+                    .align(Alignment.TopEnd)
                     .padding(
                         top = TvTopMenuLayout.profileMenuTopInset,
-                        start = TvTopMenuLayout.leadingInset,
+                        end = TvTopMenuLayout.trailingInset,
                     )
                     .zIndex(2f),
             )

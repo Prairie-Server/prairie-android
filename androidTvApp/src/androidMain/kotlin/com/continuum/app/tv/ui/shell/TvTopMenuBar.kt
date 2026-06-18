@@ -1,8 +1,7 @@
 package com.continuum.app.tv.ui.shell
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,11 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,30 +53,38 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.common.ui.components.profileAvatarDisplayText
+import com.continuum.app.tv.ui.theme.ChromeSelectedBorder
+import com.continuum.app.tv.ui.theme.ChromeSelectedFill
 import com.continuum.app.tv.ui.theme.ContinuumOnSurface
+import com.continuum.app.tv.ui.theme.DarkBackground
+import com.continuum.app.tv.ui.theme.TvSkyline
 import com.continuum.app.tv.ui.theme.navRailLabel
 
 /**
- * Layout constants mirrored from `TVTopMenuLayout` in
- * `iosApp/iosApp/tvOS/Navigation/TVTopMenuBar.swift`. Names match 1:1 so
- * future audits against the iOS source are mechanical.
+ * Layout constants for the top menu band. Vertical-clearance / anchor tokens
+ * here are consumed by every root screen (`contentTopInset`) and by the shell's
+ * profile-menu overlay (`profileMenuTopInset` / `trailingInset`). The bar's own
+ * chrome metrics live in [TvSkyline]; this object only retains the tokens other
+ * call sites reference so they keep compiling.
  */
 object TvTopMenuLayout {
-    val headerBandHeight: Dp = 46.dp
-    val primaryRowHeight: Dp = 27.dp
-    val primaryTopInset: Dp = 8.dp
-    val searchButtonWidth: Dp = 41.dp
-    val homeButtonWidth: Dp = 68.dp
-    val librariesButtonWidth: Dp = 98.dp
-    val forYouButtonWidth: Dp = 82.dp
-    val requestsButtonWidth: Dp = 92.dp
-    val rootTextSize = 12
-    val itemSpacing: Dp = 17.dp
-    val leadingInset: Dp = 22.dp
-    val trailingInset: Dp = 22.dp
-    val profileMenuTopInset: Dp = 46.dp
-    /// Vertical clearance reserved on root pages so content doesn't draw under
-    /// the menu band. Mirrors `contentTopInset` on tvOS.
+    /** Top bar offset from the screen's top edge — see [TvSkyline.barTopInset]. */
+    val barTopInset: Dp = TvSkyline.barTopInset
+
+    /** Top bar row height — see [TvSkyline.barHeight]. */
+    val barHeight: Dp = TvSkyline.barHeight
+
+    /** Horizontal chrome inset — see [TvSkyline.safeAreaX]. */
+    val leadingInset: Dp = TvSkyline.safeAreaX
+    val trailingInset: Dp = TvSkyline.safeAreaX
+
+    /** Top offset for the anchored profile menu — just under the bar. */
+    val profileMenuTopInset: Dp = TvSkyline.barTopInset + TvSkyline.barHeight
+
+    /**
+     * Vertical clearance reserved on root pages so content doesn't draw under
+     * the menu band (bar top inset + bar height + breathing room).
+     */
     val contentTopInset: Dp = 94.dp
 }
 
@@ -97,24 +102,30 @@ private sealed class TvTopMenuFocus {
 }
 
 /**
- * The custom top menu bar that replaces the legacy left-side rail.
+ * The custom top menu bar — the Skyline grammar from tvOS `TVTopMenuBar.swift`.
  *
- * Interim Stage 2 layout (capsule/wordmark/dwell come in Stage 3):
- * - Center cluster: `Home` · one text button per visible library-type tab ·
+ * Layout (three zones):
+ * - Leading: the **SILO** wordmark (heavy, tracked).
+ * - Center: `Home` · one inverted-capsule tab per visible library-type ·
  *   `Calendar`, derived from [destinations] (the shell's `visibleRoots`).
- * - Trailing cluster: a Search icon button + the profile avatar with chevron.
- * - Behind everything: a black gradient scrim so buttons read against hero art.
+ * - Trailing: a Search icon button + the profile avatar (with unread badge).
+ *
+ * Tab chrome (§5.1): a focused tab inverts to a solid white capsule with
+ * background-colored text; a selected-but-unfocused tab carries a low-alpha
+ * chrome fill; a resting tab is a bare label. The default TV focus scale/halo
+ * is disabled so the capsule is the only focus cue.
  *
  * Focus model:
  * - `isMenuFocused` is updated as soon as any button gains/loses focus so the
- *   parent shell can hide/show the menu in response.
- * - `focusRequest` is an integer counter — incrementing it causes the bar to
- *   request focus on the currently-selected destination. Using a counter (not
- *   a boolean) means the parent can re-trigger restoration without first
- *   clearing the flag, which matches the tvOS `topMenuFocusRequest` pattern.
+ *   parent shell can react.
+ * - The whole bar dims to [TvSkyline.barDimmedOpacity] whenever focus is down
+ *   in the content zone (`!isMenuFocused`) and returns to full opacity when the
+ *   bar is focused. This is composed (multiplied) with the scroll-driven
+ *   `visibility` alpha so the hide-on-scroll transition still works.
+ * - `focusRequest` is an integer counter — incrementing it requests focus on
+ *   the currently-selected destination.
  * - When `isFocusSuppressed` is true the bar drops any current focus so D-pad
- *   navigation in the content area below cannot accidentally pull focus back
- *   into the menu via Compose's spatial-focus search.
+ *   navigation in the content area below cannot pull focus back into the menu.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -145,9 +156,9 @@ fun TvTopMenuBar(
         TvLibraryTabType.entries.associateWith { FocusRequester() }
     }
 
-    // Track which button currently holds focus so we can shape colors/scale
-    // without depending on the surface's focused-state propagation, which is
-    // unreliable when the parent suppresses focus mid-animation.
+    // Track which button currently holds focus so we can shape the capsule
+    // chrome directly, independent of the surface's focused-state propagation
+    // (which is unreliable while the parent suppresses focus mid-animation).
     var focusedButton by remember { mutableStateOf<TvTopMenuFocus?>(null) }
 
     // `LaunchedEffect(focusRequest, isFocusSuppressed)` means a request that
@@ -155,10 +166,6 @@ fun TvTopMenuBar(
     // when suppression lifts, we re-evaluate and request focus.
     LaunchedEffect(focusRequest, isFocusSuppressed) {
         if (isFocusSuppressed) return@LaunchedEffect
-        // Non-tab routes (selectedRoot == null) have no menu button to focus.
-        // The Search route's chrome IS the trailing search icon, so focus that;
-        // every other non-tab route falls back to Home so an explicit focus
-        // request still lands on the bar rather than being dropped.
         val target = when (val root = selectedRoot) {
             TvRootDestination.Home -> homeFocusRequester
             TvRootDestination.Calendar -> calendarFocusRequester
@@ -172,17 +179,26 @@ fun TvTopMenuBar(
         onMenuFocusChange(focusedButton != null)
     }
 
+    // Focus-driven dim (§5.1): full opacity while the bar is focused, dimmed
+    // otherwise. Composed (multiplied) with the scroll-visibility alpha below
+    // so the hide-on-scroll slide still fades the bar all the way out.
+    val dimAlpha by animateFloatAsState(
+        targetValue = if (isMenuFocused) 1f else TvSkyline.barDimmedOpacity,
+        animationSpec = tween(durationMillis = 200),
+        label = "tvTopMenuBarDim",
+    )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(TvTopMenuLayout.headerBandHeight)
+            .height(TvSkyline.barTopInset + TvSkyline.barHeight)
             .graphicsLayer {
                 // Slide the menu up by its own height as visibility drops to 0
-                // and fade alpha in lockstep. Mirrors Apple's TVTopMenuBar
-                // hide-on-scroll transition. Driven by the parent shell's
-                // nestedScroll-driven `menuVisibility` Animatable.
+                // and fade alpha in lockstep (scroll-hide). Compose the dim
+                // with the scroll-visibility alpha so the two stack: the bar
+                // dims when content owns focus AND slides out on scroll.
                 translationY = -size.height * (1f - visibility)
-                alpha = visibility
+                alpha = visibility * dimAlpha
             }
             .background(
                 Brush.verticalGradient(
@@ -202,20 +218,30 @@ fun TvTopMenuBar(
                 }
             },
     ) {
-        // Center cluster: Home · library-type tabs · Calendar (derived from
-        // the shell's visibleRoots).
+        // Leading: SILO wordmark.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = TvSkyline.safeAreaX, top = TvSkyline.barTopInset)
+                .height(TvSkyline.barHeight),
+            contentAlignment = Alignment.Center,
+        ) {
+            TvSiloWordmark()
+        }
+
+        // Center cluster: Home · library-type tabs · Calendar.
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = TvTopMenuLayout.primaryTopInset),
-            horizontalArrangement = Arrangement.spacedBy(TvTopMenuLayout.itemSpacing),
+                .padding(top = TvSkyline.barTopInset)
+                .height(TvSkyline.barHeight),
+            horizontalArrangement = Arrangement.spacedBy(TvSkyline.tabSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             destinations.forEach { destination ->
                 when (destination) {
-                    TvRootDestination.Home -> TvTopMenuTextButton(
+                    TvRootDestination.Home -> TvTopMenuTab(
                         label = "Home",
-                        width = TvTopMenuLayout.homeButtonWidth,
                         isSelected = selectedRoot == TvRootDestination.Home,
                         isFocused = focusedButton == TvTopMenuFocus.Home,
                         focusRequester = homeFocusRequester,
@@ -231,9 +257,8 @@ fun TvTopMenuBar(
 
                     is TvRootDestination.LibraryType -> {
                         val type = destination.type
-                        TvTopMenuTextButton(
+                        TvTopMenuTab(
                             label = type.title,
-                            width = TvTopMenuLayout.librariesButtonWidth,
                             isSelected = selectedRoot == destination,
                             isFocused = focusedButton == TvTopMenuFocus.Tab(type),
                             focusRequester = tabFocusRequesters[type] ?: homeFocusRequester,
@@ -248,9 +273,8 @@ fun TvTopMenuBar(
                         )
                     }
 
-                    TvRootDestination.Calendar -> TvTopMenuTextButton(
+                    TvRootDestination.Calendar -> TvTopMenuTab(
                         label = "Calendar",
-                        width = TvTopMenuLayout.librariesButtonWidth,
                         isSelected = selectedRoot == TvRootDestination.Calendar,
                         isFocused = focusedButton == TvTopMenuFocus.Calendar,
                         focusRequester = calendarFocusRequester,
@@ -267,19 +291,18 @@ fun TvTopMenuBar(
             }
         }
 
-        // Trailing cluster: Search icon button. Navigates to the Search route;
-        // it is no longer a root tab so it never highlights as one.
+        // Trailing cluster: Search icon + profile avatar (with unread badge).
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(end = TvTopMenuLayout.trailingInset, top = TvTopMenuLayout.primaryTopInset),
+                .padding(end = TvSkyline.safeAreaX, top = TvSkyline.barTopInset)
+                .height(TvSkyline.barHeight),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(TvSkyline.barTrailingSpacing),
         ) {
             TvTopMenuIconButton(
                 icon = Icons.Outlined.Search,
                 contentDescription = "Search",
-                width = TvTopMenuLayout.searchButtonWidth,
-                isSelected = false,
                 isFocused = focusedButton == TvTopMenuFocus.Search,
                 focusRequester = searchFocusRequester,
                 onFocusChanged = { hasFocus ->
@@ -291,15 +314,7 @@ fun TvTopMenuBar(
                 },
                 onClick = onSearchClick,
             )
-        }
 
-        // Leading cluster (profile avatar + chevron)
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = TvTopMenuLayout.leadingInset, top = TvTopMenuLayout.primaryTopInset),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
             TvTopMenuProfileButton(
                 accountState = accountState,
                 unreadCount = unreadCount,
@@ -321,11 +336,32 @@ data class TvAccountState(
     val avatarUrl: String? = null,
 )
 
+/** Heavy, tracked SILO wordmark at the bar's leading edge (§5.1). */
+@Composable
+private fun TvSiloWordmark() {
+    Text(
+        text = "SILO",
+        color = ContinuumOnSurface,
+        fontWeight = FontWeight.Black,
+        fontSize = TvSkyline.wordmarkSize,
+        letterSpacing = TvSkyline.wordmarkTracking,
+        maxLines = 1,
+    )
+}
+
+/**
+ * A center-cluster type tab with inverted-capsule chrome (§5.1):
+ * - focused → solid `ContinuumOnSurface` capsule, text in the background color;
+ * - selected (not focused) → low-alpha [ChromeSelectedFill] capsule;
+ * - resting → bare label at reduced opacity.
+ *
+ * The TV surface's own focus scale/halo is disabled (`focusedScale = 1f`, no
+ * focused border) so the capsule inversion is the sole focus affordance.
+ */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvTopMenuTextButton(
+private fun TvTopMenuTab(
     label: String,
-    width: Dp,
     isSelected: Boolean,
     isFocused: Boolean,
     focusRequester: FocusRequester,
@@ -336,26 +372,21 @@ private fun TvTopMenuTextButton(
     val isInteractionFocused by interactionSource.collectIsFocusedAsState()
     LaunchedEffect(isInteractionFocused) { onFocusChanged(isInteractionFocused) }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.025f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
-        label = "tvTopMenuTextButtonScale",
-    )
-
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(percent = 50)
     val containerColor = when {
-        isFocused -> Color.White.copy(alpha = 0.18f)
-        isSelected -> Color.White.copy(alpha = 0.10f)
+        isFocused -> ContinuumOnSurface
+        isSelected -> ChromeSelectedFill
         else -> Color.Transparent
     }
     val borderColor = when {
-        isFocused -> Color.White.copy(alpha = 0.28f)
-        isSelected -> Color.White.copy(alpha = 0.14f)
+        isFocused -> Color.Transparent
+        isSelected -> ChromeSelectedBorder
         else -> Color.Transparent
     }
     val textColor = when {
-        isFocused || isSelected -> Color.White
-        else -> Color.White.copy(alpha = 0.70f)
+        isFocused -> DarkBackground
+        isSelected -> ContinuumOnSurface
+        else -> ContinuumOnSurface.copy(alpha = 0.62f)
     }
 
     Surface(
@@ -365,30 +396,36 @@ private fun TvTopMenuTextButton(
         colors = ClickableSurfaceDefaults.colors(
             containerColor = containerColor,
             contentColor = textColor,
-            focusedContainerColor = Color.White.copy(alpha = 0.18f),
-            focusedContentColor = Color.White,
-            pressedContainerColor = Color.White.copy(alpha = 0.18f),
-            pressedContentColor = Color.White,
+            // Keep the inverted look while focused/pressed; the capsule is the
+            // only focus cue, so the focused container matches our own fill.
+            focusedContainerColor = ContinuumOnSurface,
+            focusedContentColor = DarkBackground,
+            pressedContainerColor = ContinuumOnSurface,
+            pressedContentColor = DarkBackground,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
             border = Border(border = BorderStroke(1.dp, borderColor), shape = shape),
-            focusedBorder = Border(
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.28f)),
-                shape = shape,
-            ),
+            focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
         ),
         modifier = Modifier
             .focusRequester(focusRequester)
-            .width(width)
-            .height(TvTopMenuLayout.primaryRowHeight)
-            .graphicsScale(scale),
+            .height(TvSkyline.barHeight),
     ) {
-        Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .padding(
+                    horizontal = TvSkyline.tabPaddingHorizontal,
+                    vertical = TvSkyline.tabPaddingVertical,
+                )
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
                 text = label,
                 style = navRailLabel,
-                fontWeight = if (isSelected || isFocused) FontWeight.SemiBold else FontWeight.Normal,
+                fontSize = TvSkyline.tabLabelSize,
+                fontWeight = if (isSelected || isFocused) FontWeight.SemiBold else FontWeight.Medium,
                 color = textColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -397,44 +434,28 @@ private fun TvTopMenuTextButton(
     }
 }
 
+/**
+ * Trailing search icon. Mirrors the tab capsule's inverted focus chrome: a
+ * solid `ContinuumOnSurface` circle with a background-colored glyph while
+ * focused, bare otherwise.
+ */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvTopMenuIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
-    width: Dp,
-    isSelected: Boolean,
     isFocused: Boolean,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
-    extraModifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isInteractionFocused by interactionSource.collectIsFocusedAsState()
     LaunchedEffect(isInteractionFocused) { onFocusChanged(isInteractionFocused) }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.025f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
-        label = "tvTopMenuIconButtonScale",
-    )
-
-    val shape = RoundedCornerShape(12.dp)
-    val containerColor = when {
-        isFocused -> Color.White.copy(alpha = 0.18f)
-        isSelected -> Color.White.copy(alpha = 0.10f)
-        else -> Color.Transparent
-    }
-    val borderColor = when {
-        isFocused -> Color.White.copy(alpha = 0.28f)
-        isSelected -> Color.White.copy(alpha = 0.14f)
-        else -> Color.Transparent
-    }
-    val iconColor = when {
-        isFocused || isSelected -> Color.White
-        else -> Color.White.copy(alpha = 0.72f)
-    }
+    val shape = CircleShape
+    val containerColor = if (isFocused) ContinuumOnSurface else Color.Transparent
+    val iconColor = if (isFocused) DarkBackground else ContinuumOnSurface.copy(alpha = 0.62f)
 
     Surface(
         onClick = onClick,
@@ -443,37 +464,36 @@ private fun TvTopMenuIconButton(
         colors = ClickableSurfaceDefaults.colors(
             containerColor = containerColor,
             contentColor = iconColor,
-            focusedContainerColor = Color.White.copy(alpha = 0.18f),
-            focusedContentColor = Color.White,
-            pressedContainerColor = Color.White.copy(alpha = 0.18f),
-            pressedContentColor = Color.White,
+            focusedContainerColor = ContinuumOnSurface,
+            focusedContentColor = DarkBackground,
+            pressedContainerColor = ContinuumOnSurface,
+            pressedContentColor = DarkBackground,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
-            border = Border(border = BorderStroke(1.dp, borderColor), shape = shape),
-            focusedBorder = Border(
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.28f)),
-                shape = shape,
-            ),
+            border = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
+            focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
         ),
         modifier = Modifier
             .focusRequester(focusRequester)
-            .then(extraModifier)
-            .width(width)
-            .height(TvTopMenuLayout.primaryRowHeight)
-            .graphicsScale(scale),
+            .size(TvSkyline.barIconSize),
     ) {
         Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = iconColor,
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(16.dp),
             )
         }
     }
 }
 
+/**
+ * Trailing profile avatar. The avatar keeps its unread badge; the focus
+ * affordance is a solid ring around the circle (mirroring the tvOS avatar's
+ * focused stroke), so it stays visually distinct from the capsule tabs.
+ */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvTopMenuProfileButton(
@@ -483,85 +503,67 @@ private fun TvTopMenuProfileButton(
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
-    extraModifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isInteractionFocused by interactionSource.collectIsFocusedAsState()
     LaunchedEffect(isInteractionFocused) { onFocusChanged(isInteractionFocused) }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.025f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
-        label = "tvTopMenuProfileScale",
-    )
-
-    val shape = RoundedCornerShape(12.dp)
-    val containerColor = if (isFocused) Color.White.copy(alpha = 0.18f) else Color.Transparent
-    val borderColor = if (isFocused) Color.White.copy(alpha = 0.28f) else Color.Transparent
-    val foreground = if (isFocused) Color.White else Color.White.copy(alpha = 0.78f)
+    val shape = CircleShape
 
     Surface(
         onClick = onClick,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = containerColor,
-            contentColor = foreground,
-            focusedContainerColor = Color.White.copy(alpha = 0.18f),
-            focusedContentColor = Color.White,
-            pressedContainerColor = Color.White.copy(alpha = 0.18f),
-            pressedContentColor = Color.White,
+            containerColor = Color.Transparent,
+            contentColor = ContinuumOnSurface,
+            focusedContainerColor = Color.Transparent,
+            focusedContentColor = ContinuumOnSurface,
+            pressedContainerColor = Color.Transparent,
+            pressedContentColor = ContinuumOnSurface,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
-            border = Border(border = BorderStroke(1.dp, borderColor), shape = shape),
-            focusedBorder = Border(
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.28f)),
-                shape = shape,
-            ),
+            border = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
+            focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
         ),
         modifier = Modifier
             .focusRequester(focusRequester)
-            .then(extraModifier)
-            .height(TvTopMenuLayout.primaryRowHeight)
-            .defaultMinSize(minWidth = 48.dp)
-            .padding(horizontal = 2.dp)
-            .graphicsScale(scale),
+            .size(TvSkyline.barIconSize),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            TvTopMenuAvatar(accountState = accountState, unreadCount = unreadCount)
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = null,
-                tint = foreground,
-                modifier = Modifier.size(9.dp),
+        Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.Center) {
+            TvTopMenuAvatar(
+                accountState = accountState,
+                unreadCount = unreadCount,
+                isFocused = isFocused,
             )
         }
     }
 }
 
 @Composable
-private fun TvTopMenuAvatar(accountState: TvAccountState, unreadCount: Int) {
+private fun TvTopMenuAvatar(
+    accountState: TvAccountState,
+    unreadCount: Int,
+    isFocused: Boolean,
+) {
     val avatarText = remember(accountState.avatar, accountState.displayName) {
         profileAvatarDisplayText(accountState.avatar, accountState.displayName)
     }
     // The avatar circle plus a decorative unread badge anchored to its top-end
     // corner. The badge is purely informational — the profile Surface stays the
-    // sole focus target, so the focus model is unchanged. Open the menu and pick
-    // "Notifications" to reach the inbox.
+    // sole focus target, so the focus model is unchanged.
     Box(contentAlignment = Alignment.TopEnd) {
         Box(
             modifier = Modifier
-                .size(22.dp)
+                .size(TvSkyline.barIconSize)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.18f))
-                .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+                .border(
+                    width = if (isFocused) 2.dp else 1.dp,
+                    color = if (isFocused) ContinuumOnSurface else Color.White.copy(alpha = 0.18f),
+                    shape = CircleShape,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             if (accountState.avatarUrl != null) {
@@ -612,15 +614,3 @@ private fun TvUnreadBadge(unreadCount: Int, modifier: Modifier = Modifier) {
         )
     }
 }
-
-/**
- * Tiny `graphicsLayer` helper used so the focus-driven scale animation lives
- * outside the Surface's own scale handling (which we disable at
- * `focusedScale = 1f`). Splitting them keeps the animation continuous when
- * focus moves between adjacent buttons.
- */
-private fun Modifier.graphicsScale(scale: Float): Modifier =
-    this.graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-    }
