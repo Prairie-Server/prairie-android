@@ -22,6 +22,13 @@ data class CalendarUiState(
     val today: String = "",
     /** Monday anchoring the visible week, ISO "YYYY-MM-DD". */
     val weekStart: String = "",
+    /**
+     * The day highlighted in the week strip, ISO "YYYY-MM-DD". Independent of
+     * [today]: selecting a day in the strip scrolls the day list to that
+     * shelf. Defaults to / follows [today] when the visible week is current,
+     * otherwise the first day of the visible week.
+     */
+    val selectedDay: String = "",
     val filter: String = CalendarFilter.Following,
     val libraryId: Int? = null,
     /** Server-grouped day buckets for the visible week. */
@@ -70,7 +77,11 @@ class CalendarViewModel(
     init {
         val today = todayProvider()
         _uiState = MutableStateFlow(
-            CalendarUiState(today = today, weekStart = IsoDate.weekStart(today)),
+            CalendarUiState(
+                today = today,
+                weekStart = IsoDate.weekStart(today),
+                selectedDay = today,
+            ),
         )
         uiState = _uiState.asStateFlow()
         load()
@@ -102,9 +113,18 @@ class CalendarViewModel(
     fun goToToday() {
         val today = todayProvider()
         val weekStart = IsoDate.weekStart(today)
-        if (weekStart == _uiState.value.weekStart) return
-        _uiState.update { it.copy(today = today, weekStart = weekStart) }
+        if (weekStart == _uiState.value.weekStart) {
+            _uiState.update { it.copy(today = today, selectedDay = today) }
+            return
+        }
+        _uiState.update { it.copy(today = today, weekStart = weekStart, selectedDay = today) }
         load()
+    }
+
+    /** Highlight a day in the week strip (no fetch — the week is already loaded). */
+    fun selectDay(date: String) {
+        if (date == _uiState.value.selectedDay) return
+        _uiState.update { it.copy(selectedDay = date) }
     }
 
     fun setFilter(filter: String) {
@@ -120,7 +140,13 @@ class CalendarViewModel(
     }
 
     private fun moveWeek(days: Long) {
-        _uiState.update { it.copy(weekStart = IsoDate.plusDays(it.weekStart, days)) }
+        _uiState.update {
+            val weekStart = IsoDate.plusDays(it.weekStart, days)
+            // Keep the highlight on a day inside the visible week: today when
+            // paging back onto the current week, otherwise the week's Monday.
+            val selectedDay = if (weekStart == IsoDate.weekStart(it.today)) it.today else weekStart
+            it.copy(weekStart = weekStart, selectedDay = selectedDay)
+        }
         load()
     }
 
