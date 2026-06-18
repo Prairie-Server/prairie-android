@@ -295,7 +295,10 @@ fun TvPlayerScrubber(
                             if (autoSeekRate != 0) {
                                 bumpRate(1)
                             } else if (isTimelineScrubbing) {
-                                onUpdateScrub(scrubPreviewSec + 10.0)
+                                // Forward nudge matches the 30s transport skip
+                                // (back nudge stays 10s), mirroring tvOS
+                                // scrubForwardStep/scrubBackwardStep.
+                                onUpdateScrub(scrubPreviewSec + 30.0)
                             } else {
                                 onSkipForward()
                             }

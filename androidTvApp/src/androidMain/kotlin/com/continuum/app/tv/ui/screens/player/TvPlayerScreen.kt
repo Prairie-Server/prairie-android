@@ -101,7 +101,10 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
 private const val CONTROLS_AUTO_HIDE_MS = 5_000L
-private const val SKIP_SECONDS_MS = 10_000L
+// Skip back is 10s; skip forward is 30s, matching tvOS (gobackward.10 /
+// goforward.30).
+private const val SKIP_BACK_MS = 10_000L
+private const val SKIP_FORWARD_MS = 30_000L
 
 /**
  * Full-screen TV player. The ExoPlayer itself lives in [ContinuumPlaybackService];
@@ -849,9 +852,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showControls && !state.hudOpen && !state.showSubtitleMenu &&
-                    !state.showSubtitleStyleDialog
-                ) {
+                if (state.showControls && !state.hudOpen) {
                     // In a room, transport authority gates what the local
                     // member may drive: a guest who can't seek gets a disabled
                     // scrubber + skip; play/pause only under guest_play_pause.
@@ -881,7 +882,7 @@ fun TvPlayerScreen(
                         onSkipBack = {
                             val c = mediaController ?: return@TvPlayerIdleOverlay
                             if (!canSeekInRoom) return@TvPlayerIdleOverlay
-                            val target = (c.currentPosition - SKIP_SECONDS_MS)
+                            val target = (c.currentPosition - SKIP_BACK_MS)
                                 .coerceAtLeast(0L)
                             if (roomController != null) {
                                 roomController.onUserSeek(target / 1000.0)
@@ -894,7 +895,7 @@ fun TvPlayerScreen(
                             val c = mediaController ?: return@TvPlayerIdleOverlay
                             if (!canSeekInRoom) return@TvPlayerIdleOverlay
                             val dur = c.duration.coerceAtLeast(0L)
-                            val target = (c.currentPosition + SKIP_SECONDS_MS)
+                            val target = (c.currentPosition + SKIP_FORWARD_MS)
                                 .coerceAtMost(dur)
                             if (roomController != null) {
                                 roomController.onUserSeek(target / 1000.0)
@@ -926,9 +927,6 @@ fun TvPlayerScreen(
                             }
                             viewModel.setControlsVisible(true)
                         },
-                        onOpenTracks = {
-                            viewModel.openSubtitleMenu()
-                        },
                         onOpenHUD = {
                             requestedHudTab = HudTab.Info
                             viewModel.openHUD()
@@ -948,13 +946,23 @@ fun TvPlayerScreen(
                 }
 
                 if (state.hudOpen) {
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    // Floating top-center card — no full-screen scrim so video
+                    // stays visible behind it. Mirrors tvOS TVPlayerInfoHUD.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 56.dp),
+                        contentAlignment = androidx.compose.ui.Alignment.TopCenter,
+                    ) {
                         TvPlayerHud(
                             title = state.title,
                             positionSec = state.position,
                             durationSec = state.duration,
+                            seasonNumber = state.seasonNumber,
+                            episodeNumber = state.episodeNumber,
                             audioTracks = state.audioTracks,
                             videoTracks = state.videoTracks,
+                            subtitleTracks = state.subtitleTracks,
                             stats = state.stats,
                             videoFillMode = state.videoFillMode,
                             onSelectAudio = { idx ->
@@ -972,6 +980,7 @@ fun TvPlayerScreen(
                                 // doesn't expose a direct setter the way audio/subtitle do,
                                 // so we surface the picker for visibility but no-op on tap.
                             },
+                            onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, false) },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
                             playbackSpeed = playbackSpeed,
                             onPlaybackSpeedChanged = viewModel::onSetPlaybackSpeed,
@@ -984,32 +993,14 @@ fun TvPlayerScreen(
                             onAutoPlayNextChanged = viewModel::onSetAutoPlayNext,
                             audioDelayMs = audioDelayMs,
                             onAudioDelayChanged = viewModel::onAudioDelayChanged,
-                            hdrEnabled = hdrEnabled,
-                            onHdrEnabledChanged = viewModel::onSetHdrEnabled,
-                            chapters = state.chapters,
-                            onSelectChapter = { idx ->
-                                viewModel.onSeekToChapter(idx)?.let { sec ->
-                                    mediaController?.seekTo((sec * 1000).toLong())
-                                }
-                            },
-                            onDismiss = { viewModel.closeHUD() },
-                            initialTab = requestedHudTab,
-                            modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
-                        )
-                    }
-                }
-
-                if (state.showSubtitleMenu) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        TvSubtitleMenu(
-                            subtitleTracks = state.subtitleTracks,
                             subtitleDelayMs = subtitleDelayMs,
-                            onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, true) },
                             onSubtitleDelayChanged = viewModel::onSubtitleDelayChanged,
-                            onPaneShown = viewModel::onSubtitlesPaneShown,
+                            subtitleAppearance = subtitleAppearance,
+                            onSubtitleAppearanceChanged = viewModel::onSetSubtitleAppearance,
+                            onSubtitlesPaneShown = viewModel::onSubtitlesPaneShown,
                             onSearchSubtitles = if (state.mediaFileId != null) {
                                 {
-                                    viewModel.closeSubtitleMenu()
+                                    viewModel.closeHUD()
                                     viewModel.openSubtitleSearchDialog()
                                 }
                             } else {
@@ -1020,29 +1011,22 @@ fun TvPlayerScreen(
                                 (aiTranslate.status.enabled || aiTranslate.status.transcribeEnabled)
                             ) {
                                 {
-                                    viewModel.closeSubtitleMenu()
+                                    viewModel.closeHUD()
                                     viewModel.openAiTranslateDialog()
                                 }
                             } else {
                                 null
                             },
-                            onSubtitleStyle = {
-                                viewModel.closeSubtitleMenu()
-                                viewModel.openSubtitleStyleDialog()
+                            hdrEnabled = hdrEnabled,
+                            onHdrEnabledChanged = viewModel::onSetHdrEnabled,
+                            chapters = state.chapters,
+                            onSelectChapter = { idx ->
+                                viewModel.onSeekToChapter(idx)?.let { sec ->
+                                    mediaController?.seekTo((sec * 1000).toLong())
+                                }
                             },
-                            onDismiss = viewModel::closeSubtitleMenu,
-                            modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
-                        )
-                    }
-                }
-
-                if (state.showSubtitleStyleDialog) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        TvSubtitleStyleDialog(
-                            appearance = subtitleAppearance,
-                            onUpdate = viewModel::onSetSubtitleAppearance,
-                            onDismiss = viewModel::closeSubtitleStyleDialog,
-                            modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
+                            onDismiss = { viewModel.closeHUD() },
+                            initialTab = requestedHudTab,
                         )
                     }
                 }
@@ -1237,7 +1221,6 @@ private fun TvPlayerIdleOverlay(
     onCancelScrub: () -> Unit,
     transportFocusRequest: Int,
     onOpenHUD: () -> Unit,
-    onOpenTracks: () -> Unit,
     onClose: () -> Unit,
     // Watch Together transport authority. Solo playback leaves both true.
     // A guest who can't seek gets a no-op scrubber/skip; a guest who can't
@@ -1334,12 +1317,11 @@ private fun TvPlayerIdleOverlay(
 
             TvPlayerTransportCluster(
                 isPlaying = !isPaused,
-                onBack = onClose,
                 onSkipBack = onSkipBack,
                 onPlayPause = onPlayPause,
                 onSkipForward = onSkipForward,
-                onOpenTracks = onOpenTracks,
                 onOpenHUD = onOpenHUD,
+                onClose = onClose,
                 playPauseFocus = playPauseFocus,
                 onMoveUpToScrubber = {
                     runCatching { scrubberFocus.requestFocus() }

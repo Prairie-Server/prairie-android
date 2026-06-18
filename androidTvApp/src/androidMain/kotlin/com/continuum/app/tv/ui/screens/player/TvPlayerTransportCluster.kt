@@ -1,6 +1,6 @@
 package com.continuum.app.tv.ui.screens.player
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,17 +10,17 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -30,7 +30,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -46,19 +45,23 @@ import androidx.tv.material3.Icon
 
 /**
  * Bottom transport row mirroring `iosApp/.../tvOS/TVPlayerTransportCluster.swift`.
- * Uniform circular buttons that flip white-on-black ↔ black-on-white when
- * focused; left/right cycles within the centered dock, Up returns focus to
- * the scrubber.
+ *
+ * Primary group (skipBack / playPause / skipForward) pinned left; secondary
+ * group (options / close) pushed right. Uniform circular buttons that flip
+ * white-on-black ↔ black-on-white when focused (white-fill inversion only — no
+ * focus scale). Skip back is 10s; skip forward is 30s. There is no Back button
+ * and no separate subtitles button — `options` (⋯) opens the floating HUD,
+ * whose Subtitles tab now owns the track/style/delay controls; `close` (xmark)
+ * exits the player. Up returns focus to the scrubber.
  */
 @Composable
 fun TvPlayerTransportCluster(
     isPlaying: Boolean,
-    onBack: () -> Unit,
     onSkipBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSkipForward: () -> Unit,
-    onOpenTracks: () -> Unit,
     onOpenHUD: () -> Unit,
+    onClose: () -> Unit,
     playPauseFocus: FocusRequester,
     onMoveUpToScrubber: () -> Unit,
     modifier: Modifier = Modifier,
@@ -66,59 +69,55 @@ fun TvPlayerTransportCluster(
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        TransportIconButton(
-            icon = Icons.AutoMirrored.Filled.ArrowBack,
-            description = "Back",
-            onClick = onBack,
-            onMoveUp = onMoveUpToScrubber,
-        )
-        DockGap()
-        TransportIconButton(
-            icon = Icons.Filled.Replay10,
-            description = "Skip back 10 seconds",
-            onClick = onSkipBack,
-            onMoveUp = onMoveUpToScrubber,
-        )
-        DockGap()
-        TransportIconButton(
-            icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-            description = if (isPlaying) "Pause" else "Play",
-            onClick = onPlayPause,
-            isPrimary = true,
-            focusRequester = playPauseFocus,
-            onMoveUp = onMoveUpToScrubber,
-        )
-        DockGap()
-        TransportIconButton(
-            icon = Icons.Filled.Forward10,
-            description = "Skip forward 10 seconds",
-            onClick = onSkipForward,
-            onMoveUp = onMoveUpToScrubber,
-        )
-        DockGap()
-        TransportIconButton(
-            icon = Icons.Filled.Subtitles,
-            description = "Audio and subtitles",
-            onClick = onOpenTracks,
-            onMoveUp = onMoveUpToScrubber,
-        )
-        DockGap()
-        TransportIconButton(
-            icon = Icons.Filled.MoreHoriz,
-            description = "More options",
-            onClick = onOpenHUD,
-            onMoveUp = onMoveUpToScrubber,
-        )
+        // Primary group — pinned left.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TransportIconButton(
+                icon = Icons.Filled.Replay10,
+                description = "Skip back 10 seconds",
+                onClick = onSkipBack,
+                onMoveUp = onMoveUpToScrubber,
+            )
+            DockGap()
+            TransportIconButton(
+                icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                description = if (isPlaying) "Pause" else "Play",
+                onClick = onPlayPause,
+                focusRequester = playPauseFocus,
+                onMoveUp = onMoveUpToScrubber,
+            )
+            DockGap()
+            TransportIconButton(
+                icon = Icons.Filled.Forward30,
+                description = "Skip forward 30 seconds",
+                onClick = onSkipForward,
+                onMoveUp = onMoveUpToScrubber,
+            )
+        }
+
+        // Secondary group — pushed right.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TransportIconButton(
+                icon = Icons.Filled.Tune,
+                description = "Info and options",
+                onClick = onOpenHUD,
+                onMoveUp = onMoveUpToScrubber,
+            )
+            DockGap()
+            TransportIconButton(
+                icon = Icons.Filled.Close,
+                description = "Close player",
+                onClick = onClose,
+                onMoveUp = onMoveUpToScrubber,
+            )
+        }
     }
 }
 
 @Composable
 private fun DockGap() {
-    androidx.compose.foundation.layout.Spacer(
-        modifier = Modifier.size(width = 18.dp, height = 1.dp),
-    )
+    Spacer(modifier = Modifier.size(width = 14.dp, height = 1.dp))
 }
 
 @Composable
@@ -126,29 +125,28 @@ private fun TransportIconButton(
     icon: ImageVector,
     description: String,
     onClick: () -> Unit,
-    isPrimary: Boolean = false,
     focusRequester: FocusRequester? = null,
     onMoveUp: () -> Unit = {},
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val buttonSize = if (isPrimary) 82.dp else 64.dp
-    val symbolSize = if (isPrimary) 36.dp else 26.dp
+    // Uniform sizes across all buttons so the row reads as one transport group.
+    val buttonSize = 66.dp
+    val symbolSize = 28.dp
 
-    val focusBg = if (isFocused) Color.White else Color.Black.copy(alpha = 0.35f)
-    val iconTint = if (isFocused) Color.Black else Color.White
-
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.025f else 1f,
+    // Focus is signaled by filling the circle white — no scale transform so the
+    // buttons never cross the bounds of their circular hit target.
+    val focusBg by animateColorAsState(
+        targetValue = if (isFocused) Color.White else Color.Black.copy(alpha = 0.35f),
         animationSpec = tween(120),
-        label = "transportScale",
+        label = "transportBg",
     )
+    val iconTint = if (isFocused) Color.Black else Color.White
 
     Box(
         modifier = Modifier
             .size(buttonSize)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(focusBg)
             .border(

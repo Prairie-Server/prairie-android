@@ -15,9 +15,6 @@ class TvPlayerControlsUsabilityTest {
     private val hudSource = File(
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt",
     ).readText()
-    private val subtitleMenuSource = File(
-        "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvSubtitleMenu.kt",
-    ).takeIf { it.exists() }?.readText().orEmpty()
     private val viewModelSource = File(
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt",
     ).readText()
@@ -29,21 +26,33 @@ class TvPlayerControlsUsabilityTest {
     ).takeIf { it.exists() }?.readText().orEmpty()
 
     @Test
-    fun idleOverlayDefaultsToPlayPauseInACenteredDock() {
+    fun idleOverlayDefaultsToPlayPauseInTransportDock() {
         assertTrue(screenSource.contains("LaunchedEffect(transportFocusRequest) { runCatching { playPauseFocus.requestFocus() } }"))
-        assertTrue(clusterSource.contains("Arrangement.Center"))
-        assertTrue(clusterSource.contains("Icons.AutoMirrored.Filled.ArrowBack"))
-        assertTrue(clusterSource.contains("Icons.Filled.Subtitles"))
-        assertTrue(clusterSource.contains("Icons.Filled.MoreHoriz"))
-        assertFalse(clusterSource.contains("Spacer(modifier = Modifier.weight(1f))"))
+        // Primary group pinned left + secondary group pushed right.
+        assertTrue(clusterSource.contains("Arrangement.SpaceBetween"))
+        assertTrue(clusterSource.contains("Icons.Filled.Replay10"))
+        assertTrue(clusterSource.contains("Icons.Filled.Forward30"))
+        assertTrue(clusterSource.contains("Icons.Filled.Tune"))
+        assertTrue(clusterSource.contains("Icons.Filled.Close"))
     }
 
     @Test
-    fun morePanelIsRightAnchoredInsteadOfTopHud() {
-        assertTrue(screenSource.contains("modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd)"))
-        assertTrue(hudSource.contains("PlayerSidePanel"))
-        assertTrue(hudSource.contains(".width(560.dp)"))
-        assertFalse(hudSource.contains(".padding(top = 48.dp)"))
+    fun transportDropsBackAndSubtitlesButtons() {
+        // No Back button, no separate subtitles button — close uses xmark and
+        // options (Tune) opens the floating HUD whose Subtitles tab owns tracks.
+        assertFalse(clusterSource.contains("Icons.AutoMirrored.Filled.ArrowBack"))
+        assertFalse(clusterSource.contains("Icons.Filled.Subtitles"))
+        assertFalse(clusterSource.contains("Icons.Filled.MoreHoriz"))
+        assertFalse(clusterSource.contains("Icons.Filled.Forward10"))
+    }
+
+    @Test
+    fun hudIsFloatingTopCenterCardInsteadOfRightDrawer() {
+        assertTrue(screenSource.contains("Alignment.TopCenter"))
+        assertTrue(hudSource.contains(".widthIn(max = 1100.dp)"))
+        assertTrue(hudSource.contains(".height(380.dp)"))
+        assertFalse(hudSource.contains("PlayerSidePanel"))
+        assertFalse(hudSource.contains(".width(560.dp)"))
     }
 
     @Test
@@ -72,27 +81,41 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
-    fun subtitleButtonOpensDedicatedMenuInsteadOfMoreHud() {
-        assertTrue(screenSource.contains("viewModel.openSubtitleMenu()"))
-        assertTrue(screenSource.contains("state.showSubtitleMenu"))
-        assertFalse(
-            screenSource.contains(
-                "onOpenTracks = {\n                            requestedHudTab = HudTab.Subtitles\n                            viewModel.openHUD()\n                        }",
-            ),
-        )
+    fun optionsButtonOpensFloatingHudWithSubtitleTab() {
+        // The retired separate subtitles button + drawer are gone; subtitles are
+        // now a HUD tab reached through the options (Tune) button.
+        assertTrue(hudSource.contains("add(HudTab.Subtitles)"))
+        assertTrue(hudSource.contains("HudTab.Subtitles -> HudSubtitlesPane"))
+        assertTrue(screenSource.contains("onOpenHUD = onOpenHUD"))
+        assertFalse(screenSource.contains("viewModel.openSubtitleMenu()"))
     }
 
     @Test
-    fun moreHudDoesNotContainSubtitleTab() {
-        assertFalse(hudSource.contains("add(HudTab.Subtitles)"))
-        assertFalse(hudSource.contains("HudTab.Subtitles -> HudSubtitlesPane"))
+    fun subtitleTabAlwaysAvailableButAudioStillGated() {
+        // Subtitles tab is unconditional — it hosts the Android-only Search /
+        // AI-Translate / style controls that must stay reachable even when a
+        // title carries no subtitle tracks (there is no separate subtitles
+        // button anymore). Audio still hides when empty.
+        assertTrue(hudSource.contains("add(HudTab.Subtitles)"))
+        assertFalse(hudSource.contains("if (subtitleTracks.isNotEmpty()) add(HudTab.Subtitles)"))
+        assertTrue(hudSource.contains("if (audioTracks.isNotEmpty()) add(HudTab.Audio)"))
     }
 
     @Test
-    fun dedicatedSubtitleMenuClosesAfterTrackSelection() {
-        assertTrue(subtitleMenuSource.contains("fun TvSubtitleMenu("))
-        assertTrue(screenSource.contains("viewModel.closeSubtitleMenu()"))
-        assertTrue(screenSource.contains("applyTvSubtitleSelection"))
+    fun subtitleTabKeepsTrackListDelayStepperAndAppearance() {
+        assertTrue(hudSource.contains("fun HudSubtitlesPane("))
+        assertTrue(hudSource.contains("onSelectSubtitle(opt.id)"))
+        assertTrue(hudSource.contains("DelayStepperRow(valueMs = subtitleDelayMs"))
+        assertTrue(hudSource.contains("StyleSection(\"Text size\")"))
+        assertTrue(hudSource.contains("StyleSection(\"Position\")"))
+    }
+
+    @Test
+    fun subtitleTabKeepsAndroidOnlySearchAndAiRows() {
+        assertTrue(hudSource.contains("Search subtitles"))
+        assertTrue(hudSource.contains("Translate with AI"))
+        assertTrue(screenSource.contains("viewModel.openSubtitleSearchDialog()"))
+        assertTrue(screenSource.contains("viewModel.openAiTranslateDialog()"))
     }
 
     @Test
@@ -101,107 +124,14 @@ class TvPlayerControlsUsabilityTest {
             .substringAfter("val applyTvSubtitleSelection")
             .substringBefore("DisposableEffect(context)")
         val uiUpdateIndex = selectionBlock.indexOf("viewModel.onSubtitleSelectionApplied(idx)")
-        val closeIndex = selectionBlock.indexOf("if (dismiss) viewModel.closeSubtitleMenu()")
         val backendIndex = selectionBlock.indexOf("videoBackend?.selectSubtitle(selectedTrack)")
 
         assertTrue(uiUpdateIndex >= 0, "selection should optimistically update the checkmark")
-        assertTrue(closeIndex >= 0, "selection should dismiss the dedicated subtitle menu")
         assertTrue(backendIndex >= 0, "selection should still apply the Media3 subtitle track")
         assertTrue(
             uiUpdateIndex < backendIndex,
             "UI state must not wait for Media3 track selection to succeed",
         )
-        assertTrue(
-            closeIndex < backendIndex,
-            "the subtitle menu must close immediately after a remote select",
-        )
-    }
-
-    @Test
-    fun dedicatedSubtitleMenuTakesInitialRemoteFocus() {
-        assertTrue(subtitleMenuSource.contains("FocusRequester"))
-        assertTrue(subtitleMenuSource.contains("optionFocusRequesters[initiallyFocusedId]?.requestFocus()"))
-        assertTrue(subtitleMenuSource.contains("Modifier.focusRequester(focusRequester)"))
-    }
-
-    @Test
-    fun dedicatedSubtitleMenuRowsUseTvClickableSurfacesForRemoteSelect() {
-        assertTrue(subtitleMenuSource.contains("ClickableSurfaceDefaults"))
-        assertTrue(subtitleMenuSource.contains("Surface("))
-    }
-
-    @Test
-    fun dedicatedSubtitleMenuListStaysInAFocusGroup() {
-        assertTrue(subtitleMenuSource.contains(".focusGroup()"))
-    }
-
-    @Test
-    fun dedicatedSubtitleMenuKeepsSyncControlsAboveScrollableTrackList() {
-        val syncIndex = subtitleMenuSource.indexOf("SubtitleSyncStrip(")
-        val listIndex = subtitleMenuSource.indexOf("LazyColumn(")
-
-        assertTrue(syncIndex >= 0, "subtitle sync controls should be a named compact strip")
-        assertTrue(listIndex >= 0, "subtitle tracks should stay in a scrollable list")
-        assertTrue(
-            syncIndex < listIndex,
-            "subtitle sync controls must not be buried below long subtitle track lists",
-        )
-        // Title + signed current-offset readout (the old descriptive
-        // "Advance/Delay subtitles by X ms" Text was removed — that removal is
-        // asserted precisely in dedicatedSubtitleSyncUsesCompactLayoutInsteadOfLargeCard).
-        assertTrue(subtitleMenuSource.contains("Subtitle delay"))
-        assertTrue(subtitleMenuSource.contains("subtitleSyncCompactValue(valueMs)"))
-    }
-
-    @Test
-    fun dedicatedSubtitleMenuUsesPlusMinusSubtitleSyncStepper() {
-        assertTrue(subtitleMenuSource.contains("Icons.Filled.Remove"))
-        assertTrue(subtitleMenuSource.contains("Icons.Filled.Add"))
-        assertTrue(subtitleMenuSource.contains("SubtitleDelayStepButton("))
-        assertTrue(subtitleMenuSource.contains("subtitleSyncCompactValue(valueMs)"))
-        assertFalse(subtitleMenuSource.contains("label = \"-250\""))
-        assertFalse(subtitleMenuSource.contains("label = \"-100\""))
-        assertFalse(subtitleMenuSource.contains("label = \"+100\""))
-        assertFalse(subtitleMenuSource.contains("label = \"+250\""))
-    }
-
-    @Test
-    fun dedicatedSubtitleSyncStepperUsesOnePredictableStepSize() {
-        assertTrue(subtitleMenuSource.contains("private const val SUBTITLE_SYNC_STEP_MS = 50"))
-        assertTrue(subtitleMenuSource.contains("onChange(valueMs - SUBTITLE_SYNC_STEP_MS)"))
-        assertTrue(subtitleMenuSource.contains("onChange(valueMs + SUBTITLE_SYNC_STEP_MS)"))
-    }
-
-    @Test
-    fun dedicatedSubtitleSyncButtonsUseStableIconSizing() {
-        val buttonBlock = subtitleMenuSource
-            .substringAfter("private fun SubtitleDelayStepButton")
-
-        assertTrue(buttonBlock.contains(".width(64.dp)"))
-        assertTrue(buttonBlock.contains("Icon("))
-        assertTrue(buttonBlock.contains("imageVector = icon"))
-        assertFalse(buttonBlock.contains("padding(horizontal = 14.dp"))
-    }
-
-    @Test
-    fun dedicatedSubtitleSyncUsesCompactLayoutInsteadOfLargeCard() {
-        val syncBlock = subtitleMenuSource
-            .substringAfter("private fun SubtitleSyncStrip")
-            .substringBefore("@Composable\nprivate fun SubtitleDelayStepperRow")
-
-        assertTrue(syncBlock.contains("Subtitle delay"))
-        assertTrue(syncBlock.contains("SubtitleDelayStepperRow("))
-        assertFalse(syncBlock.contains("subtitleSyncLabel(valueMs)"))
-        assertFalse(syncBlock.contains("subtitleSyncDescription"))
-        assertFalse(syncBlock.contains("RoundedCornerShape(18.dp)"))
-        assertFalse(syncBlock.contains(".padding(16.dp)"))
-    }
-
-    @Test
-    fun dedicatedSubtitleMenuRowsPinVerticalFocusTraversal() {
-        assertTrue(subtitleMenuSource.contains(".focusProperties"))
-        assertTrue(subtitleMenuSource.contains("upFocusRequester"))
-        assertTrue(subtitleMenuSource.contains("downFocusRequester"))
     }
 
     @Test
