@@ -34,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -84,15 +83,26 @@ object TvTopMenuLayout {
     val contentTopInset: Dp = 94.dp
 }
 
-/** Identifies which top-level destination the menu bar selects/highlights. */
-enum class TvRootDestination { Search, Home, Libraries, ForYou }
+/**
+ * Identifies which menu button currently holds focus. Library-type tabs share
+ * the [Tab] case keyed by [TvLibraryTabType]; the remaining cases are the
+ * fixed Home/Calendar tabs plus the trailing Search icon and profile avatar.
+ */
+private sealed class TvTopMenuFocus {
+    data object Home : TvTopMenuFocus()
+    data class Tab(val type: TvLibraryTabType) : TvTopMenuFocus()
+    data object Calendar : TvTopMenuFocus()
+    data object Search : TvTopMenuFocus()
+    data object Profile : TvTopMenuFocus()
+}
 
 /**
  * The custom top menu bar that replaces the legacy left-side rail.
  *
- * Layout matches `TVTopMenuBar.swift`:
- * - Center cluster: Search icon · Home · Libraries · For You (focusGroup, horizontal traversal)
- * - Leading cluster: Profile avatar with chevron
+ * Interim Stage 2 layout (capsule/wordmark/dwell come in Stage 3):
+ * - Center cluster: `Home` · one text button per visible library-type tab ·
+ *   `Calendar`, derived from [destinations] (the shell's `visibleRoots`).
+ * - Trailing cluster: a Search icon button + the profile avatar with chevron.
  * - Behind everything: a black gradient scrim so buttons read against hero art.
  *
  * Focus model:
@@ -110,24 +120,30 @@ enum class TvRootDestination { Search, Home, Libraries, ForYou }
 @Composable
 fun TvTopMenuBar(
     selectedRoot: TvRootDestination?,
-    destinations: List<TvRootDestination> = TvRootDestination.entries,
+    destinations: List<TvRootDestination>,
     accountState: TvAccountState,
     unreadCount: Int = 0,
     onSelectRoot: (TvRootDestination) -> Unit,
+    onSearchClick: () -> Unit,
     onProfileClick: () -> Unit,
     onMoveDown: () -> Unit,
     isMenuFocused: Boolean,
     onMenuFocusChange: (Boolean) -> Unit,
     isFocusSuppressed: Boolean,
     focusRequest: Int,
+    isSearchActive: Boolean = false,
     visibility: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
-    val searchFocusRequester = remember { FocusRequester() }
     val homeFocusRequester = remember { FocusRequester() }
-    val librariesFocusRequester = remember { FocusRequester() }
-    val forYouFocusRequester = remember { FocusRequester() }
+    val calendarFocusRequester = remember { FocusRequester() }
+    val searchFocusRequester = remember { FocusRequester() }
     val profileFocusRequester = remember { FocusRequester() }
+    // One requester per library-type tab; stable across recompositions so a
+    // focus request still lands after the visible-tab set changes.
+    val tabFocusRequesters = remember {
+        TvLibraryTabType.entries.associateWith { FocusRequester() }
+    }
 
     // Track which button currently holds focus so we can shape colors/scale
     // without depending on the surface's focused-state propagation, which is
@@ -139,15 +155,15 @@ fun TvTopMenuBar(
     // when suppression lifts, we re-evaluate and request focus.
     LaunchedEffect(focusRequest, isFocusSuppressed) {
         if (isFocusSuppressed) return@LaunchedEffect
-        // Non-tab routes (selectedRoot == null) have no menu button to focus —
-        // fall back to the search button so an explicit focus request still
-        // lands on the bar rather than being dropped.
-        val target = when (selectedRoot) {
-            TvRootDestination.Search -> searchFocusRequester
+        // Non-tab routes (selectedRoot == null) have no menu button to focus.
+        // The Search route's chrome IS the trailing search icon, so focus that;
+        // every other non-tab route falls back to Home so an explicit focus
+        // request still lands on the bar rather than being dropped.
+        val target = when (val root = selectedRoot) {
             TvRootDestination.Home -> homeFocusRequester
-            TvRootDestination.Libraries -> librariesFocusRequester
-            TvRootDestination.ForYou -> forYouFocusRequester
-            null -> searchFocusRequester
+            TvRootDestination.Calendar -> calendarFocusRequester
+            is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
+            null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
         }
         runCatching { target.requestFocus() }
     }
@@ -186,7 +202,8 @@ fun TvTopMenuBar(
                 }
             },
     ) {
-        // Left cluster (search + 3 root tabs)
+        // Center cluster: Home · library-type tabs · Calendar (derived from
+        // the shell's visibleRoots).
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -196,30 +213,6 @@ fun TvTopMenuBar(
         ) {
             destinations.forEach { destination ->
                 when (destination) {
-                    TvRootDestination.Search -> TvTopMenuIconButton(
-                        icon = Icons.Outlined.Search,
-                        contentDescription = "Search",
-                        width = TvTopMenuLayout.searchButtonWidth,
-                        isSelected = selectedRoot == TvRootDestination.Search,
-                        isFocused = focusedButton == TvTopMenuFocus.Search,
-                        focusRequester = searchFocusRequester,
-                        onFocusChanged = { hasFocus ->
-                            focusedButton = if (hasFocus) {
-                                TvTopMenuFocus.Search
-                            } else {
-                                focusedButton.takeUnless { it == TvTopMenuFocus.Search }
-                            }
-                        },
-                        onClick = {
-                            onSelectRoot(TvRootDestination.Search)
-                        },
-                        // Search is the leftmost item in the center cluster. Spatial
-                        // focus search wouldn't reliably reach the profile button
-                        // because they're in separate Rows aligned to different
-                        // anchors (TopCenter vs TopStart). Pin LEFT explicitly.
-                        extraModifier = Modifier.focusProperties { left = profileFocusRequester },
-                    )
-
                     TvRootDestination.Home -> TvTopMenuTextButton(
                         label = "Home",
                         width = TvTopMenuLayout.homeButtonWidth,
@@ -236,39 +229,68 @@ fun TvTopMenuBar(
                         onClick = { onSelectRoot(TvRootDestination.Home) },
                     )
 
-                    TvRootDestination.Libraries -> TvTopMenuTextButton(
-                        label = "Libraries",
-                        width = TvTopMenuLayout.librariesButtonWidth,
-                        isSelected = selectedRoot == TvRootDestination.Libraries,
-                        isFocused = focusedButton == TvTopMenuFocus.Libraries,
-                        focusRequester = librariesFocusRequester,
-                        onFocusChanged = { hasFocus ->
-                            focusedButton = if (hasFocus) {
-                                TvTopMenuFocus.Libraries
-                            } else {
-                                focusedButton.takeUnless { it == TvTopMenuFocus.Libraries }
-                            }
-                        },
-                        onClick = { onSelectRoot(TvRootDestination.Libraries) },
-                    )
+                    is TvRootDestination.LibraryType -> {
+                        val type = destination.type
+                        TvTopMenuTextButton(
+                            label = type.title,
+                            width = TvTopMenuLayout.librariesButtonWidth,
+                            isSelected = selectedRoot == destination,
+                            isFocused = focusedButton == TvTopMenuFocus.Tab(type),
+                            focusRequester = tabFocusRequesters[type] ?: homeFocusRequester,
+                            onFocusChanged = { hasFocus ->
+                                focusedButton = if (hasFocus) {
+                                    TvTopMenuFocus.Tab(type)
+                                } else {
+                                    focusedButton.takeUnless { it == TvTopMenuFocus.Tab(type) }
+                                }
+                            },
+                            onClick = { onSelectRoot(destination) },
+                        )
+                    }
 
-                    TvRootDestination.ForYou -> TvTopMenuTextButton(
-                        label = "For You",
+                    TvRootDestination.Calendar -> TvTopMenuTextButton(
+                        label = "Calendar",
                         width = TvTopMenuLayout.librariesButtonWidth,
-                        isSelected = selectedRoot == TvRootDestination.ForYou,
-                        isFocused = focusedButton == TvTopMenuFocus.ForYou,
-                        focusRequester = forYouFocusRequester,
+                        isSelected = selectedRoot == TvRootDestination.Calendar,
+                        isFocused = focusedButton == TvTopMenuFocus.Calendar,
+                        focusRequester = calendarFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
-                                TvTopMenuFocus.ForYou
+                                TvTopMenuFocus.Calendar
                             } else {
-                                focusedButton.takeUnless { it == TvTopMenuFocus.ForYou }
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Calendar }
                             }
                         },
-                        onClick = { onSelectRoot(TvRootDestination.ForYou) },
+                        onClick = { onSelectRoot(TvRootDestination.Calendar) },
                     )
                 }
             }
+        }
+
+        // Trailing cluster: Search icon button. Navigates to the Search route;
+        // it is no longer a root tab so it never highlights as one.
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = TvTopMenuLayout.trailingInset, top = TvTopMenuLayout.primaryTopInset),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TvTopMenuIconButton(
+                icon = Icons.Outlined.Search,
+                contentDescription = "Search",
+                width = TvTopMenuLayout.searchButtonWidth,
+                isSelected = false,
+                isFocused = focusedButton == TvTopMenuFocus.Search,
+                focusRequester = searchFocusRequester,
+                onFocusChanged = { hasFocus ->
+                    focusedButton = if (hasFocus) {
+                        TvTopMenuFocus.Search
+                    } else {
+                        focusedButton.takeUnless { it == TvTopMenuFocus.Search }
+                    }
+                },
+                onClick = onSearchClick,
+            )
         }
 
         // Leading cluster (profile avatar + chevron)
@@ -287,15 +309,10 @@ fun TvTopMenuBar(
                     focusedButton = if (hasFocus) TvTopMenuFocus.Profile else focusedButton.takeUnless { it == TvTopMenuFocus.Profile }
                 },
                 onClick = onProfileClick,
-                // Mirror of the bridge on the Search button: pressing RIGHT
-                // from the profile avatar lands on the Search icon.
-                extraModifier = Modifier.focusProperties { right = searchFocusRequester },
             )
         }
     }
 }
-
-private enum class TvTopMenuFocus { Search, Home, Libraries, ForYou, Profile }
 
 /** Minimal account view-data the menu bar renders. */
 data class TvAccountState(

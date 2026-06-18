@@ -47,10 +47,14 @@ class TvUsabilityGuardTest {
             "src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvMediaDestinations.kt",
         ).readText()
 
-        assertTrue(destinations.contains("TvRootDestination.Search"))
+        // Skyline content-type-first roots: Home, per-type tabs, Calendar.
         assertTrue(destinations.contains("TvRootDestination.Home"))
-        assertTrue(destinations.contains("TvRootDestination.Libraries"))
-        assertTrue(destinations.contains("TvRootDestination.ForYou"))
+        assertTrue(destinations.contains("TvRootDestination.LibraryType"))
+        assertTrue(destinations.contains("TvRootDestination.Calendar"))
+        // Search / For You are no longer root tabs, and secondary utility
+        // surfaces never appear in the derived tab set.
+        assertFalse(destinations.contains("TvRootDestination.Search"))
+        assertFalse(destinations.contains("TvRootDestination.ForYou"))
         assertFalse(destinations.contains("TvRootDestination.Requests"))
         assertFalse(destinations.contains("TvRootDestination.Settings"))
     }

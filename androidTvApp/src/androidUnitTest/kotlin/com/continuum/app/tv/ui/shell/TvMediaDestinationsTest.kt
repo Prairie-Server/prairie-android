@@ -1,40 +1,59 @@
 package com.continuum.app.tv.ui.shell
 
-import com.continuum.app.model.navigation.MediaMode
-import com.continuum.app.model.navigation.MediaModeCapabilities
+import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.tv.ui.navigation.TvMainRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TvMediaDestinationsTest {
 
-    // Apple/tvOS-aligned shell: exactly four tabs — Search · Home · Libraries ·
-    // For You — independent of which media types the libraries contain. Library
-    // content is reached through the Libraries picker; Requests lives in Settings.
-    private val expected = listOf(
-        TvRootDestination.Search,
-        TvRootDestination.Home,
-        TvRootDestination.Libraries,
-        TvRootDestination.ForYou,
-    )
+    private fun library(id: Int, type: String, sortOrder: Int = 0) =
+        UserLibrary(id = id, name = "Lib $id", type = type, sortOrder = sortOrder)
+
+    // Skyline content-type-first shell (§3.1): Home first, then one tab per
+    // library type the profile can see (in enum order), then Calendar.
+    @Test
+    fun rootsAreHomePresentTypesThenCalendar() {
+        val libraries = listOf(
+            library(1, "music"),
+            library(2, "movies"),
+            library(3, "series"),
+        )
+        assertEquals(
+            listOf(
+                TvRootDestination.Home,
+                TvRootDestination.LibraryType(TvLibraryTabType.Movies),
+                TvRootDestination.LibraryType(TvLibraryTabType.Series),
+                TvRootDestination.LibraryType(TvLibraryTabType.Music),
+                TvRootDestination.Calendar,
+            ),
+            visibleTvRoots(libraries),
+        )
+    }
 
     @Test
-    fun destinationsAreFixedRegardlessOfLibraryTypes() {
-        assertEquals(expected, visibleTvDestinations(MediaModeCapabilities(listOf(MediaMode.Video))))
-        assertEquals(expected, visibleTvDestinations(MediaModeCapabilities(listOf(MediaMode.Audio))))
+    fun rootsAreHomeAndCalendarWhenNoLibraries() {
         assertEquals(
-            expected,
-            visibleTvDestinations(MediaModeCapabilities(listOf(MediaMode.Video, MediaMode.Audio))),
+            listOf(TvRootDestination.Home, TvRootDestination.Calendar),
+            visibleTvRoots(emptyList()),
         )
-        assertEquals(expected, visibleTvDestinations(MediaModeCapabilities(emptyList())))
+    }
+
+    @Test
+    fun onlyPresentTypesYieldTabs() {
+        val libraries = listOf(library(1, "audiobook"))
+        assertEquals(
+            listOf(
+                TvRootDestination.Home,
+                TvRootDestination.LibraryType(TvLibraryTabType.Audiobooks),
+                TvRootDestination.Calendar,
+            ),
+            visibleTvRoots(libraries),
+        )
     }
 
     @Test
     fun firstRouteIsAlwaysHome() {
-        assertEquals(
-            TvMainRoute.Home.route,
-            firstTvRoute(MediaModeCapabilities(listOf(MediaMode.Video, MediaMode.Audio))),
-        )
-        assertEquals(TvMainRoute.Home.route, firstTvRoute(MediaModeCapabilities(emptyList())))
+        assertEquals(TvMainRoute.Home.route, firstTvRoute())
     }
 }

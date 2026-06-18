@@ -21,10 +21,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,15 +62,16 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.common.ui.components.rememberProfileServerUrl
-import com.continuum.app.model.navigation.MediaMode
-import com.continuum.app.model.navigation.MediaModeCapabilities
-import com.continuum.app.model.navigation.tvMediaModeCapabilities
+import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.AuthRepository
 import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
+import com.continuum.app.tv.data.preferences.TvLibraryScopeStore
+import com.continuum.app.tv.ui.components.TvCatalogEmptyState
 import com.continuum.app.tv.ui.navigation.TvMainRoute
+import com.continuum.app.tv.ui.screens.library.TvLibraryDetailScreen
 import com.continuum.app.tv.ui.screens.notifications.TvInboxScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminHubScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminLogsScreen
@@ -91,6 +95,7 @@ import com.continuum.app.tv.ui.screens.requests.TvRequestsScreen
 import com.continuum.app.tv.ui.screens.search.TvSearchScreen
 import com.continuum.app.tv.ui.screens.settings.TvManageSessionsScreen
 import com.continuum.app.tv.ui.screens.settings.TvSettingsScreen
+import com.continuum.app.tv.ui.util.visibleOnTv
 import org.koin.compose.koinInject
 
 /**
@@ -119,23 +124,62 @@ fun TvMainShell(
     val personalDataRepository: PersonalDataRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
     val notificationsRepository: NotificationsRepository = koinInject()
+    val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     val unreadCount by notificationsRepository.unreadCount.collectAsState()
     val serverUrl = rememberProfileServerUrl()
 
-    val mediaCapabilities by produceState(
-        initialValue = MediaModeCapabilities(listOf(MediaMode.Video, MediaMode.Audio)),
+    // The raw list of libraries visible to this profile on TV, sorted by the
+    // server's sort order (ebook-like libraries filtered out by visibleOnTv).
+    // This drives both `visibleRoots` and per-type scope resolution.
+    // Gates the snap-to-Home redirect below: while libraries are still loading
+    // `visibleRoots` is only Home + Calendar, so a restored/deep-linked
+    // `main/movies` route must NOT be treated as "type has no libraries" yet.
+    var librariesLoaded by remember { mutableStateOf(false) }
+    val libraries by produceState(
+        initialValue = emptyList<UserLibrary>(),
         personalDataRepository,
     ) {
         when (val result = personalDataRepository.listUserLibraries()) {
-            is ApiResult.Success -> value = result.data.tvMediaModeCapabilities()
+            is ApiResult.Success ->
+                value = result.data.visibleOnTv().sortedBy { it.sortOrder }
             is ApiResult.Error,
             is ApiResult.NetworkError -> Unit
         }
+        // Mark loaded even on error (we've attempted) so the redirect can run;
+        // an empty list then legitimately means "no libraries for this profile".
+        librariesLoaded = true
     }
-    val visibleDestinations = remember(mediaCapabilities) {
-        visibleTvDestinations(mediaCapabilities)
+
+    // Skyline tab set (§3.1): Home + present library-type tabs + Calendar.
+    val visibleRoots = remember(libraries) { visibleTvRoots(libraries) }
+
+    // In-session scope/pill selections per library type. Scope selections are
+    // also persisted via TvLibraryScopeStore; pill selections are session-only
+    // (Stage 4 wires the cascade into these). Persistently composed.
+    val scopeSelections: SnapshotStateMap<TvLibraryTabType, Int> = remember { mutableStateMapOf() }
+    val pillSelections: SnapshotStateMap<TvLibraryTabType, TvLibraryPill> = remember { mutableStateMapOf() }
+
+    // Resolved active library per type. resolvedLibrary is suspend, so resolve
+    // it off-composition in a LaunchedEffect keyed on (libraries, scopeSelections)
+    // and publish into this state map. Composition only ever reads the map.
+    val resolvedLibraries: SnapshotStateMap<TvLibraryTabType, UserLibrary> =
+        remember { mutableStateMapOf() }
+    LaunchedEffect(libraries, scopeSelections.toMap()) {
+        TvLibraryTabType.entries.forEach { type ->
+            val ofType = libraries.filter { type.matches(it) }
+            val selectedId = scopeSelections[type]
+            val resolved = selectedId?.let { id -> ofType.firstOrNull { it.id == id } }
+                ?: tvLibraryScopeStore.resolvedLibrary(type, libraries)
+            if (resolved != null) {
+                resolvedLibraries[type] = resolved
+            } else {
+                resolvedLibraries.remove(type)
+            }
+        }
     }
-    val currentRoute = currentEntry?.destination?.route ?: firstTvRoute(mediaCapabilities)
+    val activeLibrary: (TvLibraryTabType) -> UserLibrary? = { type -> resolvedLibraries[type] }
+
+    val currentRoute = currentEntry?.destination?.route ?: firstTvRoute()
 
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
@@ -226,6 +270,15 @@ fun TvMainShell(
         moveFocusToContent(route)
     }
 
+    // Search is no longer a root tab — it's a trailing icon button. Navigate to
+    // the (still-defined) Search route and drop focus into the search field.
+    val onSearchPressed: () -> Unit = {
+        if (TvMainRoute.Search.route != currentRoute) {
+            navigateToRoute(TvMainRoute.Search.route)
+        }
+        moveFocusToContent(TvMainRoute.Search.route)
+    }
+
     fun closeMenuAnd(action: () -> Unit): () -> Unit = {
         profileMenuOpen = false
         action()
@@ -281,15 +334,19 @@ fun TvMainShell(
         }
     }
 
-    LaunchedEffect(currentRoute, visibleDestinations, mediaCapabilities) {
+    LaunchedEffect(currentRoute, visibleRoots, librariesLoaded) {
+        // Wait until libraries have actually loaded — before that `visibleRoots`
+        // is just Home + Calendar, and a restored/deep-linked `main/movies` route
+        // would be wrongly ejected even though that type exists.
+        if (!librariesLoaded) return@LaunchedEffect
         // Only media-root tabs are eligible for the "tab no longer visible"
-        // redirect. Non-tab routes (Settings, Inbox, Favorites, …) map to null
-        // and must be left alone — otherwise an audio-only server (no Video
-        // tab) would silently eject a user off the Inbox/Settings to Audio
-        // when mediaCapabilities updates.
+        // redirect. Non-tab routes (Settings, Inbox, Favorites, Search, …) map
+        // to null and must be left alone — otherwise navigating to Settings
+        // would silently eject the user back to Home. If the selected root is a
+        // LibraryType whose type has no libraries, snap to Home.
         val selected = mapRouteToRoot(currentRoute) ?: return@LaunchedEffect
-        if (!selected.isVisibleIn(visibleDestinations)) {
-            navigateToRoute(firstTvRoute(mediaCapabilities))
+        if (!selected.isVisibleIn(visibleRoots)) {
+            navigateToRoute(firstTvRoute())
         }
     }
 
@@ -372,7 +429,7 @@ fun TvMainShell(
         ) {
             NavHost(
                 navController = nestedNav,
-                startDestination = firstTvRoute(mediaCapabilities),
+                startDestination = firstTvRoute(),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 composable(TvMainRoute.Video.route) {
@@ -414,6 +471,47 @@ fun TvMainShell(
                 }
                 composable(TvMainRoute.Libraries.route) {
                     TvLibrariesScreen(
+                        onItemClick = onOpenItemDetail,
+                        onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onInitialContentFocus = { profileMenuOpen = false },
+                    )
+                }
+                // Content-type tabs (Skyline §3.1). Each renders the library
+                // content scoped to that type's active library. The full-screen
+                // picker stays the switch mechanism this stage (TvLibrariesScreen
+                // still hosts it for the legacy Libraries route); the cascade
+                // selector arrives in Stage 4.
+                composable(TvMainRoute.Movies.route) {
+                    TvLibraryTypeContent(
+                        type = TvLibraryTabType.Movies,
+                        library = activeLibrary(TvLibraryTabType.Movies),
+                        onItemClick = onOpenItemDetail,
+                        onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onInitialContentFocus = { profileMenuOpen = false },
+                    )
+                }
+                composable(TvMainRoute.Series.route) {
+                    TvLibraryTypeContent(
+                        type = TvLibraryTabType.Series,
+                        library = activeLibrary(TvLibraryTabType.Series),
+                        onItemClick = onOpenItemDetail,
+                        onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onInitialContentFocus = { profileMenuOpen = false },
+                    )
+                }
+                composable(TvMainRoute.Music.route) {
+                    TvLibraryTypeContent(
+                        type = TvLibraryTabType.Music,
+                        library = activeLibrary(TvLibraryTabType.Music),
+                        onItemClick = onOpenItemDetail,
+                        onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onInitialContentFocus = { profileMenuOpen = false },
+                    )
+                }
+                composable(TvMainRoute.Audiobooks.route) {
+                    TvLibraryTypeContent(
+                        type = TvLibraryTabType.Audiobooks,
+                        library = activeLibrary(TvLibraryTabType.Audiobooks),
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { profileMenuOpen = false },
@@ -586,16 +684,18 @@ fun TvMainShell(
         // Menu overlay — sits on top, gradient scrim fades into content.
         TvTopMenuBar(
             selectedRoot = selectedRoot,
-            destinations = visibleDestinations,
+            destinations = visibleRoots,
             accountState = accountSnapshot,
             unreadCount = unreadCount,
             onSelectRoot = onSelectRoot,
+            onSearchClick = onSearchPressed,
             onProfileClick = { profileMenuOpen = !profileMenuOpen },
             onMoveDown = { moveFocusToContent(currentRoute) },
             isMenuFocused = isMenuFocused,
             onMenuFocusChange = { isMenuFocused = it },
             isFocusSuppressed = profileMenuOpen,
             focusRequest = menuFocusRequest,
+            isSearchActive = currentRoute == TvMainRoute.Search.route,
             visibility = menuVisibility.value,
             modifier = Modifier
                 .fillMaxWidth()
@@ -637,6 +737,50 @@ fun TvMainShell(
 }
 
 /**
+ * Renders the library content for a content-type tab, scoped to that type's
+ * currently-active [library]. Reuses [TvLibraryDetailScreen] as-is (the same
+ * surface the Libraries tab shows for a single library). When no active library
+ * has resolved yet (libraries still loading, or the type genuinely has none) we
+ * show a quiet empty state rather than crashing. The Stage 4 cascade selector
+ * will replace the in-screen full-screen picker as the switch mechanism.
+ */
+@Composable
+private fun TvLibraryTypeContent(
+    type: TvLibraryTabType,
+    library: UserLibrary?,
+    onItemClick: (contentId: String) -> Unit,
+    onLibraryCollectionClick: (libraryId: Int, collectionId: String, title: String) -> Unit,
+    onInitialContentFocus: () -> Unit,
+) {
+    if (library == null) {
+        TvCatalogEmptyState(
+            message = "No ${type.title} libraries available for this profile.",
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        )
+        return
+    }
+    // Key on the library id so switching the active library rebuilds the
+    // detail screen (and its keyed ViewModel) cleanly instead of reusing stale
+    // state from the previous library.
+    key(library.id) {
+        TvLibraryDetailScreen(
+            libraryId = library.id,
+            libraryTitle = library.name,
+            libraryType = library.type,
+            canSwitchLibrary = false,
+            onSwitchLibrary = {},
+            onItemClick = onItemClick,
+            onCollectionClick = { collectionId, title ->
+                onLibraryCollectionClick(library.id, collectionId, title)
+            },
+            onInitialContentFocus = onInitialContentFocus,
+        )
+    }
+}
+
+/**
  * Maps an in-app route string to the corresponding top-menu destination, or
  * `null` when the route is not one of the media-root tabs. Non-tab routes
  * (Settings, Collections, Favorites, Watchlist, History, Inbox, ForYou, …) are
@@ -646,24 +790,31 @@ fun TvMainShell(
  * user where they are instead of ejecting them to the first visible tab.
  */
 private fun mapRouteToRoot(route: String): TvRootDestination? = when (route) {
-    TvMainRoute.Search.route -> TvRootDestination.Search
-    // Video/Audio are legacy aliases kept harmless during the nav alignment;
-    // they map to the Apple/web Home / Libraries tabs.
+    // Video/Audio/Libraries are legacy aliases kept harmless during the nav
+    // alignment; Video maps to Home and the others to no specific tab now that
+    // content is reached via the per-type tabs.
     TvMainRoute.Video.route,
     TvMainRoute.Home.route -> TvRootDestination.Home
-    TvMainRoute.Audio.route,
-    TvMainRoute.Libraries.route -> TvRootDestination.Libraries
-    TvMainRoute.ForYou.route -> TvRootDestination.ForYou
-    // Requests/MyRequests are non-tab routes now (reached from Settings); like
-    // Settings/Inbox they map to null so no top tab is highlighted.
+    TvMainRoute.Movies.route -> TvRootDestination.LibraryType(TvLibraryTabType.Movies)
+    TvMainRoute.Series.route -> TvRootDestination.LibraryType(TvLibraryTabType.Series)
+    TvMainRoute.Music.route -> TvRootDestination.LibraryType(TvLibraryTabType.Music)
+    TvMainRoute.Audiobooks.route -> TvRootDestination.LibraryType(TvLibraryTabType.Audiobooks)
+    TvMainRoute.Calendar.route -> TvRootDestination.Calendar
+    // Search / ForYou are no longer tabs — they map to null so no top tab is
+    // highlighted (Search is a trailing icon; ForYou is reached as a Home row).
+    // Requests/MyRequests/Settings/Inbox/Audio/Libraries are likewise non-tab.
     else -> null
 }
 
 private fun TvRootDestination.toRoute(): String = when (this) {
-    TvRootDestination.Search -> TvMainRoute.Search.route
     TvRootDestination.Home -> TvMainRoute.Home.route
-    TvRootDestination.Libraries -> TvMainRoute.Libraries.route
-    TvRootDestination.ForYou -> TvMainRoute.ForYou.route
+    TvRootDestination.Calendar -> TvMainRoute.Calendar.route
+    is TvRootDestination.LibraryType -> when (type) {
+        TvLibraryTabType.Movies -> TvMainRoute.Movies.route
+        TvLibraryTabType.Series -> TvMainRoute.Series.route
+        TvLibraryTabType.Music -> TvMainRoute.Music.route
+        TvLibraryTabType.Audiobooks -> TvMainRoute.Audiobooks.route
+    }
 }
 
 /**

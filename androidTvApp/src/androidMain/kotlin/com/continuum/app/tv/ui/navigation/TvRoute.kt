@@ -227,6 +227,14 @@ sealed class TvMainRoute(val route: String) {
     data object Libraries : TvMainRoute("main/libraries")
     data object Audio : TvMainRoute("main/audio")
     data object ForYou : TvMainRoute("main/foryou")
+
+    // Content-type tabs (Skyline §3.1). Each renders the library content scoped
+    // to the active library of that type. Movies/Series cover the video side;
+    // Music/Audiobooks the audio side.
+    data object Movies : TvMainRoute("main/movies")
+    data object Series : TvMainRoute("main/series")
+    data object Music : TvMainRoute("main/music")
+    data object Audiobooks : TvMainRoute("main/audiobooks")
     data object Requests : TvMainRoute("main/requests")
     data object MyRequests : TvMainRoute("main/requests/mine")
     data object Settings : TvMainRoute("main/settings")

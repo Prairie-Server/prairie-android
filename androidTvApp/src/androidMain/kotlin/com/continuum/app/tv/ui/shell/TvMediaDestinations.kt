@@ -1,24 +1,25 @@
 package com.continuum.app.tv.ui.shell
 
-import com.continuum.app.model.navigation.MediaModeCapabilities
+import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.tv.ui.navigation.TvMainRoute
 
-// Apple/tvOS-aligned shell: exactly four tabs — Search · Home · Libraries ·
-// For You. There is no per-media-type tab (Home is the curated landing,
-// Libraries is one tab with a library picker). Requests is not a tab; it's
-// reached from the Settings screen, like the other secondary destinations.
-fun visibleTvDestinations(
-    @Suppress("UNUSED_PARAMETER") capabilities: MediaModeCapabilities,
-): List<TvRootDestination> = listOf(
-    TvRootDestination.Search,
-    TvRootDestination.Home,
-    TvRootDestination.Libraries,
-    TvRootDestination.ForYou,
-)
+/**
+ * Skyline content-type-first shell (§3.1): a fixed root order of `Home`, then
+ * one tab per [TvLibraryTabType] the profile can actually see (a library of
+ * that type exists), then `Calendar`. Search and For You are no longer tabs —
+ * Search is a trailing icon button and For You is reached as a Home row.
+ *
+ * Mirrors tvOS `TVMainTabView.visibleRoots`.
+ */
+fun visibleTvRoots(libraries: List<UserLibrary>): List<TvRootDestination> = buildList {
+    add(TvRootDestination.Home)
+    TvLibraryTabType.entries
+        .filter { type -> libraries.any { type.matches(it) } }
+        .forEach { type -> add(TvRootDestination.LibraryType(type)) }
+    add(TvRootDestination.Calendar)
+}
 
-fun firstTvRoute(
-    @Suppress("UNUSED_PARAMETER") capabilities: MediaModeCapabilities,
-): String = TvMainRoute.Home.route
+fun firstTvRoute(): String = TvMainRoute.Home.route
 
 fun TvRootDestination.isVisibleIn(destinations: List<TvRootDestination>): Boolean =
     this in destinations
