@@ -138,6 +138,11 @@ fun AppNavigation(
                         popUpTo(Route.Login.route) { inclusive = true }
                     }
                 },
+                onChangeServer = {
+                    navController.navigate(Route.ServerSetup.route) {
+                        popUpTo(Route.Login.route) { inclusive = true }
+                    }
+                },
             )
         }
         composable(Route.Setup.route) {
