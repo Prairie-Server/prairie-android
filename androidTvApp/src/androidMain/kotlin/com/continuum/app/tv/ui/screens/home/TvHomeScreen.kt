@@ -27,8 +27,11 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
+import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.section.ResolvedSection
 import com.continuum.app.model.section.SectionItem
+import com.continuum.app.network.ApiResult
+import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.tv.ui.components.LocalAmbientBackdropTint
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvFocusMarquee
@@ -43,6 +46,7 @@ import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.util.visibleOnTv
 import com.continuum.app.viewmodel.HomeViewModel
 import kotlinx.coroutines.delay
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -110,7 +114,17 @@ private fun TvHomeContent(
     val rows = remember(sections) { sections.filter { it.items.isNotEmpty() } }
 
     val tintState = rememberAmbientBackdropTintState()
-    val marquee = rememberTvFocusMarqueeState()
+
+    // §9 marquee enrichment: a non-blocking item-detail fetch that backfills the
+    // aired/cast line and, for episodes, upgrades the hero to the series
+    // backdrop. Mirrors tvOS `loadEnrichment` (ContinuumAPI.itemDetail).
+    val catalogRepository: CatalogRepository = koinInject()
+    val fetchDetail: suspend (String) -> ItemDetail? = remember(catalogRepository) {
+        { contentId ->
+            (catalogRepository.getItemDetail(contentId) as? ApiResult.Success)?.data
+        }
+    }
+    val marquee = rememberTvFocusMarqueeState(fetchDetail = fetchDetail)
 
     // Focused-card → marquee. Reported on focus gain only, so moving up into
     // chrome keeps the last previewed item.
@@ -118,11 +132,13 @@ private fun TvHomeContent(
         marquee.preview(item, rowTitle)
     }
 
-    // The tint follows the COMMITTED (debounced) marquee content, not the raw
-    // focus event — so palette extraction tracks the same card the marquee +
-    // backdrop show and doesn't churn while scrubbing across a row.
-    LaunchedEffect(marquee.content?.id) {
-        marquee.content?.source?.let { tintState.set(it) }
+    // The tint follows the COMMITTED (debounced) marquee content and its
+    // EFFECTIVE hero backdrop — so when enrichment upgrades an episode to its
+    // series backdrop, the ambient wash re-samples from the upgraded art
+    // (tvOS `sampleTintIfNeeded(for: backdropURL)`). Keyed on the effective
+    // backdrop url so it doesn't churn while scrubbing across a row.
+    LaunchedEffect(marquee.content?.heroBackdropUrl) {
+        marquee.content?.let { tintState.set(it.source, it.heroBackdropUrl) }
     }
 
     val firstRowFocusRequester = remember { FocusRequester() }

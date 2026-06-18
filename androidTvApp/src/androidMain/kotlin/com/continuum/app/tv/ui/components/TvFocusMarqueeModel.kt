@@ -6,8 +6,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.section.SectionItem
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -44,6 +47,29 @@ data class TvMarqueeContent(
      *  their low-res still, falling back to whatever they carry. */
     val heroBackdropUrl: String? get() = backdropUrl ?: posterUrl
     val heroBackdropThumbhash: String? get() = backdropThumbhash ?: posterThumbhash
+
+    /** Stable per-item key for the §9 enrichment cache + stale-fetch guard. */
+    val contentId: String get() = source.contentId
+
+    /**
+     * Fold a landed [TvMarqueeEnrichment] into this content (tvOS
+     * `TVFocusMarqueeModel.backdropURL` + `detailLine`). The aired/cast line
+     * applies to every item; the backdrop upgrade applies to episodes only —
+     * non-episodes keep their own section backdrop. The crossfade [id] is
+     * preserved, so the swap reads as an in-place refresh, not a new block.
+     */
+    fun withEnrichment(enrichment: TvMarqueeEnrichment): TvMarqueeContent {
+        val upgradeBackdrop = isEpisode && !enrichment.backdropUrl.isNullOrBlank()
+        return copy(
+            detailLine = enrichment.detailLine ?: detailLine,
+            backdropUrl = if (upgradeBackdrop) enrichment.backdropUrl else backdropUrl,
+            backdropThumbhash = if (upgradeBackdrop) {
+                enrichment.backdropThumbhash ?: backdropThumbhash
+            } else {
+                backdropThumbhash
+            },
+        )
+    }
 
     companion object {
         fun from(item: SectionItem, rowTitle: String): TvMarqueeContent {
@@ -148,6 +174,60 @@ data class TvMarqueeContent(
 }
 
 /**
+ * §9 detail backfill for the marquee — the fields section payloads don't carry
+ * (air date, cast) plus the detail-level backdrop. Faithful port of tvOS
+ * `TVMarqueeEnrichment`: built from an item-detail fetch that never blocks the
+ * marquee. For episodes the detail backdrop is the SERIES backdrop (far higher
+ * res than the episode still the section payload carries), so the hero upgrades
+ * to it once enrichment lands.
+ *
+ * @property detailLine `Aired Mar 12, 2026 · Pedro Pascal, Bella Ramsey, Anna Torv`
+ *  — the abbreviated air date (omitted if unparseable/absent) and up to 3 cast
+ *  names sorted by [com.continuum.app.model.catalog.CastMember.order], joined
+ *  by " · ". `null` when both are empty.
+ */
+data class TvMarqueeEnrichment(
+    val detailLine: String?,
+    val backdropUrl: String?,
+    val backdropThumbhash: String?,
+) {
+    companion object {
+        fun from(detail: ItemDetail): TvMarqueeEnrichment {
+            val parts = mutableListOf<String>()
+            airDateText(detail.airDate)?.let { parts.add("Aired $it") }
+            val cast = detail.cast
+                .sortedBy { it.order }
+                .take(3)
+                .map { it.name }
+                .filter { it.isNotBlank() }
+            if (cast.isNotEmpty()) parts.add(cast.joinToString(", "))
+            return TvMarqueeEnrichment(
+                detailLine = if (parts.isEmpty()) null else parts.joinToString(" · "),
+                backdropUrl = detail.backdropUrl?.takeIf { it.isNotBlank() },
+                backdropThumbhash = detail.backdropThumbhash,
+            )
+        }
+
+        /**
+         * Abbreviated "MMM d, yyyy" from the server's `yyyy-MM-dd` (or full ISO
+         * timestamp). Mirrors tvOS `.abbreviated` date formatting; returns `null`
+         * if the string is absent or unparseable, so the "Aired" part is omitted.
+         */
+        private fun airDateText(raw: String?): String? {
+            val value = raw?.takeIf { it.isNotBlank() } ?: return null
+            // The payload is usually `yyyy-MM-dd`; full ISO timestamps carry the
+            // date as their first 10 chars, so truncate to the date component.
+            val datePart = value.take(10)
+            val parsed = runCatching {
+                SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
+                    .parse(datePart)
+            }.getOrNull() ?: return null
+            return SimpleDateFormat("MMM d, yyyy", Locale.US).format(parsed)
+        }
+    }
+}
+
+/**
  * Focused-card → marquee state for the Skyline Home. Row cards report focus
  * immediately via [preview]; the displayed [content] (and therefore the backdrop
  * + tint) only swaps after focus has rested ~150 ms, so scrubbing across a row
@@ -161,21 +241,56 @@ class TvFocusMarqueeState internal constructor() {
 
     internal var candidate: TvMarqueeContent? by mutableStateOf(null)
 
+    /** Per-contentId enrichment cache (tvOS `enrichmentCache`) so scrubbing
+     *  back over a row never refetches item detail. Persists for the page. */
+    private val enrichmentCache = mutableMapOf<String, TvMarqueeEnrichment>()
+
     /** Report card focus. The displayed content swaps after the rest debounce. */
     fun preview(item: SectionItem, rowTitle: String) {
         val next = TvMarqueeContent.from(item, rowTitle)
         // Focus is back on the already-displayed card: cancel any pending swap
         // so a brief A→B→A scrub within the debounce window can't commit a
         // stale B after focus has returned to A.
-        if (next == content) {
+        if (next == displayedBase()) {
             candidate = null
             return
         }
         candidate = next
     }
 
+    /** The displayed content reduced to its un-enriched base, so a re-preview
+     *  of the same card (whose payload carries no detailLine/enriched backdrop)
+     *  still compares equal and is treated as a no-op. */
+    private fun displayedBase(): TvMarqueeContent? {
+        val current = content ?: return null
+        return current.copy(
+            detailLine = null,
+            backdropUrl = current.source.backdropUrl?.takeIf { it.isNotBlank() },
+            backdropThumbhash = current.source.backdropThumbhash,
+        )
+    }
+
     internal fun commit(value: TvMarqueeContent?) {
-        content = value
+        // Re-apply any already-cached enrichment immediately on commit so a
+        // scrub-back shows the enriched hero/detail line without a refetch.
+        content = value?.let { base ->
+            base.contentId.let { id -> enrichmentCache[id] }?.let(base::withEnrichment) ?: base
+        }
+    }
+
+    /** True if detail for [contentId] is already cached (skip the fetch). */
+    internal fun cachedEnrichment(contentId: String): TvMarqueeEnrichment? =
+        enrichmentCache[contentId]
+
+    /** Fold a freshly-fetched enrichment in: cache it, and if the displayed
+     *  content is still that item, commit the enriched copy so the hero
+     *  backdrop + detail line update (downstream consumers re-read [content]). */
+    internal fun applyEnrichment(contentId: String, enrichment: TvMarqueeEnrichment) {
+        enrichmentCache[contentId] = enrichment
+        val current = content ?: return
+        if (current.contentId == contentId) {
+            content = current.withEnrichment(enrichment)
+        }
     }
 }
 
@@ -185,13 +300,33 @@ const val TvMarqueeRestDebounceMs = 150L
 /** Marquee text + backdrop crossfade duration in ms (tvOS §4.2: 240 ms). */
 const val TvMarqueeCrossfadeMs = 240
 
+/**
+ * @param fetchDetail item-detail fetcher for the §9 marquee enrichment (air
+ *  date, cast, series backdrop). Non-blocking: it runs only after the displayed
+ *  content has rested, never delaying the marquee swap. `null` (the default)
+ *  disables enrichment — the marquee falls back to the section payload only.
+ */
 @Composable
-fun rememberTvFocusMarqueeState(): TvFocusMarqueeState {
+fun rememberTvFocusMarqueeState(
+    fetchDetail: (suspend (String) -> ItemDetail?)? = null,
+): TvFocusMarqueeState {
     val state = remember { TvFocusMarqueeState() }
     LaunchedEffect(state.candidate?.id) {
         val candidate = state.candidate ?: return@LaunchedEffect
         delay(TvMarqueeRestDebounceMs)
         state.commit(candidate)
+    }
+    // §9 detail enrichment: after a content swap rests, async-fetch item detail
+    // for the displayed item, cache per contentId, and fold it in only if that
+    // item is still displayed. Keyed on the committed content id so the
+    // in-flight fetch is cancelled (and re-issued) when the displayed item
+    // changes; a cached item never refetches (the swap re-applies it on commit).
+    LaunchedEffect(state.content?.contentId, fetchDetail) {
+        val fetch = fetchDetail ?: return@LaunchedEffect
+        val contentId = state.content?.contentId ?: return@LaunchedEffect
+        if (state.cachedEnrichment(contentId) != null) return@LaunchedEffect
+        val detail = runCatching { fetch(contentId) }.getOrNull() ?: return@LaunchedEffect
+        state.applyEnrichment(contentId, TvMarqueeEnrichment.from(detail))
     }
     return state
 }

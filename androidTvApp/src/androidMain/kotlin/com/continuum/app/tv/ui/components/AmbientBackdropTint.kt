@@ -41,14 +41,27 @@ class AmbientBackdropTintState internal constructor(
 
     internal val pendingItem: MutableState<SectionItem?> = mutableStateOf(null)
 
-    fun set(item: SectionItem?) {
+    /** The EFFECTIVE backdrop URL the tint samples — the §9-enriched hero
+     *  backdrop when present, else the item's own. The sampler keys on this so
+     *  the tint re-samples when an episode upgrades to its series backdrop. */
+    internal val pendingUrl: MutableState<String?> = mutableStateOf(null)
+
+    /**
+     * Publish the focused [item] plus the EFFECTIVE backdrop [url] to sample.
+     * When [url] is null the item's own backdrop (or poster) is used, matching
+     * the prior behaviour; Home passes the enriched hero URL so an episode's
+     * tint tracks its series backdrop once enrichment lands.
+     */
+    fun set(item: SectionItem?, url: String? = null) {
         _currentItem.value = item
         pendingItem.value = item
+        pendingUrl.value = url ?: item?.let { it.backdropUrl ?: it.posterUrl }
     }
 
-    internal fun acceptAccent(item: SectionItem?, accent: Color?) {
-        // Guard against stale extraction completing after the user has scrolled to a different item.
-        if (_currentItem.value?.contentId == item?.contentId) {
+    internal fun acceptAccent(url: String?, accent: Color?) {
+        // Guard against a stale extraction completing after the user has moved
+        // on, or after the backdrop upgraded under enrichment.
+        if (pendingUrl.value == url) {
             _accent.value = accent
         }
     }
@@ -75,15 +88,10 @@ fun rememberAmbientBackdropTintState(): AmbientBackdropTintState {
     val context = LocalContext.current
     val state = remember { AmbientBackdropTintState() }
 
-    LaunchedEffect(state.pendingItem.value?.contentId) {
-        val item = state.pendingItem.value
-        if (item == null) {
-            state.acceptAccent(null, null)
-            return@LaunchedEffect
-        }
-        val url = item.backdropUrl ?: item.posterUrl
+    LaunchedEffect(state.pendingUrl.value) {
+        val url = state.pendingUrl.value
         if (url.isNullOrBlank()) {
-            state.acceptAccent(item, null)
+            state.acceptAccent(url, null)
             return@LaunchedEffect
         }
 
@@ -113,7 +121,7 @@ fun rememberAmbientBackdropTintState(): AmbientBackdropTintState {
                 averageTint(bitmap)
             }.getOrNull()
         }
-        state.acceptAccent(item, accent)
+        state.acceptAccent(url, accent)
     }
     return state
 }
