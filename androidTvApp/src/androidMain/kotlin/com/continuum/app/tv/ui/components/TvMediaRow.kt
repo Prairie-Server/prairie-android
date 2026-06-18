@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.ExperimentalComposeUiApi
 import com.continuum.app.model.section.SectionItem
+import com.continuum.app.overlays.OverlayDataExtractor
 import com.continuum.app.tv.ui.theme.Spacing
 
 /** Visual style of cards inside a [TvMediaRow]. */
@@ -163,6 +164,7 @@ fun TvMediaRow(
                             focusRequester = itemFocusRequester,
                             cardModifier = appliedCardModifier,
                             userState = item.userState,
+                            overlay = OverlayDataExtractor.fromSectionItem(item),
                             actions = itemActions,
                         )
                         TvRowStyle.Poster -> TvMediaCard(
@@ -175,6 +177,7 @@ fun TvMediaRow(
                             onClick = { onItemClick(item.contentId) },
                             focusRequester = itemFocusRequester,
                             cardModifier = appliedCardModifier,
+                            overlay = OverlayDataExtractor.fromSectionItem(item),
                             actions = itemActions,
                         )
                     }

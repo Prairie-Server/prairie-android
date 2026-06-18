@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.common.settings.LibraryPlaybackPrefsStore
+import com.continuum.app.common.settings.OverlayPrefsStore
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.model.admin.shouldShowClientAdminSurface
 import com.continuum.app.model.auth.User
@@ -45,6 +46,7 @@ class TvSettingsViewModel(
     private val tokenManager: TokenManager,
     private val playerSettingsStore: PlayerSettingsStore,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
+    private val overlayPrefsStore: OverlayPrefsStore,
     private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
     private val notificationsRepository: NotificationsRepository,
 ) : ViewModel() {
@@ -421,6 +423,7 @@ class TvSettingsViewModel(
             // them flash before the fresh fetch lands. iOS parity:
             // `PlaybackPrefsStore.clear()` in the sign-out path.
             libraryPlaybackPrefsStore.clear()
+            overlayPrefsStore.clear()
             context.getSharedPreferences("continuum_auth", Context.MODE_PRIVATE)
                 .edit()
                 .clear()
@@ -436,6 +439,7 @@ class TvSettingsViewModel(
             // Library prefs are per-profile — drop the cache so the next
             // profile's prefs don't ghost-render the previous user's rows.
             libraryPlaybackPrefsStore.clear()
+            overlayPrefsStore.clear()
             context.getSharedPreferences("continuum_auth", Context.MODE_PRIVATE)
                 .edit()
                 .remove("profileId")

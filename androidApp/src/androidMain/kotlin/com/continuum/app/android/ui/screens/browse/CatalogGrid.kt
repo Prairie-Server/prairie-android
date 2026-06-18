@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.continuum.app.android.ui.components.MediaCard
 import com.continuum.app.android.ui.components.rememberBrowseItemCardActions
 import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.overlays.OverlayDataExtractor
 
 /**
  * A vertical grid of media cards with infinite-scroll support.
@@ -84,6 +85,7 @@ fun CatalogGrid(
                 userState = userState,
                 onClick = { onItemClick(item.contentId) },
                 width = 120.dp, // Will be constrained by grid cell
+                overlay = OverlayDataExtractor.fromBrowseItem(item),
                 actions = actions,
             )
         }

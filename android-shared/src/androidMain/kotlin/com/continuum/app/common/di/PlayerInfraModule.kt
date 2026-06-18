@@ -6,8 +6,10 @@ import com.continuum.app.common.player.PlaybackSessionLifecycle
 import com.continuum.app.common.player.SleepTimerController
 import com.continuum.app.common.settings.AndroidPlayerSettingsStore
 import com.continuum.app.common.settings.DefaultLibraryPlaybackPrefsStore
+import com.continuum.app.common.settings.DefaultOverlayPrefsStore
 import com.continuum.app.common.settings.DefaultServerSettingsFlusher
 import com.continuum.app.common.settings.LibraryPlaybackPrefsStore
+import com.continuum.app.common.settings.OverlayPrefsStore
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.common.settings.ServerSettingsFlusher
 import com.continuum.app.domain.player.IntroAutoSkipController
@@ -83,6 +85,16 @@ val playerInfraModule = module {
     single<LibraryPlaybackPrefsStore> {
         DefaultLibraryPlaybackPrefsStore(
             repository = get<LibraryPlaybackPrefsRepository>(),
+        )
+    }
+
+    // Cached card-overlay configuration (admin enable flag + resolved prefs).
+    // Long-lived application scope so its coalesced writes survive view
+    // teardown, matching the other settings stores in this module.
+    single<OverlayPrefsStore> {
+        DefaultOverlayPrefsStore(
+            repository = get<SettingsRepository>(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
         )
     }
 

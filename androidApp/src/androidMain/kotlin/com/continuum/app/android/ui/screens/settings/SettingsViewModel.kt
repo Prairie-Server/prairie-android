@@ -3,6 +3,7 @@ package com.continuum.app.android.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.common.settings.LibraryPlaybackPrefsStore
+import com.continuum.app.common.settings.OverlayPrefsStore
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.model.admin.shouldShowClientAdminSurface
 import com.continuum.app.model.auth.AuthSession
@@ -91,6 +92,7 @@ class SettingsViewModel(
     private val playerSettingsStore: PlayerSettingsStore,
     private val profileRepository: ProfileRepository,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
+    private val overlayPrefsStore: OverlayPrefsStore,
     private val notificationsRepository: NotificationsRepository,
 ) : ViewModel() {
 
@@ -302,6 +304,7 @@ class SettingsViewModel(
             // Drop per-profile cached prefs so the next user doesn't see
             // stale rows flash before the fresh fetch lands.
             libraryPlaybackPrefsStore.clear()
+            overlayPrefsStore.clear()
             _uiState.update { it.copy(loggedOut = true) }
         }
     }

@@ -34,7 +34,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.continuum.app.common.overlays.CardOverlayVariant
+import com.continuum.app.common.overlays.CardOverlays
+import com.continuum.app.common.overlays.LocalCardOverlayUiState
 import com.continuum.app.model.catalog.MediaItemUserState
+import com.continuum.app.overlays.OverlayData
 
 /**
  * The core media poster card used throughout the app.
@@ -56,8 +60,10 @@ fun MediaCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     width: Dp = 120.dp,
+    overlay: OverlayData? = null,
     actions: MediaCardActions = MediaCardActions(),
 ) {
+    val overlayState = LocalCardOverlayUiState.current
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
@@ -80,6 +86,19 @@ fun MediaCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+
+            // Card-overlay badge layer (resolution / audio / ratings, etc.).
+            // Sits over the image but under the watched-check + progress so
+            // those remain visually on top. Gated on the admin/user enable
+            // flag and only when the caller supplied overlay data.
+            if (overlayState.enabled && overlay != null) {
+                CardOverlays(
+                    data = overlay,
+                    prefs = overlayState.prefs,
+                    variant = CardOverlayVariant.Poster,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
             // Watched indicator: white circle + checkmark, top-right.
             // Mirrors iOS MediaCard.swift:104–119.

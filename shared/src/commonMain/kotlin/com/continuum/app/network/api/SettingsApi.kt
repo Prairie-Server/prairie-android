@@ -9,6 +9,7 @@ import com.continuum.app.model.settings.SubtitleAppearance
 import com.continuum.app.model.settings.UpdateSettingRequest
 import com.continuum.app.network.ApiResult
 import io.ktor.client.HttpClient
+import kotlinx.serialization.Serializable
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -17,10 +18,27 @@ import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 
+/**
+ * Admin-configured card-overlay baseline. `enabled` is the global
+ * kill-switch (admins can disable overlays for everyone); `defaults` is
+ * the serialized [CardOverlayPrefs] JSON used when a user has no override.
+ * Mirrors iOS `OverlayConfigResponse` and the server's
+ * `GET /api/v1/settings/overlay-config` shape.
+ */
+@Serializable
+data class OverlayConfigResponse(
+    val enabled: Boolean = true,
+    val defaults: String? = null,
+)
+
 open class SettingsApi(private val client: HttpClient) {
 
     open suspend fun getSettings(): ApiResult<SettingsListResponse> = safeApiCall {
         client.get("/api/v1/settings")
+    }
+
+    open suspend fun overlayConfig(): ApiResult<OverlayConfigResponse> = safeApiCall {
+        client.get("/api/v1/settings/overlay-config")
     }
 
     open suspend fun getSetting(key: String): ApiResult<SettingEntry> = safeApiCall {

@@ -51,6 +51,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.continuum.app.common.settings.OverlayPrefsStore
 import com.continuum.app.tv.BuildConfig
 import com.continuum.app.tv.data.preferences.PlaybackQuality
 import com.continuum.app.tv.data.preferences.SubtitleMode
@@ -59,6 +60,7 @@ import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.FocusedContainer
 import com.continuum.app.tv.ui.theme.FocusedContent
 import com.continuum.app.tv.ui.theme.Spacing
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -103,6 +105,7 @@ fun TvSettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val firstActionFocusRequester = remember { FocusRequester() }
 
     var subScreen by remember { mutableStateOf<SubScreen?>(null) }
@@ -137,6 +140,7 @@ fun TvSettingsScreen(
         onSwitchProfile = { viewModel.onSwitchProfile(context) },
         onOpenPlayback = { subScreen = SubScreen.Playback },
         onOpenSubtitles = { subScreen = SubScreen.Subtitles },
+        onOpenCardOverlays = { subScreen = SubScreen.CardOverlays },
         onNavigateToAdmin = onNavigateToAdmin,
         onManageSessions = onManageSessions,
         onPairDevice = onPairDevice,
@@ -177,6 +181,10 @@ fun TvSettingsScreen(
             onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
             onDismiss = { subScreen = null },
         )
+        SubScreen.CardOverlays -> TvCardOverlaySettingsScreen(
+            store = overlayPrefsStore,
+            onDismiss = { subScreen = null },
+        )
         null -> Unit
     }
 
@@ -194,7 +202,7 @@ fun TvSettingsScreen(
     }
 }
 
-private enum class SubScreen { Playback, Subtitles }
+private enum class SubScreen { Playback, Subtitles, CardOverlays }
 
 // ---------------------------------------------------------------------------
 // Root menu
@@ -208,6 +216,7 @@ private fun SettingsRootMenu(
     onSwitchProfile: () -> Unit,
     onOpenPlayback: () -> Unit,
     onOpenSubtitles: () -> Unit,
+    onOpenCardOverlays: () -> Unit,
     onNavigateToAdmin: () -> Unit,
     onManageSessions: () -> Unit,
     onPairDevice: () -> Unit,
@@ -261,9 +270,11 @@ private fun SettingsRootMenu(
                     value = subtitleLanguageLabel(state.subtitleLanguage),
                     onClick = onOpenSubtitles,
                 )
-                // Card Overlays row is intentionally omitted until its sub-screen
-                // exists (Sweep-6 follow-up) — an orphaned no-op row is worse than
-                // a missing one.
+                SettingsValueRow(
+                    label = "Card Overlays",
+                    value = "",
+                    onClick = onOpenCardOverlays,
+                )
             }
         }
 

@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -12,6 +13,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
@@ -50,8 +52,11 @@ import com.continuum.app.android.ui.screens.search.SearchScreen
 import com.continuum.app.android.ui.screens.search.SearchViewModel
 import com.continuum.app.android.ui.screens.servers.ServerListScreen
 import com.continuum.app.android.ui.screens.servers.ServerSwitchDestination
+import com.continuum.app.android.ui.screens.settings.CardOverlaySettingsScreen
 import com.continuum.app.android.ui.screens.settings.SettingsScreen
+import com.continuum.app.common.overlays.ProvideCardOverlays
 import com.continuum.app.common.player.video.VideoPlayerRouteArgs
+import com.continuum.app.common.settings.OverlayPrefsStore
 import com.continuum.app.network.TokenManager
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -64,6 +69,7 @@ fun AppNavigation(
     onExternalRouteConsumed: () -> Unit = {},
 ) {
     val tokenManager: TokenManager = koinInject()
+    val overlayPrefsStore: OverlayPrefsStore = koinInject()
 
     // Graceful handling of server-side session invalidation (refresh 401'd).
     // The TokenManager has already wiped the active server's tokens by the
@@ -86,6 +92,19 @@ fun AppNavigation(
         onExternalRouteConsumed()
     }
 
+    // Re-read the authenticated profile id whenever the current destination
+    // changes (Login → ProfileSelection → Main). This drives card-overlay
+    // hydration off the authenticated identity instead of a one-shot at app
+    // start, where the user is still on Login and the settings calls 401.
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val overlaySessionKey by produceState<String?>(
+        initialValue = null,
+        currentEntry?.destination?.route,
+    ) {
+        value = tokenManager.getProfileId()
+    }
+
+    ProvideCardOverlays(store = overlayPrefsStore, sessionKey = overlaySessionKey) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -281,12 +300,21 @@ fun AppNavigation(
                 onNavigateToRequests = {
                     navController.navigate(Route.Requests.route)
                 },
+                onNavigateToCardOverlays = {
+                    navController.navigate(Route.CardOverlays.route)
+                },
                 onLoggedOut = {
                     navController.navigate(Route.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
                 showTopBar = true,
+                onBackClick = { navController.popBackStack() },
+            )
+        }
+        composable(Route.CardOverlays.route) {
+            CardOverlaySettingsScreen(
+                store = overlayPrefsStore,
                 onBackClick = { navController.popBackStack() },
             )
         }
@@ -655,5 +683,6 @@ fun AppNavigation(
             }
         }
 
+    }
     }
 }

@@ -67,6 +67,7 @@ sealed class Route(val route: String) {
         }
     }
     data object Settings : Route("settings")
+    data object CardOverlays : Route("settings/card_overlays")
 
     // Legacy tab routes retained so old saved back stacks do not crash.
     data object Home : Route("home")

@@ -289,7 +289,7 @@ val androidModule = module {
             tmdbId = args.second,
         )
     }
-    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { AdminEntryViewModel(get(), get()) }
     viewModel { AdminStatsViewModel(get()) }
     viewModel { AdminUsersViewModel(get()) }

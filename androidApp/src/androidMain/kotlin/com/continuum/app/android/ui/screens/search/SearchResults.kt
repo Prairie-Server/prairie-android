@@ -95,6 +95,7 @@ fun SearchResults(
                 userState = userState,
                 onClick = { onItemClick(item.contentId) },
                 width = 120.dp,
+                overlay = com.continuum.app.overlays.OverlayDataExtractor.fromBrowseItem(item),
                 actions = actions,
             )
         }

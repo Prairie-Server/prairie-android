@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.overlays.OverlayDataExtractor
 import com.continuum.app.tv.ui.theme.Spacing
 
 /**
@@ -128,6 +129,7 @@ fun TvCatalogGrid(
                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                     cardModifier = if (index == 0) firstItemCardModifier else Modifier,
                     modifier = Modifier.fillMaxWidth(),
+                    overlay = OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )
             }

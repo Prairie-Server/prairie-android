@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,7 @@ fun SettingsScreen(
     onPairDevice: () -> Unit = {},
     onNavigateToRequests: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
+    onNavigateToCardOverlays: () -> Unit = {},
     showTopBar: Boolean = false,
     onBackClick: (() -> Unit)? = null,
     viewModel: SettingsViewModel = koinViewModel(),
@@ -118,6 +121,22 @@ fun SettingsScreen(
                     currentTheme = state.theme,
                     onThemeChanged = viewModel::setTheme,
                 )
+            }
+
+            item {
+                SettingsSectionCard {
+                    SettingsSectionHeader(title = "Card Overlays")
+                    SettingsRow(
+                        label = "Badges & Overlays",
+                        modifier = Modifier.clickable(onClick = onNavigateToCardOverlays),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
 
             item {

@@ -391,6 +391,7 @@ val androidTvModule = module {
             tokenManager = get(),
             playerSettingsStore = get(),
             libraryPlaybackPrefsStore = get(),
+            overlayPrefsStore = get(),
             legacyTvPrefsMigration = get(),
             notificationsRepository = get(),
         )

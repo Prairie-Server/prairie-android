@@ -7,9 +7,9 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.palette.graphics.Palette
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
@@ -105,14 +105,72 @@ fun rememberAmbientBackdropTintState(): AmbientBackdropTintState {
                 )
                 val bitmap = (result as? SuccessResult)?.image?.toBitmap()
                     ?: return@runCatching null
-                val palette = Palette.from(bitmap).generate()
-                val swatch = palette.vibrantSwatch
-                    ?: palette.mutedSwatch
-                    ?: palette.dominantSwatch
-                swatch?.rgb?.let(::Color)
+                // Match tvOS HeroBackdropPalette: a luminance-normalized AVERAGE
+                // color, not the vibrant swatch. The vibrant swatch is the most
+                // saturated colour in the art, which produced a heavy over-tinted
+                // wash; the average (clamped to ~0.22 luminance) is the subtle,
+                // consistent tint tvOS renders.
+                averageTint(bitmap)
             }.getOrNull()
         }
         state.acceptAccent(item, accent)
     }
     return state
+}
+
+/**
+ * Average-colour tint, luminance-normalized — the Android port of tvOS
+ * `HeroBackdropPalette.sampleTint` + `normalize`. Averages the (already
+ * downsampled) backdrop bitmap to a single RGB, then clamps its luminance
+ * to ~0.22 so bright art is dimmed and very dark art lifted, giving a
+ * subtle, consistent wash over the OLED-black page rather than the heavy,
+ * over-saturated tint the vibrant swatch produced.
+ */
+private fun averageTint(bitmap: Bitmap): Color? {
+    val w = bitmap.width
+    val h = bitmap.height
+    if (w <= 0 || h <= 0) return null
+    // Sample on a coarse grid (cap ~64x36 like tvOS's resize) so a large
+    // bitmap doesn't cost a full per-pixel pass.
+    val stepX = (w / 64).coerceAtLeast(1)
+    val stepY = (h / 36).coerceAtLeast(1)
+    var rSum = 0.0
+    var gSum = 0.0
+    var bSum = 0.0
+    var count = 0
+    var y = 0
+    while (y < h) {
+        var x = 0
+        while (x < w) {
+            val p = bitmap.getPixel(x, y)
+            rSum += ((p shr 16) and 0xFF)
+            gSum += ((p shr 8) and 0xFF)
+            bSum += (p and 0xFF)
+            count++
+            x += stepX
+        }
+        y += stepY
+    }
+    if (count == 0) return null
+    return normalizeTint(
+        r = rSum / count / 255.0,
+        g = gSum / count / 255.0,
+        b = bSum / count / 255.0,
+    )
+}
+
+/** Clamp luminance to a target of 0.22 (tvOS `HeroBackdropPalette.normalize`). */
+private fun normalizeTint(r: Double, g: Double, b: Double): Color {
+    val luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    val target = 0.22
+    val scale = when {
+        luminance <= 0.001 -> 0.0
+        luminance > target -> target / luminance
+        else -> maxOf(1.0, target / maxOf(luminance, 0.05))
+    }
+    return Color(
+        red = (r * scale).coerceIn(0.0, 1.0).toFloat(),
+        green = (g * scale).coerceIn(0.0, 1.0).toFloat(),
+        blue = (b * scale).coerceIn(0.0, 1.0).toFloat(),
+    )
 }

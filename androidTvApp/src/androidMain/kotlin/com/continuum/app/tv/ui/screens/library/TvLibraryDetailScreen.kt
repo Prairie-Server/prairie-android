@@ -614,6 +614,7 @@ private fun LibraryGrid(
                     onClick = { onItemClick(item.contentId) },
                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                     modifier = Modifier.fillMaxWidth(),
+                    overlay = com.continuum.app.overlays.OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )
             }

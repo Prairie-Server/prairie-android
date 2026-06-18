@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -35,8 +36,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.continuum.app.android.ui.util.playbackResumePosition
+import com.continuum.app.common.overlays.CardOverlayVariant
+import com.continuum.app.common.overlays.CardOverlays
+import com.continuum.app.common.overlays.LocalCardOverlayUiState
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.EpisodeListItem
+import com.continuum.app.overlays.OverlayDataExtractor
 
 /**
  * Vertical list of episodes for a season.
@@ -80,6 +85,7 @@ private fun EpisodeRow(
     onDownloadClick: (() -> Unit)? = null,
     downloadState: DetailDownloadState = DetailDownloadState(),
 ) {
+    val overlayState = LocalCardOverlayUiState.current
     val userData = episode.userData
     val isPlayed = userData?.played == true
     val pos = userData?.positionSeconds
@@ -106,6 +112,17 @@ private fun EpisodeRow(
                 contentDescription = episode.title,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            // Card-overlay badge layer (resolution / codec / HDR, etc.).
+            // Over the still but under the play affordance + progress bar.
+            if (overlayState.enabled) {
+                CardOverlays(
+                    data = OverlayDataExtractor.fromEpisode(episode),
+                    prefs = overlayState.prefs,
+                    variant = CardOverlayVariant.Wide,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
             Box(
                 modifier = Modifier

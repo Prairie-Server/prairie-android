@@ -197,6 +197,7 @@ private fun PersonDetailContent(
                     userState = userState,
                     onClick = { onItemClick(item.contentId) },
                     modifier = Modifier.fillMaxWidth(),
+                    overlay = com.continuum.app.overlays.OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )
             }

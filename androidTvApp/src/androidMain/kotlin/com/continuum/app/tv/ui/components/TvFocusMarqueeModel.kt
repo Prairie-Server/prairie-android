@@ -62,11 +62,11 @@ data class TvMarqueeContent(
                 item.ratingImdb?.let { meta.add(formatRating(it)) }
             }
 
-            val badges = mutableListOf<String>()
-            // Section payloads on Android don't carry an overlay-summary codec
-            // line; content-rating lives in `status` on some servers. Keep the
-            // badge derivation conservative — surface what is present.
-            item.status?.takeIf { it.isNotBlank() }?.let { badges.add(it.uppercase()) }
+            // Codec/HDR + content-rating chips (`4K · DOLBY VISION · ATMOS ·
+            // TV-MA`) derived from the section payload's overlay summary, then
+            // the content rating — mirrors tvOS `TVFocusMarquee.badges(from:)`.
+            val badges = qualityBadges(item.overlaySummary).toMutableList()
+            item.contentRating?.takeIf { it.isNotBlank() }?.let { badges.add(it.uppercase()) }
 
             return TvMarqueeContent(
                 id = "$rowTitle#${item.contentId}",
@@ -83,6 +83,34 @@ data class TvMarqueeContent(
                 isEpisode = isEpisode,
                 source = item,
             )
+        }
+
+        /**
+         * Headline quality trio — resolution, dynamic range, audio — uppercased
+         * to the Skyline badge style, from the section payload's overlay summary.
+         * Mirrors tvOS `TVFocusMarquee.badges(from:)`.
+         */
+        private fun qualityBadges(summary: com.continuum.app.model.catalog.OverlaySummary?): List<String> {
+            if (summary == null) return emptyList()
+            val badges = mutableListOf<String>()
+            prettyResolution(summary.resolution)?.let(badges::add)
+            summary.hdr?.takeIf { it.isNotBlank() }?.let { hdr ->
+                val lower = hdr.lowercase()
+                badges.add(if (lower.contains("dv") || lower.contains("dolby")) "DOLBY VISION" else hdr.uppercase())
+            }
+            summary.audio?.takeIf { it.isNotBlank() }?.let { audio ->
+                badges.add(if (audio.lowercase().contains("atmos")) "ATMOS" else audio.uppercase())
+            }
+            return badges
+        }
+
+        private fun prettyResolution(value: String?): String? {
+            val v = value?.takeIf { it.isNotBlank() } ?: return null
+            return when (v.lowercase()) {
+                "2160p", "4k", "uhd" -> "4K"
+                "4320p", "8k" -> "8K"
+                else -> v.uppercase()
+            }
         }
 
         private fun episodeToken(season: Int?, episode: Int?): String? = when {

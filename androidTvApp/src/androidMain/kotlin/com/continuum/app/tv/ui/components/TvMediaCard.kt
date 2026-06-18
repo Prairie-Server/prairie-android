@@ -39,7 +39,11 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.continuum.app.common.overlays.CardOverlayVariant
+import com.continuum.app.common.overlays.CardOverlays
+import com.continuum.app.common.overlays.LocalCardOverlayUiState
 import com.continuum.app.model.catalog.MediaItemUserState
+import com.continuum.app.overlays.OverlayData
 import com.continuum.app.tv.ui.theme.ProgressTrack
 import com.continuum.app.tv.ui.theme.ProgressFill
 import com.continuum.app.tv.ui.theme.SelectedContainer
@@ -72,8 +76,10 @@ fun TvMediaCard(
     fillWidth: Boolean = false,
     focusRequester: FocusRequester? = null,
     cardModifier: Modifier = Modifier,
+    overlay: OverlayData? = null,
     actions: TvMediaCardActions = TvMediaCardActions(),
 ) {
+    val overlayState = LocalCardOverlayUiState.current
     val height = width * 3f / 2f
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -117,6 +123,17 @@ fun TvMediaCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                // Card-overlay badge layer. Over the poster, under the
+                // watched badge + progress bar. Never intercepts focus.
+                if (overlayState.enabled && overlay != null) {
+                    CardOverlays(
+                        data = overlay,
+                        prefs = overlayState.prefs,
+                        variant = CardOverlayVariant.Poster,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
 
                 if (userState?.played == true) {
                     Box(

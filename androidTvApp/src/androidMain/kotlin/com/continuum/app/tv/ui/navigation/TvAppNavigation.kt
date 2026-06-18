@@ -3,11 +3,14 @@ package com.continuum.app.tv.ui.navigation
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.continuum.app.common.player.video.VideoPlayerRouteArgs
@@ -30,6 +33,8 @@ import com.continuum.app.tv.ui.screens.profiles.TvProfileSelectionScreen
 import com.continuum.app.tv.ui.screens.servers.TvServerListScreen
 import com.continuum.app.tv.ui.screens.servers.TvServerSwitchDestination
 import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherLobbyScreen
+import com.continuum.app.common.overlays.ProvideCardOverlays
+import com.continuum.app.common.settings.OverlayPrefsStore
 import com.continuum.app.tv.watchnext.WatchNextSeeder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -52,6 +57,7 @@ fun TvAppNavigation(
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val tokenManager: TokenManager = koinInject()
+    val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
     val pendingDeepLink: MutableStateFlow<Uri?> =
         koinInject(qualifier = named("pendingDeepLink"))
@@ -113,6 +119,19 @@ fun TvAppNavigation(
         }
     }
 
+    // Re-read the authenticated profile id whenever the destination changes
+    // (Login → ProfileSelection → Main). Drives card-overlay hydration off the
+    // authenticated identity instead of a one-shot at app start, where the user
+    // is still on Login and the settings calls would 401.
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val overlaySessionKey by produceState<String?>(
+        initialValue = null,
+        currentEntry?.destination?.route,
+    ) {
+        value = tokenManager.getProfileId()
+    }
+
+    ProvideCardOverlays(store = overlayPrefsStore, sessionKey = overlaySessionKey) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -604,5 +623,6 @@ fun TvAppNavigation(
                 onBack = { navController.popBackStack() },
             )
         }
+    }
     }
 }

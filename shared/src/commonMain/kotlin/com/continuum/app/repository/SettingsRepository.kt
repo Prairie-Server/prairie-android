@@ -4,6 +4,7 @@ import com.continuum.app.model.settings.EffectiveSetting
 import com.continuum.app.model.settings.EffectiveSubtitleAppearance
 import com.continuum.app.model.settings.SubtitleAppearance
 import com.continuum.app.network.ApiResult
+import com.continuum.app.network.api.OverlayConfigResponse
 import com.continuum.app.network.api.SettingsApi
 import com.continuum.app.network.map
 
@@ -23,6 +24,9 @@ class SettingsRepository(
 
     suspend fun deleteSetting(key: String): ApiResult<Unit> =
         settingsApi.deleteSetting(key)
+
+    suspend fun overlayConfig(): ApiResult<OverlayConfigResponse> =
+        settingsApi.overlayConfig()
 
     suspend fun getDeviceSetting(key: String): ApiResult<String> =
         settingsApi.getDeviceSetting(key).map { it.value }

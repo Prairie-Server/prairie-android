@@ -13,11 +13,26 @@ data class MediaItemUserState(
     @SerialName("in_watchlist") val inWatchlist: Boolean = false
 )
 
+/**
+ * Tech-level overlay summary derived server-side from the best-ranked file
+ * (see silo-server `internal/overlays/summary.go`). Wire keys match the server
+ * JSON and Apple's `OverlaySummary` (which decodes via `.convertFromSnakeCase`,
+ * so `audioChannels` ⇄ `audio_channels`, etc.). `audioChannels` arrives
+ * pre-formatted (e.g. "5.1", "7.1", "Stereo").
+ */
 @Serializable
 data class OverlaySummary(
     val resolution: String? = null,
+    val hdr: String? = null,
     val audio: String? = null,
-    @SerialName("release_type") val releaseType: String? = null
+    @SerialName("audio_channels") val audioChannels: String? = null,
+    @SerialName("video_codec") val videoCodec: String? = null,
+    val container: String? = null,
+    @SerialName("aspect_ratio") val aspectRatio: String? = null,
+    @SerialName("release_type") val releaseType: String? = null,
+    val edition: String? = null,
+    @SerialName("multi_audio") val multiAudio: Boolean? = null,
+    @SerialName("multi_sub") val multiSub: Boolean? = null
 )
 
 @Serializable

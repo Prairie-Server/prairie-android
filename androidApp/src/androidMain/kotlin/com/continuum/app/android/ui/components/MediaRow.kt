@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.continuum.app.model.section.SectionItem
+import com.continuum.app.overlays.OverlayDataExtractor
 
 enum class CardStyle { Poster, Backdrop }
 
@@ -138,6 +139,7 @@ fun MediaRow(
                             userState = item.userState,
                             progress = progress,
                             onClick = { onItemClick(item.contentId) },
+                            overlay = OverlayDataExtractor.fromSectionItem(item),
                             actions = cardActions(item),
                         )
                     }
