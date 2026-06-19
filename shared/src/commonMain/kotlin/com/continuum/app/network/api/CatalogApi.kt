@@ -94,6 +94,7 @@ class CatalogApi(private val client: HttpClient) {
         mediaType: String? = null,
         offset: Int? = null,
         limit: Int? = null,
+        snapshotAt: String? = null,
     ): ApiResult<CatalogResponse> = safeApiCall {
         client.get("/api/v1/catalog") {
             parameter("source", "person")
@@ -103,6 +104,7 @@ class CatalogApi(private val client: HttpClient) {
             mediaType?.let { parameter("type", it) }
             offset?.let { parameter("offset", it) }
             limit?.let { parameter("limit", it) }
+            snapshotAt?.let { parameter("snapshot", it) }
         }
     }
 }

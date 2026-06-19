@@ -146,6 +146,13 @@ class CatalogRepository(
         mediaType: String? = null,
         offset: Int? = null,
         limit: Int? = null,
+        snapshotAt: String? = null,
     ): ApiResult<CatalogResponse> =
-        catalogApi.getPersonItems(personId, mediaType, offset, limit)
+        catalogApi.getPersonItems(
+            personId = personId,
+            mediaType = mediaType,
+            offset = offset,
+            limit = limit,
+            snapshotAt = snapshotAt,
+        )
 }

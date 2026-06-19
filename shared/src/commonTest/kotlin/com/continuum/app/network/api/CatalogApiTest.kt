@@ -69,4 +69,29 @@ class CatalogApiTest {
         assertFalse("snapshot_at" in captured.query.keys, "snapshot_at should never appear")
         assertEquals("20", captured.query["limit"])
     }
+
+    @Test
+    fun `getPersonItems with snapshotAt sends query param named snapshot not snapshot_at`() = runTest {
+        val (api, captured) = api()
+
+        val result = api.getPersonItems(
+            personId = 42,
+            mediaType = "movie",
+            offset = 60,
+            limit = 60,
+            snapshotAt = "2026-06-19T10:00:00Z",
+        )
+
+        assertEquals("/api/v1/catalog", captured.path)
+        assertEquals("person", captured.query["source"])
+        assertEquals("42", captured.query["person_id"])
+        assertEquals("movie", captured.query["type"])
+        assertEquals("60", captured.query["offset"])
+        assertEquals("60", captured.query["limit"])
+        assertEquals("year", captured.query["sort"])
+        assertEquals("desc", captured.query["order"])
+        assertEquals("2026-06-19T10:00:00Z", captured.query["snapshot"])
+        assertFalse("snapshot_at" in captured.query.keys)
+        assertIs<ApiResult.Success<*>>(result)
+    }
 }
