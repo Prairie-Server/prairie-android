@@ -1,10 +1,12 @@
 # Silo Android
 
-Android **phone** and **Android TV** clients for the [Silo](https://github.com/Silo-Server/silo-server) self-hosted media server — stream and download your movies, shows, music, audiobooks, and ebooks, with quality-aware playback, multi-server/multi-profile support, and synchronized "watch together" sessions.
+Android **phone** and **Android TV** clients for the [Silo](https://github.com/Silo-Server/silo-server) self-hosted media server — stream and download your movies, shows, music, audiobooks, and ebooks, with quality-aware playback and multi-server/multi-profile support.
 
 Built as a Kotlin Multiplatform project: one shared business-logic core, two Jetpack Compose apps (touch + 10-foot TV). The repo preserves the existing application IDs and Kotlin package namespaces (`com.continuum.app`) for install continuity, but all user-facing names and server references use Silo.
 
 > **Status:** Early WIP (`v0.1.0`). The architecture is solid and the feature surface is broad; some areas are intentionally "bones-level" and under active redesign (see [Roadmap](#roadmap)).
+>
+> **Current exposure note:** Requests, Admin, and Watch Together are not currently accessible in the Android phone or Android TV apps. Some shared repositories, routes, or older screen code may still exist, but there is no production user entry point for those surfaces on this branch.
 
 ---
 
@@ -28,7 +30,7 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 |---|---|
 | **Apps** | Phone (`com.continuum.app`) · Android TV (`com.continuum.app.tv`) |
 | **Language / UI** | Kotlin 2.1.20 · Jetpack Compose (Material 3) · Compose for TV (`androidx.tv`) |
-| **Playback** | AndroidX **Media3 / ExoPlayer** 1.10.0 (+ optional FFmpeg audio extension) |
+| **Playback** | AndroidX **Media3 / ExoPlayer** 1.10.0 (+ optional FFmpeg audio extension, optional MPV backend path) |
 | **Networking** | **Ktor** 3.1.2 client · kotlinx.serialization · WebSockets for realtime |
 | **DI** | **Koin** 4.1.0 |
 | **Persistence** | AndroidX DataStore · EncryptedSharedPreferences (tokens) · WorkManager (downloads) |
@@ -46,31 +48,33 @@ A condensed tour. For the exhaustive, per-feature checklist (with phone/TV cover
 ### 📺 Playback (phone + TV)
 - **Adaptive delivery** — the server picks **Direct Play**, **Remux**, or **Transcode** from the device's real capabilities; the client can also fall back to transcode at runtime if a track turns out to be undecodable (e.g. an AV receiver is unplugged mid-stream).
 - **Deep capability detection** — enumerates hardware decoders (H.264, HEVC, AV1, VP9, **Dolby Vision** profiles 5/7/8), panel HDR (HDR10, HDR10+, HLG, DV), and audio-sink passthrough (**E-AC3 JOC/Atmos, TrueHD, DTS-HD**); an optional bundled **FFmpeg** audio decoder fills gaps for lossless codecs.
-- **Quality-of-life** — per-content **refresh-rate matching** (phone), HDR toggle, intro auto-skip, chapters, sleep timer, playback speed, configurable video gravity (fit/fill/stretch).
+- **Quality-of-life** — staged playback buffering, per-content **refresh-rate matching** (phone), HDR toggle, intro auto-skip, chapters, sleep timer, playback speed, configurable video gravity (fit/fill/stretch).
 - **Tracks & subtitles** — audio-track switching (incl. mid-stream), subtitle selection with **styling, position, and sync offset**, plus a subtitle suite: provider **search & download** and **AI transcription/translation** with quota tracking.
 - **System integration** — single Media3 `MediaSession` powers lock-screen / notification / headset / Assistant controls; TV adds D-pad transport, an info HUD, a chapter scrubber, and HDMI EDID-driven display-mode selection.
 
-### 👥 Watch Together (phone + TV)
-Synchronized group playback: create/join a room, with **NTP-style clock sync**, host-vs-guest transport gating, drift correction, and graceful handling of reconnects and host-closed rooms.
+### Watch Together
+Not currently exposed on Android phone or Android TV. Shared sync infrastructure and design notes may exist in the repository, but users cannot create or join Watch Together sessions from the apps on this branch.
 
 ### ⬇️ Offline & Downloads (phone)
-WorkManager-backed downloads of video and books to device storage (scoped `MediaStore` on API 30+), with sidecar metadata, an **offline-first** playback path (no server session needed), and a Downloads manager UI. The app even boots straight to Downloads when launched offline.
+WorkManager-backed downloads of video, audiobooks, and books to public device storage (scoped `MediaStore` on API 30+), preserving original filenames/formats so other apps can discover and open them. Metadata lives in Room, local playback/read paths work without a server session, and the app can boot straight to Downloads when launched offline.
 
 ### 📚 Library, browse & discovery (phone + TV)
-- **Media modes** — Video / Audio / Reading tabs derived from your server libraries.
+- **Phone navigation** — Home, Libraries, For You, Calendar, and Downloads when the active profile has downloads. Video / Audio / Reading are library modes, not bottom-nav tabs.
+- **TV navigation** — Home, visible media-type tabs derived from server libraries (Movies/TV/Music/Audiobooks), and Calendar. Reading/ebooks are intentionally excluded from TV.
 - **Home** with Continue Watching, Recently Added/Released, and server-curated recommendation rows.
 - **Browse** with genre/rating filters, sorting, and infinite-scroll grids; **collections**; rich **item detail** (movies, series → seasons → episodes, multi-version files, cast/crew).
 - **Search** scoped by media type, debounced and paginated.
+- **Not exposed** — Requests, Admin, and Watch Together are not reachable app surfaces today.
 
-### 📖 Reading & 🎧 Audio (phone)
-- **Ebook reader** — EPUB, PDF, CBZ (comics), TXT/Markdown, FB2/FBZ — with themes (light/dark/sepia), text size, margins, table of contents, bookmarks, and progress that syncs to the server.
-- **Audiobook player** — cover/metadata, chapters, resume, playback speed, sleep timer (incl. end-of-chapter), and bookmarks, sharing the same Media3 engine as video.
+### 📖 Reading & 🎧 Audio
+- **Ebook reader (phone only)** — EPUB, PDF, CBZ (comics), TXT/Markdown, FB2/FBZ, plus MOBI/AZW/AZW3 when the server can convert to EPUB; CBR and unsupported originals can be downloaded/opened externally. Themes, text size, margins, table of contents, bookmarks, and progress are supported.
+- **Audiobook player (phone + TV)** — cover/metadata, chapters, resume, playback speed, sleep timer (incl. end-of-chapter), and bookmarks, sharing the same Media3 engine as video. TV has a dedicated ten-foot audiobook detail/player flow.
 
 ### 🔔 Personalization & engagement (phone + TV)
-Multiple **household profiles** per account (PINs, child profiles, content-rating limits, per-profile language/subtitle prefs), favorites & watchlist, ratings, a content **request** flow, a release **calendar** (phone), and an in-app **notifications inbox** with realtime updates. TV mirrors continue-watching into the system **Watch Next** row.
+Multiple **household profiles** per account (PINs, child profiles, content-rating limits, per-profile language/subtitle prefs), favorites & watchlist, ratings, a release **calendar**, and an in-app **notifications inbox** with realtime updates. TV mirrors continue-watching into the system **Watch Next** row.
 
-### 🌐 Multi-server, accounts & admin (phone + TV)
-Add and switch between multiple Silo servers (encrypted per-server token slots), device/QR sign-in for TVs, and an **admin** area (full on phone: dashboard, users, sessions, logs, scans; stats-only on TV) gated to primary-profile admins.
+### 🌐 Multi-server & accounts (phone + TV)
+Add and switch between multiple Silo servers (encrypted per-server token slots), use username/password or device/QR sign-in, and manage household profiles. Admin screens are not currently exposed in the Android apps.
 
 ---
 
@@ -82,7 +86,7 @@ Three library layers under two app shells. Dependencies only point downward.
 ┌──────────────────────────┐   ┌──────────────────────────┐
 │        :androidApp        │   │       :androidTvApp       │
 │  Phone UI (Compose M3)    │   │  TV UI (Compose for TV)   │
-│  MainActivity + nav graph │   │  MainTvActivity + drawer  │
+│  MainActivity + nav graph │   │ MainTvActivity + top menu │
 └─────────────┬─────────────┘   └─────────────┬────────────┘
               └───────────────┬───────────────┘
                   ┌───────────▼────────────┐
@@ -100,28 +104,28 @@ Three library layers under two app shells. Dependencies only point downward.
 ```
 
 ### Modules
-- **`shared`** (KMP, `commonMain`) — the cross-platform core: Ktor `HttpClient`, the typed API classes, repositories, most ViewModels, domain models, the Watch Together sync engine, and the `ApiResult` type.
-- **`android-shared`** — Android-only playback infrastructure shared by both apps: the Media3 `ContinuumPlaybackService`, player factory, capability probes, the stream-auth OkHttp interceptor, downloads, and DataStore-backed settings.
+- **`shared`** (KMP, `commonMain`) — the cross-platform core: Ktor `HttpClient`, typed API classes, repositories, most ViewModels, domain models, and the `ApiResult` type.
+- **`android-shared`** — Android-only playback infrastructure shared by both apps: the Media3 `ContinuumPlaybackService`, player/backend factory, capability probes, the stream-auth OkHttp interceptor, public downloads, and DataStore-backed settings.
 - **`androidApp`** — the phone app: Compose Material 3 screens, bottom-nav shell, `MainActivity`.
-- **`androidTvApp`** — the TV app: Compose for TV, drawer shell, D-pad focus, `MainTvActivity`, plus TV-only Watch Next integration.
+- **`androidTvApp`** — the TV app: Compose for TV, tvOS-aligned top-menu shell, D-pad focus, `MainTvActivity`, plus TV-only Watch Next integration.
 
 ### Networking & auth
 - A single Ktor `HttpClient` (OkHttp engine) with content negotiation, WebSockets, timeouts, and a custom **auth plugin** that attaches `Bearer` + profile headers, rewrites relative `/api/*` paths to the active server, and performs **single-flight token refresh** on `401`.
 - Media streams (HLS/progressive) are fetched by ExoPlayer **outside** Ktor, so a parallel **`MediaAuthInterceptor`** (OkHttp) mirrors the same token-attach / refresh semantics for stream URLs.
 - **`ServerRegistry`** + **`TokenManager`** provide multi-server support with isolated, encrypted per-server token slots. In-memory implementations live in `shared`; the Android apps override them with `EncryptedSharedPreferences`-backed versions via DI.
-- Typed API classes (`AuthApi`, `CatalogApi`, `PlaybackApi`, `EbookReaderApi`, `NotificationsApi`, `WatchTogetherApi`, `AdminApi`, …) wrap endpoints and return `ApiResult<T>` (`Success` / `Error(code,…)` / `NetworkError`). Repositories sit on top and are the ViewModels' dependency surface.
+- Typed API classes (`AuthApi`, `CatalogApi`, `PlaybackApi`, `EbookReaderApi`, `NotificationsApi`, and others) wrap endpoints and return `ApiResult<T>` (`Success` / `Error(code,…)` / `NetworkError`). Repositories sit on top and are the ViewModels' dependency surface. Some APIs exist for inactive surfaces that are not exposed in the current apps.
 
 ### Dependency injection (Koin)
 `sharedModules()` (network + repositories) is combined with the player and Android modules at app startup. The Android apps override the in-memory `TokenManager`/`ServerRegistry` with persistent implementations. ViewModels are resolved with `koinViewModel()`; nav arguments flow in through Koin parameters / `SavedStateHandle`.
 
 ### Navigation & boot
-Each app computes a start destination from registry/token/profile/offline state (`ServerSetup → Login → ProfileSelection → main`), then runs a Compose nav graph. The phone uses a bottom-nav shell (Video/Audio/Reading/Downloads); the TV uses a top drawer shell. Deep links handle device pairing (`silo://…` / `continuum://…`).
+Each app computes a start destination from registry/token/profile/offline state (`ServerSetup → Login → ProfileSelection → main`), then runs a Compose nav graph. The phone uses an Apple-aligned bottom shell (`Home`, `Libraries`, `For You`, `Calendar`, and conditional `Downloads`). The TV uses a tvOS-aligned top menu (`Home`, available media-type tabs, `Calendar`, plus search/profile actions). Deep links handle device pairing (`silo://…` / `continuum://…`).
 
 ### Playback pipeline
 The UI never owns the player directly — a `MediaController` drives the shared `ContinuumPlaybackService` (a Media3 `MediaSessionService`), so there's exactly one session for system controls. `PlaybackSessionManager` negotiates the play method with the server, `PlaybackSessionLifecycle` handles progress reporting and outage/`404` recovery, and capability probes decide what's advertised. Offline playback bypasses the server entirely via a local `file://` URI.
 
 ### Persistence
-Per-profile/device player settings live in DataStore (debounced, flushed on `onStop`), tokens in `EncryptedSharedPreferences`, reader/audiobook progress + bookmarks in scoped JSON file stores, and downloads in `MediaStore` + sidecars.
+Per-profile/device player settings live in DataStore (debounced, flushed on `onStop`), tokens in `EncryptedSharedPreferences`, reader/audiobook local state in scoped stores or Room-backed projections, and downloaded bytes in public `MediaStore`/Downloads paths with original filenames and formats.
 
 ---
 
@@ -129,7 +133,7 @@ Per-profile/device player settings live in DataStore (debounced, flushed on `onS
 
 ```
 silo-android/
-├── shared/            # KMP commonMain: network, repositories, models, ViewModels, RoomSync engine
+├── shared/            # KMP commonMain: network, repositories, models, ViewModels
 ├── android-shared/    # Media3 player + service, capability probes, downloads, settings stores, player DI
 ├── androidApp/        # Phone app (Jetpack Compose, Material 3)
 ├── androidTvApp/      # TV app (Compose for TV, D-pad)
@@ -196,11 +200,12 @@ On first launch, point the app at your Silo server URL, sign in, and pick a prof
 
 Active design work lives in `docs/superpowers/specs/` with phased plans in `docs/superpowers/plans/`. Notable in-flight items:
 
-- **Audiobook player redesign (phone + TV)** — chapter-aware UI, end-of-chapter sleep, configurable skip/speed, skip-silence + volume normalization, rich notification, Android Auto, and a phone widget. (TV has no dedicated audiobook UI today.)
+- **Audiobook polish** — the phone and TV players have chapter-aware UI, speed, bookmarks, and sleep timers. Remaining work includes skip-silence, volume normalization, rich notification polish, Android Auto, and a phone widget.
 - **Ebook reader enhancements** — real paginated EPUB (page turns), in-text search, highlights & notes (with a coordinated server change), font/brightness controls, and reading-time estimates across all server formats.
 - **Picture-in-Picture** — not yet implemented on phone.
+- **Requests, Admin, Watch Together** — code/design work exists, but these are not currently exposed to users in the Android apps and need product/navigation decisions before being treated as live features.
 
-Known gaps the docs track: TV has no reader, audiobook UI, downloads management, or calendar (by design / not yet built).
+Known gaps the docs track: TV has no reader/ebooks and no downloads management by design; Requests/Admin/Watch Together are not accessible on either Android surface today.
 
 ---
 

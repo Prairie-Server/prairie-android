@@ -9,6 +9,8 @@ A detailed inventory of what the Android **phone** and **TV** clients do today. 
 
 File pointers are repository-relative.
 
+> **Important exposure note:** Requests, Admin, and Watch Together are not currently accessible in the Android phone or Android TV apps. Some repositories, routes, tests, or legacy screens may still exist in the codebase, but there is no production user entry point for those surfaces on this branch.
+
 ---
 
 ## Playback
@@ -26,6 +28,8 @@ File pointers are repository-relative.
 | Panel HDR probe (HDR10, HDR10+, HLG, DV) + per-profile HDR toggle | ✅ | ✅ | `DisplayHdrProbe` |
 | Audio passthrough (E-AC3 JOC/Atmos, TrueHD, DTS-HD) | ✅ | ✅ | TV prioritizes passthrough; `AudioCapabilityManager` |
 | FFmpeg audio extension (lossless fallback) | ✅ | ✅ | Build-flag gated; `FfmpegAudioSupport` |
+| Staged playback buffer | ✅ | ✅ | `PlaybackBufferPolicy` currently defaults to Smooth Playback |
+| Optional MPV backend path | 🟡 | 🟡 | Auto-selected only for supported device/session cases; falls back to Media3 |
 | Refresh-rate matching | ✅ | ➖ | Phone display mode; TV defers to HDMI sink |
 | HDMI EDID-driven display mode | ➖ | ✅ | `HdrDisplayController` |
 | Subtitle selection + styling (font/bg/position) | ✅ | ✅ | `SubtitleManager` |
@@ -42,23 +46,25 @@ File pointers are repository-relative.
 | Landscape-on-play (auto-rotate aware) | 🚧 | ➖ | Implemented then reverted; pending re-apply |
 | Picture-in-Picture | 🚧 | ➖ | Not yet implemented |
 
-## Watch Together (synchronized playback)
+## Watch Together (not exposed)
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| Create / join / leave room | ✅ | ✅ | `WatchTogetherRepository` |
-| Clock sync (NTP-style) + drift correction | ✅ | ✅ | `RoomSyncEngine` (shared) |
-| Host vs guest transport gating | ✅ | ✅ | Guests' controls disabled unless permitted |
-| Room snapshots / member list / suggestions / voting | ✅ | ✅ | TV: `TvWatchTogetherLobbyScreen` |
-| Graceful reconnect + host-closed auto-exit | ✅ | ✅ | |
+| Create / join / leave room | 🚧 | 🚧 | Code/design artifacts exist, but users cannot access this flow |
+| Clock sync (NTP-style) + drift correction | 🚧 | 🚧 | Shared infrastructure exists but is not a live feature |
+| Host vs guest transport gating | 🚧 | 🚧 | Not reachable from production navigation |
+| Room snapshots / member list / suggestions / voting | 🚧 | 🚧 | Not reachable from production navigation |
+| Graceful reconnect + host-closed auto-exit | 🚧 | 🚧 | Not reachable from production navigation |
 
 ## Offline & Downloads
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| Download video & books (WorkManager) | ✅ | ➖ | TV is streaming-only |
-| Scoped `MediaStore` storage (API 30+) + sidecars | ✅ | ➖ | `DownloadStorage` |
+| Download video, audiobooks, and books (WorkManager) | ✅ | ➖ | TV is streaming-only |
+| Public original-format files | ✅ | ➖ | Original filenames/extensions are preserved so other apps can discover/open them |
+| Scoped `MediaStore` storage (API 30+) + Room metadata | ✅ | ➖ | `DownloadStorage`, `DownloadMetadataStore` |
 | Offline-first playback (local `file://`, no session) | ✅ | ➖ | `OfflineMediaResolver` |
+| Open downloads in other apps | ✅ | ➖ | Video/audio/books expose MIME-aware external-open intents |
 | Downloads manager UI (per-item / per-section delete, storage usage) | ✅ | ➖ | `DownloadsScreen` |
 | Boot directly to Downloads when launched offline | ✅ | ➖ | |
 
@@ -66,23 +72,28 @@ File pointers are repository-relative.
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| Media modes (Video / Audio / Reading) from server libraries | ✅ | 🟡 | TV exposes Video/Audio (Reading excluded) |
+| Media modes from server libraries | ✅ | ✅ | Phone reaches Video/Audio/Reading through Libraries; TV exposes Movies/TV/Music/Audiobooks as top tabs and excludes Reading |
 | Home: Continue Watching, Recently Added/Released, recommendations | ✅ | ✅ | Server-defined sections |
 | Library browse: genre/rating filters, sort, infinite grid | ✅ | ✅ | |
 | Collections (global + library-scoped) | ✅ | ✅ | |
 | Item detail: movies, series → seasons → episodes, multi-version, cast/crew | ✅ | ✅ | |
+| Person detail from cast/crew | ✅ | ✅ | Long IDs supported; filmography rows filter per platform |
 | Search (scoped by media type, debounced, paginated) | ✅ | ✅ | |
+| Release calendar | ✅ | ✅ | Top-level mobile tab and TV top-menu tab |
 | System "Watch Next" row integration | ➖ | ✅ | `WatchNextRepository` (tvprovider) |
+| Requests | 🚧 | 🚧 | Not currently accessible in either Android app |
 
 ## Reading (ebooks)
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| EPUB reader | 🟡 | ➖ | WebView, chapter-paged (no in-chapter pagination yet) |
+| EPUB reader | 🟡 | ➖ | Reflowable reader, still improving pagination |
 | PDF reader | ✅ | ➖ | `PdfRenderer` |
 | CBZ (comic) reader | ✅ | ➖ | |
+| CBR reader | ➖ | ➖ | Original can be downloaded/opened externally; no in-app RAR renderer |
 | TXT / Markdown reader | ✅ | ➖ | |
 | FB2 / FBZ (FictionBook) reader | ✅ | ➖ | |
+| MOBI / AZW / AZW3 | 🟡 | ➖ | In-app when the server converts to EPUB; otherwise original opens externally |
 | Themes (light/dark/sepia), text size, margins | ✅ | ➖ | |
 | Table of contents / sections | ✅ | ➖ | EPUB |
 | Bookmarks (local + server sync) | ✅ | ➖ | |
@@ -95,13 +106,14 @@ File pointers are repository-relative.
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| Audiobook player (cover, metadata, chapters) | 🟡 | ➖ | Shares the Media3 engine; redesign planned |
-| Resume + periodic progress save | ✅ | ➖ | `AudiobookPositionStore` |
-| Playback speed | ✅ | ➖ | |
-| Sleep timer (incl. end-of-chapter) | ✅ | ➖ | |
-| Bookmarks | 🟡 | ➖ | Local-only (no server endpoint yet) |
-| Direct-play of cover-art audiobooks (no needless transcode) | ✅ | ➖ | Advertises still-image codecs |
-| Chapter navigation (prev/next), current-chapter UI | 🚧 | 🚧 | Planned (phone + TV) |
+| Audiobook detail surface | ✅ | ✅ | TV has a dedicated tvOS-style audiobook hero/detail flow |
+| Audiobook player (cover, metadata, chapters) | ✅ | ✅ | Shares the Media3 engine and shared audiobook ViewModel |
+| Resume + periodic progress save | ✅ | ✅ | Progress flows through the shared user-state path |
+| Playback speed | ✅ | ✅ | TV includes speed panel and default speed support |
+| Sleep timer (minutes, end-of-chapter, end-of-book) | ✅ | ✅ | |
+| Bookmarks | 🟡 | 🟡 | Local-only (no server endpoint yet) |
+| Direct-play of cover-art audiobooks (no needless transcode) | ✅ | ✅ | Advertises still-image codecs |
+| Chapter navigation (prev/next), current-chapter UI | ✅ | ✅ | |
 | Skip-silence / volume boost, Android Auto, widget | 🚧 | ➖ | Planned |
 
 ## Profiles, personalization & engagement
@@ -115,8 +127,8 @@ File pointers are repository-relative.
 | Favorites & watchlist | ✅ | ✅ | TV: from Settings |
 | Ratings | ✅ | ✅ | |
 | Watch history | ✅ | ✅ | |
-| Content requests (browse/search TMDB, status tracking) | ✅ | ✅ | |
-| Release calendar | ✅ | ➖ | |
+| Content requests (browse/search TMDB, status tracking) | 🚧 | 🚧 | Not currently accessible in either Android app |
+| Release calendar | ✅ | ✅ | |
 | Notifications inbox (paginated, realtime updates, mark-read) | ✅ | ✅ | REST + WebSocket |
 
 ## Servers, accounts & admin
@@ -129,16 +141,17 @@ File pointers are repository-relative.
 | QR / device pairing sign-in | 🟡 | ✅ | TV displays code; phone approves device logins |
 | Single-flight token refresh (REST + media streams) | ✅ | ✅ | Auth plugin + `MediaAuthInterceptor` |
 | Settings (account, appearance, playback, subtitles, notifications) | ✅ | ✅ | Effective-settings cascade synced to server |
-| Admin: dashboard / stats | ✅ | ✅ | TV is stats-only |
-| Admin: users / sessions / logs / scans | ✅ | ➖ | Phone only |
-| Admin gate (account admin **and** primary profile) | ✅ | ✅ | `isActingAdmin` |
+| Admin screens | 🚧 | 🚧 | Not currently accessible in either Android app |
+| Admin gate (account admin **and** primary profile) | 🚧 | 🚧 | Gate logic exists, but no exposed app entry point |
 
 ---
 
 ## Platform summary
 
-**Phone** is the full-featured client: playback, downloads/offline, the ebook reader, the audiobook player, the release calendar, and full admin.
+**Phone** is the full-featured client for playback, downloads/offline, the ebook reader, the audiobook player, the release calendar, profiles, search, and library browsing.
 
-**TV** is a 10-foot, D-pad client focused on browsing and playback (incl. Watch Together and the subtitle suite), with system Watch Next integration and a stats-only admin view. It intentionally omits the reader, the dedicated audiobook UI, downloads management, and the calendar.
+**TV** is a 10-foot, D-pad client focused on browsing and playback, including audiobooks, calendar, the subtitle suite, person detail, and system Watch Next integration. It intentionally omits ebooks/reading and downloads management.
+
+**Not currently exposed on either Android surface:** Requests, Admin, and Watch Together.
 
 Both apps share the same networking, auth, repositories, most ViewModels, and the entire Media3 playback/capability stack.

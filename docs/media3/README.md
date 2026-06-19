@@ -7,6 +7,8 @@ This suite documents how the Silo Android phone (`androidApp/`) and Android TV
 specifically the HDR / Dolby Vision video and Dolby Atmos audio paths. Everything is
 pinned to AndroidX Media3 **1.10.0** (see `gradle/libs.versions.toml:10`). The
 iOS / tvOS clients use a custom `PlayerCore` path (FFmpeg + VideoToolbox + `AVSampleBufferDisplayLayer`) plus AVFoundation routes and are out of scope for this Media3 guide.
+The Android app also contains an optional MPV backend path for selected local/device
+cases; this document suite remains the Media3 reference.
 
 ## Table of contents
 
@@ -38,8 +40,7 @@ iOS / tvOS clients use a custom `PlayerCore` path (FFmpeg + VideoToolbox + `AVSa
   `DefaultRenderersFactory` knobs, and phone vs TV preset examples.
 - **[07 — Current implementation review](07-current-implementation-review.md)** —
   Gap analysis of the current Silo code: which Media3 modules are declared per
-  module, how `SiloPlayerFactory` builds the player today, the two
-  uncoordinated `ExoPlayer` instances, the per-session OkHttp client, and every
+  module, how `ContinuumPlayerFactory` builds the player today, and every
   concrete gap against the HDR / DV / Atmos target, ranked.
 - **[08 — Implementation guide](08-implementation-guide.md)** — The concrete,
   end-to-end "how to land this" recipe: Gradle edits, manifest changes, evolved
@@ -60,9 +61,10 @@ iOS / tvOS clients use a custom `PlayerCore` path (FFmpeg + VideoToolbox + `AVSa
   `AudioCapabilities.supportsEncoding(...)` and **05 §1** on what has to match for
   TrueHD / E-AC-3 JOC to leave the device as a bitstream. Common causes: eARC not
   negotiated, AVR in stand-by, Android system's "Surround sound" toggle forced off.
-- **"Where do I set the buffer size?"** **08 §3** — `DefaultLoadControl.Builder` on
-  the `ExoPlayer.Builder`. Today the app uses defaults (doc 07 §2); the
-  recommendation bumps min/max to 60 s / 120 s for 4K HDR.
+- **"Where do I set the buffer size?"** `DefaultLoadControl.Builder` in
+  `android-shared/.../player/ContinuumPlayerFactory.kt`, driven by
+  `PlaybackBufferPolicy`. The current default is `SmoothPlayback`
+  (45 s min / 90 s max, 5 s initial start, 15 s after rebuffer).
 - **"The player is out of sync on my TV."** 24 fps source on a 60 Hz panel produces
   3:2 pulldown judder. Turn on refresh-rate matching — **06 §1.3** — and enable
   tunneling — **05 §2**. If the AVR adds fixed latency, tunneling is also what gives
@@ -92,8 +94,8 @@ iOS / tvOS clients use a custom `PlayerCore` path (FFmpeg + VideoToolbox + `AVSa
   is Google's signal that a signature may change between minor versions.
 - **Module boundaries.** Player infrastructure lives in `android-shared`. Neither
   the phone `androidApp` nor the TV `androidTvApp` should construct `ExoPlayer`
-  directly; both consume it through the Koin-injected factory (evolving into a
-  single `MediaSessionService`-owned player — see **08 §5**).
+  directly; both consume the single `MediaSessionService`-owned player through
+  the Koin-injected factory/backend layer.
 
 ## Sources of truth
 

@@ -4,6 +4,13 @@
 
 This repository contains only the Silo Android clients. Shared Kotlin logic lives in `shared/`, Android-only playback and UI helpers live in `android-shared/`, the phone app lives in `androidApp/`, and the TV app lives in `androidTvApp/`. Android playback notes live in `docs/media3/`; utility scripts live in `scripts/`.
 
+## Current Product Exposure
+
+- Ebooks/Reading are phone-only. Do not expose ebooks or Reading on Android TV.
+- Android mobile navigation is Home, Libraries, For You, Calendar, and Downloads only when the active profile has downloads. Video, Audio, and Reading are library modes reached through Libraries, not bottom-nav tabs.
+- Android TV navigation is Home, available media-type tabs from server libraries, Calendar, search, and profile actions. Reading/ebooks are excluded.
+- Requests, Admin, and Watch Together are not currently accessible on Android phone or Android TV. Code paths may exist, but do not document them as live features or add them to menus without an explicit product decision.
+
 ## Build, Test, and Development Commands
 
 - `./gradlew :androidApp:assembleDebug` builds the Android phone APK.
