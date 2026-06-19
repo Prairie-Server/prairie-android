@@ -63,6 +63,7 @@ fun TvCatalogGrid(
     verticalSpacing: Dp = 32.dp,
     firstItemFocusRequester: FocusRequester? = null,
     firstItemCardModifier: Modifier = Modifier,
+    artworkAspectRatioForItem: (BrowseItem) -> Float? = { null },
     header: (@Composable () -> Unit)? = null,
     emptyState: (@Composable () -> Unit)? = null,
 ) {
@@ -130,6 +131,7 @@ fun TvCatalogGrid(
                     userState = userState,
                     onClick = { onItemClick(item.contentId) },
                     fillWidth = true,
+                    artworkAspectRatio = artworkAspectRatioForItem(item),
                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                     cardModifier = if (index == 0) firstItemCardModifier else Modifier,
                     modifier = Modifier.fillMaxWidth(),

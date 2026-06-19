@@ -74,13 +74,15 @@ fun TvMediaCard(
     progress: Float? = null,
     width: Dp = TvCardWidth,
     fillWidth: Boolean = false,
+    artworkAspectRatio: Float? = null,
     focusRequester: FocusRequester? = null,
     cardModifier: Modifier = Modifier,
     overlay: OverlayData? = null,
     actions: TvMediaCardActions = TvMediaCardActions(),
 ) {
     val overlayState = LocalCardOverlayUiState.current
-    val height = width * 3f / 2f
+    val effectiveAspectRatio = artworkAspectRatio ?: (2f / 3f)
+    val height = width / effectiveAspectRatio
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
@@ -108,7 +110,7 @@ fun TvMediaCard(
                 cardModifier
                     .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                     .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
+                    .aspectRatio(effectiveAspectRatio)
             } else {
                 cardModifier
                     .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)

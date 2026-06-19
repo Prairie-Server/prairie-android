@@ -55,8 +55,10 @@ import com.continuum.app.tv.ui.theme.continuumCardDefaults
 /**
  * Horizontal rail of circular cast portraits, matching the tvOS
  * `TVDetailCastRail`. Cards lift on focus; the whole rail is a `focusGroup`
- * so seasons-rail / hero focus arithmetic stays clean. Tapping a card is a
- * no-op (person detail isn't wired on Android TV yet, same as tvOS today).
+ * so seasons-rail / hero focus arithmetic stays clean. Cards lift on focus
+ * and invoke [onCastMemberClick] when selected. The caller decides whether a
+ * member has a routable `person_id`; members without one can still render as
+ * display-only credits.
  */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalTvMaterial3Api::class)
 @Composable

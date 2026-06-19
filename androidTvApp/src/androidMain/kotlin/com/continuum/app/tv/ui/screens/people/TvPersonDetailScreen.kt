@@ -44,13 +44,17 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.continuum.app.common.ui.components.ThumbhashImage
+import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.model.catalog.Person
+import com.continuum.app.model.catalog.personMetadataBadges
+import com.continuum.app.model.catalog.personWorksCountLabel
 import com.continuum.app.tv.ui.components.TvCatalogEmptyState
 import com.continuum.app.tv.ui.components.TvCatalogGrid
 import com.continuum.app.tv.ui.components.TvErrorScreen
 import com.continuum.app.tv.ui.components.TvLoadingScreen
 import com.continuum.app.tv.ui.theme.DarkSurfaceElevated
 import com.continuum.app.tv.ui.theme.Spacing
+import java.time.LocalDate
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -98,6 +102,7 @@ fun TvPersonDetailScreen(
                 person = state.person!!,
                 state = state,
                 onFilterSelected = viewModel::applyFilter,
+                onLoadMore = viewModel::loadMoreIfNeeded,
                 onOpenItemDetail = onOpenItemDetail,
             )
         }
@@ -109,6 +114,7 @@ private fun TvPersonDetailContent(
     person: Person,
     state: TvPersonDetailUiState,
     onFilterSelected: (TvPersonMediaFilter) -> Unit,
+    onLoadMore: () -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val firstItemFocusRequester = remember { FocusRequester() }
@@ -124,16 +130,14 @@ private fun TvPersonDetailContent(
         initialFocusRequested = true
     }
 
-    // Shared catalog grid. Filmography is fetched in one shot (no pagination),
-    // so hasMore is false and onLoadMore is a no-op; isLoadingItems drives the
-    // in-grid loading footer. The portrait + filmography filter row ride along
-    // as the full-width header so they scroll with the posters.
+    // Shared catalog grid. The portrait + works filter row ride along as the
+    // full-width header so they scroll with the posters.
     TvCatalogGrid(
         items = state.items,
         isLoading = state.isLoadingItems,
-        hasMore = false,
+        hasMore = state.hasMore,
         onItemClick = onOpenItemDetail,
-        onLoadMore = {},
+        onLoadMore = onLoadMore,
         modifier = Modifier.fillMaxSize(),
         fixedColumnCount = PersonGridColumns,
         contentPadding = PaddingValues(
@@ -145,6 +149,7 @@ private fun TvPersonDetailContent(
         horizontalSpacing = PersonGridItemSpacing,
         verticalSpacing = Spacing.sectionSpacing,
         firstItemFocusRequester = firstItemFocusRequester,
+        artworkAspectRatioForItem = ::personWorkCardAspectRatio,
         header = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -153,9 +158,19 @@ private fun TvPersonDetailContent(
                 PersonHeader(person = person)
                 FilmographyHeader(
                     selected = state.selectedFilter,
+                    availableFilters = state.availableFilters,
                     totalLoaded = state.items.size,
+                    totalItems = state.totalItems,
+                    hasMore = state.hasMore,
                     onSelect = onFilterSelected,
                 )
+                state.pagingError?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
+                        color = Color.White.copy(alpha = 0.62f),
+                    )
+                }
             }
         },
         emptyState = {
@@ -184,17 +199,13 @@ private fun PersonHeader(person: Person) {
                 text = person.name,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 28.sp,
-                lineHeight = 30.sp,
+                fontSize = 46.sp,
+                lineHeight = 50.sp,
                 letterSpacing = 0.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val badges = buildList {
-                person.birthDate?.takeIf { it.isNotBlank() }?.let { add("Born $it") }
-                person.deathDate?.takeIf { it.isNotBlank() }?.let { add("Died $it") }
-                person.birthplace?.takeIf { it.isNotBlank() }?.let { add(it) }
-            }
+            val badges = personMetadataBadges(person, todayIso = LocalDate.now().toString())
             if (badges.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     badges.forEach { badge -> MetadataBadge(text = badge) }
@@ -204,9 +215,8 @@ private fun PersonHeader(person: Person) {
             if (bio != null) {
                 Text(
                     text = bio,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
                     color = Color.White.copy(alpha = 0.78f),
-                    lineHeight = 16.sp,
                     // TV can't D-pad-scroll an inner text box and the auto-focus
                     // lands on the grid below, so keep the bio to a viewport-sized
                     // block (more than the old 6-line clip, but not so tall it
@@ -274,7 +284,10 @@ private fun MetadataBadge(text: String) {
 @Composable
 private fun FilmographyHeader(
     selected: TvPersonMediaFilter,
+    availableFilters: List<TvPersonMediaFilter>,
     totalLoaded: Int,
+    totalItems: Int,
+    hasMore: Boolean,
     onSelect: (TvPersonMediaFilter) -> Unit,
 ) {
     Column(
@@ -298,9 +311,9 @@ private fun FilmographyHeader(
                     color = Color.White,
                 )
             }
-            if (totalLoaded > 0) {
+            personWorksCountLabel(total = totalItems, loaded = totalLoaded, hasMore = hasMore)?.let { label ->
                 Text(
-                    text = if (totalLoaded == 1) "1 title" else "$totalLoaded titles",
+                    text = label,
                     style = MaterialTheme.typography.titleSmall,
                     color = Color.White.copy(alpha = 0.6f),
                 )
@@ -311,7 +324,7 @@ private fun FilmographyHeader(
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            TvPersonMediaFilter.entries.forEach { filter ->
+            availableFilters.forEach { filter ->
                 FilterChoiceChip(
                     label = filter.title,
                     selected = filter == selected,
@@ -385,3 +398,10 @@ private fun FilterChoiceChip(
 
 private const val PersonGridColumns = 6
 private val PersonGridItemSpacing = 20.dp
+
+private fun personWorkCardAspectRatio(item: BrowseItem): Float? =
+    if (item.type == "audiobook") {
+        1f
+    } else {
+        null
+    }
