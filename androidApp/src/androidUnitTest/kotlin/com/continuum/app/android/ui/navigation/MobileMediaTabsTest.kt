@@ -9,11 +9,11 @@ import kotlin.test.assertTrue
 
 class MobileMediaTabsTest {
 
-    // Apple/web-aligned shell: Home · Libraries · For You, independent of which
+    // Apple-aligned shell: Home · Libraries · For You · Calendar, independent of which
     // media types the libraries contain. Library content (video / audio /
     // reading) is reached through the Libraries picker. Downloads only appears
     // when the user has downloads.
-    private val base = listOf(Tab.Home, Tab.Libraries, Tab.ForYou)
+    private val baseLabels = listOf("Home", "Libraries", "For You", "Calendar")
 
     @Test
     fun fixedTabsAppendDownloadsWhenPresent() {
@@ -22,22 +22,25 @@ class MobileMediaTabsTest {
             showDownloads = true,
         )
 
-        assertEquals(base + Tab.Downloads, tabs)
+        assertEquals(baseLabels + "Downloads", tabs.map { it.label })
     }
 
     @Test
     fun tabsAreFixedRegardlessOfLibraryTypes() {
         assertEquals(
-            base,
-            visibleMobileTabs(MediaModeCapabilities(listOf(MediaMode.Audio)), showDownloads = false),
+            baseLabels,
+            visibleMobileTabs(MediaModeCapabilities(listOf(MediaMode.Audio)), showDownloads = false)
+                .map { it.label },
         )
         assertEquals(
-            base,
-            visibleMobileTabs(MediaModeCapabilities(listOf(MediaMode.Reading)), showDownloads = false),
+            baseLabels,
+            visibleMobileTabs(MediaModeCapabilities(listOf(MediaMode.Reading)), showDownloads = false)
+                .map { it.label },
         )
         assertEquals(
-            base,
-            visibleMobileTabs(MediaModeCapabilities(emptyList()), showDownloads = false),
+            baseLabels,
+            visibleMobileTabs(MediaModeCapabilities(emptyList()), showDownloads = false)
+                .map { it.label },
         )
     }
 
@@ -48,7 +51,7 @@ class MobileMediaTabsTest {
             showDownloads = false,
         )
 
-        assertEquals(base, tabs)
+        assertEquals(baseLabels, tabs.map { it.label })
         assertFalse(Tab.Downloads in tabs)
     }
 

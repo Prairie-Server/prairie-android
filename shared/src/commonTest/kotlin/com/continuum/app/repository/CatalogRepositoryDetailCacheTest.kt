@@ -41,6 +41,15 @@ class CatalogRepositoryDetailCacheTest {
         return CatalogRepository(CatalogApi(client), cache)
     }
 
+    private fun repoThatFailsOnNetwork(cache: CatalogCachePort): CatalogRepository {
+        val client = HttpClient(
+            MockEngine { error("Network should not be used for a cached detail peek") },
+        ) {
+            install(ContentNegotiation) { json(ContinuumJson) }
+        }
+        return CatalogRepository(CatalogApi(client), cache)
+    }
+
     @Test
     fun cachesOnSuccess() = runTest {
         val cache = FakeCache(preset = null)
@@ -56,6 +65,13 @@ class CatalogRepositoryDetailCacheTest {
         val result = repo(HttpStatusCode.BadGateway, "{}", cache).getItemDetail("c1")
         assertTrue(result is ApiResult.Success)
         assertEquals("Cached", result.data.title)
+    }
+
+    @Test
+    fun exposesCachedDetailWithoutNetworkForFastDetailShells() = runTest {
+        val cache = FakeCache(preset = ItemDetail(contentId = "c1", type = "movie", title = "Cached"))
+        val detail = repoThatFailsOnNetwork(cache).getCachedItemDetail("c1")
+        assertEquals("Cached", detail?.title)
     }
 
     @Test

@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.continuum.app.android.ui.components.ContinuumTopBar
 import com.continuum.app.android.ui.components.EmptyStateView
@@ -71,6 +72,8 @@ fun CalendarScreen(
     onBackClick: () -> Unit,
     onItemClick: (String) -> Unit,
     viewModel: CalendarViewModel = koinViewModel(),
+    showTopBar: Boolean = true,
+    contentTopPadding: Dp = 0.dp,
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -86,26 +89,29 @@ fun CalendarScreen(
 
     Scaffold(
         topBar = {
-            ContinuumTopBar(
-                title = "Calendar",
-                onBackClick = onBackClick,
-                actions = {
-                    if (libraries.size > 1) {
-                        LibraryDropdown(
-                            libraries = libraries,
-                            selectedLibraryId = state.libraryId,
-                            onSelect = viewModel::setLibrary,
-                        )
-                    }
-                },
-            )
+            if (showTopBar) {
+                ContinuumTopBar(
+                    title = "Calendar",
+                    onBackClick = onBackClick,
+                    actions = {
+                        if (libraries.size > 1) {
+                            LibraryDropdown(
+                                libraries = libraries,
+                                selectedLibraryId = state.libraryId,
+                                onSelect = viewModel::setLibrary,
+                            )
+                        }
+                    },
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .padding(top = contentTopPadding),
         ) {
             FilterPresetRow(
                 selected = state.filter,

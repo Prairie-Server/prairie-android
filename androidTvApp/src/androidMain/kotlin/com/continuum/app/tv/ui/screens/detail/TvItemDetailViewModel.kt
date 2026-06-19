@@ -14,6 +14,8 @@ import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.tv.ui.util.isTvHiddenMediaType
 import com.continuum.app.tv.ui.util.visibleOnTv
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -93,11 +95,26 @@ class TvItemDetailViewModel(
     fun loadAll() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
+            seedCachedDetail()
             // Kick off user-state fetches in parallel — they aren't load-blocking;
             // the detail must succeed before we render, but favorite/watchlist
             // state can trickle in afterward.
             loadUserState()
             loadDetail()
+        }
+    }
+
+    private suspend fun seedCachedDetail() {
+        val cached = catalogRepository.getCachedItemDetail(contentId) ?: return
+        if (isTvHiddenMediaType(cached.type)) return
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                detail = cached,
+                userRating = cached.userRating,
+                isWatched = cached.userData?.played == true,
+                error = null,
+            )
         }
     }
 
@@ -316,6 +333,7 @@ class TvItemDetailViewModel(
     }
 
     private var episodeLoadJob: kotlinx.coroutines.Job? = null
+    private var moreLikeThisJob: Job? = null
 
     private fun loadEpisodes(seriesContentId: String, seasonNumber: Int) {
         // Cancel any in-flight episode load so a slower response for a
@@ -457,7 +475,11 @@ class TvItemDetailViewModel(
         val mediaType = detail.type.takeIf { it in setOf("movie", "series", "episode") || isAudiobookItemType(it) }
         if (primaryGenre == null && mediaType == null) return
 
-        viewModelScope.launch {
+        moreLikeThisJob?.cancel()
+        moreLikeThisJob = viewModelScope.launch {
+            // This shelf is secondary. Let the hero, seasons, and episode rail settle
+            // before starting another browse request during item-open.
+            delay(300)
             _uiState.update { it.copy(moreLikeThisLoading = true) }
             when (val result = catalogRepository.browse(
                 mediaType = mediaType,

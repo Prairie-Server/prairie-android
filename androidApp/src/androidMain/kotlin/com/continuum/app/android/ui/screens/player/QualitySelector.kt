@@ -59,7 +59,10 @@ fun QualitySelector(
             Spacer(modifier = Modifier.height(8.dp))
 
             LazyColumn {
-                itemsIndexed(versions) { index, version ->
+                itemsIndexed(
+                    versions,
+                    contentType = { _, _ -> "quality-version" },
+                ) { index, version ->
                     val label = buildString {
                         version.resolution?.let { append(it) } ?: append("Unknown")
                         if (version.hdr) append(" HDR")
@@ -138,4 +141,3 @@ private fun QualityOptionRow(
         }
     }
 }
-

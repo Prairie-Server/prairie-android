@@ -1,13 +1,14 @@
 package com.continuum.app.android.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.background
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.navigation.NavHostController
 import com.continuum.app.android.ui.components.MainAppHeaderContentPadding
 import com.continuum.app.android.ui.components.MainAppTopBar
@@ -28,18 +30,19 @@ import com.continuum.app.android.ui.navigation.fallbackMobileTab
 import com.continuum.app.android.ui.navigation.scopedLocalDownloadBytes
 import com.continuum.app.android.ui.navigation.shouldShowDownloadsTab
 import com.continuum.app.android.ui.navigation.visibleMobileTabs
+import com.continuum.app.android.ui.screens.calendar.CalendarScreen
+import com.continuum.app.android.ui.screens.home.HomeScreen
 import com.continuum.app.android.ui.screens.libraries.LibrariesScreen
 import com.continuum.app.android.ui.screens.libraries.LibrariesSelectorSheet
 import com.continuum.app.android.ui.screens.libraries.LibrariesViewModel
-import com.continuum.app.android.ui.screens.home.HomeScreen
 import com.continuum.app.android.ui.screens.recommendations.RecommendationsScreen
-import com.continuum.app.viewmodel.HomeViewModel
 import com.continuum.app.model.navigation.MediaMode
 import com.continuum.app.model.navigation.MediaModeCapabilities
 import com.continuum.app.model.navigation.mobileMediaModeCapabilities
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.ServerRegistry
 import com.continuum.app.repository.PersonalDataRepository
+import com.continuum.app.viewmodel.HomeViewModel
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -225,6 +228,18 @@ fun MainScreen(
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
+                            onWatchlistClick = { navController.navigate(Route.Watchlist.route) },
+                            onFavoritesClick = { navController.navigate(Route.Favorites.route) },
+                            contentTopPadding = MainAppHeaderContentPadding,
+                        )
+                    }
+                    Tab.Calendar -> {
+                        CalendarScreen(
+                            onBackClick = { navController.popBackStack() },
+                            onItemClick = { contentId ->
+                                navController.navigate(Route.ItemDetail(contentId).route)
+                            },
+                            showTopBar = false,
                             contentTopPadding = MainAppHeaderContentPadding,
                         )
                     }
@@ -254,16 +269,25 @@ fun MainScreen(
                 }
             }
 
-            // Home and Libraries paint their own floating chrome. Downloads
-            // and For You have no header of their own, so they use the global
-            // top bar.
-            if (currentTab == Tab.Downloads || currentTab == Tab.ForYou) {
+            // Home and Libraries paint their own floating chrome. Calendar,
+            // Downloads, and For You use the shared iOS-style top chrome.
+            if (currentTab == Tab.Downloads || currentTab == Tab.ForYou || currentTab == Tab.Calendar) {
+                val title = when (currentTab) {
+                    Tab.Calendar -> "Calendar"
+                    Tab.Downloads -> "Downloads"
+                    Tab.ForYou -> "For You"
+                    else -> null
+                }
                 MainAppTopBar(
                     activeProfile = headerState.activeProfile,
                     isProfileLoading = headerState.isLoading,
                     onSearchClick = { navController.navigate(Route.Search().route) },
                     onPersonalListsClick = { navController.navigate(Route.PersonalLists.route) },
-                    onCalendarClick = { navController.navigate(Route.Calendar.route) },
+                    onCalendarClick = if (currentTab == Tab.Calendar) {
+                        null
+                    } else {
+                        { navController.navigate(Route.Calendar.route) }
+                    },
                     onRequestsClick = { navController.navigate(Route.Requests.route) },
                     onInboxClick = { navController.navigate(Route.Inbox.route) },
                     onSettingsClick = { navController.navigate(Route.Settings.route) },
@@ -272,6 +296,18 @@ fun MainScreen(
                     },
                     onSwitchServerClick = {
                         navController.navigate(Route.ServerList.route)
+                    },
+                    leadingContent = {
+                        if (title != null) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        } else {
+                            com.continuum.app.android.ui.components.ContinuumWordmark()
+                        }
                     },
                 )
             }

@@ -104,7 +104,11 @@ fun TvSeasonPicker(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         contentPadding = PaddingValues(vertical = 6.dp),
     ) {
-        items(seasons, key = { it.seasonNumber }) { season ->
+        items(
+            seasons,
+            key = { it.seasonNumber },
+            contentType = { "season-chip" },
+        ) { season ->
             TvSeasonChip(
                 season = season,
                 isSelected = season.seasonNumber == selectedSeason,

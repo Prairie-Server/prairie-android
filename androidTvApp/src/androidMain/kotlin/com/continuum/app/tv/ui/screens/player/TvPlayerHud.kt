@@ -56,6 +56,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -69,7 +70,7 @@ import com.continuum.app.model.settings.SubtitlePositionPreset
 /**
  * Floating top-center player HUD mirroring `iosApp/.../tvOS/TVPlayerInfoHUD.swift`.
  *
- * A frosted/opaque dark card (~1100dp wide, ~380dp tall, corner ~28dp) drops on
+ * A frosted/opaque dark card (~550dp wide, ~190dp tall, corner ~14dp) drops on
  * top of the video with NO full-screen dim so playback stays visible. A
  * horizontal pill TAB BAR sits at the top of the card; the selected pane renders
  * below it.
@@ -171,15 +172,15 @@ fun TvPlayerHud(
     // Top-center card. No full-screen scrim — the video stays visible behind it.
     Box(
         modifier = modifier
-            .widthIn(max = 1100.dp)
+            .widthIn(max = 550.dp)
             .fillMaxWidth()
-            .height(380.dp)
-            .clip(RoundedCornerShape(28.dp))
+            .height(190.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
             .border(
-                width = 1.dp,
+                width = 0.5.dp,
                 color = Color.White.copy(alpha = 0.14f),
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(14.dp),
             )
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyUp &&
@@ -196,20 +197,20 @@ fun TvPlayerHud(
                     false
                 }
             }
-            .padding(horizontal = 28.dp, vertical = 22.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = if (activePicker != null) 0.28f else 1f },
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // Horizontal pill tab bar at the top.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 tabs.forEach { tab ->
                     HudTabPill(
@@ -371,18 +372,20 @@ private fun HudTabPill(
     Box(
         modifier = Modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .height(48.dp)
-            .clip(RoundedCornerShape(50))
+            .height(24.dp)
+            .clip(RoundedCornerShape(25.dp))
             .background(bg)
             .focusRequester(focusRequester)
             .focusable(enabled = enabled, interactionSource = interactionSource)
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             color = fg,
             style = MaterialTheme.typography.titleSmall.copy(
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
                 fontWeight = FontWeight.SemiBold,
             ),
         )
@@ -433,14 +436,18 @@ private fun HudInfoPane(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(48.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // Title column.
         PaneColumn("Title", modifier = Modifier.weight(1f)) {
             Text(
                 text = title.ifBlank { "Now Playing" },
                 color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 17.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -448,14 +455,14 @@ private fun HudInfoPane(
                 Text(
                     text = episodeTag,
                     color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 11.sp, lineHeight = 13.sp),
                 )
             }
             if (metaBits.isNotEmpty()) {
                 Text(
                     text = metaBits.joinToString("  ·  "),
                     color = Color.White.copy(alpha = 0.65f),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 10.sp, lineHeight = 12.sp),
                 )
             }
         }
@@ -463,22 +470,24 @@ private fun HudInfoPane(
         // Stream column.
         PaneColumn("Stream", modifier = Modifier.weight(1f)) {
             if (badges.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     badges.forEach { badge ->
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
                                 .border(
-                                    width = 1.dp,
+                                    width = 0.5.dp,
                                     color = Color.White.copy(alpha = 0.35f),
                                     shape = RoundedCornerShape(50),
                                 )
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                .padding(horizontal = 5.dp, vertical = 2.dp),
                         ) {
                             Text(
                                 text = badge,
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelMedium.copy(
+                                    fontSize = 8.sp,
+                                    lineHeight = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 ),
                             )
@@ -507,12 +516,16 @@ private fun PaneColumn(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Text(
             text = header.uppercase(),
             color = Color.White.copy(alpha = 0.5f),
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = 7.sp,
+                lineHeight = 8.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
         )
         content()
     }
@@ -524,13 +537,17 @@ private fun LabelValueRow(label: String, value: String) {
         Text(
             text = label,
             color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.Medium,
+            ),
         )
         Box(modifier = Modifier.weight(1f))
         Text(
             text = value,
             color = Color.White.copy(alpha = 0.7f),
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 11.sp, lineHeight = 13.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -653,7 +670,7 @@ private fun HudVideoPane(
 ) {
     Row(
         modifier = modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(48.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // Playback column — Quality / Speed / Aspect / HDR + auto toggles.
         PaneColumn(
@@ -790,19 +807,23 @@ private fun HudVideoPane(
         ) {
             Text(
                 text = "Sleep timer",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
             )
             val activeSleep = sleepTimerState as? SleepTimerState.Active
             if (activeSleep != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = "Sleeping in ${formatSleepRemaining(activeSleep.remainingSeconds)}",
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
                     )
                     HudClickChip(label = "Cancel", selected = false, enabled = enabled, onClick = onCancelSleepTimer)
@@ -812,7 +833,7 @@ private fun HudVideoPane(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     SLEEP_TIMER_PRESETS.forEach { minutes ->
                         HudClickChip(
@@ -867,13 +888,17 @@ private fun HudClickChip(
                 interactionSource = interactionSource,
                 indication = null,
             ) { onClick() }
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             color = fg,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
         )
     }
 }
@@ -970,7 +995,7 @@ private fun HudSubtitlesPane(
 
     Row(
         modifier = modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(48.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // Tracks + sync column.
         PaneColumn(
@@ -1361,7 +1386,11 @@ private fun HudChaptersPane(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        itemsIndexed(chapters, key = { _, c -> c.index }) { idx, ch ->
+        itemsIndexed(
+            chapters,
+            key = { _, c -> c.index },
+            contentType = { _, _ -> "hud-chapter" },
+        ) { idx, ch ->
             HudChapterRow(
                 chapter = ch,
                 onFocused = { onSelectChapter(idx) },
@@ -1390,7 +1419,7 @@ private fun HudChapterRow(
             .focusable(interactionSource = interactionSource)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             text = formatTime(chapter.startSeconds),
@@ -1481,41 +1510,49 @@ internal fun HudFocusedSettingRow(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer { alpha = rowAlpha }
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(5.dp))
             .background(bg)
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
                 indication = null,
             ) { onActivate() }
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 7.dp, vertical = 5.5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = label,
             color = labelColor,
-            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.Medium,
+            ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Box(modifier = Modifier.weight(1f))
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             if (colorHex != null) {
                 Box(
                     modifier = Modifier
-                        .size(18.dp)
+                        .size(9.dp)
                         .clip(CircleShape)
                         .background(hexToColor(colorHex))
-                        .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+                        .border(0.5.dp, Color.White.copy(alpha = 0.45f), CircleShape),
                 )
             }
             Text(
                 text = value,
                 color = valueColor,
-                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1523,7 +1560,7 @@ internal fun HudFocusedSettingRow(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = null,
                 tint = chevronColor,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(9.dp),
             )
         }
     }
@@ -1558,31 +1595,39 @@ internal fun HudPickerDialog(
 
     Box(
         modifier = modifier
-            .width(620.dp)
-            .heightIn(max = 340.dp)
-            .clip(RoundedCornerShape(28.dp))
+            .width(310.dp)
+            .heightIn(max = 170.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f))
-            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(28.dp))
+            .border(0.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
             // Focus trap: contain D-pad navigation inside the modal so focus
             // can't leak to the player root at the list edges. Cancelling exit
             // keeps focus on the boundary option until the user picks (Select)
             // or backs out (Back).
             .focusGroup()
             .focusProperties { exit = { FocusRequester.Cancel } }
-            .padding(horizontal = 28.dp, vertical = 24.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = presentation.title,
                 color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 15.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
             )
             LazyColumn(
                 state = listState,
-                modifier = Modifier.heightIn(max = 240.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.heightIn(max = 120.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(options, key = { _, o -> o.id }) { index, option ->
+                itemsIndexed(
+                    options,
+                    key = { _, o -> o.id },
+                    contentType = { _, _ -> "hud-picker-option" },
+                ) { index, option ->
                     HudPickerOptionRow(
                         option = option,
                         isSelected = index == selectedIndex,
@@ -1614,27 +1659,31 @@ private fun HudPickerOptionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(5.dp))
             .background(bg)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(interactionSource = interactionSource, indication = null) { onSelect() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         if (option.colorHex != null) {
             Box(
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(9.dp)
                     .clip(CircleShape)
                     .background(hexToColor(option.colorHex))
-                    .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+                    .border(0.5.dp, Color.White.copy(alpha = 0.45f), CircleShape),
             )
         }
         Text(
             text = option.label,
             color = fg,
-            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.Medium,
+            ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -1644,7 +1693,7 @@ private fun HudPickerOptionRow(
                 imageVector = Icons.Filled.Check,
                 contentDescription = "Selected",
                 tint = fg,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(10.dp),
             )
         }
     }

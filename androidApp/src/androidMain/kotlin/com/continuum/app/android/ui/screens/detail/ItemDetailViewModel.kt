@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -81,6 +83,8 @@ class ItemDetailViewModel(
 
     private val _uiState = MutableStateFlow(ItemDetailUiState())
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
+    private var episodeLoadJob: Job? = null
+    private var allEpisodeFileIdsJob: Job? = null
 
     /** Live mirror of the shared records flow; the screen reads this to
      *  derive per-version download state (isDownloaded / progress). */
@@ -206,6 +210,7 @@ class ItemDetailViewModel(
     fun loadDetail() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
+            seedCachedDetail()
 
             when (val result = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
@@ -252,6 +257,18 @@ class ItemDetailViewModel(
         }
     }
 
+    private suspend fun seedCachedDetail() {
+        val cached = catalogRepository.getCachedItemDetail(contentId) ?: return
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                detail = cached,
+                userRating = cached.userRating,
+                error = null,
+            )
+        }
+    }
+
     private fun loadUserState() {
         viewModelScope.launch {
             // Local optimistic favorite wins and is applied IMMEDIATELY (isFavorite
@@ -291,9 +308,14 @@ class ItemDetailViewModel(
                         )
                     }
                     if (selectedSeason != null) {
-                        loadEpisodes(seriesId, selectedSeason.seasonNumber)
+                        loadEpisodes(
+                            seriesId = seriesId,
+                            seasonNumber = selectedSeason.seasonNumber,
+                            seasonsForDownloadRollup = seasons,
+                        )
+                    } else {
+                        loadAllEpisodeFileIds(seriesId, seasons)
                     }
-                    loadAllEpisodeFileIds(seriesId, seasons)
                 }
                 else -> { /* Season load failure is non-critical */ }
             }
@@ -303,11 +325,33 @@ class ItemDetailViewModel(
     /** Loads every season's episodes once to compute the series-level downloaded
      *  roll-up (✓ only when ALL episodes are downloaded). Best-effort: a season
      *  that fails to load just contributes no ids. Episode reads are cache-backed. */
-    private fun loadAllEpisodeFileIds(seriesId: String, seasons: List<Season>) {
-        viewModelScope.launch {
+    private fun loadAllEpisodeFileIds(
+        seriesId: String,
+        seasons: List<Season>,
+        seedEpisodes: List<EpisodeListItem> = emptyList(),
+        skipSeasonNumber: Int? = null,
+    ) {
+        allEpisodeFileIdsJob?.cancel()
+        allEpisodeFileIdsJob = viewModelScope.launch {
             val fileIds = mutableListOf<Int>()
+            seedEpisodes.forEach { ep -> ep.files.firstOrNull()?.fileId?.let { fileIds += it } }
+            val canSkipSeedSeason = skipSeasonNumber != null && seedEpisodes.isNotEmpty()
+            if (fileIds.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        allEpisodeFileIds = fileIds.distinct(),
+                        allEpisodeIdsComplete = canSkipSeedSeason && seasons.size <= 1,
+                    )
+                }
+            }
+
+            // This roll-up is only for the detail download badge. Let the selected
+            // season render and become interactive before crawling the rest.
+            delay(350)
+
             var complete = true
             for (season in seasons) {
+                if (canSkipSeedSeason && season.seasonNumber == skipSeasonNumber) continue
                 when (val r = catalogRepository.getEpisodes(seriesId, season.seasonNumber)) {
                     is ApiResult.Success -> r.data.episodes.forEach { ep ->
                         ep.files.firstOrNull()?.fileId?.let { fileIds += it }
@@ -316,7 +360,12 @@ class ItemDetailViewModel(
                     else -> complete = false
                 }
             }
-            _uiState.update { it.copy(allEpisodeFileIds = fileIds, allEpisodeIdsComplete = complete) }
+            _uiState.update {
+                it.copy(
+                    allEpisodeFileIds = fileIds.distinct(),
+                    allEpisodeIdsComplete = complete,
+                )
+            }
         }
     }
 
@@ -329,23 +378,39 @@ class ItemDetailViewModel(
         loadEpisodes(seriesId, seasonNumber)
     }
 
-    private fun loadEpisodes(seriesId: String, seasonNumber: Int) {
-        viewModelScope.launch {
+    private fun loadEpisodes(
+        seriesId: String,
+        seasonNumber: Int,
+        seasonsForDownloadRollup: List<Season>? = null,
+    ) {
+        episodeLoadJob?.cancel()
+        episodeLoadJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoadingEpisodes = true) }
             when (val result = catalogRepository.getEpisodes(seriesId, seasonNumber)) {
                 is ApiResult.Success -> {
+                    val episodes = result.data.episodes
                     _uiState.update {
                         it.copy(
                             isLoadingEpisodes = false,
-                            episodes = result.data.episodes,
+                            episodes = episodes,
+                        )
+                    }
+                    seasonsForDownloadRollup?.let { seasons ->
+                        loadAllEpisodeFileIds(
+                            seriesId = seriesId,
+                            seasons = seasons,
+                            seedEpisodes = episodes,
+                            skipSeasonNumber = seasonNumber,
                         )
                     }
                 }
                 is ApiResult.Error -> {
                     _uiState.update { it.copy(isLoadingEpisodes = false) }
+                    seasonsForDownloadRollup?.let { loadAllEpisodeFileIds(seriesId, it) }
                 }
                 is ApiResult.NetworkError -> {
                     _uiState.update { it.copy(isLoadingEpisodes = false) }
+                    seasonsForDownloadRollup?.let { loadAllEpisodeFileIds(seriesId, it) }
                 }
             }
         }

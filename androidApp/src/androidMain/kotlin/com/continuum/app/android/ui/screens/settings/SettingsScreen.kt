@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +62,10 @@ fun SettingsScreen(
     onPairDevice: () -> Unit = {},
     onNavigateToRequests: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
+    onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToFavorites: () -> Unit = {},
+    onNavigateToHistory: () -> Unit = {},
+    onNavigateToCollections: () -> Unit = {},
     onNavigateToCardOverlays: () -> Unit = {},
     showTopBar: Boolean = false,
     onBackClick: (() -> Unit)? = null,
@@ -166,6 +174,32 @@ fun SettingsScreen(
                     onModeChanged = viewModel::setSubtitleMode,
                     onForcedSubtitlesChanged = viewModel::setShowForcedSubtitles,
                 )
+            }
+
+            item {
+                SettingsSectionCard {
+                    SettingsSectionHeader(title = "Library")
+                    SettingsClickableRow(
+                        icon = Icons.Outlined.BookmarkBorder,
+                        label = "Watchlist",
+                        onClick = onNavigateToWatchlist,
+                    )
+                    SettingsClickableRow(
+                        icon = Icons.Outlined.FavoriteBorder,
+                        label = "Favorites",
+                        onClick = onNavigateToFavorites,
+                    )
+                    SettingsClickableRow(
+                        icon = Icons.Outlined.History,
+                        label = "Watch History",
+                        onClick = onNavigateToHistory,
+                    )
+                    SettingsClickableRow(
+                        icon = Icons.Outlined.GridView,
+                        label = "Collections",
+                        onClick = onNavigateToCollections,
+                    )
+                }
             }
 
             if (state.notificationsAvailable) {

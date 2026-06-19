@@ -105,7 +105,7 @@ fun TvJoinCodeDialog(
                 modifier = Modifier
                     .width(280.dp)
                     .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
-                    .border(1.2.dp, Color.White.copy(alpha = 0.20f), panelShape)
+                    .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
                     .padding(horizontal = 14.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {

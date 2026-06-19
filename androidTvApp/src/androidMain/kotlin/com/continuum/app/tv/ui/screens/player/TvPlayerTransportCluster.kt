@@ -85,6 +85,7 @@ fun TvPlayerTransportCluster(
                 description = if (isPlaying) "Pause" else "Play",
                 onClick = onPlayPause,
                 focusRequester = playPauseFocus,
+                isPrimary = true,
                 onMoveUp = onMoveUpToScrubber,
             )
             DockGap()
@@ -117,7 +118,7 @@ fun TvPlayerTransportCluster(
 
 @Composable
 private fun DockGap() {
-    Spacer(modifier = Modifier.size(width = 14.dp, height = 1.dp))
+    Spacer(modifier = Modifier.size(width = 5.dp, height = 1.dp))
 }
 
 @Composable
@@ -126,14 +127,15 @@ private fun TransportIconButton(
     description: String,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
+    isPrimary: Boolean = false,
     onMoveUp: () -> Unit = {},
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     // Uniform sizes across all buttons so the row reads as one transport group.
-    val buttonSize = 66.dp
-    val symbolSize = 28.dp
+    val buttonSize = 33.dp
+    val symbolSize = if (isPrimary) 15.dp else 12.5.dp
 
     // Focus is signaled by filling the circle white — no scale transform so the
     // buttons never cross the bounds of their circular hit target.
@@ -150,7 +152,7 @@ private fun TransportIconButton(
             .clip(CircleShape)
             .background(focusBg)
             .border(
-                width = 1.dp,
+                width = 0.5.dp,
                 color = if (isFocused) Color.Transparent else Color.White.copy(alpha = 0.22f),
                 shape = CircleShape,
             )

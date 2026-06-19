@@ -54,9 +54,9 @@ internal fun TvAudiobookOverlayScaffold(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(520.dp)
+                .width(320.dp)
                 .background(Color(0xFF101010))
-                .padding(horizontal = 28.dp, vertical = 32.dp),
+                .padding(horizontal = 18.dp, vertical = 22.dp),
         ) {
             Text(text = title, style = MaterialTheme.typography.titleLarge, color = Color.White)
             content()

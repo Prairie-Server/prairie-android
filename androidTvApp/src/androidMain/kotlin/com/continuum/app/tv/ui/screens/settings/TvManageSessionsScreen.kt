@@ -166,13 +166,13 @@ private fun SessionRow(session: AuthSession, busy: Boolean, onClick: () -> Unit)
         shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
         modifier = Modifier
             .fillMaxWidth()
-            .widthIn(max = 960.dp)
-            .height(96.dp),
+            .widthIn(max = 480.dp)
+            .height(48.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 16.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {

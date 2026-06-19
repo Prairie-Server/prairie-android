@@ -27,7 +27,8 @@ internal class EpubReflowSource(private val book: EpubBook) : ReflowableSource {
         book.spine.getOrNull(index)?.let { book.readChapterHtml(it) }
 
     override fun baseUrl(index: Int): String =
-        readerDirectoryBaseUrl(book.opfDir)
+        book.spine.getOrNull(index)?.let { book.chapterBaseUrl(it) }
+            ?: readerDirectoryBaseUrl(book.opfDir)
 }
 
 private fun String.epubSectionTitle(): String? {

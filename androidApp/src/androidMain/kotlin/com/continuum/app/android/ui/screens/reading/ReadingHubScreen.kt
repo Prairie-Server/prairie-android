@@ -398,6 +398,7 @@ private fun ReadingRecommendedTab(
                 items(
                     items = state.sections,
                     key = { section -> section.id },
+                    contentType = { "reading-section-row" },
                 ) { section ->
                     HomeSectionRow(
                         section = section.readingFriendlySection(),
@@ -541,6 +542,7 @@ private fun ReadingCollectionsTab(
                 items(
                     items = state.collections,
                     key = { it.id },
+                    contentType = { "reading-collection" },
                 ) { collection ->
                     ReadingCollectionCard(
                         collection = collection,

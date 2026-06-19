@@ -59,7 +59,7 @@ fun SearchBar(
             .focusRequester(focusRequester),
         placeholder = {
             Text(
-                text = "Search your library",
+                text = "Search Silo",
                 style = MaterialTheme.typography.bodyLarge,
             )
         },

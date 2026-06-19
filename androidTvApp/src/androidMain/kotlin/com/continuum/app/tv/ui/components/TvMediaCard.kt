@@ -46,7 +46,7 @@ import com.continuum.app.model.catalog.MediaItemUserState
 import com.continuum.app.overlays.OverlayData
 import com.continuum.app.tv.ui.theme.ProgressTrack
 import com.continuum.app.tv.ui.theme.ProgressFill
-import com.continuum.app.tv.ui.theme.SelectedContainer
+import com.continuum.app.tv.ui.theme.RowDimens
 import com.continuum.app.tv.ui.theme.continuumCardDefaults
 
 /**
@@ -210,8 +210,7 @@ fun TvMediaCard(
 }
 
 /**
- * Default width used by the TV media card. 200dp matches the tvOS poster size
- * (260×390pt at scale per `RowDimens.PosterWidth`) — the spec calls for
- * 200×300dp posters across rows and grids on Android TV.
+ * Default width used by the TV media card. tvOS uses 260×390pt; Skyline maps
+ * that to Android TV as 130×195dp.
  */
-val TvCardWidth: Dp = 200.dp
+val TvCardWidth: Dp = RowDimens.PosterWidth

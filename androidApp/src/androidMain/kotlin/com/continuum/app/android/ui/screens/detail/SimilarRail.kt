@@ -99,7 +99,11 @@ private fun SimilarRailContent(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
-        items(items, key = { it.contentId }) { item ->
+        items(
+            items,
+            key = { it.contentId },
+            contentType = { "similar-item" },
+        ) { item ->
             MediaCard(
                 title = item.title,
                 posterUrl = item.posterUrl,
@@ -122,7 +126,7 @@ private fun SimilarRailPlaceholder(modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
-        items(4) {
+        items(4, contentType = { "similar-placeholder" }) {
             Spacer(modifier = Modifier.width(120.dp))
         }
     }

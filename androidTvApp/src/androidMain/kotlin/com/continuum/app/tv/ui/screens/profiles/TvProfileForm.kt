@@ -115,7 +115,7 @@ fun TvProfileForm(
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .width(840.dp)
+                .width(420.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(top = 48.dp, bottom = Spacing.xxl, start = Spacing.xl, end = Spacing.xl),

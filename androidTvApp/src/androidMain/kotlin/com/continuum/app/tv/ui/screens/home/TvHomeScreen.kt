@@ -42,6 +42,7 @@ import com.continuum.app.tv.ui.components.TvRowStyle
 import com.continuum.app.tv.ui.components.rememberAmbientBackdropTintState
 import com.continuum.app.tv.ui.components.rememberTvFocusMarqueeState
 import com.continuum.app.tv.ui.shell.TvTopMenuLayout
+import com.continuum.app.tv.ui.theme.RowDimens
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.util.visibleOnTv
 import com.continuum.app.viewmodel.HomeViewModel
@@ -125,6 +126,20 @@ private fun TvHomeContent(
         }
     }
     val marquee = rememberTvFocusMarqueeState(fetchDetail = fetchDetail)
+    val initialMarqueeSeed = remember(rows) {
+        rows.firstOrNull()?.let { section ->
+            section.items.firstOrNull()?.let { item ->
+                TvHomeMarqueeSeed(item = item, rowTitle = section.title)
+            }
+        }
+    }
+
+    LaunchedEffect(initialMarqueeSeed?.item?.contentId, initialMarqueeSeed?.rowTitle) {
+        val seed = initialMarqueeSeed ?: return@LaunchedEffect
+        if (marquee.content == null) {
+            marquee.seedInitialPreview(seed.item, seed.rowTitle)
+        }
+    }
 
     // Focused-card → marquee. Reported on focus gain only, so moving up into
     // chrome keeps the last previewed item.
@@ -182,6 +197,7 @@ private fun TvHomeContent(
             // Rows live only in the lower band; the viewport clips at its top
             // edge so rows never paint through the marquee text while scrolling.
             val bandHeight = maxHeight * RowBandHeightFraction
+            val trailingPreviewPadding = (bandHeight - TvHomeRowBandBottomInset).coerceAtLeast(0.dp)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -191,13 +207,17 @@ private fun TvHomeContent(
             ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.sectionSpacing),
+                    verticalArrangement = Arrangement.spacedBy(TvHomeRowPreviewSpacing),
                     contentPadding = PaddingValues(
                         top = 0.dp,
-                        bottom = Spacing.xxxl,
+                        bottom = trailingPreviewPadding,
                     ),
                 ) {
-                    items(rows, key = ResolvedSection::id) { section ->
+                    items(
+                        items = rows,
+                        key = ResolvedSection::id,
+                        contentType = { "home-section-row" },
+                    ) { section ->
                         val isProgressRow = section.isProgressRow()
                         val isFirstRow = section.id == firstRowId
                         val isForYou = section.isForYouRow()
@@ -214,8 +234,9 @@ private fun TvHomeContent(
                             startPadding = Spacing.safeArea,
                             endPadding = Spacing.safeArea,
                             itemSpacing = TvHomeItemSpacing,
-                            rowTopPadding = 0.dp,
-                            rowBottomPadding = 0.dp,
+                            rowTopPadding = TvHomeRowCardVerticalPadding,
+                            rowBottomPadding = TvHomeRowCardVerticalPadding,
+                            posterWidth = RowDimens.DensePosterWidth,
                             firstItemFocusRequester = firstRowFocusRequester
                                 .takeIf { isFirstRow },
                             firstItemFocusRequest = if (isFirstRow) firstRowFocusRequest else 0,
@@ -250,8 +271,17 @@ private fun TvHomeContent(
     }
 }
 
-/** Spec 3.1 — card spacing inside Home rows. Matches tvOS MediaRow cardSpacing (40). */
-private val TvHomeItemSpacing = 40.dp
+/** Home row card spacing — tvOS MediaRow cardSpacing 40pt maps to 20dp. */
+private val TvHomeItemSpacing = 20.dp
+
+/** Home row preview gap — tvOS rowBandPreviewSpacing 10pt maps to 5dp. */
+private val TvHomeRowPreviewSpacing = 5.dp
+
+/** Focus-lift breathing room — tvOS rowBandCardVerticalPadding 14pt maps to 7dp. */
+private val TvHomeRowCardVerticalPadding = 7.dp
+
+/** Lower-band bottom inset — tvOS rowBandBottomInset 20pt maps to 10dp. */
+private val TvHomeRowBandBottomInset = 10.dp
 
 /** Portion of the screen reserved for the row stack (tvOS rowBandHeightFraction). */
 private const val RowBandHeightFraction = 0.50f
@@ -279,3 +309,8 @@ private fun ResolvedSection.isForYouRow(): Boolean {
         title.equals("for you", ignoreCase = true) ||
         title.equals("recommended for you", ignoreCase = true)
 }
+
+private data class TvHomeMarqueeSeed(
+    val item: SectionItem,
+    val rowTitle: String,
+)

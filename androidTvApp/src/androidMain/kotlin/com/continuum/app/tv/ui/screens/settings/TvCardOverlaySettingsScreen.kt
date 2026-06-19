@@ -119,7 +119,7 @@ internal fun TvCardOverlaySettingsScreen(
                     end = 72.dp,
                     bottom = Spacing.xxxl,
                 ),
-            horizontalArrangement = Arrangement.spacedBy(48.dp),
+            horizontalArrangement = Arrangement.spacedBy(30.dp),
         ) {
             OverlayPreviewPane(
                 enabled = enabled,
@@ -129,7 +129,7 @@ internal fun TvCardOverlaySettingsScreen(
                 onPresetSelected = { preset ->
                     store.setPrefs(prefs.copy(preset = preset))
                 },
-                modifier = Modifier.width(440.dp),
+                modifier = Modifier.width(260.dp),
             )
             OverlayControlsPane(
                 enabled = enabled,
@@ -240,7 +240,7 @@ private fun OverlayPreviewPane(
             enabled = enabled,
             prefs = prefs,
             data = sampleVariant.data,
-            modifier = Modifier.width(360.dp),
+            modifier = Modifier.width(210.dp),
         )
 
         // Sample variant switcher (movie / show).
@@ -284,7 +284,7 @@ private fun OverlayPreviewPane(
 }
 
 /** Height cap so the preset chip list stays inside the pane without overscroll. */
-private fun Modifier.heightInChips(): Modifier = this.height(300.dp)
+private fun Modifier.heightInChips(): Modifier = this.height(150.dp)
 
 @Composable
 private fun OverlayPreviewPoster(
@@ -296,7 +296,7 @@ private fun OverlayPreviewPoster(
     Box(
         modifier = modifier
             .aspectRatio(2f / 3f)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(11.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(
@@ -334,7 +334,7 @@ private fun OverlayControlsPane(
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (!enabled) {
             OverlayDisabledNotice()
@@ -343,8 +343,8 @@ private fun OverlayControlsPane(
             modifier = Modifier
                 .fillMaxSize()
                 .alpha(if (enabled) 1f else 0.35f),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            contentPadding = PaddingValues(bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 20.dp),
         ) {
             OverlayCategory.entries.forEach { category ->
                 item(key = "header-${category.raw}") {
@@ -596,18 +596,18 @@ private fun OverlayDetailPanel(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 100.dp,
+                start = 50.dp,
                 top = TvTopMenuLayout.contentTopInset,
-                end = 100.dp,
+                end = 50.dp,
                 bottom = Spacing.xxxl,
             ),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(36.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             item {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
                         text = def.label,
@@ -629,14 +629,14 @@ private fun OverlayDetailPanel(
                     enabled = true,
                     prefs = singleOverlayPrefs(overlayId, prefs, config.position),
                     data = sampleData,
-                    modifier = Modifier.width(280.dp),
+                    modifier = Modifier.width(160.dp),
                 )
             }
 
             // Visibility
             item {
                 OverlayDetailSection(title = "Visibility") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OverlayBigButton(
                             label = "On",
                             active = config.enabled,
@@ -655,14 +655,14 @@ private fun OverlayDetailPanel(
             item {
                 OverlayDetailSection(title = "Position") {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(50.dp),
+                        horizontalArrangement = Arrangement.spacedBy(25.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
                         OverlayPositionGrid(
                             selection = config.position,
                             accent = config.accentColor?.let { tvOverlayColorFromHex(it) }
                                 ?: Color.White,
-                            width = 160.dp,
+                            width = 110.dp,
                             onSelect = { pos -> patch { it.copy(position = pos) } },
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -681,14 +681,14 @@ private fun OverlayDetailPanel(
             // Accent Color
             item {
                 OverlayDetailSection(title = "Accent Color") {
-                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 120.dp),
+                            columns = GridCells.Adaptive(minSize = 60.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(220.dp),
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                                .height(130.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             items(OverlayAccentPalette.entries, key = { it.hex }) { entry ->
                                 OverlayAccentSwatch(
@@ -715,7 +715,7 @@ private fun OverlayDetailPanel(
                     OverlayDetailSection(title = "Icon") {
                         val presetPrefersIcon = prefs.preset.preferIcon
                         val resolvedShow = config.showIcon ?: presetPrefersIcon
-                        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OverlayBigButton(
                                 label = "Show Icon",
                                 active = resolvedShow,
@@ -781,9 +781,9 @@ private fun OverlayDetailSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .widthIn(max = 900.dp)
-            .padding(horizontal = 40.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .widthIn(max = 480.dp)
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = title,
@@ -918,22 +918,23 @@ private fun OverlayBigButton(
     Surface(
         onClick = onClick,
         interactionSource = interactionSource,
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(12.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(6.dp)),
         colors = overlayRowColors(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
     ) {
         Row(
             modifier = Modifier
-                .widthIn(min = 160.dp)
-                .padding(horizontal = 24.dp, vertical = 14.dp),
+                .widthIn(min = 80.dp)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             if (active) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = if (isFocused) FocusedContent else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(12.dp),
                 )
             }
             Text(
@@ -962,7 +963,7 @@ private fun OverlayAccentSwatch(
     Surface(
         onClick = onClick,
         interactionSource = interactionSource,
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(14.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(7.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
             contentColor = Color.White,
@@ -971,16 +972,16 @@ private fun OverlayAccentSwatch(
             pressedContainerColor = Color.White.copy(alpha = 0.10f),
             pressedContentColor = Color.White,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
     ) {
         Column(
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier.padding(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .background(tvOverlayColorFromHex(hex)),
                 contentAlignment = Alignment.Center,
@@ -990,6 +991,7 @@ private fun OverlayAccentSwatch(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
                         tint = Color.White,
+                        modifier = Modifier.size(12.dp),
                     )
                 }
             }
@@ -1017,7 +1019,7 @@ private fun overlayRowColors() = ClickableSurfaceDefaults.colors(
 // Helpers
 // ---------------------------------------------------------------------------
 
-private const val OverlayRowMaxWidthValue = 960
+private const val OverlayRowMaxWidthValue = 480
 private val OverlayRowMaxWidth = OverlayRowMaxWidthValue.dp
 
 private fun OverlayDef.toDefaultConfig(): OverlayItemConfig =

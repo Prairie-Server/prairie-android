@@ -131,4 +131,32 @@ class TvFocusMarqueeEnrichmentTest {
         )
         assertEquals(null, enriched.heroBackdropUrl)
     }
+
+    @Test
+    fun `initial seed commits immediately and does not replace existing focus`() {
+        val state = TvFocusMarqueeState()
+        val first = SectionItem(
+            contentId = "first",
+            type = "movie",
+            title = "First Movie",
+            backdropUrl = "https://art/first.jpg",
+        )
+        val second = SectionItem(
+            contentId = "second",
+            type = "movie",
+            title = "Second Movie",
+            backdropUrl = "https://art/second.jpg",
+        )
+
+        state.seedInitialPreview(first, "Continue Watching")
+
+        assertEquals("First Movie", state.content?.title)
+        assertEquals("https://art/first.jpg", state.content?.heroBackdropUrl)
+        assertNull(state.candidate)
+
+        state.seedInitialPreview(second, "Next Row")
+
+        assertEquals("First Movie", state.content?.title)
+        assertEquals("https://art/first.jpg", state.content?.heroBackdropUrl)
+    }
 }

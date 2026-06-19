@@ -34,9 +34,9 @@ internal fun TvDetailSectionHeader(
             text = eyebrow.uppercase(),
             style = MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                lineHeight = 16.sp,
-                letterSpacing = 3.sp,
+                fontSize = 10.sp,
+                lineHeight = 10.sp,
+                letterSpacing = 1.5.sp,
             ),
             color = Color.White.copy(alpha = 0.55f),
         )

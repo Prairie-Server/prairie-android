@@ -45,7 +45,11 @@ fun CastCrewSection(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
-        items(cast, key = { "${it.name}_${it.character}_${it.order}" }) { member ->
+        items(
+            cast,
+            key = { "${it.name}_${it.character}_${it.order}" },
+            contentType = { "cast-member" },
+        ) { member ->
             CastTile(
                 photoUrl = member.photoUrl,
                 photoThumbhash = member.photoThumbhash,

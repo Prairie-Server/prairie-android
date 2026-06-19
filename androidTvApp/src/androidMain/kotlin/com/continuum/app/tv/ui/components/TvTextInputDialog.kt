@@ -65,23 +65,27 @@ fun TvTextInputDialog(
         ) {
             Card(
                 onClick = {},
-                shape = CardDefaults.shape(shape = RoundedCornerShape(24.dp)),
+                shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
             ) {
                 Column(
                     modifier = Modifier
-                        .width(640.dp)
-                        .padding(48.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                        .width(320.dp)
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 17.sp,
+                            lineHeight = 19.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
-                        label = { androidx.compose.material3.Text(text = label, fontSize = 18.sp) },
+                        label = { androidx.compose.material3.Text(text = label, fontSize = 12.sp) },
                         singleLine = true,
                         enabled = !isBusy,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -91,38 +95,39 @@ fun TvTextInputDialog(
                             focusedBorderColor = Color.White.copy(alpha = 0.86f),
                             unfocusedBorderColor = Color.White.copy(alpha = 0.18f),
                         ),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(82.dp),
+                            .height(48.dp),
                     )
                     if (errorMessage != null) {
                         Text(
                             text = errorMessage,
                             color = MaterialTheme.colorScheme.error,
-                            fontSize = 18.sp,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Spacer(modifier = Modifier.weight(1f))
                         Button(
                             onClick = onDismiss,
-                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         ) {
-                            Text(text = "Cancel", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                            Text(text = "Cancel", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Button(
                             onClick = { if (!isBusy && (allowBlank || text.isNotBlank())) onConfirm(text) },
                             enabled = !isBusy,
-                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         ) {
                             Text(
                                 text = if (isBusy) "…" else confirmLabel,
-                                fontSize = 18.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }

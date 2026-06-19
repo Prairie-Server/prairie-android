@@ -5,9 +5,9 @@ import com.continuum.app.model.navigation.MediaModeCapabilities
 val Tab.isUtilityTab: Boolean
     get() = this == Tab.Downloads
 
-// Apple/web-aligned shell: Home · Libraries · For You, plus a Downloads tab only
-// when the user has downloads. There is no per-media-type tab — library content
-// (video / audio / reading) is reached through the Libraries picker.
+// Apple-aligned shell: Home · Libraries · For You · Calendar, plus a Downloads
+// tab only when the user has downloads. There is no per-media-type tab —
+// library content (video / audio / reading) is reached through the Libraries picker.
 fun visibleMobileTabs(
     @Suppress("UNUSED_PARAMETER") capabilities: MediaModeCapabilities,
     showDownloads: Boolean,
@@ -15,6 +15,7 @@ fun visibleMobileTabs(
     add(Tab.Home)
     add(Tab.Libraries)
     add(Tab.ForYou)
+    add(Tab.Calendar)
     if (showDownloads) add(Tab.Downloads)
 }
 

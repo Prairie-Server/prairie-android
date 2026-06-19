@@ -71,6 +71,12 @@ fun ReflowWebView(
             settings.javaScriptEnabled = true
             settings.allowFileAccess = true
             settings.allowContentAccess = true
+            // The shell page is loaded from android_asset, but EPUB CSS/images
+            // live under the app-private extracted EPUB cache. Once paginator.js
+            // installs the EPUB directory as <base>, these flags let relative
+            // chapter resources render instead of falling back to broken alt text.
+            settings.allowFileAccessFromFileURLs = true
+            settings.allowUniversalAccessFromFileURLs = true
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false

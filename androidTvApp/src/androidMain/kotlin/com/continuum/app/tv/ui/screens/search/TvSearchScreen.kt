@@ -183,7 +183,7 @@ private fun SearchStage(
                 top = 0.dp,
                 bottom = Spacing.xs,
             )
-            .widthIn(max = 760.dp),
+            .widthIn(max = 380.dp),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Row(
@@ -268,7 +268,10 @@ private fun SearchStage(
             contentPadding = PaddingValues(end = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            itemsIndexed(mediaTypes) { index, type ->
+            itemsIndexed(
+                mediaTypes,
+                contentType = { _, _ -> "media-type-chip" },
+            ) { index, type ->
                 val chipModifier = Modifier
                     .then(
                         if (index == 0) {
@@ -328,7 +331,7 @@ private fun SearchFeedbackCard(
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
-                .widthIn(max = 680.dp)
+                .widthIn(max = 340.dp)
                 .clip(shape)
                 .background(ElevatedSurface)
                 .border(1.dp, Color.White.copy(alpha = 0.05f), shape)

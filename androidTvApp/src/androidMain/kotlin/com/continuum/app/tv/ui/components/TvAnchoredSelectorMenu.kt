@@ -56,9 +56,9 @@ data class TvSelectorOption(
 
 /**
  * A secondary `.compact` squared pill that opens an anchored dropdown of
- * [options]. Trigger layout (`Row` spacing 12): [icon] 22dp, [label] UPPERCASE
- * 18sp bold tracking 1sp @0.6, [value] 22sp semibold lineLimit 1, chevron 15dp
- * @0.6 — matching `TVSelectorButton`.
+ * [options]. Trigger layout mirrors tvOS `TVSelectorButton` at the Android TV
+ * half-scale: row spacing 6dp, 11dp icon, 9sp tracked label, 11sp value, and
+ * 7.5dp chevron.
  *
  * Each row renders `"Title — Detail"` (the " — Detail" suffix is dropped when
  * [TvSelectorOption.detail] is blank) with a leading check when selected, like
@@ -88,44 +88,43 @@ fun TvAnchoredSelectorMenu(
             onClick = { expanded = true },
             modifier = Modifier,
             focusRequester = triggerFr,
-            // Secondary .compact pill body padding (TVPillButtonStyle), matching
-            // TVSelectorButton — NOT a smaller custom padding.
-            contentPadding = PaddingValues(horizontal = 40.dp, vertical = 22.dp),
+            // Secondary .compact pill body padding, tvOS 40×22pt mapped to 20×11dp.
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
         ) { fg ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = fg,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(11.dp),
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     text = label.uppercase(),
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 18.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
+                        letterSpacing = 0.5.sp,
                     ),
                     color = fg.copy(alpha = 0.6f),
                     maxLines = 1,
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     text = value,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 22.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                     ),
                     color = fg,
                     maxLines = 1,
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(6.dp))
                 Icon(
                     imageVector = Icons.Filled.KeyboardArrowDown,
                     contentDescription = null,
                     tint = fg.copy(alpha = 0.6f),
-                    modifier = Modifier.size(15.dp),
+                    modifier = Modifier.size(7.5.dp),
                 )
             }
         }

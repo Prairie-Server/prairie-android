@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -84,15 +86,15 @@ fun TvFullScreenPicker(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.displaySmall,
+                    style = MaterialTheme.typography.displaySmall.copy(fontSize = 14.sp, lineHeight = 16.sp),
                     color = Color.White,
-                    modifier = Modifier.padding(top = 128.dp, bottom = 32.dp),
+                    modifier = Modifier.padding(top = 64.dp, bottom = 16.dp),
                 )
 
                 LazyColumn(
-                    modifier = Modifier.width(680.dp),
-                    contentPadding = PaddingValues(horizontal = 40.dp, vertical = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.width(340.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     items(options, key = { it.id }) { option ->
                         TvFullScreenPickerRow(
@@ -129,7 +131,7 @@ private fun TvFullScreenPickerRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(7.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
@@ -151,7 +153,7 @@ private fun TvFullScreenPickerRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 26.dp, vertical = 18.dp),
+                .padding(horizontal = 13.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             option.icon?.let { icon ->
@@ -169,13 +171,13 @@ private fun TvFullScreenPickerRow(
             ) {
                 Text(
                     text = option.title,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 15.sp, lineHeight = 17.sp),
                     color = if (isFocused) DarkOnPrimary else Color.White,
                 )
                 option.subtitle?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         text = it,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 13.sp),
                         color = if (isFocused) {
                             DarkOnPrimary.copy(alpha = 0.68f)
                         } else {
@@ -190,6 +192,7 @@ private fun TvFullScreenPickerRow(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = if (isFocused) DarkOnPrimary else Color.White,
+                    modifier = Modifier.size(12.dp),
                 )
             }
         }

@@ -18,13 +18,26 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.continuum.app.model.section.SectionItem
+import com.continuum.app.overlays.OverlayData
 import com.continuum.app.overlays.OverlayDataExtractor
 
 enum class CardStyle { Poster, Backdrop }
+
+private data class MediaRowItemModel(
+    val item: SectionItem,
+    val progress: Float?,
+    val remainingMinutes: Int?,
+    val backdropUrl: String?,
+    val backdropThumbhash: String?,
+    val overlay: OverlayData,
+    val isBook: Boolean,
+    val contentType: String,
+)
 
 /**
  * Horizontal row of media cards with a section headline above.
@@ -43,6 +56,44 @@ fun MediaRow(
     modifier: Modifier = Modifier,
     cardActions: (SectionItem) -> MediaCardActions = { MediaCardActions() },
 ) {
+    val rowItems = remember(items, showProgress, cardStyle) {
+        items.map { item ->
+            val pos = item.positionSeconds
+            val dur = item.durationSeconds
+            val progress = if (showProgress && pos != null && dur != null && dur > 0) {
+                (pos / dur).toFloat().coerceIn(0f, 1f)
+            } else {
+                null
+            }
+            val remainingMinutes = if (showProgress && pos != null && dur != null && dur > 0 && pos < dur) {
+                ((dur - pos) / 60.0).toInt()
+            } else {
+                null
+            }
+            val isEpisode = item.seriesTitle != null
+            val imageUrl = if (isEpisode) {
+                item.posterUrl ?: item.backdropUrl
+            } else {
+                item.backdropUrl ?: item.posterUrl
+            }
+            val imageThumbhash = if (isEpisode) {
+                item.posterThumbhash ?: item.backdropThumbhash
+            } else {
+                item.backdropThumbhash ?: item.posterThumbhash
+            }
+            MediaRowItemModel(
+                item = item,
+                progress = progress,
+                remainingMinutes = remainingMinutes,
+                backdropUrl = imageUrl,
+                backdropThumbhash = imageThumbhash,
+                overlay = OverlayDataExtractor.fromSectionItem(item),
+                isBook = isBookLikeItemType(item.type),
+                contentType = "${cardStyle.name}:${item.type}",
+            )
+        }
+    }
+
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
@@ -81,52 +132,27 @@ fun MediaRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(
-                items = items,
-                key = { it.contentId },
-            ) { item ->
-                val pos = item.positionSeconds
-                val dur = item.durationSeconds
-                val progress = if (showProgress && pos != null && dur != null && dur > 0) {
-                    (pos / dur).toFloat()
-                } else {
-                    null
-                }
-
+                items = rowItems,
+                key = { rowItem -> rowItem.item.contentId },
+                contentType = { rowItem -> rowItem.contentType },
+            ) { rowItem ->
+                val item = rowItem.item
                 when (cardStyle) {
                     CardStyle.Backdrop -> {
-                        val remainingMinutes = if (pos != null && dur != null && dur > 0) {
-                            ((dur - pos) / 60.0).toInt()
-                        } else {
-                            null
-                        }
-                        // For episodes, posterUrl is the per-episode still; for movies fall
-                        // back to the backdrop. Mirrors the iOS BackdropCard logic.
-                        val isEpisode = item.seriesTitle != null
-                        val imageUrl = if (isEpisode) {
-                            item.posterUrl ?: item.backdropUrl
-                        } else {
-                            item.backdropUrl ?: item.posterUrl
-                        }
-                        val imageThumbhash = if (isEpisode) {
-                            item.posterThumbhash ?: item.backdropThumbhash
-                        } else {
-                            item.backdropThumbhash ?: item.posterThumbhash
-                        }
-                        val isBook = isBookLikeItemType(item.type)
                         BackdropCard(
                             title = item.title,
-                            backdropUrl = imageUrl,
-                            backdropThumbhash = imageThumbhash,
+                            backdropUrl = rowItem.backdropUrl,
+                            backdropThumbhash = rowItem.backdropThumbhash,
                             seriesTitle = item.seriesTitle,
                             seasonNumber = item.seasonNumber,
                             episodeNumber = item.episodeNumber,
-                            progress = progress,
-                            remainingMinutes = remainingMinutes,
+                            progress = rowItem.progress,
+                            remainingMinutes = rowItem.remainingMinutes,
                             onClick = { onItemClick(item.contentId) },
                             userState = item.userState,
                             actions = cardActions(item),
-                            overlayIcon = if (isBook) Icons.AutoMirrored.Filled.MenuBook else Icons.Default.PlayArrow,
-                            overlayContentDescription = if (isBook) "Read" else "Play",
+                            overlayIcon = if (rowItem.isBook) Icons.AutoMirrored.Filled.MenuBook else Icons.Default.PlayArrow,
+                            overlayContentDescription = if (rowItem.isBook) "Read" else "Play",
                         )
                     }
                     CardStyle.Poster -> {
@@ -137,9 +163,9 @@ fun MediaRow(
                             year = item.year,
                             type = item.type,
                             userState = item.userState,
-                            progress = progress,
+                            progress = rowItem.progress,
                             onClick = { onItemClick(item.contentId) },
-                            overlay = OverlayDataExtractor.fromSectionItem(item),
+                            overlay = rowItem.overlay,
                             actions = cardActions(item),
                         )
                     }

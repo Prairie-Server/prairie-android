@@ -266,6 +266,16 @@ class TvFocusMarqueeState internal constructor() {
         candidate = next
     }
 
+    /**
+     * Populate the passive marquee before any row card has focus. This is only
+     * for page entry: once focus has produced displayed or pending content, the
+     * seed is ignored so it never fights real navigation.
+     */
+    fun seedInitialPreview(item: SectionItem, rowTitle: String) {
+        if (content != null || candidate != null) return
+        commit(TvMarqueeContent.from(item, rowTitle))
+    }
+
     /** The displayed content reduced to its un-enriched base, so a re-preview
      *  of the same card (whose payload carries no detailLine/enriched backdrop)
      *  still compares equal and is treated as a no-op. */

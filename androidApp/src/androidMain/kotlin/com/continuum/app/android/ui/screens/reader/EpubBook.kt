@@ -25,6 +25,20 @@ internal class EpubBook private constructor(
         return f.readText(Charsets.UTF_8)
     }
 
+    /**
+     * Base URL for one spine item. EPUB resources are resolved relative to the
+     * chapter file, not necessarily the OPF directory; chapters commonly live in
+     * `OEBPS/xhtml/` while images live in `OEBPS/images/` and use `../images/...`.
+     */
+    fun chapterBaseUrl(href: String): String {
+        val root = unpackedRoot.canonicalFile
+        val chapterFile = File(opfDir, href).canonicalFile
+        val chapterDir = (chapterFile.parentFile ?: opfDir).canonicalFile
+        val isInsideRoot = chapterDir.path == root.path ||
+            chapterDir.path.startsWith(root.path + File.separator)
+        return readerDirectoryBaseUrl(if (isInsideRoot) chapterDir else opfDir)
+    }
+
     companion object {
         fun open(epub: File, cacheRoot: File): EpubBook {
             val key = fileContentCacheKey(epub)

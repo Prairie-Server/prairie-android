@@ -87,7 +87,7 @@ fun TvPairDeviceScreen(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(max = 720.dp)
+                .widthIn(max = 360.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 48.dp, vertical = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

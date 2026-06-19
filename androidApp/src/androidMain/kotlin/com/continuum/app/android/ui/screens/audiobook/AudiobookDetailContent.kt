@@ -20,17 +20,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,9 +42,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.continuum.app.android.ui.screens.detail.CircleActionButton
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.audiobook.AudiobookNarration
 import com.continuum.app.model.catalog.ItemDetail
@@ -58,6 +64,8 @@ import com.continuum.app.model.ebook.MediaSeriesGroup
  * Differs from MovieDetailContent in shape: square cover (not 2:3
  * poster), chapter list as the primary affordance (not "play" pill).
  */
+private const val AudiobookCoverSizeDp = 220
+
 @Composable
 fun AudiobookDetailContent(
     detail: ItemDetail,
@@ -89,9 +97,9 @@ fun AudiobookDetailContent(
     val displayableNarrations = meta?.otherNarrations.orEmpty()
         .filter { it.title.isNotBlank() }
     val relatedLines = meta?.related?.displayLines().orEmpty()
-    // Chapters start collapsed; the header toggles them open. Long audiobooks
-    // (100+ chapters) shouldn't bury the rest of the detail under the list.
-    var chaptersExpanded by remember { mutableStateOf(false) }
+    // Match the iOS detail surface: chapters are visible immediately, while
+    // the header still lets readers collapse very long chapter lists.
+    var chaptersExpanded by remember { mutableStateOf(true) }
     // Clear the status bar / camera cutout so the cover isn't tucked under it.
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     LazyColumn(
@@ -106,78 +114,116 @@ fun AudiobookDetailContent(
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        item(contentType = "audiobook-hero") {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 ThumbhashImage(
                     url = detail.posterUrl,
                     thumbhash = detail.posterThumbhash,
                     contentDescription = detail.title,
                     modifier = Modifier
-                        .size(140.dp)
+                        .size(AudiobookCoverSizeDp.dp)
                         .clip(RoundedCornerShape(12.dp)),
                 )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = detail.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                authorText?.takeIf { it.isNotBlank() }?.let { author ->
                     Text(
-                        text = detail.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
+                        text = author,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    authorText?.takeIf { it.isNotBlank() }?.let { author ->
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "by $author",
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    narratorText?.takeIf { it.isNotBlank() }?.let { narrator ->
-                        Text(
-                            text = "narrated by $narrator",
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    durationSeconds?.let { dur ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = formatDuration(dur),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                }
+                narratorText?.takeIf { it.isNotBlank() }?.let { narrator ->
+                    Text(
+                        text = "Narrated by $narrator",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                durationSeconds?.let { dur ->
+                    Text(
+                        text = formatDuration(dur),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }
 
         // Big play pill — mirrors the movie/series hero action.
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (playableVersion != null && resumeSeconds != null) {
-                    Button(
-                        onClick = { onPlayClick(playableVersion.fileId) },
+        item(contentType = "audiobook-actions") {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (playableVersion != null) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text("Resume · ${formatClock(resumeSeconds)}")
-                    }
-                    TextButton(
-                        onClick = { onPlayFromStartClick(playableVersion.fileId) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Play from beginning")
+                        Button(
+                            onClick = { onPlayClick(playableVersion.fileId) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(resumeSeconds?.let { "Resume · ${formatClock(it)}" } ?: "Play")
+                        }
+                        OutlinedButton(
+                            onClick = { onPlayFromStartClick(playableVersion.fileId) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Start Over")
+                        }
                     }
                 } else {
                     Button(
-                        onClick = { onPlayClick(playableVersion?.fileId) },
-                        enabled = playableVersion != null,
+                        onClick = { onPlayClick(null) },
+                        enabled = false,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (playableVersion == null) "Unavailable" else "Play")
+                        Text("Unavailable")
                     }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircleActionButton(
+                        icon = Icons.Filled.FavoriteBorder,
+                        activeIcon = Icons.Filled.Favorite,
+                        isActive = isFavorite,
+                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                        onClick = onFavoriteClick,
+                        activeTint = Color(0xFFEF5350),
+                    )
+                    CircleActionButton(
+                        icon = Icons.Filled.BookmarkBorder,
+                        activeIcon = Icons.Filled.Bookmark,
+                        isActive = isInWatchlist,
+                        contentDescription = if (isInWatchlist) "Remove from watchlist" else "Add to watchlist",
+                        onClick = onWatchlistClick,
+                    )
                 }
                 OutlinedButton(
                     onClick = { onDownloadClick?.invoke() },
@@ -208,7 +254,7 @@ fun AudiobookDetailContent(
         }
 
         detail.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-            item {
+            item(contentType = "audiobook-overview") {
                 Text(
                     text = overview,
                     style = MaterialTheme.typography.bodyMedium,
@@ -218,38 +264,38 @@ fun AudiobookDetailContent(
         }
 
         meta?.publisher?.takeIf { it.isNotBlank() }?.let { publisher ->
-            item {
+            item(contentType = "audiobook-publisher") {
                 AudiobookInfoLine(label = "Publisher", value = publisher)
             }
         }
 
         meta?.series?.takeIf { it.hasDisplayableContent() }?.let { series ->
-            item {
+            item(contentType = "audiobook-series") {
                 AudiobookSeriesSection(series = series)
             }
         }
 
         if (displayableNarrations.isNotEmpty()) {
-            item {
+            item(contentType = "audiobook-narrations-header") {
                 Text(
                     text = "Other Narrations",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            items(displayableNarrations) { narration ->
+            items(displayableNarrations, contentType = { "audiobook-narration" }) { narration ->
                 OtherNarrationRow(narration = narration)
             }
         }
 
         if (relatedLines.isNotEmpty()) {
-            item {
+            item(contentType = "audiobook-related") {
                 AudiobookRelatedSection(lines = relatedLines)
             }
         }
 
         if (chapters.isNotEmpty()) {
-            item {
+            item(contentType = "audiobook-chapters-header") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -269,7 +315,7 @@ fun AudiobookDetailContent(
                 }
             }
             if (chaptersExpanded) {
-                items(chapters) { chapter ->
+                items(chapters, contentType = { "audiobook-chapter" }) { chapter ->
                     ChapterRow(chapter = chapter, onClick = { onChapterClick(chapter) })
                 }
             }

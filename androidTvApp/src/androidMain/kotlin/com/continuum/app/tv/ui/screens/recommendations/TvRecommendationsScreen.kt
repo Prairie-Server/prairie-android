@@ -117,7 +117,11 @@ fun TvRecommendationsScreen(
                     bottom = 24.dp,
                 ),
             ) {
-                items(visibleSections, key = { it.id }) { section ->
+                items(
+                    items = visibleSections,
+                    key = { it.id },
+                    contentType = { "recommendation-section-row" },
+                ) { section ->
                     TvMediaRow(
                         title = section.title,
                         items = section.items,

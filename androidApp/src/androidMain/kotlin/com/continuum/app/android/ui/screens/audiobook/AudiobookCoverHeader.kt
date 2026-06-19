@@ -15,11 +15,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.continuum.app.common.ui.components.ThumbhashImage
+
+private const val AudiobookCoverArtSizeDp = 280
 
 /**
  * Hero cover + title / author / narrator. Pulled out of the monolith
@@ -46,8 +50,14 @@ fun AudiobookCoverHeader(
                 thumbhash = coverThumbhash,
                 contentDescription = title,
                 modifier = Modifier
-                    .size(280.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(AudiobookCoverArtSizeDp.dp)
+                    .shadow(
+                        elevation = 28.dp,
+                        shape = RoundedCornerShape(20.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.45f),
+                        spotColor = Color.Black.copy(alpha = 0.45f),
+                    )
+                    .clip(RoundedCornerShape(20.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             )
         }

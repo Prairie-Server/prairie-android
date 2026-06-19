@@ -25,8 +25,8 @@ import com.continuum.app.model.catalog.ItemDetail
 
 /**
  * Key/value grid that lists directors, writers, studios, networks, countries
- * and dates beneath the detail page hero. Mirrors `TVDetailFactsSection` —
- * 18sp tracked uppercase labels in a fixed-width column, value text in 22sp.
+ * and dates beneath the detail page hero. Mirrors `TVDetailFactsSection` with
+ * tvOS geometry mapped to Android TV's half-scale canvas.
  */
 @Composable
 internal fun TvDetailFactsTable(
@@ -37,7 +37,7 @@ internal fun TvDetailFactsTable(
     if (facts.isEmpty()) return
 
     Column(
-        modifier = modifier.widthIn(max = 1400.dp),
+        modifier = modifier.widthIn(max = 700.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         facts.forEachIndexed { index, fact ->
@@ -52,24 +52,25 @@ internal fun TvDetailFactsTable(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 22.dp),
-                horizontalArrangement = Arrangement.spacedBy(64.dp),
+                    .padding(vertical = 11.dp),
+                horizontalArrangement = Arrangement.spacedBy(32.dp),
                 verticalAlignment = Alignment.Top,
             ) {
                 Text(
                     text = fact.label.uppercase(),
                     style = MaterialTheme.typography.titleSmall.copy(
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.0.sp,
-                        fontSize = 18.sp,
+                        letterSpacing = 1.0.sp,
+                        fontSize = 9.sp,
                     ),
                     color = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.width(260.dp),
+                    modifier = Modifier.width(130.dp),
                 )
                 Text(
                     text = fact.value,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Normal,
+                        fontSize = 11.sp,
                     ),
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth(),

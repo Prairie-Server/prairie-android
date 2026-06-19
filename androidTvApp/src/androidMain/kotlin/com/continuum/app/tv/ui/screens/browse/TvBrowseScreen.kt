@@ -311,9 +311,9 @@ private fun BrowseHeader(
                 text = "Browse",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 32.sp,
-                lineHeight = 34.sp,
-                letterSpacing = (-0.8).sp,
+                fontSize = 21.sp,
+                lineHeight = 23.sp,
+                letterSpacing = 0.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -72,28 +73,28 @@ fun TvPinEntryDialog(
         ) {
             Card(
                 onClick = {},
-                shape = CardDefaults.shape(shape = RoundedCornerShape(24.dp)),
-                modifier = Modifier.padding(48.dp),
+                shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
+                modifier = Modifier.padding(24.dp),
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(horizontal = 56.dp, vertical = 48.dp)
-                        .width(520.dp),
+                        .padding(horizontal = 28.dp, vertical = 24.dp)
+                        .width(260.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = "Enter PIN",
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 19.sp),
                         color = MaterialTheme.colorScheme.onBackground,
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = profileName,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     PinDots(
                         pinLength = pin.length,
@@ -101,22 +102,22 @@ fun TvPinEntryDialog(
                     )
 
                     if (latestError != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = latestError,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
                             color = MaterialTheme.colorScheme.error,
                         )
                     } else if (isVerifying) {
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Verifying...",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     PinKeypad(
                         onDigitPressed = { digit ->
@@ -139,12 +140,12 @@ fun TvPinEntryDialog(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PinDots(pinLength: Int, error: Boolean) {
-    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         repeat(PIN_LENGTH) { i ->
             val filled = i < pinLength
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(14.dp)
                     .clip(CircleShape)
                     .background(
                         when {
@@ -164,18 +165,18 @@ private fun PinKeypad(
     onDigitPressed: (Char) -> Unit,
     onBackspacePressed: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Rows 1-9.
         listOf("123", "456", "789").forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { d ->
                     PinKey(label = d.toString(), onClick = { onDigitPressed(d) })
                 }
             }
         }
         // Bottom row: 0 + backspace (blank slot on the left keeps the grid aligned).
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Spacer(modifier = Modifier.size(96.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(modifier = Modifier.size(48.dp))
             PinKey(label = "0", onClick = { onDigitPressed('0') })
             PinKey(
                 label = null,
@@ -195,8 +196,8 @@ private fun PinKey(
 ) {
     Card(
         onClick = onClick,
-        shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
-        modifier = Modifier.size(96.dp),
+        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        modifier = Modifier.size(48.dp),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -205,7 +206,7 @@ private fun PinKey(
             if (label != null) {
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.displaySmall,
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 22.sp),
                     color = MaterialTheme.colorScheme.onBackground,
                 )
             } else if (icon != null) {
@@ -213,7 +214,7 @@ private fun PinKey(
                     imageVector = icon,
                     contentDescription = "Backspace",
                     tint = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }

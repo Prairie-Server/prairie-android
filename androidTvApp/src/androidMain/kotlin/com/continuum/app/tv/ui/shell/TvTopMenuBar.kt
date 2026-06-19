@@ -83,8 +83,8 @@ object TvTopMenuLayout {
     val leadingInset: Dp = TvSkyline.safeAreaX
     val trailingInset: Dp = TvSkyline.safeAreaX
 
-    /** Top offset for the anchored profile menu — just under the bar. */
-    val profileMenuTopInset: Dp = TvSkyline.barTopInset + TvSkyline.barHeight
+    /** Top offset for anchored panels — tvOS `dropdownTopInset`. */
+    val profileMenuTopInset: Dp = TvSkyline.dropdownTopInset
 
     /**
      * Vertical clearance reserved on root pages so content doesn't draw under

@@ -30,7 +30,7 @@ object Spacing {
     val hudPanelInset = 24.dp
 
     /** Nominal height reserved for the floating top menu bar (A.1). */
-    val topMenuBarHeight = 64.dp
+    val topMenuBarHeight = 32.dp
 
     /** Vertical distance over which the home-hero backdrop fades into the rows (A.2). */
     val heroBackdropFade = 120.dp
@@ -39,10 +39,11 @@ object Spacing {
 /**
  * Skyline top-bar chrome metrics, mirrored from `ContinuumTheme.Skyline` in
  * `iosApp/iosApp/Theme/ContinuumTheme.swift`. tvOS values are points at
- * 1920×1080; Android TV chrome renders at the ~960dp layout under the theme's
- * 0.86 density scale, so each tvOS point maps to dp at ~0.5x to preserve the
- * same on-screen proportions. Names match the Swift tokens 1:1 so audits
- * against the iOS source stay mechanical.
+ * 1920×1080; Android TV chrome renders in a ~960×540dp layout, so positional
+ * and media geometry tokens map at ~0.5x to preserve the same on-screen
+ * proportions. Text keeps the TV font scale supplied by [ContinuumTvTheme].
+ * Names match the Swift tokens 1:1 so audits against the iOS source stay
+ * mechanical.
  */
 object TvSkyline {
     /** Root horizontal inset for chrome and content — tvOS `safeAreaX` (88pt). */
@@ -52,28 +53,31 @@ object TvSkyline {
     val barTopInset = 28.dp
 
     /** Top bar row height — tvOS `barHeight` (64pt). */
-    val barHeight = 46.dp
+    val barHeight = 32.dp
 
     /** Gap between tab capsules in the bar's center cluster — tvOS `tabSpacing` (8pt). */
-    val tabSpacing = 6.dp
+    val tabSpacing = 4.dp
 
     /** Tab label size — tvOS `tabLabelSize` (23pt). */
-    val tabLabelSize = 14.sp
+    val tabLabelSize = 12.sp
 
     /** Tab capsule horizontal padding — tvOS `tabPaddingHorizontal` (26pt). */
-    val tabPaddingHorizontal = 16.dp
+    val tabPaddingHorizontal = 13.dp
 
     /** Tab capsule vertical padding — tvOS `tabPaddingVertical` (11pt). */
-    val tabPaddingVertical = 7.dp
+    val tabPaddingVertical = 5.5.dp
 
     /** Square hit target of the search button and the avatar — tvOS `barIconSize` (52pt). */
-    val barIconSize = 30.dp
+    val barIconSize = 26.dp
+
+    /** Panel top offset — tvOS `dropdownTopInset` (132pt). */
+    val dropdownTopInset = 66.dp
 
     /** Gap between the search button and the avatar — tvOS `barTrailingSpacing` (22pt). */
-    val barTrailingSpacing = 12.dp
+    val barTrailingSpacing = 11.dp
 
     /** Wordmark size — tvOS `wordmarkSize` (26pt). */
-    val wordmarkSize = 18.sp
+    val wordmarkSize = 13.sp
 
     /** Wordmark letter tracking — tvOS `wordmarkTracking` (+0.34 em). */
     val wordmarkTracking = 0.34.em
@@ -91,11 +95,15 @@ object HeroDimens {
 }
 
 object RowDimens {
-    /** 2:3 poster card. tvOS uses 260×390pt; Android TV maps to 200×300dp at scale. */
+    /** 2:3 poster card. tvOS uses 260×390pt; Android TV maps to 130×195dp. */
     val PosterHeight = 195.dp
     val PosterWidth = 130.dp
 
-    /** 16:9 episode/backdrop card — tvOS 360×200pt → 280×156dp. */
+    /** Dense Skyline Home/Browse poster — tvOS `densePosterCardWidth` 176pt → 88dp. */
+    val DensePosterHeight = 132.dp
+    val DensePosterWidth = 88.dp
+
+    /** 16:9 episode/backdrop card — tvOS 360×200pt → 180×100dp. */
     val BackdropHeight = 100.dp
     val BackdropWidth = 180.dp
 }

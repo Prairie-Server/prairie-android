@@ -601,6 +601,7 @@ private fun LibraryGrid(
             itemsIndexed(
                 state.browseItems,
                 key = { _, item -> item.contentId },
+                contentType = { _, item -> item.type },
             ) { index, item ->
                 val (actions, userState) = com.continuum.app.tv.ui.components.rememberTvBrowseItemCardActions(item)
                 TvMediaCard(
@@ -719,6 +720,7 @@ private fun CollectionsTab(
                 itemsIndexed(
                     section.collections,
                     key = { _, collection -> "$sectionIndex:${collection.id}" },
+                    contentType = { _, collection -> "collection" },
                 ) { _, collection ->
                     TvCollectionCard(
                         collection = collection,
@@ -778,9 +780,9 @@ private fun LibraryHeader(
                     text = title,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 32.sp,
-                    lineHeight = 34.sp,
-                    letterSpacing = (-0.8).sp,
+                    fontSize = 21.sp,
+                    lineHeight = 23.sp,
+                    letterSpacing = 0.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

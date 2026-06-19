@@ -300,6 +300,10 @@ fun AppNavigation(
                 onNavigateToRequests = {
                     navController.navigate(Route.Requests.route)
                 },
+                onNavigateToWatchlist = { navController.navigate(Route.Watchlist.route) },
+                onNavigateToFavorites = { navController.navigate(Route.Favorites.route) },
+                onNavigateToHistory = { navController.navigate(Route.History.route) },
+                onNavigateToCollections = { navController.navigate(Route.Collections().route) },
                 onNavigateToCardOverlays = {
                     navController.navigate(Route.CardOverlays.route)
                 },
@@ -633,12 +637,7 @@ fun AppNavigation(
             )
         }
         composable(Route.Calendar.route) {
-            CalendarScreen(
-                onBackClick = { navController.popBackStack() },
-                onItemClick = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
-                },
-            )
+            MainScreen(navController, Tab.Calendar)
         }
         composable(Route.Inbox.route) {
             InboxScreen(

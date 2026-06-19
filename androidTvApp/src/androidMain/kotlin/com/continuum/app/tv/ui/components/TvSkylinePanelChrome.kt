@@ -2,10 +2,10 @@ package com.continuum.app.tv.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -24,23 +24,34 @@ import androidx.compose.ui.unit.dp
  * Compose has no `.regularMaterial` blur; the dark fill is opaque enough that
  * the absence of a frost blur is not noticeable over the dimmed page.
  */
-fun Modifier.tvSkylinePanelChrome(corner: Dp = 20.dp): Modifier {
+fun Modifier.tvSkylinePanelChrome(corner: Dp = 11.dp): Modifier {
     val shape = RoundedCornerShape(corner)
     return this
-        // Two-layer drop shadow approximated by a single soft elevation shadow;
-        // `clip = false` keeps the shadow outside the rounded body.
-        .shadow(elevation = 24.dp, shape = shape, clip = false)
+        .shadow(
+            elevation = 4.dp,
+            shape = shape,
+            clip = false,
+            ambientColor = Color.Black.copy(alpha = 0.35f),
+            spotColor = Color.Black.copy(alpha = 0.35f),
+        )
+        .shadow(
+            elevation = 20.dp,
+            shape = shape,
+            clip = false,
+            ambientColor = Color.Black.copy(alpha = 0.55f),
+            spotColor = Color.Black.copy(alpha = 0.55f),
+        )
         .clip(shape)
         .background(
             Brush.verticalGradient(
                 colors = listOf(
-                    Color(0xFF23252C).copy(alpha = 0.96f),
-                    Color(0xFF141519).copy(alpha = 0.97f),
+                    Color(0xFF23252C).copy(alpha = 0.92f),
+                    Color(0xFF141519).copy(alpha = 0.95f),
                 ),
             ),
         )
         .border(
-            width = 1.dp,
+            width = 0.5.dp,
             brush = Brush.verticalGradient(
                 colors = listOf(
                     Color.White.copy(alpha = 0.22f),

@@ -72,7 +72,7 @@ fun SearchResults(
         modifier = modifier,
     ) {
         // Result count header
-        item(span = { GridItemSpan(3) }) {
+        item(span = { GridItemSpan(3) }, contentType = "search-result-count") {
             Text(
                 text = "$total results",
                 style = MaterialTheme.typography.labelMedium,
@@ -84,6 +84,7 @@ fun SearchResults(
         items(
             items = results,
             key = { it.contentId },
+            contentType = { item -> item.type },
         ) { item ->
             val (actions, userState) = rememberBrowseItemCardActions(item)
             MediaCard(
@@ -102,7 +103,7 @@ fun SearchResults(
 
         // Loading indicator
         if (isSearching && results.isNotEmpty()) {
-            item(span = { GridItemSpan(3) }) {
+            item(span = { GridItemSpan(3) }, contentType = "search-loading") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()

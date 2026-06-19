@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -35,11 +36,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +50,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -211,41 +216,80 @@ private fun ReaderTopChrome(
     onSettingsClick: () -> Unit,
     onAddBookmark: () -> Unit,
 ) {
-    Row(
+    val systemDark = isSystemInDarkTheme()
+    val surfaceColor = state.displaySettings.readerChromeSurface(systemDark)
+    val contentColor = state.displaySettings.readerChromeText(systemDark)
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-            .consumeChromeTouches()
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        IconButton(onClick = onBackClick) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-        }
-        Text(
-            text = state.title,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onBookmarksClick, enabled = state.capabilities.supportsBookmarks) {
-            Icon(Icons.Default.Bookmarks, contentDescription = "Bookmarks")
-        }
-        IconButton(
-            onClick = onSectionsClick,
-            enabled = state.capabilities.supportsSections && state.sections.isNotEmpty(),
+        FloatingReaderChromeContainer(
+            surfaceColor = surfaceColor,
+            contentColor = contentColor,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Sections")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBackClick) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text(
+                    text = state.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onBookmarksClick, enabled = state.capabilities.supportsBookmarks) {
+                    Icon(Icons.Default.Bookmarks, contentDescription = "Bookmarks")
+                }
+                IconButton(
+                    onClick = onSectionsClick,
+                    enabled = state.capabilities.supportsSections && state.sections.isNotEmpty(),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Sections")
+                }
+                IconButton(onClick = onSettingsClick, enabled = supportsSettings) {
+                    Icon(Icons.Default.Tune, contentDescription = "Reader settings")
+                }
+                IconButton(
+                    onClick = onAddBookmark,
+                    enabled = state.fileId != null && state.capabilities.supportsBookmarks,
+                ) {
+                    Icon(Icons.Default.BookmarkAdd, contentDescription = "Add bookmark")
+                }
+            }
         }
-        IconButton(onClick = onSettingsClick, enabled = supportsSettings) {
-            Icon(Icons.Default.Tune, contentDescription = "Reader settings")
-        }
-        IconButton(
-            onClick = onAddBookmark,
-            enabled = state.fileId != null && state.capabilities.supportsBookmarks,
+    }
+}
+
+@Composable
+private fun FloatingReaderChromeContainer(
+    surfaceColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(LocalContentColor provides contentColor) {
+        Box(
+            modifier = modifier
+                .shadow(
+                    elevation = 18.dp,
+                    shape = RoundedCornerShape(28.dp),
+                    ambientColor = Color.Black.copy(alpha = 0.22f),
+                    spotColor = Color.Black.copy(alpha = 0.28f),
+                )
+                .clip(RoundedCornerShape(28.dp))
+                .background(surfaceColor)
+                .consumeChromeTouches(),
         ) {
-            Icon(Icons.Default.BookmarkAdd, contentDescription = "Add bookmark")
+            content()
         }
     }
 }
@@ -254,35 +298,42 @@ private fun ReaderTopChrome(
 private fun BoxScope.ReaderBottomChrome(state: ReaderUiState) {
     val progressLabel = readerBottomChromeLabel(state)
     val syncError = state.syncError
+    val systemDark = isSystemInDarkTheme()
+    val surfaceColor = state.displaySettings.readerChromeSurface(systemDark)
+    val contentColor = state.displaySettings.readerChromeText(systemDark)
 
-    Column(
+    FloatingReaderChromeContainer(
+        surfaceColor = surfaceColor,
+        contentColor = contentColor,
         modifier = Modifier
             .align(Alignment.BottomCenter)
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .navigationBarsPadding()
-            .consumeChromeTouches()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .fillMaxWidth(),
     ) {
-        if (progressLabel != null) {
-            Text(
-                text = progressLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (syncError != null) {
-            Text(
-                text = syncError,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-        } else if (state.isSyncing) {
-            Text(
-                text = "Syncing reading progress",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+        ) {
+            if (progressLabel != null) {
+                Text(
+                    text = progressLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = contentColor.copy(alpha = 0.72f),
+                )
+            }
+            if (syncError != null) {
+                Text(
+                    text = syncError,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            } else if (state.isSyncing) {
+                Text(
+                    text = "Syncing reading progress",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = contentColor.copy(alpha = 0.72f),
+                )
+            }
         }
     }
 }
@@ -479,6 +530,26 @@ private fun ReaderDisplaySettings.readerSystemBarsUseDarkIcons(systemDark: Boole
         ReaderTheme.Light,
         ReaderTheme.Sepia -> true
         ReaderTheme.Dark -> false
+    }
+
+private fun ReaderDisplaySettings.readerChromeSurface(systemDark: Boolean): Color =
+    when (normalized().theme) {
+        ReaderTheme.System -> if (systemDark) {
+            Color(0xE61F1F22)
+        } else {
+            Color(0xE6FFFDF8)
+        }
+        ReaderTheme.Light -> Color(0xE6FFFDF8)
+        ReaderTheme.Sepia -> Color(0xE8F1E4C9)
+        ReaderTheme.Dark -> Color(0xE61F1F22)
+    }
+
+private fun ReaderDisplaySettings.readerChromeText(systemDark: Boolean): Color =
+    when (normalized().theme) {
+        ReaderTheme.System -> if (systemDark) Color.White else Color(0xFF1D1B16)
+        ReaderTheme.Light -> Color(0xFF1D1B16)
+        ReaderTheme.Sepia -> Color(0xFF2A2014)
+        ReaderTheme.Dark -> Color.White
     }
 
 private val READER_LIGHT_BACKGROUND = Color(0xFFFFFBFE)

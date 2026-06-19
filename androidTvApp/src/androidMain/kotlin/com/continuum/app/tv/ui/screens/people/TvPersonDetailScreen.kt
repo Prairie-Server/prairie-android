@@ -186,7 +186,7 @@ private fun PersonHeader(person: Person) {
                 fontWeight = FontWeight.Bold,
                 fontSize = 28.sp,
                 lineHeight = 30.sp,
-                letterSpacing = (-0.7).sp,
+                letterSpacing = 0.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

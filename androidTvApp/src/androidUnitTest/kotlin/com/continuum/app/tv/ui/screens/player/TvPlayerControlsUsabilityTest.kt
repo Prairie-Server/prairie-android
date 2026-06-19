@@ -49,8 +49,8 @@ class TvPlayerControlsUsabilityTest {
     @Test
     fun hudIsFloatingTopCenterCardInsteadOfRightDrawer() {
         assertTrue(screenSource.contains("Alignment.TopCenter"))
-        assertTrue(hudSource.contains(".widthIn(max = 1100.dp)"))
-        assertTrue(hudSource.contains(".height(380.dp)"))
+        assertTrue(hudSource.contains(".widthIn(max = 550.dp)"))
+        assertTrue(hudSource.contains(".height(190.dp)"))
         assertFalse(hudSource.contains("PlayerSidePanel"))
         assertFalse(hudSource.contains(".width(560.dp)"))
     }
@@ -337,9 +337,9 @@ class TvPlayerControlsUsabilityTest {
         val holdSeekSource = File(
             "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvHoldSeekIndicator.kt",
         ).readText()
-        // Vertical Column layout, large rate label, wider bar (520dp).
-        assertTrue(holdSeekSource.contains("fontSize = 44.sp"))
-        assertTrue(holdSeekSource.contains(".width(520.dp)"))
+        // Vertical Column layout, compact tvOS-mapped rate label + progress bar.
+        assertTrue(holdSeekSource.contains("fontSize = 22.sp"))
+        assertTrue(holdSeekSource.contains(".width(260.dp)"))
         assertTrue(holdSeekSource.contains("chip-over-bar-over-hint"))
     }
 

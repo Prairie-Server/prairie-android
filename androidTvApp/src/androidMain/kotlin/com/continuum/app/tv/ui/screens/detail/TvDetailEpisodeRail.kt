@@ -141,7 +141,11 @@ internal fun TvDetailEpisodeRail(
         ),
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        items(episodes, key = { it.contentId }) { episode ->
+        items(
+            episodes,
+            key = { it.contentId },
+            contentType = { "episode-card" },
+        ) { episode ->
             val isCurrent = episode.contentId == currentContentId
             TvDetailEpisodeCard(
                 episode = episode,
@@ -164,8 +168,8 @@ private fun TvDetailEpisodeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cardWidth = 460.dp
-    val stillHeight = 260.dp
+    val cardWidth = 230.dp
+    val stillHeight = 130.dp
     val cornerRadius = 5.dp
     val shape = RoundedCornerShape(cornerRadius)
 
@@ -274,17 +278,17 @@ private fun TvDetailEpisodeCard(
             }
         }
 
-        // Text block — spacing 6
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Text block mirrors tvOS 18pt/6pt vertical rhythm at Android half scale.
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
                     text = episodeEyebrow(episode),
-                    fontSize = 16.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.0.sp,
+                    letterSpacing = 1.0.sp,
                     color = ContinuumOnSurface.copy(alpha = 0.55f),
                     maxLines = 1,
                 )
@@ -295,7 +299,7 @@ private fun TvDetailEpisodeCard(
 
             Text(
                 text = episode.title ?: "Episode ${episode.episodeNumber}",
-                fontSize = 16.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = when {
                     isCurrent -> ContinuumOnSurface
@@ -313,15 +317,15 @@ private fun TvDetailEpisodeCard(
                 // card metrics.
                 Text(
                     text = overview,
-                    fontSize = 16.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Normal,
                     color = ContinuumSecondaryText,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 16.sp,
+                    lineHeight = 11.sp,
                     modifier = Modifier
-                        .padding(top = 4.dp)
-                        .height((16 * 3).dp),
+                        .padding(top = 2.dp)
+                        .height(33.dp),
                 )
             }
         }
@@ -334,11 +338,15 @@ private fun NowViewingTag() {
         modifier = Modifier
             .clip(RoundedCornerShape(50.dp))
             .background(Color.White)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .padding(horizontal = 4.dp, vertical = 1.5.dp),
     ) {
         Text(
             text = "NOW VIEWING",
-            style = capsuleCaps,
+            style = capsuleCaps.copy(
+                fontSize = 7.sp,
+                lineHeight = 9.sp,
+                letterSpacing = 0.8.sp,
+            ),
             color = Color.Black,
         )
     }

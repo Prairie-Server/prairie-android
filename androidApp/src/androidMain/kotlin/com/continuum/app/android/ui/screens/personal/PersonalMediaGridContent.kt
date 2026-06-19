@@ -181,6 +181,7 @@ private fun PersonalMediaGridContent(
                     items(
                         items = state.items,
                         key = { it.contentId },
+                        contentType = { item -> item.type },
                     ) { item ->
                         itemContent(item)
                     }

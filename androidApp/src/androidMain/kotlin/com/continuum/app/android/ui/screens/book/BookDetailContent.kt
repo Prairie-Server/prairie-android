@@ -21,8 +21,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -35,8 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.continuum.app.android.ui.screens.detail.CircleActionButton
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.book.BookFormat
 import com.continuum.app.model.catalog.FileVersion
@@ -56,6 +62,8 @@ internal enum class BookDetailPrimaryAction {
     ReadInApp,
     OpenExternally,
 }
+
+private const val BookCoverWidthDp = 168
 
 internal fun bookDetailPrimaryAction(
     selectedVersion: FileVersion?,
@@ -142,53 +150,63 @@ fun BookDetailContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.Top) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 ThumbhashImage(
                     url = detail.posterUrl,
                     thumbhash = detail.posterThumbhash,
                     contentDescription = detail.title,
                     modifier = Modifier
-                        .width(120.dp)
+                        .width(BookCoverWidthDp.dp)
                         .aspectRatio(2f / 3f)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(12.dp)),
                 )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = detail.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                author?.takeIf { it.isNotBlank() }?.let { authorName ->
                     Text(
-                        text = detail.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                        text = "by $authorName",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    author?.takeIf { it.isNotBlank() }?.let { authorName ->
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("by $authorName", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FormatBadge(format)
-                        meta?.pageCount?.let { Text("· $it pages", style = MaterialTheme.typography.labelMedium) }
-                    }
-                    publisher?.takeIf { it.isNotBlank() }?.let { publisherName ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = publisherName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    ebook?.series?.name?.takeIf { it.isNotBlank() }?.let { seriesName ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Series: $seriesName",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    FormatBadge(format)
+                    meta?.pageCount?.let { Text("· $it pages", style = MaterialTheme.typography.labelMedium) }
+                }
+                publisher?.takeIf { it.isNotBlank() }?.let { publisherName ->
+                    Text(
+                        text = publisherName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                ebook?.series?.name?.takeIf { it.isNotBlank() }?.let { seriesName ->
+                    Text(
+                        text = "Series: $seriesName",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }
@@ -234,6 +252,27 @@ fun BookDetailContent(
                             canDownloadSelectedVersion -> "Download"
                             else -> "Download Unavailable"
                         },
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircleActionButton(
+                        icon = Icons.Filled.FavoriteBorder,
+                        activeIcon = Icons.Filled.Favorite,
+                        isActive = isFavorite,
+                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                        onClick = onFavoriteClick,
+                        activeTint = Color(0xFFEF5350),
+                    )
+                    CircleActionButton(
+                        icon = Icons.Filled.BookmarkBorder,
+                        activeIcon = Icons.Filled.Bookmark,
+                        isActive = isInWatchlist,
+                        contentDescription = if (isInWatchlist) "Remove from watchlist" else "Add to watchlist",
+                        onClick = onWatchlistClick,
                     )
                 }
                 downloadProgress?.let { progress ->
@@ -301,11 +340,18 @@ fun BookDetailContent(
 
         detail.overview?.takeIf { it.isNotBlank() }?.let { overview ->
             item {
-                Text(
-                    text = overview,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "About",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = overview,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 

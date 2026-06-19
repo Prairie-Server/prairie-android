@@ -38,35 +38,37 @@ fun rememberBrowseItemCardActions(
         mutableStateOf(item.userState ?: MediaItemUserState())
     }
 
-    val actions = MediaCardActions(
-        onSetWatched = { watched ->
-            val previous = state
-            state = state.copy(played = watched)
-            scope.launch {
-                if (coordinator.setWatched(item.contentId, watched).isFailure()) {
-                    state = previous
+    val actions = remember(item.contentId, coordinator, scope) {
+        MediaCardActions(
+            onSetWatched = { watched ->
+                val previous = state
+                state = state.copy(played = watched)
+                scope.launch {
+                    if (coordinator.setWatched(item.contentId, watched).isFailure()) {
+                        state = previous
+                    }
                 }
-            }
-        },
-        onToggleFavorite = { favorite ->
-            val previous = state
-            state = state.copy(isFavorite = favorite)
-            scope.launch {
-                if (coordinator.toggleFavorite(item.contentId, favorite).isFailure()) {
-                    state = previous
+            },
+            onToggleFavorite = { favorite ->
+                val previous = state
+                state = state.copy(isFavorite = favorite)
+                scope.launch {
+                    if (coordinator.toggleFavorite(item.contentId, favorite).isFailure()) {
+                        state = previous
+                    }
                 }
-            }
-        },
-        onToggleWatchlist = { inWatchlist ->
-            val previous = state
-            state = state.copy(inWatchlist = inWatchlist)
-            scope.launch {
-                if (coordinator.toggleWatchlist(item.contentId, inWatchlist).isFailure()) {
-                    state = previous
+            },
+            onToggleWatchlist = { inWatchlist ->
+                val previous = state
+                state = state.copy(inWatchlist = inWatchlist)
+                scope.launch {
+                    if (coordinator.toggleWatchlist(item.contentId, inWatchlist).isFailure()) {
+                        state = previous
+                    }
                 }
-            }
-        },
-    )
+            },
+        )
+    }
 
     return actions to state
 }

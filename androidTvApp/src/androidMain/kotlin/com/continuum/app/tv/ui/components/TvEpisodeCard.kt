@@ -12,12 +12,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,20 +31,19 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.continuum.app.common.overlays.CardOverlayVariant
 import com.continuum.app.common.overlays.CardOverlays
 import com.continuum.app.common.overlays.LocalCardOverlayUiState
 import com.continuum.app.overlays.OverlayData
-import com.continuum.app.tv.ui.theme.ContinuumBlue
-import com.continuum.app.tv.ui.theme.DarkOnPrimary
 import com.continuum.app.tv.ui.theme.ProgressFill
 import com.continuum.app.tv.ui.theme.ProgressTrack
+import com.continuum.app.tv.ui.theme.RowDimens
 import com.continuum.app.tv.ui.theme.continuumCardDefaults
 
 /**
@@ -84,6 +80,7 @@ fun TvEpisodeCard(
 
     val cardShape = RoundedCornerShape(8.dp)
     val cardFocus = continuumCardDefaults(shape = cardShape, focusedScale = 1.04f)
+    val episodeBadge = formatEpisodeTag(seasonNumber, episodeNumber)
 
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -136,22 +133,6 @@ fun TvEpisodeCard(
                     )
                 }
 
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .align(Alignment.Center)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.36f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-
                 if (progress != null && progress > 0f) {
                     Box(
                         modifier = Modifier
@@ -168,6 +149,22 @@ fun TvEpisodeCard(
                         )
                     }
                 }
+
+                if (episodeBadge != null) {
+                    Text(
+                        text = episodeBadge,
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(7.dp)
+                            .background(
+                                Color.Black.copy(alpha = 0.65f),
+                                RoundedCornerShape(percent = 50),
+                            )
+                            .padding(horizontal = 7.dp, vertical = 3.5.dp),
+                    )
+                }
             }
         }
 
@@ -180,10 +177,8 @@ fun TvEpisodeCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-            val tag = formatEpisodeTag(seasonNumber, episodeNumber)
-            val subtitle = if (tag != null) "$tag · $title" else title
             Text(
-                text = subtitle,
+                text = title,
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White.copy(alpha = 0.52f),
                 maxLines = 1,
@@ -229,8 +224,7 @@ private fun formatEpisodeTag(season: Int?, episode: Int?): String? {
 }
 
 /**
- * Default width for episode / next-up cards. 260dp (16:9 → ~146dp tall) is
- * wide enough to show a readable still with episode metadata while still
- * letting 3–4 cards peek in a typical Continue Watching row.
+ * Default width for episode / next-up cards. tvOS uses 360×200pt; Skyline maps
+ * that to Android TV as 180×100dp.
  */
-val TvEpisodeCardWidth: Dp = 180.dp
+val TvEpisodeCardWidth: Dp = RowDimens.BackdropWidth

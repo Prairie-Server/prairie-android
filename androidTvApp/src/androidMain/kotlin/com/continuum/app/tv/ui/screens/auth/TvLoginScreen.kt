@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -123,7 +124,7 @@ fun TvLoginScreen(
                 .align(Alignment.TopCenter)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 32.dp, bottom = Spacing.lg, start = Spacing.lg, end = Spacing.lg),
+                .padding(top = 32.dp, bottom = 32.dp, start = 54.dp, end = 54.dp),
         ) {
             BrandHeader()
 
@@ -147,17 +148,19 @@ fun TvLoginScreen(
                     onCreateAccount = onCreateAccount,
                     onBackToPhone = { showPasswordForm = false },
                     scope = scope,
-                    modifier = Modifier.width(340.dp),
+                    modifier = Modifier.width(390.dp),
                 )
             } else {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xl),
+                    horizontalArrangement = Arrangement.spacedBy(44.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .widthIn(max = 840.dp)
+                        .fillMaxWidth(),
                 ) {
                     PhoneSignInHero(
                         state = deviceState,
-                        modifier = Modifier.width(360.dp),
+                        modifier = Modifier.width(430.dp),
                     )
 
                     QrLoginCard(
@@ -165,7 +168,7 @@ fun TvLoginScreen(
                         onRetry = viewModel::restartDeviceLogin,
                         onUsePassword = { showPasswordForm = true },
                         usePasswordFocus = usePasswordFocus,
-                        modifier = Modifier.width(260.dp),
+                        modifier = Modifier.width(300.dp),
                     )
                 }
             }
@@ -254,8 +257,8 @@ private fun CredentialFormCard(
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = modifier
-            .auroraGlass(12.dp)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .auroraGlass(15.dp)
+            .padding(24.dp),
     ) {
         Text(
             text = "Sign in",
@@ -378,7 +381,7 @@ private object TvLoginTextStyles {
         fontWeight = FontWeight.Bold,
         fontSize = 26.sp,
         lineHeight = 30.sp,
-        letterSpacing = (-0.5).sp,
+        letterSpacing = 0.sp,
     )
 
     val Title = TextStyle(

@@ -102,7 +102,7 @@ fun SearchScreen(
                 onClear = { viewModel.clearSearch() },
             )
 
-            if (state.availableMediaTypes.size > 1) {
+            if (state.query.isNotBlank() && state.availableMediaTypes.size > 1) {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(horizontal = 20.dp),
@@ -134,9 +134,16 @@ fun SearchScreen(
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "Search your library",
+                                text = "Search Silo",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Find movies, shows, books, audio, and people.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                                 textAlign = TextAlign.Center,
                             )
                         }

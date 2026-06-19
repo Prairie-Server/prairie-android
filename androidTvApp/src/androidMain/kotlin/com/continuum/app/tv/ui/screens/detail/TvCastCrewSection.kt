@@ -70,7 +70,7 @@ fun TvCastCrewSection(
     onCastMemberClick: (CastMember) -> Unit = {},
 ) {
     if (cast.isEmpty()) return
-    val photoSize = 200.dp
+    val photoSize = 100.dp
 
     Column(
         modifier = modifier,
@@ -110,6 +110,7 @@ fun TvCastCrewSection(
             itemsIndexed(
                 cast.take(24),
                 key = { idx, member -> "${member.personId ?: member.name}-${member.order}-$idx" },
+                contentType = { _, _ -> "cast-member" },
             ) { index, member ->
                 TvCastCard(
                     member = member,
@@ -181,8 +182,8 @@ private fun TvCastCard(
             text = member.name,
             style = MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                lineHeight = 16.sp,
+                fontSize = 11.sp,
+                lineHeight = 12.sp,
             ),
             color = if (isFocused) Color.White else Color.White.copy(alpha = 0.88f),
             // Reserve two lines so single- and two-line names bottom-align,
@@ -194,10 +195,13 @@ private fun TvCastCard(
             modifier = Modifier.fillMaxWidth(),
         )
         if (!member.character.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = member.character!!,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 9.sp,
+                    lineHeight = 10.sp,
+                ),
                 color = Color.White.copy(alpha = 0.55f),
                 maxLines = 1,
                 textAlign = TextAlign.Center,

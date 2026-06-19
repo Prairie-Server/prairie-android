@@ -94,7 +94,11 @@ fun ChaptersSheet(
                 )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    itemsIndexed(chapters, key = { _, c -> c.index }) { idx, ch ->
+                    itemsIndexed(
+                        chapters,
+                        key = { _, c -> c.index },
+                        contentType = { _, _ -> "chapter-row" },
+                    ) { idx, ch ->
                         ChapterRow(
                             chapter = ch,
                             onClick = {

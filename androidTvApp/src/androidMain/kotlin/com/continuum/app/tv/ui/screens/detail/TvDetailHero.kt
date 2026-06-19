@@ -24,8 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,14 +95,10 @@ internal fun TvDetailHero(
     modifier: Modifier = Modifier,
 ) {
     // heroHeight = 980 of a 1080-pt tvOS canvas ≈ 0.907 × viewport height.
-    // Compute from the real pixel height: `screenHeightDp` is expressed in the
-    // device's system density, but this subtree runs under the TV density
-    // override (LocalDensity ≈ deviceDensity × 0.86), so multiplying the config
-    // dp by the fraction and rendering it here lands ~14% short. Going via raw
-    // pixels keeps the hero a true 0.907 of the viewport regardless of override.
-    val screenHeightPx = LocalContext.current.resources.displayMetrics.heightPixels
-    val heroHeight = with(LocalDensity.current) { (screenHeightPx * HERO_HEIGHT_FRACTION).toDp() }
-    val contentMaxWidth = 640.dp
+    // The TV theme keeps dp geometry at device density, so screenHeightDp maps
+    // directly to the Android TV layout canvas.
+    val heroHeight = LocalConfiguration.current.screenHeightDp.dp * HERO_HEIGHT_FRACTION
+    val contentMaxWidth = 600.dp
 
     Box(
         modifier = modifier
@@ -169,8 +164,8 @@ internal fun TvDetailHero(
             Text(
                 text = line,
                 fontWeight = FontWeight.Normal,
-                fontSize = 24.sp,
-                lineHeight = 30.sp,
+                fontSize = 12.sp,
+                lineHeight = 15.sp,
                 color = Color.White.copy(alpha = 0.8f),
                 textAlign = TextAlign.End,
                 maxLines = 2,
@@ -184,9 +179,9 @@ internal fun TvDetailHero(
                     shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 2f), blurRadius = 6f),
                 ),
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = heroHeight * 0.17f, end = Spacing.safeArea)
-                    .widthIn(max = 460.dp),
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = heroHeight * 0.45f, end = Spacing.safeArea)
+                    .widthIn(max = 230.dp),
             )
         }
 
@@ -198,7 +193,7 @@ internal fun TvDetailHero(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = 40.dp),
+                .padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = 60.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             EditorialColumn(
@@ -244,13 +239,13 @@ private fun EditorialColumn(
 ) {
     Column(
         modifier = Modifier.widthIn(max = contentMaxWidth),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (!eyebrow.isNullOrBlank()) {
             HeroEyebrowPill(text = eyebrow)
         }
 
-        Box(modifier = Modifier.padding(top = if (eyebrow.isNullOrBlank()) 0.dp else 4.dp)) {
+        Box(modifier = Modifier.padding(top = if (eyebrow.isNullOrBlank()) 0.dp else 2.dp)) {
             TitleBlock(
                 title = title,
                 seriesTitle = seriesTitle,
@@ -294,8 +289,8 @@ private fun TitleBlock(
             // loading/failed logo can't measure as 0 and collapse the editorial
             // stack. Fixed height + Fit keeps the logo's aspect within it.
             modifier = Modifier
-                .height(120.dp)
-                .widthIn(max = 360.dp),
+                .height(110.dp)
+                .widthIn(max = 310.dp),
         )
         else -> HeroTextTitle(title = title)
     }
@@ -316,9 +311,9 @@ private fun HeroTextTitle(title: String) {
                 text = sub.uppercase(),
                 style = heroDisplayHero.copy(
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 26.sp,
-                    lineHeight = 30.sp,
-                    letterSpacing = 1.5.sp,
+                    fontSize = 20.sp,
+                    lineHeight = 22.sp,
+                    letterSpacing = 0.sp,
                 ),
                 color = Color.White.copy(alpha = 0.95f),
                 maxLines = 2,
@@ -330,7 +325,7 @@ private fun HeroTextTitle(title: String) {
 @Composable
 private fun EpisodeHierarchyTitle(seriesTitle: String, episodeTitle: String) {
     val parts = remember(episodeTitle) { splitDisplayTitle(episodeTitle) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
             text = seriesTitle.uppercase(),
             style = heroDisplayHero,
@@ -341,8 +336,8 @@ private fun EpisodeHierarchyTitle(seriesTitle: String, episodeTitle: String) {
             text = parts.first,
             style = heroDisplayHero.copy(
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 30.sp,
-                lineHeight = 34.sp,
+                fontSize = 25.sp,
+                lineHeight = 27.sp,
             ),
             color = Color.White.copy(alpha = 0.94f),
             maxLines = 2,
@@ -352,9 +347,9 @@ private fun EpisodeHierarchyTitle(seriesTitle: String, episodeTitle: String) {
                 text = sub.uppercase(),
                 style = heroDisplayHero.copy(
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 20.sp,
-                    lineHeight = 24.sp,
-                    letterSpacing = 1.2.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 18.sp,
+                    letterSpacing = 0.sp,
                 ),
                 color = Color.White.copy(alpha = 0.82f),
                 maxLines = 2,
@@ -372,18 +367,18 @@ private fun HeroEyebrowPill(text: String) {
                 shape = RoundedCornerShape(100.dp),
             )
             .border(
-                width = 1.dp,
+                width = 0.5.dp,
                 color = Color.White.copy(alpha = 0.18f),
                 shape = RoundedCornerShape(100.dp),
             )
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         Text(
             text = text,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 18.sp,
-            lineHeight = 22.sp,
-            letterSpacing = 1.2.sp,
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            letterSpacing = 0.sp,
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -395,27 +390,27 @@ private fun HeroEyebrowPill(text: String) {
 private fun SourceRow(tokens: List<String>, ratingChip: String?) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         tokens.forEachIndexed { index, token ->
             if (index > 0) {
                 Text(
                     text = "·",
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 24.sp,
+                    fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.5f),
                 )
             }
             Text(
                 text = token,
                 fontWeight = FontWeight.Medium,
-                fontSize = 26.sp,
+                fontSize = 13.sp,
                 color = Color.White.copy(alpha = 0.92f),
                 maxLines = 1,
             )
         }
         if (!ratingChip.isNullOrBlank()) {
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(2.dp))
             RatingChip(text = ratingChip)
         }
     }
@@ -425,7 +420,7 @@ private fun SourceRow(tokens: List<String>, ratingChip: String?) {
 private fun FactsRow(tokens: List<TvHeroFactToken>) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         tokens.forEachIndexed { index, token ->
             val previous = tokens.getOrNull(index - 1)
@@ -433,7 +428,7 @@ private fun FactsRow(tokens: List<TvHeroFactToken>) {
                 Text(
                     text = "·",
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 22.sp,
+                    fontSize = 11.sp,
                     color = Color.White.copy(alpha = 0.45f),
                 )
             }
@@ -441,24 +436,24 @@ private fun FactsRow(tokens: List<TvHeroFactToken>) {
                 is TvHeroFactToken.TextToken -> Text(
                     text = token.value,
                     fontWeight = FontWeight.Medium,
-                    fontSize = 22.sp,
+                    fontSize = 11.sp,
                     color = Color.White.copy(alpha = 0.88f),
                     maxLines = 1,
                 )
                 is TvHeroFactToken.Rating -> Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.CheckCircle,
                         contentDescription = null,
                         tint = SuccessGreen.copy(alpha = 0.9f),
-                        modifier = Modifier.height(18.dp),
+                        modifier = Modifier.height(9.dp),
                     )
                     Text(
                         text = token.value,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 22.sp,
+                        fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.88f),
                         maxLines = 1,
                     )
@@ -474,17 +469,17 @@ private fun RatingChip(text: String) {
     Box(
         modifier = Modifier
             .border(
-                width = 1.5.dp,
+                width = 0.75.dp,
                 color = Color.White.copy(alpha = 0.7f),
-                shape = RoundedCornerShape(5.dp),
+                shape = RoundedCornerShape(2.5.dp),
             )
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Text(
             text = text,
             fontWeight = FontWeight.Black,
-            fontSize = 20.sp,
-            letterSpacing = 1.0.sp,
+            fontSize = 10.sp,
+            letterSpacing = 0.sp,
             color = Color.White,
             maxLines = 1,
         )
@@ -496,17 +491,17 @@ private fun QualityChip(text: String) {
     Box(
         modifier = Modifier
             .border(
-                width = 1.2.dp,
+                width = 0.6.dp,
                 color = Color.White.copy(alpha = 0.65f),
-                shape = RoundedCornerShape(4.dp),
+                shape = RoundedCornerShape(2.dp),
             )
-            .padding(horizontal = 9.dp, vertical = 4.dp),
+            .padding(horizontal = 4.5.dp, vertical = 2.dp),
     ) {
         Text(
             text = text,
             fontWeight = FontWeight.Black,
-            fontSize = 16.sp,
-            letterSpacing = 1.0.sp,
+            fontSize = 8.sp,
+            letterSpacing = 0.sp,
             color = Color.White,
             maxLines = 1,
         )
@@ -544,9 +539,9 @@ private val heroDisplayHero = TextStyle(
     // tvOS uses 92pt in its 1920x1080 POINT canvas; Android TV is a 960x540 DP
     // canvas (≈half), so the point value must be ~halved or the title overflows
     // the hero. 56sp sits just above the shared home `heroDisplay` (58sp).
-    fontSize = 56.sp,
-    lineHeight = 58.sp,
-    letterSpacing = (-1).sp,
+    fontSize = 46.sp,
+    lineHeight = 50.sp,
+    letterSpacing = 0.sp,
     // Apple shadows the hero title (black@0.55, r16, y4) for legibility on
     // bright backdrops. Inherited by the subtitle/episode `.copy()` variants.
     shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 4f), blurRadius = 16f),

@@ -106,11 +106,17 @@ internal fun LazyListScope.renderSection(
     onDeleteEntry: (DownloadEntry) -> Unit,
     onDeleteSection: (DownloadTypeSection) -> Unit,
 ) {
-    item(key = "section_header_${section.mediaType.wire}") {
+    item(
+        key = "section_header_${section.mediaType.wire}",
+        contentType = "download-section-header",
+    ) {
         SectionHeaderRow(section = section, onDeleteSection = { onDeleteSection(section) })
     }
     section.entries.forEach { entry ->
-        item(key = "section_${section.mediaType.wire}_entry_${entry.id}") {
+        item(
+            key = "section_${section.mediaType.wire}_entry_${entry.id}",
+            contentType = "download-entry",
+        ) {
             renderEntry(
                 entry = entry,
                 depth = 0,

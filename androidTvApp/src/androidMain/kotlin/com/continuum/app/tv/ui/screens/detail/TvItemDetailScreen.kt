@@ -123,10 +123,10 @@ fun TvItemDetailScreen(
     }
 
     when {
-        state.isLoading -> TvLoadingScreen(
+        state.isLoading && state.detail == null -> TvLoadingScreen(
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
         )
-        state.error != null -> TvErrorScreen(
+        state.error != null && state.detail == null -> TvErrorScreen(
             message = state.error!!,
             onRetry = viewModel::loadAll,
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
@@ -201,7 +201,7 @@ private fun TvDetailContent(
                 state = listState,
                 contentPadding = PaddingValues(bottom = 160.dp),
             ) {
-                item(key = "hero") {
+                item(key = "hero", contentType = "detail-hero") {
                     TvDetailHero(
                         title = detail.title,
                         seriesTitle = if (detail.type == "episode") detail.seriesTitle else null,
@@ -231,7 +231,7 @@ private fun TvDetailContent(
                 }
 
                 // Body = VStack(spacing 72), horizontal safeArea, hero→body 48.
-                item(key = "body") {
+                item(key = "body", contentType = "detail-body") {
                     Column(
                         modifier = Modifier.padding(top = 48.dp),
                         verticalArrangement = Arrangement.spacedBy(72.dp),
@@ -823,7 +823,7 @@ private fun TvVersionPillPlaceholder(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.42f), shape)
-            .border(1.2.dp, Color.White.copy(alpha = 0.16f), shape)
+            .border(0.6.dp, Color.White.copy(alpha = 0.16f), shape)
             .widthIn(min = 150.dp)
             .padding(horizontal = 24.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -909,4 +909,3 @@ private fun Double.formatHms(): String {
         "$minutes:${seconds.toString().padStart(2, '0')}"
     }
 }
-

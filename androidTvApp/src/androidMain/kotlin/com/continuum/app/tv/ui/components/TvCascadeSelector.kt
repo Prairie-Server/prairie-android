@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.continuum.app.model.personal.UserLibrary
@@ -59,6 +61,34 @@ import com.continuum.app.tv.ui.theme.ContinuumOnSurface
 import com.continuum.app.tv.ui.theme.DarkBackground
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+
+internal val CascadeLibraryColumnWidth = 230.dp
+internal val CascadeFlyoutWidth = 150.dp
+internal val CascadeFlyoutGap = 9.dp
+internal val CascadePanelPadding = 7.dp
+internal val CascadeFlyoutPadding = 5.dp
+internal val CascadeFlyoutCornerRadius = 9.dp
+internal val CascadeMaxListHeight = 180.dp
+internal val TvCascadeSelectorMaxPanelWidth = 389.dp
+internal val CascadePanelHeaderSize = 7.sp
+internal val CascadeFlyoutHeaderSize = 6.5.sp
+internal val CascadeRowTextSize = 11.sp
+internal val CascadeRowIconSize = 15.dp
+internal val CascadeRowPaddingHorizontal = 9.dp
+internal val CascadeRowPaddingVertical = 8.dp
+internal val CascadeRowCornerRadius = 7.dp
+internal val CascadeFlyoutRowTextSize = 10.sp
+internal val CascadeFlyoutRowIconSize = 9.dp
+internal val CascadeFlyoutRowPaddingHorizontal = 8.dp
+internal val CascadeFlyoutRowPaddingVertical = 6.5.dp
+internal val CascadeFlyoutRowCornerRadius = 6.dp
+
+private val CascadeRowSpacing = 7.dp
+private val CascadeRowTrailingIconSize = 8.5.dp
+private val CascadeFlyoutRowSpacing = 6.dp
+private val CascadePanelHeaderTracking = 1.8.sp
+private val CascadeFlyoutHeaderTracking = 1.7.sp
+private val CascadeFooterTracking = 0.6.sp
 
 /**
  * The Skyline cascading library selector — a faithful Compose-for-TV port of
@@ -72,9 +102,8 @@ import kotlin.math.roundToInt
  *   focus up/down the list after a ~150 ms rest debounce.
  *
  * The component owns no scope state; every outcome is a callback so persistence
- * and the page swap stay with the host. The caller applies
- * [androidx.compose.ui.Modifier] panel chrome ([tvSkylinePanelChrome]); this
- * component is only the panel contents.
+ * and the page swap stay with the host. Like tvOS, each level owns its own
+ * glass panel chrome so the library column and flyout read as separate surfaces.
  *
  * Focus contract (matches tvOS §5.3/§7):
  * - On entry ([focusEntryToken] bump while [entersPanel]) focus lands on the
@@ -125,13 +154,9 @@ fun TvCascadeSelector(
     // Whether any pill in the flyout currently holds focus.
     var focusedPill by remember { mutableStateOf<TvLibraryPill?>(null) }
 
-    // Whether the level-2 sections flyout is revealed. Always shown for a
-    // single-library tab (it is the only column); for a multi-library tab it is
-    // hidden until the user presses Right on a library row, then hidden again on
-    // Left. Composing it conditionally (rather than leaving an always-present
-    // zero-interaction column) is what makes the Right gesture actually "reveal"
-    // it — matching the tvOS §5.3 cascade.
-    var flyoutVisible by remember { mutableStateOf(isSingleLibrary) }
+    // The tvOS cascade keeps the level-2 flyout visible from open, anchored to
+    // the current library. D-pad Right only moves focus into it.
+    var flyoutVisible by remember { mutableStateOf(true) }
     // Bumped when the flyout is revealed via Right so the first pill is focused
     // AFTER it has been composed (and its FocusRequester attached) on the next
     // frame — a synchronous requestFocus in the key handler would target an
@@ -162,10 +187,7 @@ fun TvCascadeSelector(
             if (isSingleLibrary) {
                 pills.firstOrNull()?.let { pillRequesters[it]?.requestFocus() }
             } else {
-                // Re-entering a multi-library panel always starts on a library
-                // row with the flyout collapsed, so a stale reveal from a prior
-                // visit doesn't linger.
-                flyoutVisible = false
+                flyoutVisible = true
                 val target = currentScopeId ?: libraries.firstOrNull()?.id
                 target?.let { id ->
                     anchorId = id
@@ -188,8 +210,37 @@ fun TvCascadeSelector(
     Row(
         modifier = modifier
             .focusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(CascadeFlyoutGap),
     ) {
+        if (isSingleLibrary && anchorLibrary != null) {
+            Column(
+                modifier = Modifier
+                    .width(CascadeLibraryColumnWidth)
+                    .tvSkylinePanelChrome()
+                    .padding(CascadePanelPadding),
+            ) {
+                CascadePanelHeader(anchorLibrary.name.uppercase())
+                pills.forEach { pill ->
+                    val requester = pillRequesters.getOrPut(pill) { FocusRequester() }
+                    CascadeSectionRow(
+                        pill = pill,
+                        entersPanel = entersPanel,
+                        focusRequester = requester,
+                        onFocusChanged = { focused ->
+                            focusedPill = if (focused) pill else focusedPill.takeUnless { it == pill }
+                        },
+                        onMoveLeft = { false },
+                        onSelect = {
+                            onCommitSection(anchorLibrary, pill)
+                            true
+                        },
+                    )
+                }
+                CascadePanelFooter(isSingleLibrary = true)
+            }
+            return@Row
+        }
+
         // LEVEL 1 — library rows (skipped entirely for a single-library tab).
         if (!isSingleLibrary) {
             val rowsContent: @Composable () -> Unit = {
@@ -213,10 +264,6 @@ fun TvCascadeSelector(
                             anchorId = library.id
                             val firstPill = pills.firstOrNull()
                             if (firstPill != null) {
-                                // Reveal the flyout for this row, then focus its
-                                // first pill. requestFocus is posted so it runs
-                                // after the just-composed pill attaches its
-                                // FocusRequester.
                                 flyoutVisible = true
                                 focusFirstPillToken++
                                 true
@@ -233,48 +280,63 @@ fun TvCascadeSelector(
             }
 
             if (libraries.size > 6) {
-                LazyColumn(
-                    state = lazyListState,
+                Column(
                     modifier = Modifier
-                        .width(300.dp)
-                        .heightIn(max = 360.dp),
+                        .width(CascadeLibraryColumnWidth)
+                        .tvSkylinePanelChrome()
+                        .padding(CascadePanelPadding),
                 ) {
-                    items(libraries) { library ->
-                        val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
-                        CascadeLibraryRow(
-                            library = library,
-                            type = type,
-                            isCurrent = library.id == currentScopeId,
-                            entersPanel = entersPanel,
-                            focusRequester = requester,
-                            onFocusChanged = { focused ->
-                                focusedRowId = if (focused) {
-                                    library.id
-                                } else {
-                                    focusedRowId.takeUnless { it == library.id }
-                                }
-                            },
-                            onTopChanged = { top -> rowTops[library.id] = top },
-                            onMoveRight = {
-                                anchorId = library.id
-                                val firstPill = pills.firstOrNull()
-                                if (firstPill != null) {
-                                    pillRequesters[firstPill]?.requestFocus()
+                    CascadePanelHeader(type.librariesHeader)
+                    LazyColumn(
+                        state = lazyListState,
+                        modifier = Modifier.heightIn(max = CascadeMaxListHeight),
+                    ) {
+                        items(libraries) { library ->
+                            val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
+                            CascadeLibraryRow(
+                                library = library,
+                                type = type,
+                                isCurrent = library.id == currentScopeId,
+                                entersPanel = entersPanel,
+                                focusRequester = requester,
+                                onFocusChanged = { focused ->
+                                    focusedRowId = if (focused) {
+                                        library.id
+                                    } else {
+                                        focusedRowId.takeUnless { it == library.id }
+                                    }
+                                },
+                                onTopChanged = { top -> rowTops[library.id] = top },
+                                onMoveRight = {
+                                    anchorId = library.id
+                                    val firstPill = pills.firstOrNull()
+                                    if (firstPill != null) {
+                                        flyoutVisible = true
+                                        focusFirstPillToken++
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                },
+                                onSelect = {
+                                    onCommitLibrary(library)
                                     true
-                                } else {
-                                    false
-                                }
-                            },
-                            onSelect = {
-                                onCommitLibrary(library)
-                                true
-                            },
-                        )
+                                },
+                            )
+                        }
                     }
+                    CascadePanelFooter(isSingleLibrary = false)
                 }
             } else {
-                Column(modifier = Modifier.width(300.dp)) {
+                Column(
+                    modifier = Modifier
+                        .width(CascadeLibraryColumnWidth)
+                        .tvSkylinePanelChrome()
+                        .padding(CascadePanelPadding),
+                ) {
+                    CascadePanelHeader(type.librariesHeader)
                     rowsContent()
+                    CascadePanelFooter(isSingleLibrary = false)
                 }
             }
         }
@@ -283,9 +345,17 @@ fun TvCascadeSelector(
         // column; otherwise it is revealed (composed) only after Right, as a
         // second column beside the library list (top-aligned).
         if (anchorLibrary != null && flyoutVisible) {
+            val flyoutTopOffset = if (isSingleLibrary) 0 else {
+                rowTops[anchorId]?.roundToInt() ?: 0
+            }
             Column(
-                modifier = Modifier.width(260.dp),
+                modifier = Modifier
+                    .offset { IntOffset(0, flyoutTopOffset) }
+                    .width(CascadeFlyoutWidth)
+                    .tvSkylinePanelChrome(corner = CascadeFlyoutCornerRadius)
+                    .padding(CascadeFlyoutPadding),
             ) {
+                CascadeFlyoutHeader(anchorLibrary.name)
                 pills.forEach { pill ->
                     val requester = pillRequesters.getOrPut(pill) { FocusRequester() }
                     CascadeSectionRow(
@@ -301,10 +371,7 @@ fun TvCascadeSelector(
                             } else {
                                 val target = anchorId ?: libraries.firstOrNull()?.id
                                 if (target != null) {
-                                    // Return focus to the anchor library row, then
-                                    // collapse the flyout so Right can re-reveal it.
                                     libraryRequesters[target]?.requestFocus()
-                                    flyoutVisible = false
                                     true
                                 } else {
                                     false
@@ -319,6 +386,72 @@ fun TvCascadeSelector(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CascadePanelHeader(text: String) {
+    Text(
+        text = text,
+        color = ContinuumOnSurface.copy(alpha = 0.38f),
+        fontSize = CascadePanelHeaderSize,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = CascadePanelHeaderTracking,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .padding(top = 4.dp, bottom = 5.dp),
+    )
+}
+
+@Composable
+private fun CascadeFlyoutHeader(text: String) {
+    Text(
+        text = text.uppercase(),
+        color = ContinuumOnSurface.copy(alpha = 0.38f),
+        fontSize = CascadeFlyoutHeaderSize,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = CascadeFlyoutHeaderTracking,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 7.dp)
+            .padding(top = 3.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun CascadePanelFooter(isSingleLibrary: Boolean) {
+    val caption = if (isSingleLibrary) {
+        "Press opens the section · Menu closes"
+    } else {
+        "Press opens the library · → jumps to a section · Menu closes"
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp)
+                .padding(top = 3.dp)
+                .height(0.5.dp)
+                .background(Color.White.copy(alpha = 0.12f)),
+        )
+        Text(
+            text = caption,
+            color = ContinuumOnSurface.copy(alpha = 0.34f),
+            fontSize = CascadePanelHeaderSize,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = CascadeFooterTracking,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .padding(top = 5.dp, bottom = 2.dp),
+        )
     }
 }
 
@@ -352,6 +485,13 @@ private fun CascadeLibraryRow(
         focusRequester = focusRequester,
         focusable = entersPanel,
         onTopChanged = onTopChanged,
+        textSize = CascadeRowTextSize,
+        iconSize = CascadeRowIconSize,
+        trailingIconSize = CascadeRowTrailingIconSize,
+        rowSpacing = CascadeRowSpacing,
+        horizontalPadding = CascadeRowPaddingHorizontal,
+        verticalPadding = CascadeRowPaddingVertical,
+        cornerRadius = CascadeRowCornerRadius,
         onKey = { event ->
             when (event.key) {
                 // Commit on key-UP and consume BOTH phases of Center/Enter. The
@@ -395,6 +535,13 @@ private fun CascadeSectionRow(
         focusRequester = focusRequester,
         focusable = entersPanel,
         onTopChanged = null,
+        textSize = CascadeFlyoutRowTextSize,
+        iconSize = CascadeFlyoutRowIconSize,
+        trailingIconSize = CascadeFlyoutRowIconSize,
+        rowSpacing = CascadeFlyoutRowSpacing,
+        horizontalPadding = CascadeFlyoutRowPaddingHorizontal,
+        verticalPadding = CascadeFlyoutRowPaddingVertical,
+        cornerRadius = CascadeFlyoutRowCornerRadius,
         onKey = { event ->
             when (event.key) {
                 // Same commit-on-UP + consume-both contract as the library row so
@@ -426,9 +573,16 @@ private fun CascadeRowChrome(
     focusRequester: FocusRequester,
     focusable: Boolean,
     onTopChanged: ((Float) -> Unit)?,
+    textSize: androidx.compose.ui.unit.TextUnit,
+    iconSize: androidx.compose.ui.unit.Dp,
+    trailingIconSize: androidx.compose.ui.unit.Dp,
+    rowSpacing: androidx.compose.ui.unit.Dp,
+    horizontalPadding: androidx.compose.ui.unit.Dp,
+    verticalPadding: androidx.compose.ui.unit.Dp,
+    cornerRadius: androidx.compose.ui.unit.Dp,
     onKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(cornerRadius)
     val contentColor = if (isFocused) DarkBackground else ContinuumOnSurface.copy(alpha = 0.9f)
 
     var rowModifier = Modifier
@@ -450,20 +604,21 @@ private fun CascadeRowChrome(
     }
 
     Row(
-        modifier = rowModifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = rowModifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(rowSpacing),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = contentColor,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(iconSize),
         )
         Text(
             text = title,
             color = contentColor,
             fontWeight = FontWeight.SemiBold,
+            fontSize = textSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -474,7 +629,7 @@ private fun CascadeRowChrome(
                 imageVector = trailingIcon,
                 contentDescription = null,
                 tint = contentColor.copy(alpha = if (isFocused) 1f else 0.5f),
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(trailingIconSize),
             )
         }
     }

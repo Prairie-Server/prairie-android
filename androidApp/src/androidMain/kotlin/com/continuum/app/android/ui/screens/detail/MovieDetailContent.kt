@@ -113,7 +113,7 @@ fun MovieDetailContent(
             .background(detailScreenBackgroundBrush(dominantColor)),
         verticalArrangement = Arrangement.spacedBy(LargePadding),
     ) {
-        item {
+        item(contentType = "detail-hero") {
             DetailHero(
                 detail = detail,
                 eyebrow = eyebrow,
@@ -232,7 +232,7 @@ fun MovieDetailContent(
         }
 
         if (detail.cast.isNotEmpty()) {
-            item {
+            item(contentType = "detail-cast") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SectionHeader(label = "Cast", title = "& Crew")
                     CastCrewSection(
@@ -245,7 +245,7 @@ fun MovieDetailContent(
         }
 
         if (detail.genres.isNotEmpty()) {
-            item {
+            item(contentType = "detail-genres") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SectionHeader(label = "Tags", title = "Genres")
                     GenrePillRow(genres = detail.genres)
@@ -253,7 +253,7 @@ fun MovieDetailContent(
             }
         }
 
-        item {
+        item(contentType = "detail-facts") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SectionHeader(label = "Info", title = "Details")
                 DetailFactsList(detail = detail)
@@ -263,7 +263,7 @@ fun MovieDetailContent(
         // Hide the similar rail on episode pages — viewers usually want
         // the next episode, not a tangentially related title.
         if (detail.type != "episode") {
-            item {
+            item(contentType = "detail-similar") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SectionHeader(label = "Recommended", title = "More Like This")
                     SimilarRail(
@@ -274,7 +274,7 @@ fun MovieDetailContent(
             }
         }
 
-        item {
+        item(contentType = "detail-spacer") {
             Spacer(modifier = Modifier.height(40.dp))
         }
     }

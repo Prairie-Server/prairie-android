@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -40,6 +41,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.continuum.app.android.ui.util.rememberDominantColor
 import com.continuum.app.common.player.AudiobookPlayerViewModel
 import com.continuum.app.common.player.ContinuumPlaybackService
 import com.continuum.app.common.ui.components.ThumbhashImage
@@ -201,163 +203,182 @@ fun AudiobookPlayerScreen(
         viewModel.consumePendingSeek()
     }
 
-    Column(
+    val playerTint by rememberDominantColor(state.coverUrl, fallback = MaterialTheme.colorScheme.primary)
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .background(
+                audiobookPlayerBackgroundBrush(
+                    tint = playerTint,
+                    background = MaterialTheme.colorScheme.background,
+                ),
+            ),
     ) {
-        // Back row + bookmark icon (top-right).
-        var showBookmarksSheet by remember { mutableStateOf(false) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
         ) {
-            IconButton(
-                onClick = {
-                    exitRequested = true
-                    viewModel.flushPosition()
-                    viewModel.stopPlaybackSession()
-                    onBackClick()
-                },
+            // Back row + bookmark icon (top-right).
+            var showBookmarksSheet by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                IconButton(
+                    onClick = {
+                        exitRequested = true
+                        viewModel.flushPosition()
+                        viewModel.stopPlaybackSession()
+                        onBackClick()
+                    },
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { showBookmarksSheet = true }) {
+                    Icon(Icons.Filled.Bookmark, contentDescription = "Bookmarks")
+                }
             }
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { showBookmarksSheet = true }) {
-                Icon(Icons.Filled.Bookmark, contentDescription = "Bookmarks")
+            if (showBookmarksSheet) {
+                val bookmarks by viewModel.bookmarks.collectAsState()
+                AudiobookBookmarksSheet(
+                    bookmarks = bookmarks,
+                    onJumpTo = { viewModel.jumpToBookmark(it); showBookmarksSheet = false },
+                    onDelete = { viewModel.removeBookmark(it.id) },
+                    onAddCurrent = { viewModel.addBookmark() },
+                    onDismiss = { showBookmarksSheet = false },
+                )
             }
-        }
-        if (showBookmarksSheet) {
-            val bookmarks by viewModel.bookmarks.collectAsState()
-            AudiobookBookmarksSheet(
-                bookmarks = bookmarks,
-                onJumpTo = { viewModel.jumpToBookmark(it); showBookmarksSheet = false },
-                onDelete = { viewModel.removeBookmark(it.id) },
-                onAddCurrent = { viewModel.addBookmark() },
-                onDismiss = { showBookmarksSheet = false },
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            AudiobookCoverHeader(
+                title = state.title,
+                author = state.author,
+                narrator = state.narrator,
+                coverUrl = state.coverUrl,
+                coverThumbhash = state.coverThumbhash,
             )
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-        AudiobookCoverHeader(
-            title = state.title,
-            author = state.author,
-            narrator = state.narrator,
-            coverUrl = state.coverUrl,
-            coverThumbhash = state.coverThumbhash,
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        ChapterProgressBar(
-            chapters = state.chapters,
-            chapterCountLabel = chapterCountLabel,
-            positionSeconds = state.positionSeconds,
-            durationSeconds = state.durationSeconds,
-            onSeek = { viewModel.seekTo(it) },
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        AudiobookTransport(
-            // Drive the icon from pause intent so it stays "pause" through the
-            // transient rebuffer a seek causes (isPlaying briefly flips false).
-            isPlaying = !state.isPaused,
-            enabled = state.streamUrl != null,
-            hasChapters = state.chapters.isNotEmpty(),
-            skipBackSeconds = state.skipBackSeconds,
-            skipForwardSeconds = state.skipForwardSeconds,
-            onPrevChapter = { viewModel.skipToPreviousChapter() },
-            onSkipBack = { viewModel.skipBack() },
-            onTogglePlay = { viewModel.togglePlay() },
-            onSkipForward = { viewModel.skipForward() },
-            onNextChapter = { viewModel.skipToNextChapter() },
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Secondary controls: speed / skip / sleep / chapters.
-        var showSpeedSheet by remember { mutableStateOf(false) }
-        var showSleepSheet by remember { mutableStateOf(false) }
-        var showSkipSheet by remember { mutableStateOf(false) }
-        var showChaptersSheet by remember { mutableStateOf(false) }
-        AudiobookSecondaryBar(
-            speedLabel = "${formatSpeed(state.playbackSpeed)}x",
-            sleepLabel = state.sleepTimerMinutesLeft?.let { "$it min" } ?: "Sleep",
-            skipLabel = "${state.skipBackSeconds}s",
-            onSpeedClick = { showSpeedSheet = true },
-            onSleepClick = { showSleepSheet = true },
-            onSkipClick = { showSkipSheet = true },
-            onChaptersClick = { showChaptersSheet = true },
-            showChapters = state.chapters.isNotEmpty(),
-        )
-
-        if (showSpeedSheet) {
-            AudiobookSpeedSheet(
-                currentSpeed = state.playbackSpeed,
-                onSpeedChanged = viewModel::setSpeed,
-                onSetDefault = viewModel::setDefaultSpeed,
-                onDismiss = { showSpeedSheet = false },
+            ChapterProgressBar(
+                chapters = state.chapters,
+                chapterCountLabel = chapterCountLabel,
+                positionSeconds = state.positionSeconds,
+                durationSeconds = state.durationSeconds,
+                onSeek = { viewModel.seekTo(it) },
             )
-        }
-        if (showSkipSheet) {
-            AudiobookSkipIntervalSheet(
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            AudiobookTransport(
+                // Drive the icon from pause intent so it stays "pause" through the
+                // transient rebuffer a seek causes (isPlaying briefly flips false).
+                isPlaying = !state.isPaused,
+                enabled = state.streamUrl != null,
+                hasChapters = state.chapters.isNotEmpty(),
                 skipBackSeconds = state.skipBackSeconds,
                 skipForwardSeconds = state.skipForwardSeconds,
-                onSkipBackSelected = viewModel::setSkipBackSeconds,
-                onSkipForwardSelected = viewModel::setSkipForwardSeconds,
-                onDismiss = { showSkipSheet = false },
+                onPrevChapter = { viewModel.skipToPreviousChapter() },
+                onSkipBack = { viewModel.skipBack() },
+                onTogglePlay = { viewModel.togglePlay() },
+                onSkipForward = { viewModel.skipForward() },
+                onNextChapter = { viewModel.skipToNextChapter() },
             )
-        }
-        if (showSleepSheet) {
-            val choice by viewModel.sleepTimerChoice.collectAsState()
-            AudiobookSleepTimerSheet(
-                currentChoice = choice,
-                minutesLeft = state.sleepTimerMinutesLeft,
-                onChoiceSelected = viewModel::applySleepTimer,
-                onDismiss = { showSleepSheet = false },
-            )
-        }
 
-        if (showChaptersSheet) {
-            ChaptersSheet(
-                chapters = state.chapters,
-                currentChapterIndex = currentChapterIndex,
-                onJumpTo = { viewModel.jumpToChapter(it) },
-                onDismiss = { showChaptersSheet = false },
-            )
-        }
+            Spacer(modifier = Modifier.height(20.dp))
 
-        // About / description — shown in the player itself so it's available
-        // offline too, where there's no detail screen to read it from.
-        state.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-            Spacer(modifier = Modifier.height(28.dp))
-            Text(
-                text = "About",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+            // Secondary controls: speed / skip / sleep / chapters.
+            var showSpeedSheet by remember { mutableStateOf(false) }
+            var showSleepSheet by remember { mutableStateOf(false) }
+            var showSkipSheet by remember { mutableStateOf(false) }
+            var showChaptersSheet by remember { mutableStateOf(false) }
+            AudiobookSecondaryBar(
+                speedLabel = "${formatSpeed(state.playbackSpeed)}x",
+                sleepLabel = state.sleepTimerMinutesLeft?.let { "$it min" } ?: "Sleep",
+                skipLabel = "${state.skipBackSeconds}s",
+                onSpeedClick = { showSpeedSheet = true },
+                onSleepClick = { showSleepSheet = true },
+                onSkipClick = { showSkipSheet = true },
+                onChaptersClick = { showChaptersSheet = true },
+                showChapters = state.chapters.isNotEmpty(),
             )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = overview,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
 
-        // Loading / error states.
-        if (state.isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Loading audiobook…")
+            if (showSpeedSheet) {
+                AudiobookSpeedSheet(
+                    currentSpeed = state.playbackSpeed,
+                    onSpeedChanged = viewModel::setSpeed,
+                    onSetDefault = viewModel::setDefaultSpeed,
+                    onDismiss = { showSpeedSheet = false },
+                )
             }
-        }
-        state.error?.let { err ->
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(text = err, color = MaterialTheme.colorScheme.error)
+            if (showSkipSheet) {
+                AudiobookSkipIntervalSheet(
+                    skipBackSeconds = state.skipBackSeconds,
+                    skipForwardSeconds = state.skipForwardSeconds,
+                    onSkipBackSelected = viewModel::setSkipBackSeconds,
+                    onSkipForwardSelected = viewModel::setSkipForwardSeconds,
+                    onDismiss = { showSkipSheet = false },
+                )
+            }
+            if (showSleepSheet) {
+                val choice by viewModel.sleepTimerChoice.collectAsState()
+                AudiobookSleepTimerSheet(
+                    currentChoice = choice,
+                    minutesLeft = state.sleepTimerMinutesLeft,
+                    onChoiceSelected = viewModel::applySleepTimer,
+                    onDismiss = { showSleepSheet = false },
+                )
+            }
+
+            if (showChaptersSheet) {
+                ChaptersSheet(
+                    chapters = state.chapters,
+                    currentChapterIndex = currentChapterIndex,
+                    onJumpTo = { viewModel.jumpToChapter(it) },
+                    onDismiss = { showChaptersSheet = false },
+                )
+            }
+
+            // About / description — shown in the player itself so it's available
+            // offline too, where there's no detail screen to read it from.
+            state.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                Spacer(modifier = Modifier.height(28.dp))
+                Text(
+                    text = "About",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = overview,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // Loading / error states.
+            if (state.isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Loading audiobook…")
+                }
+            }
+            state.error?.let { err ->
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = err, color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
+
+private fun audiobookPlayerBackgroundBrush(tint: Color, background: Color): Brush =
+    Brush.verticalGradient(
+        0.00f to tint.copy(alpha = 0.28f),
+        0.34f to background.copy(alpha = 0.96f),
+        1.00f to background,
+    )

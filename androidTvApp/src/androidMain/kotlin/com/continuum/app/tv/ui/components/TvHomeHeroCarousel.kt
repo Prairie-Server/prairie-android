@@ -159,7 +159,11 @@ fun TvHomeHeroCarousel(
                 .offset(y = HOME_HERO_TOP_INSET)
                 .height(heroHeight),
         ) {
-            itemsIndexed(items, key = { _, item -> item.contentId }) { index, item ->
+            itemsIndexed(
+                items,
+                key = { _, item -> item.contentId },
+                contentType = { _, _ -> "hero-card" },
+            ) { index, item ->
                 TvHomeHeroCard(
                     item = item,
                     active = index == activeIndex,

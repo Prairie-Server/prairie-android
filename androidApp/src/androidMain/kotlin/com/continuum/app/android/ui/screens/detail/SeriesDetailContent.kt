@@ -90,7 +90,7 @@ fun SeriesDetailContent(
             .background(detailScreenBackgroundBrush(dominantColor)),
         verticalArrangement = Arrangement.spacedBy(LargePadding),
     ) {
-        item {
+        item(contentType = "detail-hero") {
             DetailHero(
                 detail = detail,
                 eyebrow = eyebrow,
@@ -138,7 +138,7 @@ fun SeriesDetailContent(
             }
         }
 
-        item {
+        item(contentType = "detail-episodes") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -229,7 +229,7 @@ fun SeriesDetailContent(
         }
 
         if (detail.cast.isNotEmpty()) {
-            item {
+            item(contentType = "detail-cast") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SectionHeader(label = "Cast", title = "& Crew")
                     CastCrewSection(
@@ -242,7 +242,7 @@ fun SeriesDetailContent(
         }
 
         if (detail.genres.isNotEmpty()) {
-            item {
+            item(contentType = "detail-genres") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SectionHeader(label = "Tags", title = "Genres")
                     GenrePillRow(genres = detail.genres)
@@ -250,14 +250,14 @@ fun SeriesDetailContent(
             }
         }
 
-        item {
+        item(contentType = "detail-facts") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SectionHeader(label = "Info", title = "Details")
                 DetailFactsList(detail = detail)
             }
         }
 
-        item {
+        item(contentType = "detail-similar") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SectionHeader(label = "Recommended", title = "More Like This")
                 SimilarRail(
@@ -267,7 +267,7 @@ fun SeriesDetailContent(
             }
         }
 
-        item {
+        item(contentType = "detail-spacer") {
             Spacer(modifier = Modifier.height(40.dp))
         }
     }

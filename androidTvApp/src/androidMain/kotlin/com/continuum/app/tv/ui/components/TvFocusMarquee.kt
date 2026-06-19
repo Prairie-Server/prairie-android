@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -88,7 +89,7 @@ private fun TvMarqueeBlock(content: TvMarqueeContent) {
                 contentScale = ContentScale.Fit,
                 transparent = true,
                 modifier = Modifier
-                    .heightIn(max = MarqueeLogoMaxHeight)
+                    .height(MarqueeLogoMaxHeight)
                     .widthIn(max = MarqueeLogoMaxWidth),
             )
         } else {
@@ -172,7 +173,7 @@ private fun MarqueeBadge(label: String) {
 // Skyline marquee metrics, scaled ~0.5x from the tvOS 1920×1080 tokens.
 private val MarqueeContentWidth = 440.dp
 private val MarqueeSynopsisMaxWidth = 390.dp
-private val MarqueeLogoMaxWidth = 320.dp
+private val MarqueeLogoMaxWidth = 440.dp
 private val MarqueeLogoMaxHeight = 100.dp
 private val MarqueeTitleSize = 42.sp
 private val MarqueeMetaSize = 13.sp

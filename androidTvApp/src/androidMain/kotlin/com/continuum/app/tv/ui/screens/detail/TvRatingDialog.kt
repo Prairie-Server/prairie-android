@@ -84,10 +84,10 @@ fun TvRatingDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 72.dp, top = 120.dp, end = 72.dp, bottom = 84.dp),
+                .padding(start = 36.dp, top = 60.dp, end = 36.dp, bottom = 42.dp),
             contentAlignment = Alignment.Center,
         ) {
-            val panelShape = RoundedCornerShape(28.dp)
+            val panelShape = RoundedCornerShape(14.dp)
             Column(
                 modifier = Modifier
                     .width(420.dp)
@@ -95,7 +95,7 @@ fun TvRatingDialog(
                         color = DarkBackground.copy(alpha = 0.68f),
                         shape = panelShape,
                     )
-                    .border(1.2.dp, Color.White.copy(alpha = 0.20f), panelShape)
+                    .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
                     .padding(horizontal = 22.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,

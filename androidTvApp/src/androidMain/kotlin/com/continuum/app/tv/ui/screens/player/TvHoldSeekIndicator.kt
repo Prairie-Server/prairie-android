@@ -58,7 +58,7 @@ fun TvHoldSeekIndicator(
         // dim hint row at the bottom.
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // Chip: direction-signed rate (large) + preview time.
             Surface(
@@ -66,21 +66,21 @@ fun TvHoldSeekIndicator(
                 shape = RoundedCornerShape(percent = 50),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     Text(
                         text = formatRate(rate),
                         color = Color.White,
-                        fontSize = 44.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
                     )
                     Text(
                         text = formatTime(previewTimeSec, durationSec),
                         color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 28.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.Monospace,
                     )
@@ -92,16 +92,16 @@ fun TvHoldSeekIndicator(
                 val progress = (previewTimeSec / durationSec).toFloat().coerceIn(0f, 1f)
                 Box(
                     modifier = Modifier
-                        .width(520.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .width(260.dp)
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp))
                         .background(Color.White.copy(alpha = 0.22f)),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progress)
-                            .height(4.dp)
-                            .background(Color.White, RoundedCornerShape(2.dp)),
+                            .height(2.dp)
+                            .background(Color.White, RoundedCornerShape(1.dp)),
                     )
                 }
             }
@@ -110,7 +110,7 @@ fun TvHoldSeekIndicator(
             Text(
                 text = "← → speed  ·  ◉ play  ·  ↩ cancel",
                 color = Color.White.copy(alpha = 0.55f),
-                fontSize = 16.sp,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
             )
         }

@@ -241,7 +241,7 @@ fun TvRequestsScreen(
                 contentPadding = PaddingValues(bottom = 56.dp),
             ) {
                 if (actionError != null || searchState.error != null || state.error != null || actionMessage != null) {
-                    item {
+                    item(contentType = "request-notice") {
                         RequestNotice(
                             text = actionError ?: searchState.error ?: state.error ?: actionMessage.orEmpty(),
                             isError = actionError != null || searchState.error != null || state.error != null,
@@ -256,13 +256,13 @@ fun TvRequestsScreen(
                     hasSearchResults = hasSearchResults,
                     hasSearchError = searchState.error != null,
                 )?.let { message ->
-                    item(key = "search-empty") {
+                    item(key = "search-empty", contentType = "request-search-empty") {
                         RequestSearchEmptyItem(message = message)
                     }
                 }
 
                 if (hasSearchResults) {
-                    item(key = "search-results") {
+                    item(key = "search-results", contentType = "request-search-results") {
                         RequestResultRow(
                             title = "Search Results",
                             results = visibleSearchResults,
@@ -277,7 +277,11 @@ fun TvRequestsScreen(
                 }
 
                 if (showDiscoverRows) {
-                    items(visibleDiscoverSections, key = { it.key }) { section ->
+                    items(
+                        visibleDiscoverSections,
+                        key = { it.key },
+                        contentType = { "request-section" },
+                    ) { section ->
                         RequestSectionRow(
                             section = section,
                             firstItemFocusRequester = firstResultFocusRequester
@@ -341,7 +345,11 @@ private fun RequestResultRow(
                 bottom = 22.dp,
             ),
         ) {
-            itemsIndexed(results, key = { _, item -> item.requestKey() }) { index, item ->
+            itemsIndexed(
+                results,
+                key = { _, item -> item.requestKey() },
+                contentType = { _, _ -> "request-result" },
+            ) { index, item ->
                 TvRequestCard(
                     result = if (submittingKey == item.requestKey()) {
                         item.copy(request = item.request.copy(status = "submitting", requestable = false))
@@ -410,7 +418,7 @@ private fun RequestsHeader(
             }
         }
         Column(
-            modifier = Modifier.widthIn(max = 820.dp),
+            modifier = Modifier.widthIn(max = 410.dp),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             OutlinedTextField(

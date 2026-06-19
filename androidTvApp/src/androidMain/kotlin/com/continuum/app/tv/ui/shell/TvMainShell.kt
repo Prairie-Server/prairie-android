@@ -58,6 +58,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.positionInRoot
@@ -91,10 +92,13 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.continuum.app.common.ui.components.ThumbhashImage
+import com.continuum.app.common.ui.components.isImageAvatar
 import com.continuum.app.tv.ui.theme.ContinuumOnSurface
 import com.continuum.app.tv.ui.theme.DarkBackground
 import com.continuum.app.common.ui.components.profileAvatarDisplayText
 import com.continuum.app.common.ui.components.rememberProfileServerUrl
+import com.continuum.app.common.ui.components.resolveAvatarUrl
 import com.continuum.app.model.admin.shouldShowClientAdminSurface
 import com.continuum.app.model.auth.isActingAdmin
 import com.continuum.app.model.personal.UserLibrary
@@ -106,6 +110,8 @@ import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.tv.data.preferences.TvLibraryScopeStore
 import com.continuum.app.tv.ui.components.TvCascadeSelector
+import com.continuum.app.tv.ui.components.CascadeLibraryColumnWidth
+import com.continuum.app.tv.ui.components.TvCascadeSelectorMaxPanelWidth
 import com.continuum.app.tv.ui.components.TvCatalogEmptyState
 import com.continuum.app.tv.ui.components.tvSkylinePanelChrome
 import com.continuum.app.tv.ui.navigation.TvMainRoute
@@ -272,9 +278,13 @@ fun TvMainShell(
         val subtitle = user?.role?.takeIf { it.isNotBlank() }
             ?.replaceFirstChar { it.uppercase() }
             ?: user?.username.orEmpty()
+        val avatarUrl = activeProfile?.avatar
+            ?.takeIf(::isImageAvatar)
+            ?.let { resolveAvatarUrl(activeServerEntry?.url.orEmpty(), it) }
         value = TvAccountState(
             displayName = activeProfile?.name ?: user?.username ?: "Profile",
             avatar = activeProfile?.avatar,
+            avatarUrl = avatarUrl,
             subtitle = subtitle,
             serverName = activeServerEntry?.displayName.orEmpty(),
             // Gate via the shared client-admin policy (same as the Settings
@@ -889,7 +899,7 @@ fun TvMainShell(
         // once revealed) up to this cap, and is left-anchored under its tab — so
         // a collapsed panel is just the library list and it grows rightward when
         // the flyout opens, instead of a fixed slab with dead space.
-        val maxPanelWidthDp = 640.dp
+        val maxPanelWidthDp = TvCascadeSelectorMaxPanelWidth
         visibleRoots.forEach { dest ->
             if (dest is TvRootDestination.LibraryType) {
                 val panel = TvTopMenuPanel.Root(dest)
@@ -900,18 +910,16 @@ fun TvMainShell(
                         .absoluteOffset {
                             cascadePanelOffset(
                                 anchor = anchor,
-                                maxPanelWidthPx = with(density) { maxPanelWidthDp.toPx() },
+                                level1WidthPx = with(density) { CascadeLibraryColumnWidth.toPx() },
+                                totalPanelWidthPx = with(density) { TvCascadeSelectorMaxPanelWidth.toPx() },
                                 safeAreaXPx = with(density) { TvSkyline.safeAreaX.toPx() },
-                                panelTopPx = with(density) {
-                                    (TvSkyline.barTopInset + TvSkyline.barHeight).toPx()
-                                },
+                                panelTopPx = with(density) { TvSkyline.dropdownTopInset.toPx() },
                             )
                         }
                         .widthIn(max = maxPanelWidthDp)
                         .alpha(if (active) 1f else 0f)
                         .focusProperties { canFocus = active }
-                        .zIndex(2f)
-                        .let { if (active) it.tvSkylinePanelChrome() else it },
+                        .zIndex(2f),
                 ) {
                     TvCascadeSelector(
                         type = dest.type,
@@ -924,7 +932,7 @@ fun TvMainShell(
                         onCommitSection = { lib, pill -> commitScope(dest.type, lib, pill) },
                         onPanelFocusChanged = { /* optional bar-dim tracking */ },
                         onClose = { closePanel(true) },
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier,
                     )
                 }
             }
@@ -1093,7 +1101,8 @@ private fun TvLibraryPill.toLibraryTab(): TvLibraryTab = when (this) {
  */
 private fun cascadePanelOffset(
     anchor: LayoutCoordinates?,
-    maxPanelWidthPx: Float,
+    level1WidthPx: Float,
+    totalPanelWidthPx: Float,
     safeAreaXPx: Float,
     panelTopPx: Float,
 ): IntOffset {
@@ -1101,11 +1110,12 @@ private fun cascadePanelOffset(
         return IntOffset(-100_000, 0)
     }
     val rootWidthPx = anchor.findRootCoordinates().size.width.toFloat()
-    // Left-align the panel's leading edge to the tab, clamped so that even at
-    // its maximum (flyout-expanded) width it never crosses the right safe area.
-    val anchorLeftX = anchor.positionInRoot().x
-    val maxX = (rootWidthPx - safeAreaXPx - maxPanelWidthPx).coerceAtLeast(safeAreaXPx)
-    val clampedX = anchorLeftX.coerceIn(safeAreaXPx, maxX)
+    // Center the level-1 library column under the tab, then clamp the entire
+    // two-level cascade so the flyout stays inside the safe area.
+    val anchorCenterX = anchor.positionInRoot().x + anchor.size.width / 2f
+    val centeredX = anchorCenterX - level1WidthPx / 2f
+    val maxX = (rootWidthPx - safeAreaXPx - totalPanelWidthPx).coerceAtLeast(safeAreaXPx)
+    val clampedX = centeredX.coerceIn(safeAreaXPx, maxX)
     return IntOffset(clampedX.roundToInt(), panelTopPx.roundToInt())
 }
 
@@ -1215,11 +1225,22 @@ private fun ProfileDropdownHeader(accountState: TvAccountState) {
                 .background(Color.White.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = avatarText,
-                color = ContinuumOnSurface,
-                fontWeight = FontWeight.Bold,
-            )
+            if (accountState.avatarUrl != null) {
+                ThumbhashImage(
+                    url = accountState.avatarUrl,
+                    thumbhash = null,
+                    contentDescription = accountState.displayName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    transparent = true,
+                )
+            } else {
+                Text(
+                    text = avatarText,
+                    color = ContinuumOnSurface,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(

@@ -889,6 +889,7 @@ private fun CollectionsTabContent(
                 items(
                     items = state.collections,
                     key = { it.id },
+                    contentType = { "library-collection" },
                 ) { collection ->
                     InlineLibraryCollectionCard(
                         collection = collection,
@@ -1226,11 +1227,11 @@ private fun LibrarySubtabRow(
             selected = selectedTab == LibrariesSubtab.Recommended,
             onClick = onRecommendedClick,
         )
-        // Browse chip hidden per UX direction (2026-05-24). The Browse content
-        // is still reachable via the per-section "See all" button on the
-        // Recommended tab, and BrowseTabContent / loadCatalog stay in the
-        // tree so that path keeps working. Re-add the chip here to expose
-        // Browse as a top-level destination again.
+        LibrarySubtabChip(
+            label = "Library",
+            selected = selectedTab == LibrariesSubtab.Browse,
+            onClick = onBrowseClick,
+        )
         LibrarySubtabChip(
             label = "Collections",
             selected = selectedTab == LibrariesSubtab.Collections,

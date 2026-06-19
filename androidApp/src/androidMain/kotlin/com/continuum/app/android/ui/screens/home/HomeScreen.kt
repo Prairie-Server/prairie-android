@@ -1,6 +1,5 @@
 package com.continuum.app.android.ui.screens.home
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.continuum.app.android.ui.components.ContinuumWordmark
 import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.HeroBackdropImage
@@ -181,6 +182,7 @@ fun HomeScreen(
                     items(
                         items = regularSections,
                         key = { it.id },
+                        contentType = { "section-row" },
                     ) { section ->
                         HomeSectionRow(
                             section = section,
@@ -232,17 +234,13 @@ private fun HomeFloatingChrome(
     onSwitchServerClick: () -> Unit,
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
-    val animatedFill by animateFloatAsState(
-        targetValue = scrollProgress,
-        label = "chromeFill",
-    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    0.0f to MaterialTheme.colorScheme.background.copy(alpha = 0.32f * animatedFill),
+                    0.0f to MaterialTheme.colorScheme.background.copy(alpha = 0.32f * scrollProgress),
                     1.0f to MaterialTheme.colorScheme.background.copy(alpha = 0f),
                 ),
             )
@@ -254,42 +252,51 @@ private fun HomeFloatingChrome(
             ),
     ) {
         androidx.compose.foundation.layout.Row(
-            modifier = Modifier.align(Alignment.CenterEnd),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HomeChromeButton(onClick = onSearchClick) {
-                Icon(
-                    imageVector = Icons.Outlined.Search,
-                    contentDescription = "Search",
-                )
-            }
+            ContinuumWordmark(modifier = Modifier.width(72.dp))
 
-            val notificationsRepository = koinInject<NotificationsRepository>()
-            val unreadCount by notificationsRepository.unreadCount.collectAsState()
-            HomeChromeButton(onClick = onInboxClick) {
-                BadgedBox(
-                    badge = {
-                        if (unreadCount > 0) {
-                            Badge { Text(if (unreadCount > 99) "99+" else unreadCount.toString()) }
-                        }
-                    },
-                ) {
+            Spacer(modifier = Modifier.weight(1f))
+
+            androidx.compose.foundation.layout.Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HomeChromeButton(onClick = onSearchClick) {
                     Icon(
-                        imageVector = Icons.Outlined.Notifications,
-                        contentDescription = "Notifications",
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = "Search",
                     )
                 }
-            }
 
-            HomeProfileMenu(
-                activeProfile = activeProfile,
-                onPersonalListsClick = onPersonalListsClick,
-                onCalendarClick = onCalendarClick,
-                onSettingsClick = onSettingsClick,
-                onSwitchProfileClick = onSwitchProfileClick,
-                onSwitchServerClick = onSwitchServerClick,
-            )
+                val notificationsRepository = koinInject<NotificationsRepository>()
+                val unreadCount by notificationsRepository.unreadCount.collectAsState()
+                HomeChromeButton(onClick = onInboxClick) {
+                    BadgedBox(
+                        badge = {
+                            if (unreadCount > 0) {
+                                Badge { Text(if (unreadCount > 99) "99+" else unreadCount.toString()) }
+                            }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Notifications,
+                            contentDescription = "Notifications",
+                        )
+                    }
+                }
+
+                HomeProfileMenu(
+                    activeProfile = activeProfile,
+                    onPersonalListsClick = onPersonalListsClick,
+                    onCalendarClick = onCalendarClick,
+                    onSettingsClick = onSettingsClick,
+                    onSwitchProfileClick = onSwitchProfileClick,
+                    onSwitchServerClick = onSwitchServerClick,
+                )
+            }
         }
     }
 }

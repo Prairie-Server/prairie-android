@@ -170,8 +170,8 @@ private fun SquaredPill(
         modifier = modifier,
         focusRequester = focusRequester,
         contentPadding = PaddingValues(
-            horizontal = if (primary) 54.dp else 40.dp,
-            vertical = if (primary) 26.dp else 22.dp,
+            horizontal = if (primary) 27.dp else 20.dp,
+            vertical = if (primary) 13.dp else 11.dp,
         ),
     ) { foreground ->
         Row(
@@ -182,13 +182,13 @@ private fun SquaredPill(
                 imageVector = icon,
                 contentDescription = null,
                 tint = foreground,
-                modifier = Modifier.size(if (primary) 32.dp else 28.dp),
+                modifier = Modifier.size(if (primary) 16.dp else 14.dp),
             )
-            Spacer(Modifier.width(if (primary) 18.dp else 16.dp))
+            Spacer(Modifier.width(if (primary) 9.dp else 8.dp))
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = if (primary) 30.sp else 26.sp,
+                    fontSize = 16.sp,
                 ),
                 color = foreground,
                 maxLines = 1,
@@ -312,12 +312,12 @@ internal fun SquaredPillSurface(
                 ambientColor = Color.Black.copy(alpha = shadowOpacity),
                 spotColor = Color.Black.copy(alpha = shadowOpacity),
             )
-            // Compact focus outline: width 2.5dp, inset 3dp (outline radius = TvControlCorner + 2).
+            // Compact focus outline: width 2.5dp, inset 1.5dp (outline radius = TvControlCorner + 2).
             .focusRing(
                 visible = isFocused,
                 color = focusOutlineColor,
                 width = 2.5.dp,
-                inset = 3.dp,
+                inset = 1.5.dp,
                 corner = TvControlCorner + 2.dp,
             )
             .background(fill, shape)
@@ -398,7 +398,7 @@ fun TvSquareToggleButton(
 
     Box(
         modifier = modifier
-            .size(72.dp)
+            .size(36.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -419,12 +419,12 @@ fun TvSquareToggleButton(
                 ambientColor = Color.Black.copy(alpha = if (isFocused) 0.34f else 0f),
                 spotColor = Color.Black.copy(alpha = if (isFocused) 0.34f else 0f),
             )
-            // Focus ring: white@0.96, 3dp, inset −5.
+            // Focus ring: white@0.96, 3dp, inset −2.5.
             .focusRing(
                 visible = isFocused,
                 color = Color.White.copy(alpha = 0.96f),
                 width = 3.dp,
-                inset = 5.dp,
+                inset = 2.5.dp,
                 corner = TvControlCorner + 2.dp,
             )
             .background(fill, shape)
@@ -443,7 +443,7 @@ fun TvSquareToggleButton(
             imageVector = if (isActive) iconActive else icon,
             contentDescription = null,
             tint = foreground,
-            modifier = Modifier.size(28.dp),
+            modifier = Modifier.size(14.dp),
         )
     }
 }

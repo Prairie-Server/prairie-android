@@ -41,10 +41,11 @@ private val ContinuumTvDarkColorScheme = darkColorScheme(
 
 /**
  * Dedicated radius for the squared control kit (pills + toggles). Mirrors the
- * Apple tvOS `ContinuumTheme.smallCornerRadius` (8pt). Intentionally distinct
- * from the [Shapes.small] (12.dp) token — these controls render tighter corners.
+ * Apple tvOS `ContinuumTheme.smallCornerRadius` (8pt) mapped to the 960x540 DP
+ * canvas (× 0.5 = 4dp). Intentionally distinct from the [Shapes.small] (12.dp)
+ * token — these controls render tighter corners.
  */
-val TvControlCorner = 8.dp
+val TvControlCorner = 4.dp
 
 // tvOS corner radii: 8 / 12 / 18.
 private val ContinuumTvShapes = Shapes(
@@ -55,7 +56,7 @@ private val ContinuumTvShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
-private const val TvUiDensityScale = 0.86f
+private const val TvUiFontScale = 0.86f
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -63,9 +64,12 @@ fun ContinuumTvTheme(
     content: @Composable () -> Unit,
 ) {
     val deviceDensity = LocalDensity.current
+    // Skyline geometry tokens are already mapped from the 1920x1080 tvOS
+    // canvas to Android TV's 960x540dp layout. Keep dp geometry at the device
+    // density and apply the tvOS calibration only to text.
     val tvDensity = Density(
-        density = deviceDensity.density * TvUiDensityScale,
-        fontScale = deviceDensity.fontScale,
+        density = deviceDensity.density,
+        fontScale = deviceDensity.fontScale * TvUiFontScale,
     )
 
     MaterialTheme(

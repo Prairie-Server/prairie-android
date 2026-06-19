@@ -659,7 +659,11 @@ fun SeasonChips(
         horizontalArrangement = Arrangement.spacedBy(SmallPadding),
         modifier = modifier.fillMaxWidth(),
     ) {
-        items(seasons, key = { it.contentId }) { season ->
+        items(
+            seasons,
+            key = { it.contentId },
+            contentType = { "season-chip" },
+        ) { season ->
             val isSelected = season.seasonNumber == selectedSeasonNumber
             val label = if (season.isSpecials) "Specials" else "Season ${season.seasonNumber}"
             Surface(
@@ -696,7 +700,7 @@ fun GenrePillRow(
         horizontalArrangement = Arrangement.spacedBy(SmallPadding),
         modifier = modifier.fillMaxWidth(),
     ) {
-        items(genres) { genre ->
+        items(genres, contentType = { "genre-pill" }) { genre ->
             Surface(
                 shape = PillShape,
                 color = Color.White.copy(alpha = 0.08f),

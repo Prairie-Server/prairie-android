@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
@@ -79,7 +80,13 @@ fun AudiobookTransport(
         Spacer(modifier = Modifier.size(16.dp))
         Box(
             modifier = Modifier
-                .size(80.dp)
+                .size(82.dp)
+                .shadow(
+                    elevation = 16.dp,
+                    shape = CircleShape,
+                    ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                )
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primary)
                 .clickable(enabled = enabled, onClick = onTogglePlay),

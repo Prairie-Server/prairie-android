@@ -74,6 +74,7 @@ fun CatalogGrid(
         items(
             items = items,
             key = { it.contentId },
+            contentType = { item -> item.type },
         ) { item ->
             val (actions, userState) = rememberBrowseItemCardActions(item)
             MediaCard(

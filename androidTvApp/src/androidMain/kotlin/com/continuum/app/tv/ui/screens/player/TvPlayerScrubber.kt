@@ -200,23 +200,23 @@ fun TvPlayerScrubber(
     } else 0f
 
     val trackHeight by animateDpAsState(
-        targetValue = if (isTimelineScrubbing) 12.dp else 7.dp,
+        targetValue = if (isTimelineScrubbing) 6.dp else 3.5.dp,
         animationSpec = tween(120),
         label = "scrubberTrackHeight",
     )
     val puckSize by animateDpAsState(
         targetValue = when {
-            isTimelineScrubbing -> 42.dp
-            isFocused -> 42.dp
-            else -> 30.dp
+            isTimelineScrubbing -> 21.dp
+            isFocused -> 21.dp
+            else -> 15.dp
         },
         animationSpec = tween(120),
         label = "scrubberPuckSize",
     )
 
     Column(
-        modifier = modifier.height(82.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.height(41.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -244,7 +244,7 @@ fun TvPlayerScrubber(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.Center)
-                .height(56.dp)
+                .height(28.dp)
                 .focusRequester(onRequestFocus)
                 .onFocusChanged { /* state collected via interactionSource */ }
                 .focusable(interactionSource = interactionSource)

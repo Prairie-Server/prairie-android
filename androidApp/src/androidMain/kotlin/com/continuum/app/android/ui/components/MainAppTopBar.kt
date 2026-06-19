@@ -4,14 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,8 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.continuum.app.android.R
 import com.continuum.app.android.ui.screens.profiles.ProfileAvatar
 import com.continuum.app.model.profile.Profile
 import com.continuum.app.repository.NotificationsRepository
@@ -247,37 +251,16 @@ private fun HeaderActionButton(
 }
 
 @Composable
-fun ContinuumWordmark(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.Start,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-            border = androidx.compose.foundation.BorderStroke(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.05f),
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    text = "Silo",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "Media",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
+fun ContinuumWordmark(
+    modifier: Modifier = Modifier,
+    width: Dp = 72.dp,
+) {
+    androidx.compose.foundation.Image(
+        painter = painterResource(id = R.drawable.silo_wordmark),
+        contentDescription = "Silo",
+        contentScale = ContentScale.Fit,
+        modifier = modifier
+            .width(width)
+            .height(width * 0.52f),
+    )
 }

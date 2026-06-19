@@ -127,9 +127,11 @@ fun DownloadsScreen(
                     contentPadding = PaddingValues(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    item { Spacer(modifier = Modifier.height(contentTopPadding)) }
+                    item(contentType = "downloads-top-padding") {
+                        Spacer(modifier = Modifier.height(contentTopPadding))
+                    }
 
-                    item {
+                    item(contentType = "downloads-total") {
                         DownloadsTotalCard(
                             totalBytesUsed = state.totalBytesUsed,
                             sectionCount = state.sections.size,

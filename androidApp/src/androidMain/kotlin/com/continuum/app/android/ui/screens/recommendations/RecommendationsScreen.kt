@@ -1,27 +1,36 @@
 package com.continuum.app.android.ui.screens.recommendations
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.continuum.app.android.ui.components.EmptyStateView
@@ -34,6 +43,8 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun RecommendationsScreen(
     onItemClick: (String) -> Unit,
+    onWatchlistClick: () -> Unit = {},
+    onFavoritesClick: () -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     viewModel: RecommendationsViewModel = koinViewModel(),
 ) {
@@ -92,6 +103,14 @@ fun RecommendationsScreen(
                         Spacer(modifier = Modifier.height(contentTopPadding + 8.dp))
                     }
 
+                    item {
+                        SavedShortcutsRow(
+                            onWatchlistClick = onWatchlistClick,
+                            onFavoritesClick = onFavoritesClick,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+
                     if (state.sections.isEmpty()) {
                         item {
                             EmptyStateView(
@@ -114,6 +133,64 @@ fun RecommendationsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SavedShortcutsRow(
+    onWatchlistClick: () -> Unit,
+    onFavoritesClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SavedShortcutButton(
+            label = "Watchlist",
+            icon = Icons.Outlined.BookmarkBorder,
+            onClick = onWatchlistClick,
+        )
+        SavedShortcutButton(
+            label = "Favorites",
+            icon = Icons.Outlined.FavoriteBorder,
+            onClick = onFavoritesClick,
+        )
+    }
+}
+
+@Composable
+private fun SavedShortcutButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = Color.White.copy(alpha = 0.30f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.height(16.dp),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+            )
         }
     }
 }

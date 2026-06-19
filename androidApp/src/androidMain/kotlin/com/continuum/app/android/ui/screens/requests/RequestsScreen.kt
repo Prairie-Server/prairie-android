@@ -102,7 +102,7 @@ fun RequestsScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
-                        item {
+                        item(contentType = "request-search") {
                             RequestSearchPanel(
                                 query = searchState.query,
                                 selectedType = searchState.mediaType,
@@ -125,7 +125,7 @@ fun RequestsScreen(
                         }
 
                         state.error?.let { error ->
-                            item {
+                            item(contentType = "request-error") {
                                 Text(
                                     text = error,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -136,7 +136,7 @@ fun RequestsScreen(
                         }
 
                         if (state.sections.isEmpty() && !hasSubmittedQuery) {
-                            item {
+                            item(contentType = "request-empty") {
                                 EmptyStateView(
                                     title = "No request suggestions yet",
                                     subtitle = "Search for movies or series to request.",
@@ -144,7 +144,11 @@ fun RequestsScreen(
                                 )
                             }
                         } else if (showDiscoverRows) {
-                            items(state.sections, key = { it.key }) { section ->
+                            items(
+                                state.sections,
+                                key = { it.key },
+                                contentType = { "request-section" },
+                            ) { section ->
                                 RequestSectionRow(
                                     title = section.title,
                                     items = section.results,
@@ -278,7 +282,11 @@ private fun RequestMediaRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(end = 16.dp),
     ) {
-        items(items, key = { "${it.mediaType}-${it.tmdbId}" }) { item ->
+        items(
+            items,
+            key = { "${it.mediaType}-${it.tmdbId}" },
+            contentType = { item -> item.mediaType },
+        ) { item ->
             RequestMediaCard(
                 item = item,
                 onClick = {

@@ -116,7 +116,11 @@ fun TvCatalogGrid(
                 }
             }
         } else {
-            itemsIndexed(items, key = { _, item -> item.contentId }) { index, item ->
+            itemsIndexed(
+                items = items,
+                key = { _, item -> item.contentId },
+                contentType = { _, item -> item.type },
+            ) { index, item ->
                 val (actions, userState) = rememberTvBrowseItemCardActions(item)
                 TvMediaCard(
                     title = item.title,

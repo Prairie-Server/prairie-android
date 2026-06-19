@@ -58,7 +58,10 @@ fun AudioTrackSelector(
             Spacer(modifier = Modifier.height(8.dp))
 
             LazyColumn {
-                itemsIndexed(audioTracks) { index, track ->
+                itemsIndexed(
+                    audioTracks,
+                    contentType = { _, _ -> "audio-track" },
+                ) { index, track ->
                     val label = track.title
                         ?: track.language?.uppercase()
                         ?: "Audio ${index + 1}"

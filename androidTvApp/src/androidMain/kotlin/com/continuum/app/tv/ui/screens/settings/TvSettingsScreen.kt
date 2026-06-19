@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -843,7 +844,7 @@ fun TvSettingsPickerSheet(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.displaySmall,
+                    style = MaterialTheme.typography.displaySmall.copy(fontSize = 14.sp, lineHeight = 16.sp),
                     color = Color.White,
                     modifier = Modifier.padding(bottom = 28.dp),
                 )
@@ -851,9 +852,9 @@ fun TvSettingsPickerSheet(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .width(680.dp),
-                    contentPadding = PaddingValues(horizontal = 40.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                        .width(340.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     items(options, key = { it.id }) { option ->
                         val isFocusTarget = option.id == (options.getOrNull(focusTargetIndex)?.id)
@@ -882,7 +883,7 @@ private fun TvSettingsPickerOptionRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(7.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
@@ -904,12 +905,12 @@ private fun TvSettingsPickerOptionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 26.dp, vertical = 18.dp),
+                .padding(horizontal = 13.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = option.label,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineSmall.copy(fontSize = 15.sp, lineHeight = 17.sp),
                 color = if (isFocused) FocusedContent else Color.White,
                 modifier = Modifier.weight(1f),
             )
@@ -918,6 +919,7 @@ private fun TvSettingsPickerOptionRow(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = if (isFocused) FocusedContent else Color.White,
+                    modifier = Modifier.size(12.dp),
                 )
             }
         }
@@ -953,25 +955,25 @@ private fun TvSettingsConfirmDialog(
         ) {
             Column(
                 modifier = Modifier
-                    .width(640.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .width(320.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surface)
-                    .padding(40.dp),
+                    .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 19.sp),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = message,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DialogButton(
                         label = "Cancel",
                         onClick = onDismiss,
@@ -996,7 +998,7 @@ private fun DialogButton(
     destructive: Boolean = false,
     focusRequester: FocusRequester? = null,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(6.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     Surface(
@@ -1016,9 +1018,9 @@ private fun DialogButton(
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 12.sp, lineHeight = 14.sp),
             color = if (isFocused) FocusedContent else if (destructive) MaterialTheme.colorScheme.error else Color.White,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 }

@@ -90,6 +90,10 @@ class CatalogRepository(
         return result
     }
 
+    /** Returns the last cached item detail without touching the network. */
+    suspend fun getCachedItemDetail(contentId: String): ItemDetail? =
+        catalogCache.getCachedItemDetail(contentId)
+
     /** Fetches playback-oriented detail (versions, user progress, intro/credits markers). */
     suspend fun getWatchDetail(contentId: String): ApiResult<WatchDetail> =
         catalogApi.getWatchDetail(contentId)
