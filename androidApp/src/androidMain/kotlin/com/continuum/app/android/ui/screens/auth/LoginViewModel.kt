@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.AuthRepository
+import java.net.URI
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.launch
 data class LoginUiState(
     val username: String = "",
     val password: String = "",
+    val serverHostLabel: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
     val signupEnabled: Boolean = false,
@@ -25,6 +27,13 @@ class LoginViewModel(
 
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val hostLabel = loginServerHostLabel(authRepository.getServerUrl())
+            _uiState.update { it.copy(serverHostLabel = hostLabel) }
+        }
+    }
 
     /** Called by the navigation layer to pass data from the previous screen. */
     fun setSignupEnabled(enabled: Boolean) {
@@ -83,4 +92,11 @@ class LoginViewModel(
     fun onLoginSuccessConsumed() {
         _uiState.update { it.copy(loginSuccess = false) }
     }
+}
+
+internal fun loginServerHostLabel(serverUrl: String): String? {
+    val trimmed = serverUrl.trim()
+    if (trimmed.isBlank()) return null
+    val parseTarget = if (trimmed.contains("://")) trimmed else "https://$trimmed"
+    return runCatching { URI(parseTarget).host?.takeIf { it.isNotBlank() } }.getOrNull()
 }

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -219,78 +220,89 @@ private fun ServerRow(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    Box {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(
-                    enabled = !isPending,
-                    onClick = onClick,
-                    onLongClick = { menuExpanded = true },
-                )
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                enabled = !isPending,
+                onClick = onClick,
+                onLongClick = { menuExpanded = true },
+            )
+            .padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier.width(28.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier.width(28.dp),
-                contentAlignment = Alignment.Center,
+            Icon(
+                imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Storage,
+                contentDescription = if (isActive) "Active" else null,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = entry.displayName,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            Text(
+                text = entry.url,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+
+        Box {
+            IconButton(
+                enabled = !isPending,
+                onClick = { menuExpanded = true },
             ) {
                 Icon(
-                    imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Storage,
-                    contentDescription = if (isActive) "Active" else null,
-                    tint = MaterialTheme.colorScheme.onSurface,
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Server actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
             }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
             ) {
-                Text(
-                    text = entry.displayName,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    onClick = {
+                        menuExpanded = false
+                        onRename()
+                    },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                 )
-                Text(
-                    text = entry.url,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                DropdownMenuItem(
+                    text = { Text("Remove Server") },
+                    onClick = {
+                        menuExpanded = false
+                        onRemove()
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    },
                 )
             }
-        }
-
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false },
-        ) {
-            DropdownMenuItem(
-                text = { Text("Rename") },
-                onClick = {
-                    menuExpanded = false
-                    onRename()
-                },
-                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-            )
-            DropdownMenuItem(
-                text = { Text("Remove Server") },
-                onClick = {
-                    menuExpanded = false
-                    onRemove()
-                },
-                leadingIcon = {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                },
-            )
         }
     }
 }

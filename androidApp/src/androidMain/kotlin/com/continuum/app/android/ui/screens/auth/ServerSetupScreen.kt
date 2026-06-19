@@ -86,11 +86,7 @@ fun ServerSetupScreen(
         }
     }
 
-    // Advanced options are presentation-only here: the ViewModel does not model
-    // protocol/port, so these mirror the iOS layout without feeding the VM.
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
-    var selectedScheme by rememberSaveable { mutableStateOf("https") }
-    var port by rememberSaveable { mutableStateOf("") }
 
     AuroraScreen(variant = AuroraVariant.Server) {
         // Silo wordmark (iOS width 132).
@@ -166,11 +162,15 @@ fun ServerSetupScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         AuroraFieldLabel("Protocol")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("https", "http").forEach { scheme ->
+                            listOf(
+                                ServerSetupScheme.Auto,
+                                ServerSetupScheme.Https,
+                                ServerSetupScheme.Http,
+                            ).forEach { scheme ->
                                 AuroraSegment(
-                                    title = scheme,
-                                    isSelected = selectedScheme == scheme,
-                                    onClick = { selectedScheme = scheme },
+                                    title = scheme.label,
+                                    isSelected = state.selectedScheme == scheme,
+                                    onClick = { viewModel.onSchemeSelected(scheme) },
                                     modifier = Modifier.weight(1f),
                                 )
                             }
@@ -178,8 +178,8 @@ fun ServerSetupScreen(
                     }
                     AuroraTextField(
                         label = "Port",
-                        value = port,
-                        onValueChange = { port = it },
+                        value = state.port,
+                        onValueChange = viewModel::onPortChanged,
                         placeholder = "8096",
                         keyboardType = KeyboardType.Number,
                     )

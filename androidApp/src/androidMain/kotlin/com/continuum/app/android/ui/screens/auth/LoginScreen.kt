@@ -21,16 +21,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.components.aurora.AuroraEyebrow
 import com.continuum.app.android.ui.components.aurora.AuroraErrorLabel
 import com.continuum.app.android.ui.components.aurora.AuroraGhostButton
+import com.continuum.app.android.ui.components.aurora.AuroraInkTertiary
 import com.continuum.app.android.ui.components.aurora.AuroraPrimaryButton
 import com.continuum.app.android.ui.components.aurora.AuroraScreen
 import com.continuum.app.android.ui.components.aurora.AuroraScrim
@@ -81,6 +84,18 @@ fun LoginScreen(
             fontWeight = FontWeight.SemiBold,
             color = Color(0xFFF3EFE9),
         )
+        state.serverHostLabel?.let { host ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = host,
+                modifier = Modifier.fillMaxWidth(),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 14.sp,
+                color = AuroraInkTertiary,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+            )
+        }
         Spacer(Modifier.height(24.dp))
 
         Column2Glass {
