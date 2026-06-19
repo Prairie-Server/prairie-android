@@ -59,14 +59,14 @@ data class TvPersonDetailUiState(
  */
 class TvPersonDetailViewModel(
     private val catalogRepository: CatalogRepository,
-    private val personId: Int,
+    private val personId: Long,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvPersonDetailUiState())
     val uiState: StateFlow<TvPersonDetailUiState> = _uiState.asStateFlow()
 
     init {
-        if (personId > 0) reload()
+        if (personId > 0L) reload()
     }
 
     fun reload() {

@@ -98,7 +98,7 @@ sealed class Route(val route: String) {
         }
     }
 
-    data class PersonDetail(val personId: Int) : Route("person/$personId") {
+    data class PersonDetail(val personId: Long) : Route("person/$personId") {
         companion object {
             const val ROUTE = "person/{personId}"
         }

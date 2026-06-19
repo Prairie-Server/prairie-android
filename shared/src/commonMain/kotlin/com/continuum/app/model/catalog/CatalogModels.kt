@@ -405,7 +405,7 @@ data class WatchDetail(
 
 @Serializable
 data class Person(
-    val id: Int,
+    val id: Long,
     val name: String,
     val bio: String? = null,
     @SerialName("birth_date") val birthDate: String? = null,

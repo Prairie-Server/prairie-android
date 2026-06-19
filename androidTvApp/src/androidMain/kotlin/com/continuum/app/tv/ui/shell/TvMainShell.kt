@@ -164,7 +164,7 @@ fun TvMainShell(
     onSwitchServer: () -> Unit,
     onPairDevice: () -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit,
-    onOpenPersonDetail: (personId: Int) -> Unit,
+    onOpenPersonDetail: (personId: Long) -> Unit,
 ) {
     val nestedNav = rememberNavController()
     val currentEntry by nestedNav.currentBackStackEntryAsState()
@@ -1056,10 +1056,10 @@ private fun TvLibraryTypeContent(
 private fun openBrowseItem(
     item: BrowseItem,
     onOpenItemDetail: (contentId: String) -> Unit,
-    onOpenPersonDetail: (personId: Int) -> Unit,
+    onOpenPersonDetail: (personId: Long) -> Unit,
 ) {
     if (item.type.equals("person", ignoreCase = true)) {
-        item.contentId.toIntOrNull()?.let(onOpenPersonDetail) ?: onOpenItemDetail(item.contentId)
+        item.contentId.toLongOrNull()?.let(onOpenPersonDetail) ?: onOpenItemDetail(item.contentId)
     } else {
         onOpenItemDetail(item.contentId)
     }

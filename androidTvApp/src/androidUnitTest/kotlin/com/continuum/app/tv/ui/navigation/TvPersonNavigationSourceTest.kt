@@ -32,13 +32,13 @@ class TvPersonNavigationSourceTest {
     @Test
     fun searchPersonResultsRouteToPersonDetailInsteadOfItemDetail() {
         assertTrue(
-            shellSource.contains("onOpenPersonDetail: (personId: Int) -> Unit"),
+            shellSource.contains("onOpenPersonDetail: (personId: Long) -> Unit"),
             "The TV shell needs a person-detail callback in addition to item detail.",
         )
         assertTrue(
             shellSource.contains("openBrowseItem(") &&
                 shellSource.contains("item.type.equals(\"person\", ignoreCase = true)") &&
-                shellSource.contains("item.contentId.toIntOrNull()?.let(onOpenPersonDetail)"),
+                shellSource.contains("item.contentId.toLongOrNull()?.let(onOpenPersonDetail)"),
             "Browse/search result clicks should route person items by type.",
         )
         assertTrue(
@@ -57,7 +57,8 @@ class TvPersonNavigationSourceTest {
             "The top-level TV nav graph should wire shell person clicks to the immersive person detail route.",
         )
         assertTrue(
-            detailViewModelSource.contains("fun openPerson(member: CastMember, onOpenPerson: (Int) -> Unit)") &&
+            detailViewModelSource.contains("fun openPerson(member: CastMember, onOpenPerson: (Long) -> Unit)") &&
+                detailViewModelSource.contains("member.personId?.trim()?.toLongOrNull()?.let(onOpenPerson)") &&
                 detailViewModelSource.contains("catalogRepository.searchPeople(member.name)") &&
                 detailScreenSource.contains("viewModel.openPerson(member, onOpenPerson)") &&
                 !detailScreenSource.contains("member.personId?.toIntOrNull()?.let(onOpenPerson)"),

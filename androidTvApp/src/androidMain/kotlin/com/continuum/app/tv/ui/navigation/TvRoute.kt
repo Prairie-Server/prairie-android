@@ -170,7 +170,7 @@ sealed class TvRoute(val route: String) {
     data object History : TvRoute("history")
 
     // --- Person detail (immersive; opened from a cast/crew card) ---
-    data class PersonDetail(val personId: Int) : TvRoute("person/$personId") {
+    data class PersonDetail(val personId: Long) : TvRoute("person/$personId") {
         companion object {
             const val ROUTE = "person/{personId}"
             const val ARG_PERSON_ID = "personId"

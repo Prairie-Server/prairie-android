@@ -93,13 +93,13 @@ class TvItemDetailViewModel(
         if (contentId.isNotBlank()) loadAll()
     }
 
-    fun openPerson(member: CastMember, onOpenPerson: (Int) -> Unit) {
-        member.personId?.trim()?.toIntOrNull()?.let(onOpenPerson) ?: viewModelScope.launch {
+    fun openPerson(member: CastMember, onOpenPerson: (Long) -> Unit) {
+        member.personId?.trim()?.toLongOrNull()?.let(onOpenPerson) ?: viewModelScope.launch {
             when (val result = catalogRepository.searchPeople(member.name)) {
                 is ApiResult.Success -> {
                     val resolved = result.data.firstOrNull { it.name.equals(member.name, ignoreCase = true) }
                         ?: result.data.firstOrNull()
-                    resolved?.id?.takeIf { it > 0 }?.let(onOpenPerson)
+                    resolved?.id?.takeIf { it > 0L }?.let(onOpenPerson)
                 }
                 is ApiResult.Error,
                 is ApiResult.NetworkError -> Unit

@@ -102,7 +102,7 @@ fun TvItemDetailScreen(
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchTogether: (RoomSnapshot) -> Unit,
-    onOpenPerson: (personId: Int) -> Unit,
+    onOpenPerson: (personId: Long) -> Unit,
     onBack: () -> Unit,
     viewModel: TvItemDetailViewModel = koinViewModel(
         key = "item-detail-$contentId-${seasonNumber ?: "default"}",
@@ -156,7 +156,7 @@ private fun TvDetailContent(
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchTogether: (RoomSnapshot) -> Unit,
-    onOpenPerson: (personId: Int) -> Unit,
+    onOpenPerson: (personId: Long) -> Unit,
 ) {
     val playFocus = remember { FocusRequester() }
     val firstCastFocus = remember { FocusRequester() }

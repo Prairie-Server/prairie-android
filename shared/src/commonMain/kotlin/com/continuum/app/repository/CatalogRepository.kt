@@ -137,12 +137,12 @@ class CatalogRepository(
         catalogApi.searchPeople(query)
 
     /** Fetches details for a specific person. */
-    suspend fun getPerson(id: Int): ApiResult<Person> =
+    suspend fun getPerson(id: Long): ApiResult<Person> =
         catalogApi.getPerson(id)
 
     /** Filmography for a person — movies and series they appear in. */
     suspend fun getPersonItems(
-        personId: Int,
+        personId: Long,
         mediaType: String? = null,
         offset: Int? = null,
         limit: Int? = null,

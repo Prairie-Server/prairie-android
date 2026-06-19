@@ -62,13 +62,16 @@ class PersonDetailViewModel(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val personId: Int = savedStateHandle.get<Int>("personId") ?: 0
+    private val personId: Long =
+        savedStateHandle.get<Long>("personId")
+            ?: savedStateHandle.get<Int>("personId")?.toLong()
+            ?: 0L
 
     private val _uiState = MutableStateFlow(PersonDetailUiState())
     val uiState: StateFlow<PersonDetailUiState> = _uiState.asStateFlow()
 
     init {
-        if (personId > 0) reload()
+        if (personId > 0L) reload()
     }
 
     fun reload() {

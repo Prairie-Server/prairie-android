@@ -81,7 +81,7 @@ class CatalogApi(private val client: HttpClient) {
         }
     }
 
-    suspend fun getPerson(id: Int): ApiResult<Person> = safeApiCall {
+    suspend fun getPerson(id: Long): ApiResult<Person> = safeApiCall {
         client.get("/api/v1/people/$id")
     }
 
@@ -90,7 +90,7 @@ class CatalogApi(private val client: HttpClient) {
      * Mirrors the iOS `personCatalogItems` helper.
      */
     suspend fun getPersonItems(
-        personId: Int,
+        personId: Long,
         mediaType: String? = null,
         offset: Int? = null,
         limit: Int? = null,

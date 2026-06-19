@@ -473,7 +473,7 @@ fun AppNavigation(
                     navController.navigate(Route.ItemDetail(seriesId, seasonNumber).route)
                 },
                 onPersonClick = { personId ->
-                    personId.toIntOrNull()?.let { id ->
+                    personId.toLongOrNull()?.let { id ->
                         navController.navigate(Route.PersonDetail(id).route)
                     }
                 },
@@ -558,7 +558,7 @@ fun AppNavigation(
         composable(
             route = Route.PersonDetail.ROUTE,
             arguments = listOf(
-                navArgument("personId") { type = NavType.IntType },
+                navArgument("personId") { type = NavType.LongType },
             ),
         ) {
             val personViewModel = koinViewModel<PersonDetailViewModel>()

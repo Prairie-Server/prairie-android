@@ -403,10 +403,10 @@ fun TvAppNavigation(
         composable(
             route = TvRoute.PersonDetail.ROUTE,
             arguments = listOf(
-                navArgument(TvRoute.PersonDetail.ARG_PERSON_ID) { type = NavType.IntType },
+                navArgument(TvRoute.PersonDetail.ARG_PERSON_ID) { type = NavType.LongType },
             ),
         ) { backStack ->
-            val personId = backStack.arguments?.getInt(TvRoute.PersonDetail.ARG_PERSON_ID) ?: 0
+            val personId = backStack.arguments?.getLong(TvRoute.PersonDetail.ARG_PERSON_ID) ?: 0L
             TvPersonDetailScreen(
                 personId = personId,
                 onOpenItemDetail = { itemContentId ->

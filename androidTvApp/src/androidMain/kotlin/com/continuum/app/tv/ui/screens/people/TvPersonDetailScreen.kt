@@ -72,7 +72,7 @@ import org.koin.core.parameter.parametersOf
  */
 @Composable
 fun TvPersonDetailScreen(
-    personId: Int,
+    personId: Long,
     onOpenItemDetail: (contentId: String) -> Unit,
     onBack: () -> Unit,
     viewModel: TvPersonDetailViewModel = koinViewModel(
