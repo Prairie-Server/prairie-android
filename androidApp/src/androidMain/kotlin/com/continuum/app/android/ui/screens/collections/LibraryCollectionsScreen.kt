@@ -42,6 +42,7 @@ import com.continuum.app.android.ui.components.ContinuumTopBar
 import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
+import com.continuum.app.android.ui.components.MediaGridDefaults
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.section.LibraryCollection
 import com.continuum.app.model.section.LibraryCollectionsResponse
@@ -233,10 +234,10 @@ fun LibraryCollectionsScreen(
                         .padding(padding),
                 ) {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
+                        columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
                         contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
+                        verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
                     ) {
                         state.sections.forEachIndexed { index, section ->
                             if (section.name.isNotEmpty()) {

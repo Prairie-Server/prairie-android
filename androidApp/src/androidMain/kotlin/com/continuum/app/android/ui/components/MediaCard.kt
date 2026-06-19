@@ -12,12 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,7 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +33,12 @@ import com.continuum.app.common.overlays.CardOverlays
 import com.continuum.app.common.overlays.LocalCardOverlayUiState
 import com.continuum.app.model.catalog.MediaItemUserState
 import com.continuum.app.overlays.OverlayData
+
+object MediaGridDefaults {
+    val PosterGridMinWidth = 110.dp
+    val PosterGridHorizontalSpacing = 12.dp
+    val PosterGridVerticalSpacing = 16.dp
+}
 
 /**
  * The core media poster card used throughout the app.
@@ -106,23 +106,7 @@ fun MediaCard(
             // Watched indicator: white circle + checkmark, top-right.
             // Mirrors iOS MediaCard.swift:104–119.
             if (userState?.played == true) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(20.dp)
-                        .shadow(4.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurface),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Watched",
-                        tint = MaterialTheme.colorScheme.background,
-                        modifier = Modifier.size(10.dp),
-                    )
-                }
+                WatchedBadge(modifier = Modifier.align(Alignment.TopEnd))
             }
 
             // Progress bar at bottom of artwork.

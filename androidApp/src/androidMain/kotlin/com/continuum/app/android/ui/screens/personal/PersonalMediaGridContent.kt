@@ -45,6 +45,7 @@ import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
 import com.continuum.app.android.ui.components.MediaCardContextMenu
+import com.continuum.app.android.ui.components.MediaGridDefaults
 import com.continuum.app.android.ui.components.WatchedBadge
 import com.continuum.app.android.ui.components.rememberBrowseItemCardActions
 import com.continuum.app.common.ui.components.ThumbhashImage
@@ -201,11 +202,11 @@ private fun PersonalMediaGridContent(
                     .padding(contentPadding),
             ) {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
+                    columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
                     state = gridState,
                     contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
+                    verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
                 ) {
                     items(
                         items = state.items,

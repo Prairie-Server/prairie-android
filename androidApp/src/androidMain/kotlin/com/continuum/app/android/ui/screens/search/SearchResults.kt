@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.components.MediaCard
+import com.continuum.app.android.ui.components.MediaGridDefaults
 import com.continuum.app.android.ui.components.rememberBrowseItemCardActions
 import com.continuum.app.model.catalog.BrowseItem
 
@@ -66,15 +67,15 @@ fun SearchResults(
     }
 
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
         state = gridState,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
+        verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
         modifier = modifier,
     ) {
         // Result count header
-        item(span = { GridItemSpan(3) }, contentType = "search-result-count") {
+        item(span = { GridItemSpan(maxLineSpan) }, contentType = "search-result-count") {
             Text(
                 text = "$total result${if (total == 1) "" else "s"}",
                 fontSize = 12.sp,
@@ -98,7 +99,7 @@ fun SearchResults(
                 type = item.type,
                 userState = userState,
                 onClick = { onItemClick(item.contentId) },
-                width = 120.dp,
+                width = MediaGridDefaults.PosterGridMinWidth,
                 overlay = com.continuum.app.overlays.OverlayDataExtractor.fromBrowseItem(item),
                 actions = actions,
             )
@@ -106,7 +107,7 @@ fun SearchResults(
 
         // Loading indicator
         if (isSearching && results.isNotEmpty()) {
-            item(span = { GridItemSpan(3) }, contentType = "search-loading") {
+            item(span = { GridItemSpan(maxLineSpan) }, contentType = "search-loading") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()

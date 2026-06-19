@@ -81,6 +81,7 @@ import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.HeroBackdropImage
 import com.continuum.app.android.ui.components.HeroTintBackground
+import com.continuum.app.android.ui.components.MediaGridDefaults
 import com.continuum.app.android.ui.screens.browse.CatalogGrid
 import com.continuum.app.android.ui.screens.home.FeaturedCarousel
 import com.continuum.app.android.ui.screens.home.HomeSectionRow
@@ -878,12 +879,12 @@ private fun CollectionsTabContent(
             )
         }
         else -> {
-            // iOS `LibraryCollectionsView`: 3-column poster grid (iPhone
-            // compact) with 16pt grid spacing and padding (16) insets.
+            // iOS `LibraryCollectionsView`: adaptive 110pt poster grid with
+            // shared column/row spacing and 16pt padding insets.
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
+                horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
+                verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 16.dp,
