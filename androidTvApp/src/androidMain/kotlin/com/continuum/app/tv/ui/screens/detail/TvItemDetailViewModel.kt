@@ -3,6 +3,7 @@ package com.continuum.app.tv.ui.screens.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
+import com.continuum.app.model.catalog.CastMember
 import com.continuum.app.model.catalog.EpisodeListItem
 import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.catalog.Season
@@ -90,6 +91,20 @@ class TvItemDetailViewModel(
 
     init {
         if (contentId.isNotBlank()) loadAll()
+    }
+
+    fun openPerson(member: CastMember, onOpenPerson: (Int) -> Unit) {
+        member.personId?.trim()?.toIntOrNull()?.let(onOpenPerson) ?: viewModelScope.launch {
+            when (val result = catalogRepository.searchPeople(member.name)) {
+                is ApiResult.Success -> {
+                    val resolved = result.data.firstOrNull { it.name.equals(member.name, ignoreCase = true) }
+                        ?: result.data.firstOrNull()
+                    resolved?.id?.takeIf { it > 0 }?.let(onOpenPerson)
+                }
+                is ApiResult.Error,
+                is ApiResult.NetworkError -> Unit
+            }
+        }
     }
 
     fun loadAll() {

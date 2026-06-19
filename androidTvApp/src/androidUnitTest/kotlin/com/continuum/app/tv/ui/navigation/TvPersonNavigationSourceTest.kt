@@ -21,6 +21,14 @@ class TvPersonNavigationSourceTest {
         "src/androidMain/kotlin/com/continuum/app/tv/ui/navigation/TvAppNavigation.kt",
     ).readText()
 
+    private val detailViewModelSource = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/detail/TvItemDetailViewModel.kt",
+    ).readText()
+
+    private val detailScreenSource = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/detail/TvItemDetailScreen.kt",
+    ).readText()
+
     @Test
     fun searchPersonResultsRouteToPersonDetailInsteadOfItemDetail() {
         assertTrue(
@@ -47,6 +55,13 @@ class TvPersonNavigationSourceTest {
             appNavigationSource.contains("onOpenPersonDetail = { personId ->") &&
                 appNavigationSource.contains("navController.navigate(TvRoute.PersonDetail(personId).route)"),
             "The top-level TV nav graph should wire shell person clicks to the immersive person detail route.",
+        )
+        assertTrue(
+            detailViewModelSource.contains("fun openPerson(member: CastMember, onOpenPerson: (Int) -> Unit)") &&
+                detailViewModelSource.contains("catalogRepository.searchPeople(member.name)") &&
+                detailScreenSource.contains("viewModel.openPerson(member, onOpenPerson)") &&
+                !detailScreenSource.contains("member.personId?.toIntOrNull()?.let(onOpenPerson)"),
+            "Cast-card selection should resolve people by name when person_id is absent or non-numeric instead of no-oping.",
         )
     }
 }

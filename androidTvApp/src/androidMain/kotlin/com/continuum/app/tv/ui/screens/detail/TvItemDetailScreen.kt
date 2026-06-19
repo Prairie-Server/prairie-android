@@ -267,7 +267,7 @@ private fun TvDetailContent(
                                 // episode rail above it; Up then returns to the hero.
                                 onDirectionUp = if (showsEpisodeRail) null else returnToHero,
                                 onCastMemberClick = { member ->
-                                    member.personId?.toIntOrNull()?.let(onOpenPerson)
+                                    viewModel.openPerson(member, onOpenPerson)
                                 },
                             )
                         }
