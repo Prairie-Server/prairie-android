@@ -16,6 +16,11 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.ExperimentalComposeUiApi
 import com.continuum.app.model.section.SectionItem
@@ -76,6 +81,7 @@ fun TvMediaRow(
     showHeader: Boolean = true,
     itemCardModifier: Modifier = Modifier,
     upFocusRequester: FocusRequester? = null,
+    onDirectionUp: (() -> Boolean)? = null,
     firstItemFocusRequester: FocusRequester? = null,
     firstItemFocusRequest: Int = 0,
     firstItemCardModifier: Modifier = Modifier,
@@ -153,6 +159,18 @@ fun TvMediaRow(
                 val itemFocusRequester = firstItemFocusRequester.takeIf { index == 0 }
                 val appliedCardModifier = itemCardModifier.then(
                     if (index == 0) firstItemCardModifier else Modifier,
+                ).then(
+                    if (onDirectionUp != null) {
+                        Modifier.onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                                onDirectionUp?.invoke() ?: false
+                            } else {
+                                false
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
                 ).then(
                     if (upFocusRequester != null) {
                         Modifier.focusProperties { up = upFocusRequester }
@@ -238,22 +256,13 @@ private fun SectionItem.remainingMinutes(): Int? {
     return ((dur - pos) / 60.0).toInt()
 }
 
-/**
- * Episodes have backdrop/still frames on `posterUrl`; movies have them on
- * `backdropUrl`. Prefer the more specific field when present.
- */
+/** Prefer wide artwork for 16:9 row cards, falling back to poster only if needed. */
 private fun SectionItem.bestBackdropUrl(): String? {
-    val isEpisode = seriesTitle != null
-    return if (isEpisode) posterUrl ?: backdropUrl else backdropUrl ?: posterUrl
+    return backdropUrl ?: posterUrl
 }
 
 private fun SectionItem.bestBackdropThumbhash(): String? {
-    val isEpisode = seriesTitle != null
-    return if (isEpisode) {
-        posterThumbhash ?: backdropThumbhash
-    } else {
-        backdropThumbhash ?: posterThumbhash
-    }
+    return backdropThumbhash ?: posterThumbhash
 }
 
 private fun SectionItem.shelfTitle(showProgress: Boolean): String {

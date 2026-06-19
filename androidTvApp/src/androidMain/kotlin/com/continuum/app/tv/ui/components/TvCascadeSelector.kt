@@ -72,6 +72,7 @@ internal val CascadeMaxListHeight = 180.dp
 internal val TvCascadeSelectorMaxPanelWidth = 389.dp
 internal val CascadePanelHeaderSize = 7.sp
 internal val CascadeFlyoutHeaderSize = 6.5.sp
+internal val CascadeFooterTextSize = 9.5.sp
 internal val CascadeRowTextSize = 11.sp
 internal val CascadeRowIconSize = 15.dp
 internal val CascadeRowPaddingHorizontal = 9.dp
@@ -89,6 +90,7 @@ private val CascadeFlyoutRowSpacing = 6.dp
 private val CascadePanelHeaderTracking = 1.8.sp
 private val CascadeFlyoutHeaderTracking = 1.7.sp
 private val CascadeFooterTracking = 0.6.sp
+private val CascadeFooterLineHeight = 12.sp
 
 /**
  * The Skyline cascading library selector — a faithful Compose-for-TV port of
@@ -441,16 +443,17 @@ private fun CascadePanelFooter(isSingleLibrary: Boolean) {
         )
         Text(
             text = caption,
-            color = ContinuumOnSurface.copy(alpha = 0.34f),
-            fontSize = CascadePanelHeaderSize,
+            color = ContinuumOnSurface.copy(alpha = 0.52f),
+            fontSize = CascadeFooterTextSize,
             fontWeight = FontWeight.Medium,
             letterSpacing = CascadeFooterTracking,
-            maxLines = 2,
+            lineHeight = CascadeFooterLineHeight,
+            maxLines = 3,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp)
-                .padding(top = 5.dp, bottom = 2.dp),
+                .padding(top = 6.dp, bottom = 3.dp),
         )
     }
 }

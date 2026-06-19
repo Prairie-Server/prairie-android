@@ -20,6 +20,9 @@ data class TvEditProfileUiState(
     val profileId: String = "",
     val name: String = "",
     val selectedAvatar: String? = null,
+    val avatarStyleId: String = TvProfileAvatarPresets.DefaultStyleId,
+    val selectedAvatarSeed: String? = null,
+    val avatarBatch: Int = 0,
     val isChild: Boolean = false,
     val maxContentRating: String? = null,
     val pinEnabled: Boolean = false,
@@ -52,11 +55,14 @@ class TvEditProfileViewModel(
                 is ApiResult.Success -> {
                     val profile = result.data.find { it.id == profileId }
                     if (profile != null) {
+                        val preset = TvProfileAvatarPresets.parseRef(profile.avatar)
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
                                 name = profile.name,
                                 selectedAvatar = profile.avatar,
+                                avatarStyleId = preset?.styleId ?: TvProfileAvatarPresets.DefaultStyleId,
+                                selectedAvatarSeed = preset?.seed,
                                 isChild = profile.isChild,
                                 maxContentRating = profile.maxContentRating,
                                 pinEnabled = profile.hasPin,
@@ -92,6 +98,37 @@ class TvEditProfileViewModel(
 
     fun onAvatarSelected(emoji: String) {
         _uiState.update { it.copy(selectedAvatar = emoji) }
+    }
+
+    fun onAvatarStyleSelected(styleId: String) {
+        _uiState.update {
+            it.copy(
+                avatarStyleId = styleId,
+                selectedAvatar = null,
+                selectedAvatarSeed = null,
+                avatarBatch = 0,
+            )
+        }
+    }
+
+    fun onAvatarPresetSelected(preset: TvProfileAvatarPresets.Preset) {
+        _uiState.update {
+            it.copy(
+                avatarStyleId = preset.styleId,
+                selectedAvatar = preset.ref,
+                selectedAvatarSeed = preset.seed,
+            )
+        }
+    }
+
+    fun onAvatarShuffle() {
+        _uiState.update {
+            it.copy(
+                avatarBatch = it.avatarBatch + 1,
+                selectedAvatar = null,
+                selectedAvatarSeed = null,
+            )
+        }
     }
 
     fun onChildToggled(checked: Boolean) {
@@ -145,7 +182,7 @@ class TvEditProfileViewModel(
 
             val request = UpdateProfileRequest(
                 name = current.name,
-                avatar = current.selectedAvatar,
+                avatar = current.effectiveAvatarRef(),
                 pin = if (current.pinEnabled && current.pin.isNotEmpty()) current.pin else null,
                 isChild = current.isChild,
                 maxContentRating = current.maxContentRating,
@@ -177,3 +214,12 @@ class TvEditProfileViewModel(
         _uiState.update { it.copy(saveSuccess = false) }
     }
 }
+
+private fun TvEditProfileUiState.effectiveAvatarRef(): String? =
+    TvProfileAvatarPresets.effectiveAvatarRef(
+        styleId = avatarStyleId,
+        selectedSeed = selectedAvatarSeed,
+        batch = avatarBatch,
+        name = name,
+        fallbackAvatar = selectedAvatar,
+    )

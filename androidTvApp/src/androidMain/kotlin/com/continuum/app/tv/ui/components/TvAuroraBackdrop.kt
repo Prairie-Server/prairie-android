@@ -38,12 +38,13 @@ data class TvAuroraVariant(
     val rotationDegrees: Float,
     val centerY: Float,
     val intensity: Float,
+    val ribbonIntensity: Float = 1f,
 ) {
     companion object {
         val Welcome = TvAuroraVariant(-12f, 0.24f, 0.92f)
         val Server = TvAuroraVariant(-9f, 0.32f, 0.62f)
         val SignIn = TvAuroraVariant(-14f, 0.22f, 0.90f)
-        val Profile = TvAuroraVariant(-10f, 0.27f, 0.74f)
+        val Profile = TvAuroraVariant(-10f, 0.27f, 0.66f, ribbonIntensity = 0f)
     }
 }
 
@@ -90,11 +91,16 @@ fun TvAuroraBackdrop(
             )
 
             // Three soft, wide light bands rotated as a group (additive).
-            val cy = h * variant.centerY
-            rotate(degrees = variant.rotationDegrees, pivot = Offset(w / 2f, cy)) {
-                ribbon(cy + 0f, w * 1.7f, 150f, listOf(Color(0xFFFFD9A4), Color(0xFFFF90A8), Color(0xFFC490FF)), variant.intensity)
-                ribbon(cy + 96f, w * 1.7f, 116f, listOf(Color(0xFFFFADC6), Color(0xFF9B8BFF)), variant.intensity)
-                ribbon(cy - 120f, w * 1.5f, 92f, listOf(Color(0xFFC6F0E2), Color(0xFF8FE7CF)), variant.intensity * 0.7f)
+            // Profile selection keeps the bloom but suppresses the bands; on
+            // Android's canvas they read as a hard diagonal stripe, unlike tvOS.
+            if (variant.ribbonIntensity > 0f) {
+                val cy = h * variant.centerY
+                val ribbonAlpha = variant.intensity * variant.ribbonIntensity
+                rotate(degrees = variant.rotationDegrees, pivot = Offset(w / 2f, cy)) {
+                    ribbon(cy + 0f, w * 1.7f, 150f, listOf(Color(0xFFFFD9A4), Color(0xFFFF90A8), Color(0xFFC490FF)), ribbonAlpha)
+                    ribbon(cy + 96f, w * 1.7f, 116f, listOf(Color(0xFFFFADC6), Color(0xFF9B8BFF)), ribbonAlpha)
+                    ribbon(cy - 120f, w * 1.5f, 92f, listOf(Color(0xFFC6F0E2), Color(0xFF8FE7CF)), ribbonAlpha * 0.7f)
+                }
             }
         }
 
@@ -126,7 +132,7 @@ fun TvAuroraBackdrop(
             TvAuroraScrim.Soft -> Box(
                 Modifier.matchParentSize().background(
                     Brush.radialGradient(
-                        colors = listOf(Color.Transparent, NightBottom.copy(alpha = 0.55f)),
+                        colors = listOf(Color.Transparent, NightBottom.copy(alpha = 0.72f)),
                     ),
                 ),
             )

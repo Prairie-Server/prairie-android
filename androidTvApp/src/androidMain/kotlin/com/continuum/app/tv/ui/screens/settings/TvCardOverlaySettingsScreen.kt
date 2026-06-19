@@ -65,6 +65,7 @@ import com.continuum.app.overlays.OverlayItemConfig
 import com.continuum.app.overlays.OverlayPosition
 import com.continuum.app.overlays.OverlayRegistry
 import com.continuum.app.overlays.OverlaySchema
+import com.continuum.app.tv.ui.components.TvCardOverlayScale
 import com.continuum.app.tv.ui.shell.TvTopMenuLayout
 import com.continuum.app.tv.ui.theme.FocusedContainer
 import com.continuum.app.tv.ui.theme.FocusedContent
@@ -312,6 +313,8 @@ private fun OverlayPreviewPoster(
                 data = data,
                 prefs = prefs,
                 variant = CardOverlayVariant.Poster,
+                scale = TvCardOverlayScale,
+                forceOpaqueBackground = true,
             )
         }
     }
@@ -516,6 +519,8 @@ private fun OverlayBadgePreview(
             data = data,
             prefs = previewPrefs,
             variant = CardOverlayVariant.Poster,
+            scale = TvCardOverlayScale,
+            forceOpaqueBackground = true,
         )
     }
 }

@@ -31,9 +31,12 @@ fun TvCreateProfileScreen(
 
     TvProfileForm(
         state = TvProfileFormState(
-            title = "Create Profile",
+            title = "New Profile",
             name = state.name,
             selectedAvatar = state.selectedAvatar,
+            avatarStyleId = state.avatarStyleId,
+            selectedAvatarSeed = state.selectedAvatarSeed,
+            avatarBatch = state.avatarBatch,
             isChild = state.isChild,
             maxContentRating = state.maxContentRating,
             pinEnabled = state.pinEnabled,
@@ -41,13 +44,16 @@ fun TvCreateProfileScreen(
             qualityPreference = state.qualityPreference,
             subtitleMode = state.subtitleMode,
             pinHelper = "4-Digit PIN",
-            submitLabel = "Create",
+            submitLabel = "Create Profile",
             isSubmitting = state.isLoading,
             error = state.error,
         ),
         callbacks = TvProfileFormCallbacks(
             onNameChanged = viewModel::onNameChanged,
             onAvatarSelected = viewModel::onAvatarSelected,
+            onAvatarStyleSelected = viewModel::onAvatarStyleSelected,
+            onAvatarPresetSelected = viewModel::onAvatarPresetSelected,
+            onAvatarShuffle = viewModel::onAvatarShuffle,
             onChildToggled = viewModel::onChildToggled,
             onContentRatingSelected = viewModel::onContentRatingSelected,
             onPinToggled = viewModel::onPinToggled,
@@ -55,6 +61,7 @@ fun TvCreateProfileScreen(
             onQualitySelected = viewModel::onQualitySelected,
             onSubtitleModeSelected = viewModel::onSubtitleModeSelected,
             onSubmit = viewModel::onCreateClick,
+            onCancel = onNavigateBack,
         ),
     )
 }

@@ -122,16 +122,24 @@ sealed class TvRoute(val route: String) {
     data class AudiobookPlayer(
         val contentId: String,
         val fileId: Int? = null,
+        val startPositionSeconds: Double? = null,
     ) : TvRoute(
         buildString {
             append("audiobook/$contentId")
-            if (fileId != null) append("?fileId=$fileId")
+            val query = buildList {
+                if (fileId != null) add("fileId=$fileId")
+                VideoPlayerRouteArgs.encodeResumePosition(startPositionSeconds)?.let { value ->
+                    add("$ARG_START_POSITION=$value")
+                }
+            }
+            if (query.isNotEmpty()) append("?").append(query.joinToString("&"))
         },
     ) {
         companion object {
-            const val ROUTE = "audiobook/{contentId}?fileId={fileId}"
+            const val ROUTE = "audiobook/{contentId}?fileId={fileId}&startPosition={startPosition}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
+            const val ARG_START_POSITION = "startPosition"
         }
     }
 

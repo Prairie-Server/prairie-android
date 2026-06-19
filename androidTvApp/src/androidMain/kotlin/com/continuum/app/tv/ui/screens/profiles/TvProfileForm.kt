@@ -1,7 +1,11 @@
 package com.continuum.app.tv.ui.screens.profiles
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,15 +18,19 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,43 +38,73 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Glow
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Border
-import androidx.compose.foundation.BorderStroke
 import androidx.tv.material3.Text
+import coil3.compose.AsyncImage
+import com.continuum.app.common.ui.components.ThumbhashImage
+import com.continuum.app.common.ui.components.isImageAvatar
+import com.continuum.app.common.ui.components.profileAvatarDisplayText
+import com.continuum.app.common.ui.components.rememberProfileServerUrl
+import com.continuum.app.common.ui.components.resolveAvatarUrl
 import com.continuum.app.tv.ui.components.TvAuroraBackdrop
 import com.continuum.app.tv.ui.components.TvAuroraVariant
-import com.continuum.app.tv.ui.components.TvDialogOption
-import com.continuum.app.tv.ui.components.TvFilterChip
 import com.continuum.app.tv.ui.components.TvHeroActionPill
-import com.continuum.app.tv.ui.components.TvOptionDialog
 import com.continuum.app.tv.ui.components.TvPillVariant
-import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
-import com.continuum.app.tv.ui.theme.FocusedContainer
-import com.continuum.app.tv.ui.theme.FocusedContent
-import com.continuum.app.tv.ui.theme.Spacing
+import com.continuum.app.tv.ui.components.TvTextInputDialog
+
+private val ProfileEditorHeaderPadding = 80.dp
+private val ProfileEditorContentPadding = 80.dp
+private val ProfileEditorPreviewWidth = 180.dp
+private val ProfileEditorColumnGap = 40.dp
+private val ProfileEditorColumnWidth = 584.dp
+private val ProfileEditorGridHeight = 154.dp
+private val ProfileEditorGridGap = 6.dp
+private val ProfileStyleChipGap = 4.dp
+private val ProfileEditorSectionGap = 8.dp
+private val ProfileAvatarCellHeight = 46.dp
+private val ProfileAvatarImageSize = 42.dp
+private val ProfileTextEntryHeight = 52.dp
+
+private enum class ProfileTextField {
+    Name,
+    Pin,
+}
 
 /**
- * Snapshot of the editable profile fields shared by create + edit. The screen
- * wrappers map their respective UiState into this so the form composable below
- * is identical for both flows (parity with the phone, which shares the same
- * form widgets between CreateProfileScreen and EditProfileScreen).
+ * Snapshot of the editable profile fields shared by create + edit. The TV
+ * layout intentionally mirrors tvOS: profile creation is identity-first, with
+ * avatar style/preset selection in the main flow rather than mobile-only
+ * preference rows.
  */
 data class TvProfileFormState(
     val title: String,
+    val subtitle: String = "Pick a look and give it a name.",
     val name: String,
     val selectedAvatar: String?,
+    val avatarStyleId: String,
+    val selectedAvatarSeed: String?,
+    val avatarBatch: Int,
     val isChild: Boolean,
     val maxContentRating: String?,
     val pinEnabled: Boolean,
@@ -82,6 +120,9 @@ data class TvProfileFormState(
 data class TvProfileFormCallbacks(
     val onNameChanged: (String) -> Unit,
     val onAvatarSelected: (String) -> Unit,
+    val onAvatarStyleSelected: (String) -> Unit,
+    val onAvatarPresetSelected: (TvProfileAvatarPresets.Preset) -> Unit,
+    val onAvatarShuffle: () -> Unit,
     val onChildToggled: (Boolean) -> Unit,
     val onContentRatingSelected: (String) -> Unit,
     val onPinToggled: (Boolean) -> Unit,
@@ -89,10 +130,8 @@ data class TvProfileFormCallbacks(
     val onQualitySelected: (String) -> Unit,
     val onSubtitleModeSelected: (String) -> Unit,
     val onSubmit: () -> Unit,
+    val onCancel: (() -> Unit)? = null,
 )
-
-/** Identifies which option picker dialog is currently open. */
-private enum class TvProfilePicker { Rating, Quality, Subtitle }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -100,8 +139,20 @@ fun TvProfileForm(
     state: TvProfileFormState,
     callbacks: TvProfileFormCallbacks,
 ) {
-    var activePicker by remember { mutableStateOf<TvProfilePicker?>(null) }
-    val nameFocus = remember { FocusRequester() }
+    val previewAvatar = state.previewAvatarRef()
+    val presets = remember(state.avatarStyleId, state.avatarBatch) {
+        TvProfileAvatarPresets.batch(state.avatarStyleId, state.avatarBatch)
+    }
+    val activePresetSeed = state.selectedAvatarSeed
+        ?: TvProfileAvatarPresets.parseRef(state.selectedAvatar)?.seed
+        ?: presets.firstOrNull()?.seed
+    val isInitialsStyle = state.avatarStyleId == "initials"
+    val nameFocusRequester = remember { FocusRequester() }
+    val pinFocusRequester = remember { FocusRequester() }
+    val childFocusRequester = remember { FocusRequester() }
+    val submitFocusRequester = remember { FocusRequester() }
+    val formScrollState = rememberScrollState()
+    var editingTextField by remember { mutableStateOf<ProfileTextField?>(null) }
 
     Box(
         modifier = Modifier
@@ -111,279 +162,705 @@ fun TvProfileForm(
         TvAuroraBackdrop(variant = TvAuroraVariant.Profile)
 
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .width(420.dp)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(top = 48.dp, bottom = Spacing.xxl, start = Spacing.xl, end = Spacing.xl),
+                .padding(top = 60.dp),
         ) {
-            Text(
-                text = state.title,
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-
-            // --- Avatar preview + picker ---
-            ProfileAvatarPreview(
-                avatar = state.selectedAvatar,
-                name = state.name.ifBlank { "?" },
-            )
-
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = ProfileEditorHeaderPadding),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                items(TV_AVATAR_EMOJIS, key = { it }) { emoji ->
-                    AvatarPickerChip(
-                        emoji = emoji,
-                        selected = state.selectedAvatar == emoji,
-                        onClick = { callbacks.onAvatarSelected(emoji) },
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = state.title,
+                        fontSize = 36.sp,
+                        lineHeight = 40.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                    )
+                    Text(
+                        text = state.subtitle,
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        color = Color.White.copy(alpha = 0.55f),
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                callbacks.onCancel?.let { onCancel ->
+                    TvHeroActionPill(
+                        label = "Cancel",
+                        icon = Icons.Filled.Close,
+                        variant = TvPillVariant.Hollow,
+                        heightOverride = 22.dp,
+                        horizontalPaddingOverride = 10.dp,
+                        labelStyle = MaterialTheme.typography.labelSmall,
+                        onClick = onCancel,
                     )
                 }
             }
 
-            // --- Name ---
-            OutlinedTextField(
-                value = state.name,
-                onValueChange = callbacks.onNameChanged,
-                label = { Text("Profile Name", color = Color.White) },
-                singleLine = true,
+            Spacer(modifier = Modifier.height(0.dp))
+
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(nameFocus),
-                colors = tvOutlinedTextFieldColors(),
-            )
-
-            // --- Child toggle ---
-            FormToggleRow(
-                label = "Child Profile",
-                checked = state.isChild,
-                onToggle = callbacks.onChildToggled,
-            )
-
-            if (state.isChild) {
-                FormPickerRow(
-                    label = "Max Content Rating",
-                    value = state.maxContentRating ?: "PG",
-                    onClick = { activePicker = TvProfilePicker.Rating },
+                    .weight(1f)
+                    .padding(horizontal = ProfileEditorContentPadding),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.Top,
+            ) {
+                TvProfilePreviewColumn(
+                    avatar = previewAvatar,
+                    name = state.name.ifBlank { "Your Name" },
+                    hasPin = state.pinEnabled && state.pin.isNotBlank(),
+                    isChild = state.isChild,
                 )
+
+                Spacer(modifier = Modifier.width(ProfileEditorColumnGap))
+
+                Column(
+                    modifier = Modifier
+                        .width(ProfileEditorColumnWidth)
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(ProfileEditorSectionGap),
+                ) {
+                    TvProfileFormSection(title = "Style") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(ProfileStyleChipGap)) {
+                            TvProfileAvatarPresets.styles.forEach { style ->
+                                TvAvatarStyleChip(
+                                    style = style,
+                                    isSelected = style.id == state.avatarStyleId,
+                                    onSelect = { callbacks.onAvatarStyleSelected(style.id) },
+                                )
+                            }
+                        }
+                    }
+
+                    if (isInitialsStyle) {
+                        TvProfileFormSection(title = "Avatar") {
+                            TvInitialsHint()
+                        }
+                    } else {
+                        TvProfileFormSection(
+                            title = "Avatar",
+                            trailing = {
+                                TvHeroActionPill(
+                                    label = "Shuffle",
+                                    icon = Icons.Filled.Refresh,
+                                    variant = TvPillVariant.Hollow,
+                                    heightOverride = 24.dp,
+                                    horizontalPaddingOverride = 10.dp,
+                                    labelStyle = MaterialTheme.typography.labelSmall,
+                                    onClick = callbacks.onAvatarShuffle,
+                                )
+                            },
+                        ) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(6),
+                                modifier = Modifier
+                                    .width(ProfileEditorColumnWidth)
+                                    .height(ProfileEditorGridHeight),
+                                horizontalArrangement = Arrangement.spacedBy(ProfileEditorGridGap),
+                                verticalArrangement = Arrangement.spacedBy(ProfileEditorGridGap),
+                                userScrollEnabled = false,
+                            ) {
+                                itemsIndexed(presets, key = { _, preset -> preset.id }) { index, preset ->
+                                    val isBottomRow = index >= 12
+                                    TvPresetAvatarCell(
+                                        preset = preset,
+                                        isSelected = preset.seed == activePresetSeed,
+                                        onSelect = { callbacks.onAvatarPresetSelected(preset) },
+                                        modifier = if (isBottomRow) {
+                                            Modifier
+                                                .focusProperties { down = nameFocusRequester }
+                                                .onPreviewKeyEvent { event ->
+                                                    if (
+                                                        event.type == KeyEventType.KeyDown &&
+                                                        event.key == Key.DirectionDown
+                                                    ) {
+                                                        runCatching { nameFocusRequester.requestFocus() }
+                                                        true
+                                                    } else {
+                                                        false
+                                                    }
+                                                }
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(formScrollState),
+                        verticalArrangement = Arrangement.spacedBy(ProfileEditorSectionGap),
+                    ) {
+                        TvProfileFormSection(title = "Name") {
+                            TvProfileTextEntryField(
+                                value = state.name,
+                                placeholder = "Profile name",
+                                onClick = { editingTextField = ProfileTextField.Name },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(nameFocusRequester)
+                                    .focusProperties { down = pinFocusRequester }
+                                    .onPreviewKeyEvent { event ->
+                                        if (
+                                            event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionDown
+                                        ) {
+                                            runCatching { pinFocusRequester.requestFocus() }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    },
+                            )
+                        }
+
+                        TvProfileFormSection(title = "PIN (optional)") {
+                            TvProfileTextEntryField(
+                                value = state.pin,
+                                placeholder = state.pinHelper,
+                                onClick = { editingTextField = ProfileTextField.Pin },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(pinFocusRequester)
+                                    .focusProperties {
+                                        up = nameFocusRequester
+                                        down = childFocusRequester
+                                    }
+                                    .onPreviewKeyEvent { event ->
+                                        if (
+                                            event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionDown
+                                        ) {
+                                            runCatching { childFocusRequester.requestFocus() }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    },
+                            )
+                        }
+
+                        TvChildProfileRow(
+                            isOn = state.isChild,
+                            onToggle = { callbacks.onChildToggled(!state.isChild) },
+                            modifier = Modifier
+                                .focusRequester(childFocusRequester)
+                                .focusProperties {
+                                    up = pinFocusRequester
+                                    down = submitFocusRequester
+                                },
+                        )
+
+                        if (state.error != null) {
+                            Text(
+                                text = state.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+
+                        TvHeroActionPill(
+                            label = if (state.isSubmitting) "Saving..." else state.submitLabel,
+                            icon = Icons.Filled.Check,
+                            variant = TvPillVariant.Filled,
+                            focusRequester = submitFocusRequester,
+                            upFocusRequester = childFocusRequester,
+                            onClick = { if (!state.isSubmitting && state.name.isNotBlank()) callbacks.onSubmit() },
+                        )
+                    }
+                }
             }
+        }
 
-            // --- PIN ---
-            FormToggleRow(
-                label = "Require PIN",
-                checked = state.pinEnabled,
-                onToggle = callbacks.onPinToggled,
-            )
-
-            if (state.pinEnabled) {
-                OutlinedTextField(
-                    value = state.pin,
-                    onValueChange = callbacks.onPinChanged,
-                    label = { Text(state.pinHelper, color = Color.White) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = tvOutlinedTextFieldColors(),
-                )
-            }
-
-            // --- Quality ---
-            FormPickerRow(
-                label = "Quality Preference",
-                value = state.qualityPreference ?: "Auto",
-                onClick = { activePicker = TvProfilePicker.Quality },
-            )
-
-            // --- Subtitles ---
-            FormPickerRow(
-                label = "Subtitles",
-                value = subtitleModeLabel(state.subtitleMode),
-                onClick = { activePicker = TvProfilePicker.Subtitle },
-            )
-
-            if (state.error != null) {
-                Text(
-                    text = state.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(Spacing.sm))
-
-            TvHeroActionPill(
-                label = if (state.isSubmitting) "Saving…" else state.submitLabel,
-                icon = Icons.Filled.Check,
-                variant = TvPillVariant.Filled,
-                onClick = { if (!state.isSubmitting) callbacks.onSubmit() },
+        editingTextField?.let { field ->
+            TvTextInputDialog(
+                title = when (field) {
+                    ProfileTextField.Name -> "Profile Name"
+                    ProfileTextField.Pin -> "Profile PIN"
+                },
+                label = when (field) {
+                    ProfileTextField.Name -> "Profile name"
+                    ProfileTextField.Pin -> "4-digit PIN"
+                },
+                confirmLabel = "Done",
+                initialValue = when (field) {
+                    ProfileTextField.Name -> state.name
+                    ProfileTextField.Pin -> state.pin
+                },
+                allowBlank = field == ProfileTextField.Pin,
+                keyboardType = when (field) {
+                    ProfileTextField.Name -> KeyboardType.Text
+                    ProfileTextField.Pin -> KeyboardType.NumberPassword
+                },
+                onConfirm = { text ->
+                    when (field) {
+                        ProfileTextField.Name -> callbacks.onNameChanged(text.trim())
+                        ProfileTextField.Pin -> callbacks.onPinChanged(text.filter(Char::isDigit).take(4))
+                    }
+                    editingTextField = null
+                },
+                onDismiss = { editingTextField = null },
             )
         }
     }
-
-    // --- Option picker dialogs (TV-native replacement for the phone dropdowns) ---
-    when (activePicker) {
-        TvProfilePicker.Rating -> TvOptionDialog(
-            title = "Max Content Rating",
-            options = TV_CONTENT_RATINGS.map { rating ->
-                TvDialogOption(
-                    key = rating,
-                    title = rating,
-                    selected = (state.maxContentRating ?: "PG") == rating,
-                    onClick = {
-                        callbacks.onContentRatingSelected(rating)
-                        activePicker = null
-                    },
-                )
-            },
-            onDismiss = { activePicker = null },
-        )
-
-        TvProfilePicker.Quality -> TvOptionDialog(
-            title = "Quality Preference",
-            options = TV_QUALITY_OPTIONS.map { quality ->
-                TvDialogOption(
-                    key = quality,
-                    title = quality,
-                    selected = (state.qualityPreference ?: "Auto") == quality,
-                    onClick = {
-                        callbacks.onQualitySelected(quality)
-                        activePicker = null
-                    },
-                )
-            },
-            onDismiss = { activePicker = null },
-        )
-
-        TvProfilePicker.Subtitle -> TvOptionDialog(
-            title = "Subtitles",
-            options = TV_SUBTITLE_MODES.map { mode ->
-                TvDialogOption(
-                    key = mode,
-                    title = mode,
-                    selected = subtitleModeLabel(state.subtitleMode) == mode,
-                    onClick = {
-                        callbacks.onSubtitleModeSelected(mode)
-                        activePicker = null
-                    },
-                )
-            },
-            onDismiss = { activePicker = null },
-        )
-
-        null -> Unit
-    }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ProfileAvatarPreview(avatar: String?, name: String) {
-    val isEmoji = !avatar.isNullOrBlank()
-    val initial = name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    Box(
-        modifier = Modifier
-            .size(120.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.08f))
-            .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = if (isEmoji) avatar!! else initial,
-            fontSize = if (isEmoji) 56.sp else 48.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White.copy(alpha = 0.94f),
-        )
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun AvatarPickerChip(
-    emoji: String,
-    selected: Boolean,
-    onClick: () -> Unit,
+private fun TvProfileFormSection(
+    title: String,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
 ) {
-    val shape = CircleShape
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title.uppercase(),
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.6.sp,
+                color = Color.White.copy(alpha = 0.50f),
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            trailing?.invoke()
+        }
+        content()
+    }
+}
+
+@Composable
+private fun TvProfilePreviewColumn(
+    avatar: String?,
+    name: String,
+    hasPin: Boolean,
+    isChild: Boolean,
+) {
+    Column(
+        modifier = Modifier
+            .width(ProfileEditorPreviewWidth)
+            .padding(top = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        TvProfileTilePreview(
+            avatar = avatar,
+            name = name,
+            hasPin = hasPin,
+            isChild = isChild,
+        )
+        if (name == "Your Name") {
+            Text(
+                text = "Your tile will look like this.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.45f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvProfileTilePreview(
+    avatar: String?,
+    name: String,
+    hasPin: Boolean,
+    isChild: Boolean,
+) {
+    val serverUrl = rememberProfileServerUrl()
+    val avatarText = remember(avatar, name) { profileAvatarDisplayText(avatar, name) }
+    val avatarUrl = remember(avatar, serverUrl) {
+        avatar
+            ?.takeIf(::isImageAvatar)
+            ?.let { resolveAvatarUrl(serverUrl, it) ?: resolveAvatarUrl("", it) }
+    }
+    val shape = RoundedCornerShape(18.dp)
+    val tint = remember(name, avatar) { profilePreviewTint("$name-$avatar") }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .background(tint, shape)
+                .border(1.dp, Color.White.copy(alpha = 0.14f), shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (avatarUrl != null) {
+                ThumbhashImage(
+                    url = avatarUrl,
+                    thumbhash = null,
+                    contentDescription = name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    transparent = true,
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                1f to Color.Black.copy(alpha = 0.22f),
+                            ),
+                        ),
+                )
+            } else {
+                Text(
+                    text = avatarText,
+                    fontSize = if (!avatar.isNullOrBlank() && !isImageAvatar(avatar)) 70.sp else 60.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.94f),
+                )
+            }
+
+            if (isChild || hasPin) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (isChild) TvProfileBadge(Icons.Filled.ChildCare, "Child profile")
+                    if (hasPin) TvProfileBadge(Icons.Filled.Lock, "PIN protected")
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White.copy(alpha = 0.72f),
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvProfileTextEntryField(
+    value: String,
+    placeholder: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(6.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     Surface(
         onClick = onClick,
+        interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f),
+            containerColor = Color.Black.copy(alpha = 0.20f),
             contentColor = Color.White,
-            focusedContainerColor = FocusedContainer,
-            focusedContentColor = FocusedContent,
-            pressedContainerColor = FocusedContainer,
-            pressedContentColor = FocusedContent,
+            focusedContainerColor = Color.Black.copy(alpha = 0.24f),
+            focusedContentColor = Color.White,
+            pressedContainerColor = Color.Black.copy(alpha = 0.30f),
+            pressedContentColor = Color.White,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),
+                shape = shape,
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.62f)),
+                shape = shape,
+            ),
+        ),
+        modifier = modifier.height(ProfileTextEntryHeight),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(
+                text = value.ifBlank { placeholder },
+                fontSize = 18.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color.White.copy(alpha = if (value.isBlank()) 0.42f else 0.88f),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvAvatarStyleChip(
+    style: TvProfileAvatarPresets.Style,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onSelect,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (isSelected) Color.White else Color.White.copy(alpha = if (isFocused) 0.12f else 0.06f),
+            contentColor = if (isSelected) Color.Black else Color.White.copy(alpha = if (isFocused) 1f else 0.75f),
+            focusedContainerColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.12f),
+            focusedContentColor = if (isSelected) Color.Black else Color.White,
+            pressedContainerColor = Color.White,
+            pressedContentColor = Color.Black,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(
+                    width = if (isSelected) 1.5.dp else 1.dp,
+                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.18f),
+                ),
+                shape = shape,
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.75f)),
+                shape = shape,
+            ),
+        ),
+    ) {
+        Text(
+            text = style.label,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvPresetAvatarCell(
+    preset: TvProfileAvatarPresets.Preset,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onSelect,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.04f),
+            contentColor = Color.White,
+            focusedContainerColor = Color.White.copy(alpha = 0.04f),
+            focusedContentColor = Color.White,
+            pressedContainerColor = Color.White.copy(alpha = 0.08f),
+            pressedContentColor = Color.White,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         border = ClickableSurfaceDefaults.border(
             border = Border(
                 border = BorderStroke(
-                    width = if (selected) 2.dp else 0.dp,
-                    color = if (selected) Color.White.copy(alpha = 0.9f) else Color.Transparent,
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = if (isSelected) Color.White else Color.White.copy(alpha = if (isFocused) 0.50f else 0.12f),
                 ),
                 shape = shape,
             ),
+            focusedBorder = Border(
+                border = BorderStroke(if (isSelected) 2.dp else 1.dp, Color.White.copy(alpha = 0.50f)),
+                shape = shape,
+            ),
         ),
-        modifier = Modifier.size(64.dp),
+        glow = ClickableSurfaceDefaults.glow(
+            focusedGlow = Glow(
+                elevationColor = Color.White.copy(alpha = 0.18f),
+                elevation = 16.dp,
+            ),
+        ),
+        modifier = modifier.height(ProfileAvatarCellHeight),
     ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text = emoji, fontSize = 30.sp)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            AsyncImage(
+                model = preset.previewUrl,
+                contentDescription = "Avatar ${preset.seed}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(ProfileAvatarImageSize)
+                    .padding(2.dp),
+            )
         }
     }
 }
 
-/** A label + on/off chip pair. Mirrors the phone's SwitchRow on a D-pad surface. */
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun FormToggleRow(
-    label: String,
-    checked: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
+private fun TvInitialsHint() {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
+        Icon(
+            imageVector = Icons.Filled.TextFields,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.50f),
+            modifier = Modifier.size(22.dp),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            TvFilterChip(text = "Off", selected = !checked, onClick = { onToggle(false) })
-            TvFilterChip(text = "On", selected = checked, onClick = { onToggle(true) })
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Uses your profile name",
+                fontSize = 15.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.85f),
+            )
+            Text(
+                text = "The first letters of the name below appear on your tile.",
+                fontSize = 13.sp,
+                lineHeight = 17.sp,
+                color = Color.White.copy(alpha = 0.50f),
+            )
         }
     }
 }
 
-/** A label + current-value chip that opens an option dialog when activated. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun FormPickerRow(
-    label: String,
-    value: String,
-    onClick: () -> Unit,
+private fun TvChildProfileRow(
+    isOn: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+    val shape = RoundedCornerShape(12.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onToggle,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (isFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+            contentColor = Color.White,
+            focusedContainerColor = Color.White.copy(alpha = 0.08f),
+            focusedContentColor = Color.White,
+            pressedContainerColor = Color.White.copy(alpha = 0.10f),
+            pressedContentColor = Color.White,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, Color.Transparent),
+                shape = shape,
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                shape = shape,
+            ),
+        ),
+        modifier = modifier,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
-        TvHeroActionPill(
-            label = value,
-            variant = TvPillVariant.Hollow,
-            onClick = onClick,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "Child Profile",
+                    fontSize = 20.sp,
+                    lineHeight = 25.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
+                Text(
+                    text = "Restricts content to kid-friendly ratings",
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .width(58.dp)
+                    .height(34.dp)
+                    .background(
+                        color = if (isOn) Color.White else Color.White.copy(alpha = 0.20f),
+                        shape = CircleShape,
+                    )
+                    .padding(4.dp),
+                contentAlignment = if (isOn) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .background(if (isOn) Color.Black else Color.White, CircleShape),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvProfileBadge(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
         )
     }
+}
+
+private fun TvProfileFormState.previewAvatarRef(): String? =
+    TvProfileAvatarPresets.effectiveAvatarRef(
+        styleId = avatarStyleId,
+        selectedSeed = selectedAvatarSeed,
+        batch = avatarBatch,
+        name = name,
+        fallbackAvatar = selectedAvatar,
+    )
+
+private fun profilePreviewTint(key: String): Color {
+    val palette = listOf(
+        Color(0xFFB56F5F),
+        Color(0xFF6B7C93),
+        Color(0xFF8A785E),
+        Color(0xFF607C6A),
+        Color(0xFF92656E),
+        Color(0xFF6F668B),
+        Color(0xFF577B83),
+        Color(0xFFA28453),
+    )
+    return palette[kotlin.math.abs(key.hashCode()) % palette.size]
 }

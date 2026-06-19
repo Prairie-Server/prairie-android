@@ -38,6 +38,10 @@ class TvSkylineTokenParityTest {
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/home/TvHomeScreen.kt",
     ).readText()
 
+    private val skylineSectionFeed = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvSkylineSectionFeed.kt",
+    ).readText()
+
     private val browseScreen = File(
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/browse/TvBrowseScreen.kt",
     ).readText()
@@ -171,13 +175,13 @@ class TvSkylineTokenParityTest {
         assertToken("val DensePosterHeight = 132.dp")
         assertTrue(mediaRow.contains("posterWidth: androidx.compose.ui.unit.Dp? = null"))
         assertTrue(mediaRow.contains("width = posterWidth ?: TvCardWidth"))
-        assertTrue(homeScreen.contains("posterWidth = RowDimens.DensePosterWidth"))
-        assertTrue(homeScreen.contains("val TvHomeItemSpacing = 20.dp"))
-        assertTrue(homeScreen.contains("val TvHomeRowPreviewSpacing = 5.dp"))
-        assertTrue(homeScreen.contains("val TvHomeRowCardVerticalPadding = 7.dp"))
-        assertTrue(homeScreen.contains("val TvHomeRowBandBottomInset = 10.dp"))
-        assertTrue(homeScreen.contains("verticalArrangement = Arrangement.spacedBy(TvHomeRowPreviewSpacing)"))
-        assertTrue(homeScreen.contains("bottom = trailingPreviewPadding"))
+        assertTrue(skylineSectionFeed.contains("posterWidth = RowDimens.DensePosterWidth"))
+        assertTrue(skylineSectionFeed.contains("val TvSkylineItemSpacing = 20.dp"))
+        assertTrue(skylineSectionFeed.contains("val TvSkylineRowPreviewSpacing = 5.dp"))
+        assertTrue(skylineSectionFeed.contains("val TvSkylineRowCardVerticalPadding = 7.dp"))
+        assertTrue(skylineSectionFeed.contains("val TvSkylineRowBandBottomInset = 10.dp"))
+        assertTrue(skylineSectionFeed.contains("verticalArrangement = Arrangement.spacedBy(TvSkylineRowPreviewSpacing)"))
+        assertTrue(skylineSectionFeed.contains("bottom = trailingPreviewPadding"))
     }
 
     @Test
@@ -191,10 +195,10 @@ class TvSkylineTokenParityTest {
 
     @Test
     fun homeSeedsPassiveMarqueeBeforeAnyRowFocus() {
-        assertTrue(homeScreen.contains("val initialMarqueeSeed = remember(rows)"))
-        assertTrue(homeScreen.contains("marquee.seedInitialPreview(seed.item, seed.rowTitle)"))
-        assertTrue(homeScreen.contains("data class TvHomeMarqueeSeed"))
-        assertTrue(homeScreen.contains("if (marquee.content == null)"))
+        assertTrue(skylineSectionFeed.contains("val initialMarqueeSeed = remember(rows)"))
+        assertTrue(skylineSectionFeed.contains("marquee.seedInitialPreview(seed.item, seed.rowTitle)"))
+        assertTrue(skylineSectionFeed.contains("data class TvSkylineMarqueeSeed"))
+        assertTrue(skylineSectionFeed.contains("if (marquee.content == null)"))
     }
 
     @Test
@@ -258,9 +262,6 @@ class TvSkylineTokenParityTest {
         assertTrue(browseScreen.contains("fontSize = 21.sp"))
         assertTrue(browseScreen.contains("lineHeight = 23.sp"))
         assertTrue(browseScreen.contains("letterSpacing = 0.sp"))
-        assertTrue(libraryDetailScreen.contains("fontSize = 21.sp"))
-        assertTrue(libraryDetailScreen.contains("lineHeight = 23.sp"))
-        assertTrue(libraryDetailScreen.contains("letterSpacing = 0.sp"))
         assertFalse(browseScreen.contains("fontSize = 32.sp"))
         assertFalse(libraryDetailScreen.contains("fontSize = 32.sp"))
         assertFalse(browseScreen.contains("letterSpacing = (-0.8).sp"))

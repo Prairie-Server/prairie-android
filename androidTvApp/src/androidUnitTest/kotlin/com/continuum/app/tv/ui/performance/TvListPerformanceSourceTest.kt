@@ -17,6 +17,10 @@ class TvListPerformanceSourceTest {
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/home/TvHomeScreen.kt",
     ).readText()
 
+    private val skylineSectionFeed = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvSkylineSectionFeed.kt",
+    ).readText()
+
     private val libraryDetail = File(
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt",
     ).readText()
@@ -70,8 +74,8 @@ class TvListPerformanceSourceTest {
     @Test
     fun tvHomeSectionListProvidesSectionContentType() {
         assertTrue(
-            homeScreen.contains("contentType = { \"home-section-row\" }"),
-            "TV home's vertical section list should expose a content type for better item reuse.",
+            skylineSectionFeed.contains("contentType = { _, _ -> \"skyline-section-row\" }"),
+            "TV skyline section lists should expose a content type for better item reuse.",
         )
     }
 

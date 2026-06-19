@@ -6,12 +6,14 @@ import com.continuum.app.model.catalog.EpisodeListItem
 import com.continuum.app.model.catalog.ItemDetail
 import com.continuum.app.model.catalog.OverlaySummary
 import com.continuum.app.model.section.SectionItem
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OverlayDataExtractorTest {
+    private val json = Json { ignoreUnknownKeys = true }
 
     @Test
     fun browseItem_withResolution_setsResolution_othersNull() {
@@ -35,7 +37,7 @@ class OverlayDataExtractorTest {
         assertEquals(1999, data.year)
         assertEquals("R", data.contentRating)
         assertEquals(8.7, data.ratingImdb)
-        // Fields Android doesn't have stay null so badges hide.
+        // Fields absent from this payload stay null so badges hide.
         assertNull(data.hdr)
         assertNull(data.videoCodec)
         assertNull(data.runtime)
@@ -172,6 +174,45 @@ class OverlayDataExtractorTest {
     }
 
     @Test
+    fun browseItem_decodesAndCarriesAppleOverlayMetadataFields() {
+        val item = json.decodeFromString(
+            BrowseItem.serializer(),
+            """
+                {
+                  "content_id": "movie-expanded",
+                  "type": "movie",
+                  "title": "Expanded",
+                  "year": 2014,
+                  "rating_imdb": 8.6,
+                  "rating_tmdb": 8.4,
+                  "rating_rt_critic": 96,
+                  "rating_rt_audience": 89,
+                  "content_rating": "PG-13",
+                  "runtime": 169,
+                  "original_language": "en",
+                  "studios": ["Paramount", "Legendary"],
+                  "networks": ["HBO"],
+                  "show_status": "Ended"
+                }
+            """.trimIndent(),
+        )
+
+        val data = OverlayDataExtractor.fromBrowseItem(item)
+
+        assertEquals(8.6, data.ratingImdb)
+        assertEquals(8.4, data.ratingTmdb)
+        assertEquals(96, data.ratingRtCritic)
+        assertEquals(89, data.ratingRtAudience)
+        assertEquals("PG-13", data.contentRating)
+        assertEquals(2014, data.year)
+        assertEquals(169, data.runtime)
+        assertEquals("en", data.originalLanguage)
+        assertEquals("Paramount", data.studio)
+        assertEquals("HBO", data.network)
+        assertEquals("Ended", data.showStatus)
+    }
+
+    @Test
     fun fromSectionItem_routesSummaryAndMetadata() {
         val item = SectionItem(
             contentId = "section-1",
@@ -197,6 +238,45 @@ class OverlayDataExtractorTest {
     }
 
     @Test
+    fun sectionItem_decodesAndCarriesAppleOverlayMetadataFields() {
+        val item = json.decodeFromString(
+            SectionItem.serializer(),
+            """
+                {
+                  "content_id": "section-expanded",
+                  "type": "show",
+                  "title": "Expanded Show",
+                  "year": 2008,
+                  "rating_imdb": 9.4,
+                  "rating_tmdb": 9.1,
+                  "rating_rt_critic": 95,
+                  "rating_rt_audience": 93,
+                  "content_rating": "TV-MA",
+                  "runtime": 49,
+                  "original_language": "en",
+                  "studios": ["Sony Pictures Television"],
+                  "networks": ["AMC"],
+                  "show_status": "Ended"
+                }
+            """.trimIndent(),
+        )
+
+        val data = OverlayDataExtractor.fromSectionItem(item)
+
+        assertEquals(9.4, data.ratingImdb)
+        assertEquals(9.1, data.ratingTmdb)
+        assertEquals(95, data.ratingRtCritic)
+        assertEquals(93, data.ratingRtAudience)
+        assertEquals("TV-MA", data.contentRating)
+        assertEquals(2008, data.year)
+        assertEquals(49, data.runtime)
+        assertEquals("en", data.originalLanguage)
+        assertEquals("Sony Pictures Television", data.studio)
+        assertEquals("AMC", data.network)
+        assertEquals("Ended", data.showStatus)
+    }
+
+    @Test
     fun fromSectionItem_missingSummary_techNullButMetadataKept() {
         val item = SectionItem(
             contentId = "section-2",
@@ -211,6 +291,66 @@ class OverlayDataExtractorTest {
         assertNull(data.releaseType)
         assertNull(data.year)
         assertEquals(7.1, data.ratingImdb)
+    }
+
+    @Test
+    fun itemDetail_decodesAndCarriesAppleOverlayLanguageAndShowStatus() {
+        val detail = json.decodeFromString(
+            ItemDetail.serializer(),
+            """
+                {
+                  "content_id": "detail-expanded",
+                  "type": "show",
+                  "title": "Detailed Show",
+                  "year": 2008,
+                  "runtime": 49,
+                  "rating_imdb": 9.4,
+                  "rating_tmdb": 9.1,
+                  "rating_rt_critic": 95,
+                  "rating_rt_audience": 93,
+                  "content_rating": "TV-MA",
+                  "original_language": "en",
+                  "studios": ["Sony Pictures Television"],
+                  "networks": ["AMC"],
+                  "show_status": "Ended"
+                }
+            """.trimIndent(),
+        )
+
+        val data = OverlayDataExtractor.fromItemDetail(detail)
+
+        assertEquals("en", data.originalLanguage)
+        assertEquals("Ended", data.showStatus)
+        assertEquals("Sony Pictures Television", data.studio)
+        assertEquals("AMC", data.network)
+    }
+
+    @Test
+    fun itemDetail_decodesAndCarriesOverlaySummaryLikeApple() {
+        val detail = json.decodeFromString(
+            ItemDetail.serializer(),
+            """
+                {
+                  "content_id": "detail-overlay-summary",
+                  "type": "movie",
+                  "title": "Detailed Movie",
+                  "year": 2014,
+                  "overlay_summary": {
+                    "resolution": "2160p",
+                    "hdr": "DV HDR10",
+                    "audio": "Atmos",
+                    "release_type": "REMUX"
+                  }
+                }
+            """.trimIndent(),
+        )
+
+        val data = OverlayDataExtractor.fromItemDetail(detail)
+
+        assertEquals("2160p", data.resolution)
+        assertEquals("DV HDR10", data.hdr)
+        assertEquals("Atmos", data.audio)
+        assertEquals("REMUX", data.releaseType)
     }
 
     @Test

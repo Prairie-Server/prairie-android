@@ -88,15 +88,24 @@ internal fun OverlayBadge(
     state: OverlayBadgeRenderState,
     preset: OverlayPresetStyle,
     modifier: Modifier = Modifier,
+    forceOpaqueBackground: Boolean = false,
 ) {
     val shape = preset.shape()
     val background = preset.background(state.accentColor)
+    val paintedBackground = if (forceOpaqueBackground &&
+        background != Color.Transparent &&
+        background != Color.Unspecified
+    ) {
+        background.copy(alpha = 1f)
+    } else {
+        background
+    }
     val border = preset.border(state.accentColor)
     val foreground = preset.foreground(state.accentColor)
 
     var box = modifier.clip(shape)
-    if (background != Color.Transparent && background != Color.Unspecified) {
-        box = box.background(background, shape)
+    if (paintedBackground != Color.Transparent && paintedBackground != Color.Unspecified) {
+        box = box.background(paintedBackground, shape)
     }
     if (border != Color.Unspecified) {
         box = box.border(1.dp, border, shape)

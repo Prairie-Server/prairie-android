@@ -18,6 +18,14 @@ class AudiobookPlayerStartPositionTest {
     }
 
     @Test
+    fun audiobookRouteStartPositionIsExplicitOverride() {
+        assertTrue(source.contains("savedStateHandle.get<String>(\"startPosition\")"))
+        assertTrue(source.contains("requestedStartPosition != null -> requestedStartPosition"))
+        assertTrue(source.contains("_resumePosition.value = explicitStartOverride.takeIf { it > 0.0 }"))
+        assertTrue(source.contains("_resumePosition.value = requestStartPosition?.takeIf { it > 0.0 }"))
+    }
+
+    @Test
     fun stopPlaybackSessionClearsPlayableStateEvenWithoutRemoteSession() {
         val stopBody = source
             .substringAfter("fun stopPlaybackSession()")

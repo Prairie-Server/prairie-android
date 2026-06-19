@@ -59,8 +59,10 @@ fun CardOverlays(
     prefs: CardOverlayPrefs,
     modifier: Modifier = Modifier,
     variant: CardOverlayVariant = CardOverlayVariant.Poster,
+    scale: Float = 1f,
+    forceOpaqueBackground: Boolean = false,
 ) {
-    val preset = OverlayPresetStyles.style(prefs.preset)
+    val preset = OverlayPresetStyles.style(prefs.preset).scaled(scale)
     Box(modifier = modifier.fillMaxSize()) {
         for (position in OverlayPosition.entries) {
             CornerStack(
@@ -69,6 +71,8 @@ fun CardOverlays(
                 prefs = prefs,
                 preset = preset,
                 variant = variant,
+                scale = scale,
+                forceOpaqueBackground = forceOpaqueBackground,
             )
         }
     }
@@ -81,6 +85,8 @@ private fun androidx.compose.foundation.layout.BoxScope.CornerStack(
     prefs: CardOverlayPrefs,
     preset: OverlayPresetStyle,
     variant: CardOverlayVariant,
+    scale: Float,
+    forceOpaqueBackground: Boolean,
 ) {
     val badges = OverlayRegistry.enabled(position, prefs)
         .mapNotNull { OverlayBadgeRenderState.resolve(it, data, prefs, preset) }
@@ -89,12 +95,16 @@ private fun androidx.compose.foundation.layout.BoxScope.CornerStack(
     Column(
         modifier = Modifier
             .align(anchor(position))
-            .padding(insets(position, variant)),
+            .padding(insets(position, variant, scale)),
         horizontalAlignment = horizontalAlignment(position),
         verticalArrangement = Arrangement.spacedBy(preset.gap),
     ) {
         for (state in badges) {
-            OverlayBadge(state = state, preset = preset)
+            OverlayBadge(
+                state = state,
+                preset = preset,
+                forceOpaqueBackground = forceOpaqueBackground,
+            )
         }
     }
 }
@@ -118,14 +128,15 @@ private fun horizontalAlignment(position: OverlayPosition): Alignment.Horizontal
  * block / progress bar typically sits under the image. Mirrors Apple's
  * `insets(for:)`.
  */
-private fun insets(position: OverlayPosition, variant: CardOverlayVariant): PaddingValues {
+private fun insets(position: OverlayPosition, variant: CardOverlayVariant, scale: Float): PaddingValues {
+    val safeScale = scale.coerceAtLeast(0.1f)
     val bottomInset: Dp = when (variant) {
         CardOverlayVariant.Poster -> 8.dp
         CardOverlayVariant.Wide -> 24.dp
         CardOverlayVariant.Hero -> 16.dp
-    }
-    val sideInset: Dp = if (variant == CardOverlayVariant.Hero) 16.dp else 8.dp
-    val topInset: Dp = if (variant == CardOverlayVariant.Hero) 16.dp else 8.dp
+    } * safeScale
+    val sideInset: Dp = (if (variant == CardOverlayVariant.Hero) 16.dp else 8.dp) * safeScale
+    val topInset: Dp = (if (variant == CardOverlayVariant.Hero) 16.dp else 8.dp) * safeScale
     return when (position) {
         OverlayPosition.TopLeft ->
             PaddingValues(top = topInset, start = sideInset)

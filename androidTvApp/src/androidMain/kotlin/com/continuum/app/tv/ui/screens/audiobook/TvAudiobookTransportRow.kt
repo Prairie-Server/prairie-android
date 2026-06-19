@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 
@@ -67,21 +68,27 @@ fun TvAudiobookTransportRow(
     onNextChapter: () -> Unit,
     playPauseFocus: FocusRequester,
     modifier: Modifier = Modifier,
+    buttonSize: Dp = 68.dp,
+    primaryButtonWidth: Dp = 112.dp,
+    primaryButtonHeight: Dp = 58.dp,
+    buttonSpacing: Dp = 16.dp,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(buttonSpacing),
     ) {
         TransportIconButton(
             icon = Icons.Filled.SkipPrevious,
             description = "Previous chapter",
             enabled = chaptersEnabled,
+            buttonSize = buttonSize,
             onClick = onPrevChapter,
         )
         TransportIconButton(
             icon = skipBackIcon(skipBackSeconds),
             description = "Skip back $skipBackSeconds seconds",
+            buttonSize = buttonSize,
             onClick = onSkipBack,
         )
         TransportIconButton(
@@ -89,17 +96,22 @@ fun TvAudiobookTransportRow(
             description = if (isPlaying) "Pause" else "Play",
             isPrimary = true,
             focusRequester = playPauseFocus,
+            buttonSize = buttonSize,
+            primaryButtonWidth = primaryButtonWidth,
+            primaryButtonHeight = primaryButtonHeight,
             onClick = onPlayPause,
         )
         TransportIconButton(
             icon = skipForwardIcon(skipForwardSeconds),
             description = "Skip forward $skipForwardSeconds seconds",
+            buttonSize = buttonSize,
             onClick = onSkipForward,
         )
         TransportIconButton(
             icon = Icons.Filled.SkipNext,
             description = "Next chapter",
             enabled = chaptersEnabled,
+            buttonSize = buttonSize,
             onClick = onNextChapter,
         )
     }
@@ -113,17 +125,22 @@ private fun TransportIconButton(
     enabled: Boolean = true,
     isPrimary: Boolean = false,
     focusRequester: FocusRequester? = null,
+    buttonSize: Dp = 68.dp,
+    primaryButtonWidth: Dp = 112.dp,
+    primaryButtonHeight: Dp = 58.dp,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val buttonSize = 66.dp
-    val symbolSize = if (isPrimary) 30.dp else 25.dp
-    val focusBg = if (isFocused) Color.White else Color.Black.copy(alpha = 0.35f)
+    val buttonWidth = if (isPrimary) primaryButtonWidth else buttonSize
+    val buttonHeight = if (isPrimary) primaryButtonHeight else buttonSize
+    val buttonShape = RoundedCornerShape(buttonHeight / 2)
+    val symbolSize = if (isPrimary) (buttonHeight * 0.44f) else (buttonSize * 0.40f)
+    val focusBg = if (isFocused) Color(0xFFE8F5F7) else Color(0xFF173137).copy(alpha = 0.92f)
     val iconTint = when {
         !enabled -> Color.White.copy(alpha = 0.30f)
         isFocused -> Color.Black
-        else -> Color.White
+        else -> Color(0xFF23A8F2)
     }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.025f else 1f,
@@ -133,14 +150,14 @@ private fun TransportIconButton(
 
     Box(
         modifier = Modifier
-            .size(buttonSize)
+            .size(buttonWidth, buttonHeight)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(CircleShape)
+            .clip(buttonShape)
             .background(focusBg)
             .border(
-                width = 1.dp,
-                color = if (isFocused) Color.Transparent else Color.White.copy(alpha = 0.22f),
-                shape = CircleShape,
+                width = if (isFocused) 0.dp else 1.dp,
+                color = if (isFocused) Color.Transparent else Color.White.copy(alpha = 0.06f),
+                shape = buttonShape,
             )
             .let { mod -> if (focusRequester != null) mod.focusRequester(focusRequester) else mod }
             .focusable(interactionSource = interactionSource)

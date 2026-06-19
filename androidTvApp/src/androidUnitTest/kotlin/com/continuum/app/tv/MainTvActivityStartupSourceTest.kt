@@ -23,7 +23,19 @@ class MainTvActivityStartupSourceTest {
         assertTrue(
             source.contains("onPreviewKeyEvent"),
             "Splash branch must use onPreviewKeyEvent to consume key events and prevent " +
-                "input-dispatch-timeout ANR while the splash is visible.",
+            "input-dispatch-timeout ANR while the splash is visible.",
+        )
+    }
+
+    @Test
+    fun startupRequiresTokenManagerProfileIdBeforeEnteringMain() {
+        assertTrue(
+            source.contains("val profileId = tokenManager.getProfileId()"),
+            "Startup must require the same TokenManager profile id used by request headers.",
+        )
+        assertTrue(
+            !source.contains("activeEntry.profileId ?: tokenManager.getProfileId()"),
+            "A stale registry profile id cannot route to Main because requests would lack X-Profile-Id.",
         )
     }
 }

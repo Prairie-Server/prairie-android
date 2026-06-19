@@ -18,6 +18,9 @@ import kotlinx.coroutines.launch
 data class TvCreateProfileUiState(
     val name: String = "",
     val selectedAvatar: String? = null,
+    val avatarStyleId: String = TvProfileAvatarPresets.DefaultStyleId,
+    val selectedAvatarSeed: String? = null,
+    val avatarBatch: Int = 0,
     val isChild: Boolean = false,
     val maxContentRating: String? = null,
     val pinEnabled: Boolean = false,
@@ -42,6 +45,37 @@ class TvCreateProfileViewModel(
 
     fun onAvatarSelected(emoji: String) {
         _uiState.update { it.copy(selectedAvatar = emoji) }
+    }
+
+    fun onAvatarStyleSelected(styleId: String) {
+        _uiState.update {
+            it.copy(
+                avatarStyleId = styleId,
+                selectedAvatar = null,
+                selectedAvatarSeed = null,
+                avatarBatch = 0,
+            )
+        }
+    }
+
+    fun onAvatarPresetSelected(preset: TvProfileAvatarPresets.Preset) {
+        _uiState.update {
+            it.copy(
+                avatarStyleId = preset.styleId,
+                selectedAvatar = preset.ref,
+                selectedAvatarSeed = preset.seed,
+            )
+        }
+    }
+
+    fun onAvatarShuffle() {
+        _uiState.update {
+            it.copy(
+                avatarBatch = it.avatarBatch + 1,
+                selectedAvatar = null,
+                selectedAvatarSeed = null,
+            )
+        }
     }
 
     fun onChildToggled(checked: Boolean) {
@@ -97,7 +131,7 @@ class TvCreateProfileViewModel(
 
             val request = CreateProfileRequest(
                 name = current.name,
-                avatar = current.selectedAvatar,
+                avatar = current.effectiveAvatarRef(),
                 pin = if (current.pinEnabled) current.pin else null,
                 isChild = if (current.isChild) true else null,
                 maxContentRating = current.maxContentRating,
@@ -129,3 +163,12 @@ class TvCreateProfileViewModel(
         _uiState.update { it.copy(createSuccess = false) }
     }
 }
+
+private fun TvCreateProfileUiState.effectiveAvatarRef(): String? =
+    TvProfileAvatarPresets.effectiveAvatarRef(
+        styleId = avatarStyleId,
+        selectedSeed = selectedAvatarSeed,
+        batch = avatarBatch,
+        name = name,
+        fallbackAvatar = selectedAvatar,
+    )

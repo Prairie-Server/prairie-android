@@ -15,6 +15,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.continuum.app.common.player.video.VideoPlayerRouteArgs
 import com.continuum.app.network.TokenManager
+import com.continuum.app.repository.AuthRepository
+import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.tv.ui.shell.TvMainShell
 import com.continuum.app.tv.ui.screens.audiobook.TvAudiobookPlayerScreen
 import com.continuum.app.tv.ui.screens.auth.TvLoginScreen
@@ -57,6 +59,8 @@ fun TvAppNavigation(
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val tokenManager: TokenManager = koinInject()
+    val authRepository: AuthRepository = koinInject()
+    val profileRepository: ProfileRepository = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
     val pendingDeepLink: MutableStateFlow<Uri?> =
@@ -243,6 +247,19 @@ fun TvAppNavigation(
                 onEditProfile = { profileId ->
                     navController.navigate(TvRoute.EditProfile(profileId).route)
                 },
+                onChangeServer = {
+                    navController.navigate(TvRoute.ServerList.route)
+                },
+                onSignOut = {
+                    scope.launch {
+                        authRepository.logout()
+                        watchNextSeeder.clear()
+                        navController.navigate(TvRoute.ServerSetup.route) {
+                            popUpTo(0) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                },
             )
         }
 
@@ -291,8 +308,7 @@ fun TvAppNavigation(
                 },
                 onSwitchProfile = {
                     scope.launch {
-                        tokenManager.setProfileId(null)
-                        tokenManager.setProfileToken(null)
+                        profileRepository.clearProfile()
                         // Clear the previous profile's Watch Next rows before
                         // landing on the picker; the new profile will re-seed
                         // via [onProfileSelected].
@@ -540,10 +556,15 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(TvRoute.AudiobookPlayer.ARG_START_POSITION) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) {
-            // contentId/fileId reach AudiobookPlayerViewModel via SavedStateHandle,
-            // so the screen needs no explicit args here.
+            // contentId/fileId/startPosition reach AudiobookPlayerViewModel via
+            // SavedStateHandle, so the screen needs no explicit args here.
             TvAudiobookPlayerScreen(
                 onExit = { navController.popBackStack() },
             )

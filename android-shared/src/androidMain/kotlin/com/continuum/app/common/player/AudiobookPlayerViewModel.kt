@@ -94,6 +94,10 @@ class AudiobookPlayerViewModel(
     private val requestedFileIdRaw: String? = savedStateHandle.get<String>("fileId")
     private val hasRequestedFileId: Boolean = !requestedFileIdRaw.isNullOrBlank()
     private val requestedFileId: Int? = requestedFileIdRaw?.toIntOrNull()
+    private val requestedStartPositionRaw: String? = savedStateHandle.get<String>("startPosition")
+    private val requestedStartPosition: Double? = requestedStartPositionRaw
+        ?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it >= 0.0 }
 
     /** When true ("Play from beginning"), ignore saved progress and start at 0. */
     private val startFromBeginning: Boolean = savedStateHandle.get<Boolean>("fromStart") ?: false
@@ -206,13 +210,17 @@ class AudiobookPlayerViewModel(
                         return@launch
                     }
 
-                    val resumePosition = if (startFromBeginning) {
-                        _resumePosition.value = null
+                    val explicitStartOverride = when {
+                        requestedStartPosition != null -> requestedStartPosition
+                        startFromBeginning -> 0.0
+                        else -> null
+                    }
+                    val resumePosition = if (explicitStartOverride != null) {
+                        _resumePosition.value = explicitStartOverride.takeIf { it > 0.0 }
                         null
                     } else {
                         loadResumePositionSnapshot(d.userData?.positionSeconds)
                     }
-                    val explicitStartOverride = if (startFromBeginning) 0.0 else null
                     val requestStartPosition = resolvePlaybackStartRequestPosition(
                         overridePosition = explicitStartOverride,
                         detailPosition = resumePosition,
@@ -244,6 +252,7 @@ class AudiobookPlayerViewModel(
                     }
 
                     if (offlineMedia != null) {
+                        _resumePosition.value = requestStartPosition?.takeIf { it > 0.0 }
                         _uiState.update { it.copy(error = null) }
                         return@launch
                     }

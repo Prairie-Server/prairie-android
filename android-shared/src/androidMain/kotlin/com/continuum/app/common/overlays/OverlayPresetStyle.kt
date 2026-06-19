@@ -51,6 +51,23 @@ internal data class OverlayPresetStyle(
             is CornerStyle.Capsule -> RoundedCornerShape(percent = 50)
             is CornerStyle.Rounded -> RoundedCornerShape(cornerStyle.radius)
         }
+
+    fun scaled(scale: Float): OverlayPresetStyle {
+        val safeScale = scale.coerceAtLeast(0.1f)
+        if (safeScale == 1f) return this
+        return copy(
+            fontSize = fontSize * safeScale,
+            letterSpacing = letterSpacing * safeScale,
+            horizontalPadding = horizontalPadding * safeScale,
+            verticalPadding = verticalPadding * safeScale,
+            cornerStyle = when (cornerStyle) {
+                CornerStyle.Capsule -> CornerStyle.Capsule
+                is CornerStyle.Rounded -> CornerStyle.Rounded(cornerStyle.radius * safeScale)
+            },
+            iconSize = iconSize * safeScale,
+            gap = gap * safeScale,
+        )
+    }
 }
 
 /**

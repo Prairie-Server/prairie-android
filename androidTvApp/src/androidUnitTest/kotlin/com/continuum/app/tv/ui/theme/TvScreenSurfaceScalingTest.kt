@@ -97,7 +97,8 @@ class TvScreenSurfaceScalingTest {
     @Test
     fun authAndProfileFormsUseTvOsMappedWidths() {
         assertTrue(pairDeviceScreen.contains(".widthIn(max = 360.dp)"))
-        assertTrue(profileForm.contains(".width(420.dp)"))
+        assertTrue(profileForm.contains("private val ProfileEditorPreviewWidth = 180.dp"))
+        assertTrue(profileForm.contains("private val ProfileEditorColumnWidth = 584.dp"))
         assertFalse(pairDeviceScreen.contains(".widthIn(max = 720.dp)"))
         assertFalse(profileForm.contains(".width(840.dp)"))
     }

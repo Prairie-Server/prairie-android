@@ -1040,8 +1040,6 @@ private fun TvLibraryTypeContent(
             libraryId = library.id,
             libraryTitle = library.name,
             libraryType = library.type,
-            canSwitchLibrary = false,
-            onSwitchLibrary = {},
             onItemClick = onItemClick,
             onCollectionClick = { collectionId, title ->
                 onLibraryCollectionClick(library.id, collectionId, title)

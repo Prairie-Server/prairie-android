@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 
 private const val TvPersonWorksPageSize = 60
 
-/** Filmography media-type filter — mirrors the phone `PersonMediaFilter`, minus Reading. */
+/** Filmography media-type filter for ten-foot surfaces, mirroring the phone filter where applicable. */
 enum class TvPersonMediaFilter(val key: String, val title: String, val mediaType: String?) {
     All("all", "All", null),
     Movies("movie", "Movies", "movie"),

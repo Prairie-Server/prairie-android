@@ -46,13 +46,22 @@ object OverlayDataExtractor {
     /**
      * From a grid [BrowseItem]: the full tech subset from
      * [BrowseItem.overlaySummary] plus the ratings/metadata the browse payload
-     * carries (year, content rating, IMDb rating).
+     * carries. Keep this in lockstep with Apple's `OverlayData.from(BrowseItem)`
+     * so server-supplied badge fields render consistently on every surface.
      */
     fun fromBrowseItem(item: BrowseItem): OverlayData {
         return fromSummary(item.overlaySummary).copy(
             ratingImdb = item.ratingImdb,
+            ratingTmdb = item.ratingTmdb,
+            ratingRtCritic = item.ratingRtCritic,
+            ratingRtAudience = item.ratingRtAudience,
             contentRating = item.contentRating,
             year = item.year.takeIf { it > 0 },
+            runtime = item.runtime?.takeIf { it > 0 },
+            originalLanguage = item.originalLanguage,
+            studio = firstNonEmpty(item.studios),
+            network = firstNonEmpty(item.networks),
+            showStatus = item.showStatus,
         )
     }
 
@@ -66,20 +75,25 @@ object OverlayDataExtractor {
     fun fromSectionItem(item: SectionItem): OverlayData {
         return fromSummary(item.overlaySummary).copy(
             ratingImdb = item.ratingImdb,
+            ratingTmdb = item.ratingTmdb,
+            ratingRtCritic = item.ratingRtCritic,
+            ratingRtAudience = item.ratingRtAudience,
             contentRating = item.contentRating,
             year = item.year.takeIf { it > 0 },
+            runtime = item.runtime?.takeIf { it > 0 },
+            originalLanguage = item.originalLanguage,
+            studio = firstNonEmpty(item.studios),
+            network = firstNonEmpty(item.networks),
+            showStatus = item.showStatus,
         )
     }
 
     /**
-     * From a full [ItemDetail]: ratings, content rating, year, runtime,
-     * and the primary studio/network. Tech fields (resolution, audio,
-     * release type) are not derived here — the detail payload exposes
-     * per-version files, and selecting the "best" version is the caller's
-     * job; pass an [OverlaySummary] via [merge] when one is available.
+     * From a full [ItemDetail]: server summary, ratings, content rating, year,
+     * runtime, language, show status, and the primary studio/network.
      */
     fun fromItemDetail(detail: ItemDetail): OverlayData {
-        return OverlayData(
+        return fromSummary(detail.overlaySummary).copy(
             ratingImdb = detail.ratingImdb,
             ratingTmdb = detail.ratingTmdb,
             ratingRtCritic = detail.ratingRtCritic,
@@ -87,8 +101,10 @@ object OverlayDataExtractor {
             contentRating = detail.contentRating,
             year = detail.year.takeIf { it > 0 },
             runtime = detail.runtime.takeIf { it > 0 },
-            studio = detail.studios.firstOrNull(),
-            network = detail.networks.firstOrNull(),
+            originalLanguage = detail.originalLanguage,
+            studio = firstNonEmpty(detail.studios),
+            network = firstNonEmpty(detail.networks),
+            showStatus = detail.showStatus,
         )
     }
 
@@ -193,4 +209,7 @@ object OverlayDataExtractor {
         channels == 8 -> "7.1"
         else -> "${channels}ch"
     }
+
+    private fun firstNonEmpty(values: List<String>): String? =
+        values.firstOrNull { it.isNotBlank() }
 }

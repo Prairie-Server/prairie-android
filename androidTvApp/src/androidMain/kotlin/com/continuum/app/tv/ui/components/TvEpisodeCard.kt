@@ -129,6 +129,8 @@ fun TvEpisodeCard(
                         data = overlay,
                         prefs = overlayState.prefs,
                         variant = CardOverlayVariant.Wide,
+                        scale = TvCardOverlayScale,
+                        forceOpaqueBackground = true,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

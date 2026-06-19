@@ -57,7 +57,13 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
@@ -68,9 +74,14 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.continuum.app.model.audiobook.AudiobookNarration
 import com.continuum.app.model.catalog.EpisodeListItem
+import com.continuum.app.model.catalog.FileVersion
 import com.continuum.app.model.catalog.ItemDetail
+import com.continuum.app.model.catalog.VersionChapter
 import com.continuum.app.model.catalog.isAudiobookItemType
+import com.continuum.app.model.ebook.MediaRelatedItem
+import com.continuum.app.model.section.SectionItem
 import com.continuum.app.model.watchtogether.RoomSnapshot
 import com.continuum.app.tv.ui.components.TvDialogOption
 import com.continuum.app.tv.ui.components.TvErrorScreen
@@ -83,6 +94,7 @@ import com.continuum.app.tv.ui.components.TvSecondaryPillButton
 import com.continuum.app.tv.ui.components.TvSquareToggleButton
 import com.continuum.app.tv.ui.components.TvPillVariant
 import com.continuum.app.tv.ui.components.TvRowStyle
+import com.continuum.app.tv.ui.screens.audiobook.formatAudiobookTime
 import com.continuum.app.tv.ui.screens.watchtogether.TvJoinCodeDialog
 import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherEntryDialog
 import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
@@ -175,8 +187,22 @@ private fun TvDetailContent(
         state.episodes.isNotEmpty()
     val showsSeasonChips = detail.type in setOf("series", "season", "episode") && state.seasons.size > 1
     val showsCastSection = !isAudiobook && detail.cast.isNotEmpty()
-    val showsSimilarRail = detail.type != "episode" && state.moreLikeThis.isNotEmpty()
-    val showsDetailsSection = remember(detail) { detail.hasTvDetailFacts() }
+    val showsSimilarRail = !isAudiobook && detail.type != "episode" && state.moreLikeThis.isNotEmpty()
+    val showsDetailsSection = !isAudiobook && remember(detail) { detail.hasTvDetailFacts() }
+    val audiobookParts = remember(detail.versions) { detail.versions }
+    val audiobookChapters = remember(detail.versions) { audiobookDisplayChapters(detail.versions) }
+    val audiobookSeries = detail.audiobook?.series
+    val audiobookOtherNarrations = detail.audiobook?.otherNarrations.orEmpty()
+    val audiobookAlsoByAuthor = detail.audiobook?.related?.alsoByAuthor.orEmpty()
+    val audiobookRelated = detail.audiobook?.related?.similar.orEmpty()
+    val audiobookFallbackRelated = remember(isAudiobook, audiobookRelated, state.moreLikeThis) {
+        if (isAudiobook && audiobookRelated.isEmpty()) {
+            state.moreLikeThis.map(::sectionItemToAudiobookRelatedItem)
+        } else {
+            emptyList()
+        }
+    }
+    var chaptersDialogOpen by remember(detail.contentId) { mutableStateOf(false) }
 
     // The first focusable body rail (episode rail, else cast). An Up press from
     // it scrolls back to the hero and returns focus into the action cluster —
@@ -202,32 +228,42 @@ private fun TvDetailContent(
                 contentPadding = PaddingValues(bottom = 160.dp),
             ) {
                 item(key = "hero", contentType = "detail-hero") {
-                    TvDetailHero(
-                        title = detail.title,
-                        seriesTitle = if (detail.type == "episode") detail.seriesTitle else null,
-                        logoUrl = detail.logoUrl,
-                        backdropUrl = detail.backdropUrl,
-                        backdropThumbhash = detail.backdropThumbhash,
-                        eyebrow = if (detail.type == "episode") null else TvDetailMetadata.eyebrow(detail),
-                        sourceTokens = TvDetailMetadata.sourceTokens(detail),
-                        ratingChip = TvDetailMetadata.ratingChip(detail),
-                        overview = detail.overview,
-                        tagline = detail.tagline,
-                        factsLine = TvDetailMetadata.factsLine(detail),
-                        starringText = TvDetailMetadata.starringText(detail),
-                        actions = {
-                            HeroActionRow(
-                                detail = detail,
-                                state = state,
-                                viewModel = viewModel,
-                                playFocus = playFocus,
-                                onPlay = onPlay,
-                                onSeriesClick = onSeriesClick,
-                                onSeasonClick = onSeasonClick,
-                                onWatchTogether = onWatchTogether,
-                            )
-                        },
-                    )
+                    if (isAudiobook) {
+                        TvAudiobookDetailHero(
+                            detail = detail,
+                            state = state,
+                            playFocus = playFocus,
+                            onPlay = onPlay,
+                            overview = detail.overview,
+                        )
+                    } else {
+                        TvDetailHero(
+                            title = detail.title,
+                            seriesTitle = if (detail.type == "episode") detail.seriesTitle else null,
+                            logoUrl = detail.logoUrl,
+                            backdropUrl = detail.backdropUrl,
+                            backdropThumbhash = detail.backdropThumbhash,
+                            eyebrow = if (detail.type == "episode") null else TvDetailMetadata.eyebrow(detail),
+                            sourceTokens = TvDetailMetadata.sourceTokens(detail),
+                            ratingChip = TvDetailMetadata.ratingChip(detail),
+                            overview = detail.overview,
+                            tagline = detail.tagline,
+                            factsLine = TvDetailMetadata.factsLine(detail),
+                            starringText = TvDetailMetadata.starringText(detail),
+                            actions = {
+                                HeroActionRow(
+                                    detail = detail,
+                                    state = state,
+                                    viewModel = viewModel,
+                                    playFocus = playFocus,
+                                    onPlay = onPlay,
+                                    onSeriesClick = onSeriesClick,
+                                    onSeasonClick = onSeasonClick,
+                                    onWatchTogether = onWatchTogether,
+                                )
+                            },
+                        )
+                    }
                 }
 
                 // Body = VStack(spacing 72), horizontal safeArea, hero→body 48.
@@ -236,6 +272,77 @@ private fun TvDetailContent(
                         modifier = Modifier.padding(top = 48.dp),
                         verticalArrangement = Arrangement.spacedBy(72.dp),
                     ) {
+                        if (isAudiobook && audiobookParts.size > 1) {
+                            TvAudiobookPartsSection(
+                                parts = audiobookParts,
+                                onPartSelected = { part ->
+                                    onPlay(
+                                        detail.contentId,
+                                        part.fileId,
+                                        state.selectedAudioIndex,
+                                        state.selectedSubtitleIndex,
+                                        detail.type,
+                                        0.0,
+                                    )
+                                },
+                                firstRowUpFocusRequester = playFocus,
+                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                            )
+                        }
+
+                        if (isAudiobook && audiobookChapters.isNotEmpty()) {
+                            TvAudiobookChaptersSection(
+                                chapters = audiobookChapters,
+                                onOpenChapters = { chaptersDialogOpen = true },
+                                upFocusRequester = if (audiobookParts.size > 1) null else playFocus,
+                                onDirectionUp = returnToHero,
+                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                            )
+                        }
+
+                        if (isAudiobook && audiobookSeries?.entries?.isNotEmpty() == true) {
+                            TvAudiobookRelatedRailSection(
+                                title = audiobookSeries.name.takeIf { it.isNotBlank() } ?: "Series",
+                                items = audiobookSeries.entries,
+                                onItemDetail = onItemDetail,
+                                upFocusRequester = playFocus,
+                                onDirectionUp = returnToHero,
+                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                            )
+                        }
+
+                        if (isAudiobook && audiobookOtherNarrations.isNotEmpty()) {
+                            TvAudiobookNarrationsSection(
+                                narrations = audiobookOtherNarrations,
+                                onNarrationSelected = { narration -> onItemDetail(narration.contentId) },
+                                firstRowUpFocusRequester = playFocus,
+                                onDirectionUp = returnToHero,
+                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                            )
+                        }
+
+                        if (isAudiobook && audiobookAlsoByAuthor.isNotEmpty()) {
+                            TvAudiobookRelatedRailSection(
+                                title = "More by Author",
+                                items = audiobookAlsoByAuthor,
+                                onItemDetail = onItemDetail,
+                                upFocusRequester = playFocus,
+                                onDirectionUp = returnToHero,
+                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                            )
+                        }
+
+                        if (isAudiobook && (audiobookRelated.isNotEmpty() || audiobookFallbackRelated.isNotEmpty())) {
+                            TvAudiobookRelatedRailSection(
+                                title = "Related",
+                                items = audiobookRelated.ifEmpty { audiobookFallbackRelated },
+                                onItemDetail = onItemDetail,
+                                upFocusRequester = playFocus,
+                                onDirectionUp = returnToHero,
+                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                            )
+                        }
+
                         if (showsEpisodeRail) {
                             EpisodesSection(
                                 detail = detail,
@@ -298,6 +405,11 @@ private fun TvDetailContent(
                                     horizontalPadding = Spacing.safeArea,
                                     rowTopPadding = 0.dp,
                                     firstItemFocusRequester = firstSimilarFocus,
+                                    onDirectionUp = if (!showsEpisodeRail && !showsCastSection) {
+                                        returnToHero
+                                    } else {
+                                        null
+                                    },
                                     // When Similar is the first body rail (movie with no
                                     // episode rail and no cast), Up returns to the hero
                                     // Play button instead of relying on geometry.
@@ -312,6 +424,36 @@ private fun TvDetailContent(
                     }
                 }
             }
+        }
+
+        if (chaptersDialogOpen && audiobookChapters.isNotEmpty()) {
+            TvOptionDialog(
+                title = "Chapters",
+                options = audiobookChapters.mapIndexed { index, chapter ->
+                    TvDialogOption(
+                        key = "chapter-$index-${chapter.fileId}",
+                        title = chapter.title,
+                        subtitle = listOf(
+                            chapter.partTitle,
+                            formatAudiobookTime(chapter.startSeconds),
+                        )
+                            .filter { it.isNotBlank() }
+                            .joinToString("  "),
+                        onClick = {
+                            chaptersDialogOpen = false
+                            onPlay(
+                                detail.contentId,
+                                chapter.fileId,
+                                state.selectedAudioIndex,
+                                state.selectedSubtitleIndex,
+                                detail.type,
+                                chapter.startSeconds,
+                            )
+                        },
+                    )
+                },
+                onDismiss = { chaptersDialogOpen = false },
+            )
         }
     }
 }
@@ -894,7 +1036,273 @@ private fun DetailsSection(
     }
 }
 
+@Composable
+private fun TvAudiobookPartsSection(
+    parts: List<FileVersion>,
+    onPartSelected: (FileVersion) -> Unit,
+    firstRowUpFocusRequester: FocusRequester?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.widthIn(max = 720.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        TvDetailSectionHeader(eyebrow = "Audiobook", title = "Parts")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            parts.forEachIndexed { index, part ->
+                TvAudiobookDetailActionRow(
+                    title = "Part ${index + 1}",
+                    subtitle = audiobookPartSubtitle(part),
+                    trailing = audiobookDurationLabel(part.duration),
+                    onClick = { onPartSelected(part) },
+                    upFocusRequester = if (index == 0) firstRowUpFocusRequester else null,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvAudiobookChaptersSection(
+    chapters: List<TvAudiobookDisplayChapter>,
+    onOpenChapters: () -> Unit,
+    upFocusRequester: FocusRequester?,
+    onDirectionUp: (() -> Boolean)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.widthIn(max = 720.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        TvDetailSectionHeader(eyebrow = "Audiobook", title = "Chapters")
+        TvAudiobookDetailActionRow(
+            title = "Chapter list",
+            subtitle = "${chapters.size} chapters",
+            trailing = "Open",
+            onClick = onOpenChapters,
+            upFocusRequester = upFocusRequester,
+            onDirectionUp = onDirectionUp,
+        )
+    }
+}
+
+@Composable
+private fun TvAudiobookNarrationsSection(
+    narrations: List<AudiobookNarration>,
+    onNarrationSelected: (AudiobookNarration) -> Unit,
+    firstRowUpFocusRequester: FocusRequester?,
+    onDirectionUp: (() -> Boolean)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.widthIn(max = 720.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        TvDetailSectionHeader(eyebrow = "Audiobook", title = "Alternate Narrations")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            narrations.forEachIndexed { index, narration ->
+                TvAudiobookDetailActionRow(
+                    title = narration.title,
+                    subtitle = narration.narrators.joinToString(", ").takeIf { it.isNotBlank() },
+                    trailing = narration.year?.takeIf { it > 0 }?.toString(),
+                    onClick = { onNarrationSelected(narration) },
+                    upFocusRequester = if (index == 0) firstRowUpFocusRequester else null,
+                    onDirectionUp = if (index == 0) onDirectionUp else null,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvAudiobookRelatedRailSection(
+    title: String,
+    items: List<MediaRelatedItem>,
+    onItemDetail: (String) -> Unit,
+    upFocusRequester: FocusRequester,
+    onDirectionUp: () -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val rowItems = remember(items) { items.mapNotNull(::audiobookRelatedItemToSectionItem) }
+    if (rowItems.isEmpty()) return
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        TvDetailSectionHeader(eyebrow = "Audiobook", title = title)
+        TvMediaRow(
+            title = title,
+            showHeader = false,
+            items = rowItems,
+            onItemClick = onItemDetail,
+            style = TvRowStyle.Poster,
+            horizontalPadding = 0.dp,
+            rowTopPadding = 0.dp,
+            rowBottomPadding = 0.dp,
+            upFocusRequester = upFocusRequester,
+            onDirectionUp = onDirectionUp,
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvAudiobookDetailActionRow(
+    title: String,
+    subtitle: String?,
+    trailing: String?,
+    onClick: () -> Unit,
+    upFocusRequester: FocusRequester? = null,
+    onDirectionUp: (() -> Boolean)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val secondaryColor = if (isFocused) Color.Black.copy(alpha = 0.62f) else Color.White.copy(alpha = 0.58f)
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.06f),
+            contentColor = Color.White,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color.Black,
+            pressedContainerColor = Color.White,
+            pressedContentColor = Color.Black,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.015f),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                shape = RoundedCornerShape(8.dp),
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(1.5.dp, Color.Black.copy(alpha = 0.18f)),
+                shape = RoundedCornerShape(8.dp),
+            ),
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (onDirectionUp != null) {
+                    Modifier.onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                            onDirectionUp.invoke()
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (upFocusRequester != null) {
+                    Modifier.focusProperties { up = upFocusRequester }
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                subtitle?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = secondaryColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            trailing?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = secondaryColor,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
 // MARK: - Helpers
+
+private data class TvAudiobookDisplayChapter(
+    val fileId: Int,
+    val title: String,
+    val partTitle: String,
+    val startSeconds: Double,
+)
+
+private fun audiobookDisplayChapters(parts: List<FileVersion>): List<TvAudiobookDisplayChapter> =
+    parts.flatMapIndexed { partIndex, part ->
+        val partTitle = "Part ${partIndex + 1}"
+        part.chapters.orEmpty().mapIndexed { chapterIndex, chapter ->
+            TvAudiobookDisplayChapter(
+                fileId = part.fileId,
+                title = audiobookChapterTitle(chapterIndex, chapter),
+                partTitle = partTitle,
+                startSeconds = chapter.startSeconds,
+            )
+        }
+    }
+
+private fun audiobookChapterTitle(
+    fallbackIndex: Int,
+    chapter: VersionChapter,
+): String = chapter.title.trim().takeIf { it.isNotBlank() } ?: "Chapter ${fallbackIndex + 1}"
+
+private fun audiobookPartSubtitle(part: FileVersion): String? =
+    listOfNotNull(
+        part.codecAudio?.takeIf { it.isNotBlank() }?.uppercase(),
+        part.container?.takeIf { it.isNotBlank() }?.uppercase(),
+        part.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
+    )
+        .joinToString("  ")
+        .takeIf { it.isNotBlank() }
+
+private fun audiobookDurationLabel(seconds: Double): String? =
+    seconds.takeIf { it.isFinite() && it > 0.0 }?.let(::formatAudiobookTime)
+
+private fun audiobookRelatedItemToSectionItem(item: MediaRelatedItem): SectionItem? {
+    val contentId = item.contentId.takeIf { it.isNotBlank() } ?: return null
+    val title = item.title.takeIf { it.isNotBlank() } ?: return null
+    return SectionItem(
+        contentId = contentId,
+        type = "audiobook",
+        title = title,
+        year = item.year ?: 0,
+        posterUrl = item.posterUrl,
+    )
+}
+
+private fun sectionItemToAudiobookRelatedItem(item: SectionItem): MediaRelatedItem =
+    MediaRelatedItem(
+        contentId = item.contentId,
+        title = item.title,
+        year = item.year.takeIf { it > 0 },
+        posterUrl = item.posterUrl,
+    )
 
 private fun ItemDetail.resumePositionSeconds(): Double? = userData?.resumePositionSeconds()
 

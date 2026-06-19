@@ -137,6 +137,8 @@ fun TvMediaCard(
                         data = overlay,
                         prefs = overlayState.prefs,
                         variant = CardOverlayVariant.Poster,
+                        scale = TvCardOverlayScale,
+                        forceOpaqueBackground = true,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -220,3 +222,6 @@ fun TvMediaCard(
  * that to Android TV as 130×195dp.
  */
 val TvCardWidth: Dp = RowDimens.PosterWidth
+
+/** Optical TV scale: compact like tvOS badges, still readable at sofa distance. */
+const val TvCardOverlayScale: Float = 0.7f

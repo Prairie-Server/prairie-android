@@ -140,8 +140,8 @@ class MainTvActivity : ComponentActivity() {
      * Mirrors the phone app's [com.continuum.app.android.MainActivity] startup
      * flow on top of the multi-server [ServerRegistry]. See that file for the
      * routing rules — they're identical: registry empty ⇒ ServerSetup,
-     * tokens missing ⇒ Login, no profile for this server ⇒ ProfileSelection,
-     * else Main.
+     * tokens missing ⇒ Login, no active profile header scope ⇒
+     * ProfileSelection, else Main.
      */
     private suspend fun resolveStartDestination(): String {
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
@@ -153,7 +153,7 @@ class MainTvActivity : ComponentActivity() {
         val accessToken = tokenManager.getAccessToken()
         if (accessToken.isNullOrBlank()) return TvRoute.Login().route
 
-        val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
+        val profileId = tokenManager.getProfileId()
         if (profileId.isNullOrBlank()) return TvRoute.ProfileSelection.route
 
         return TvRoute.Main.route
