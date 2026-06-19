@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.model.catalog.Person
+import com.continuum.app.model.catalog.personWorksFiltersForTv
 import com.continuum.app.network.ApiResult
 import com.continuum.app.repository.CatalogRepository
 import com.continuum.app.tv.ui.util.visibleOnTv
@@ -13,12 +14,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Filmography media-type filter — mirrors the phone `PersonMediaFilter`. */
-enum class TvPersonMediaFilter(val title: String, val mediaType: String?) {
-    All("All", null),
-    Movies("Movies", "movie"),
-    Series("Series", "series"),
+private const val TvPersonWorksPageSize = 60
+
+/** Filmography media-type filter — mirrors the phone `PersonMediaFilter`, minus Reading. */
+enum class TvPersonMediaFilter(val key: String, val title: String, val mediaType: String?) {
+    All("all", "All", null),
+    Movies("movie", "Movies", "movie"),
+    Series("series", "TV", "series"),
+    Audiobooks("audiobook", "Audiobooks", "audiobook"),
+    Music("music", "Music", "music");
+
+    companion object {
+        fun fromKey(key: String): TvPersonMediaFilter? =
+            entries.firstOrNull { it.key == key }
+    }
 }
+
+private val TvPersonMediaFilters: List<TvPersonMediaFilter> =
+    personWorksFiltersForTv().mapNotNull { TvPersonMediaFilter.fromKey(it.key) }
 
 data class TvPersonDetailUiState(
     val isLoading: Boolean = true,
@@ -26,6 +39,10 @@ data class TvPersonDetailUiState(
     val items: List<BrowseItem> = emptyList(),
     val isLoadingItems: Boolean = false,
     val selectedFilter: TvPersonMediaFilter = TvPersonMediaFilter.All,
+    val availableFilters: List<TvPersonMediaFilter> = TvPersonMediaFilters,
+    val totalItems: Int = 0,
+    val hasMore: Boolean = false,
+    val pagingError: String? = null,
     val error: String? = null,
 )
 
@@ -64,7 +81,7 @@ class TvPersonDetailViewModel(
                             error = null,
                         )
                     }
-                    loadItems(_uiState.value.selectedFilter)
+                    loadItems(_uiState.value.selectedFilter, reset = true)
                 }
                 is ApiResult.Error -> _uiState.update {
                     it.copy(
@@ -85,33 +102,75 @@ class TvPersonDetailViewModel(
     fun applyFilter(filter: TvPersonMediaFilter) {
         if (filter == _uiState.value.selectedFilter) return
         _uiState.update { it.copy(selectedFilter = filter, items = emptyList()) }
-        loadItems(filter)
+        loadItems(filter, reset = true)
     }
 
     private var itemsGeneration = 0
+    private var nextRawOffset = 0
+    private var snapshotAt: String? = null
 
-    private fun loadItems(filter: TvPersonMediaFilter) {
-        val gen = ++itemsGeneration
+    fun loadMoreIfNeeded() {
+        val state = _uiState.value
+        if (!state.hasMore || state.isLoadingItems) return
+        loadItems(state.selectedFilter, reset = false)
+    }
+
+    private fun resetPaging() {
+        nextRawOffset = 0
+        snapshotAt = null
+    }
+
+    private fun loadItems(filter: TvPersonMediaFilter, reset: Boolean) {
+        val gen = if (reset) ++itemsGeneration else itemsGeneration
+        if (reset) resetPaging()
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingItems = true) }
+            _uiState.update {
+                it.copy(
+                    isLoadingItems = true,
+                    pagingError = null,
+                    items = if (reset) emptyList() else it.items,
+                    totalItems = if (reset) 0 else it.totalItems,
+                    hasMore = if (reset) false else it.hasMore,
+                )
+            }
             val result = catalogRepository.getPersonItems(
                 personId = personId,
                 mediaType = filter.mediaType,
-                offset = 0,
-                limit = 60,
+                offset = nextRawOffset,
+                limit = TvPersonWorksPageSize,
+                snapshotAt = snapshotAt,
             )
             // Drop a stale response from a superseded filter selection.
             if (gen != itemsGeneration) return@launch
             when (result) {
-                is ApiResult.Success -> _uiState.update {
+                is ApiResult.Success -> {
+                    if (snapshotAt == null) snapshotAt = result.data.snapshot
+                    nextRawOffset += result.data.items.size
+                    val visibleItems = result.data.items.visibleOnTv()
+                    _uiState.update {
+                        it.copy(
+                            isLoadingItems = false,
+                            // TV hides ebook/comic/etc. media types — keep the
+                            // works grid consistent with the rest of the TV catalog.
+                            items = if (reset) visibleItems else it.items + visibleItems,
+                            totalItems = result.data.total,
+                            hasMore = result.data.hasMore,
+                            pagingError = null,
+                        )
+                    }
+                }
+                is ApiResult.Error -> _uiState.update {
                     it.copy(
                         isLoadingItems = false,
-                        // TV hides ebook/comic/etc. media types — keep the
-                        // filmography consistent with the rest of the TV catalog.
-                        items = result.data.items.visibleOnTv(),
+                        pagingError = result.message.ifBlank { "Failed to load works" },
                     )
                 }
-                else -> _uiState.update { it.copy(isLoadingItems = false) }
+                is ApiResult.NetworkError -> _uiState.update {
+                    it.copy(
+                        isLoadingItems = false,
+                        pagingError = "Network error. Check your connection.",
+                    )
+                }
             }
         }
     }

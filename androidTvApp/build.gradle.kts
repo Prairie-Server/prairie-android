@@ -73,6 +73,9 @@ kotlin {
             // formatter test constructs rows directly, so json must be on the
             // test classpath.
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.json)
         }
     }
 }
