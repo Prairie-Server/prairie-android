@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -58,6 +59,10 @@ import com.continuum.app.android.ui.theme.PillShape
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.model.catalog.Person
+import com.continuum.app.model.catalog.personInitials
+import com.continuum.app.model.catalog.personMetadataBadges
+import com.continuum.app.model.catalog.personWorksCountLabel
+import java.time.LocalDate
 
 private val SafePadding = 16.dp
 private val LargePadding = 24.dp
@@ -98,7 +103,12 @@ fun PersonDetailScreen(
                     items = state.items,
                     isLoadingItems = state.isLoadingItems,
                     selectedFilter = state.selectedFilter,
+                    availableFilters = state.availableFilters,
+                    totalItems = state.totalItems,
+                    hasMore = state.hasMore,
+                    pagingError = state.pagingError,
                     onFilterSelected = { viewModel.applyFilter(it) },
+                    onLoadMore = viewModel::loadMoreIfNeeded,
                     onItemClick = onItemClick,
                 )
             }
@@ -130,7 +140,12 @@ private fun PersonDetailContent(
     items: List<BrowseItem>,
     isLoadingItems: Boolean,
     selectedFilter: PersonMediaFilter,
+    availableFilters: List<PersonMediaFilter>,
+    totalItems: Int,
+    hasMore: Boolean,
+    pagingError: String?,
     onFilterSelected: (PersonMediaFilter) -> Unit,
+    onLoadMore: () -> Unit,
     onItemClick: (String) -> Unit,
 ) {
     LazyVerticalGrid(
@@ -156,7 +171,10 @@ private fun PersonDetailContent(
                 PersonHeader(person = person)
                 FilmographyHeader(
                     selected = selectedFilter,
+                    availableFilters = availableFilters,
                     totalLoaded = items.size,
+                    totalItems = totalItems,
+                    hasMore = hasMore,
                     onSelect = onFilterSelected,
                 )
             }
@@ -185,7 +203,7 @@ private fun PersonDetailContent(
                 ) {
                     EmptyStateView(
                         title = "No titles found",
-                        subtitle = "There are no movies or series linked to this person yet.",
+                        subtitle = "There are no works linked to this person yet.",
                         icon = Icons.Outlined.Movie,
                     )
                 }
@@ -202,9 +220,23 @@ private fun PersonDetailContent(
                     userState = userState,
                     onClick = { onItemClick(item.contentId) },
                     modifier = Modifier.fillMaxWidth(),
+                    artworkAspectRatio = personWorkCardAspectRatio(item),
                     overlay = com.continuum.app.overlays.OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )
+            }
+
+            if (hasMore || isLoadingItems || pagingError != null) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    LaunchedEffect(items.size, hasMore) {
+                        if (hasMore && !isLoadingItems) onLoadMore()
+                    }
+                    PagingFooter(
+                        isLoading = isLoadingItems,
+                        error = pagingError,
+                        onRetry = onLoadMore,
+                    )
+                }
             }
         }
     }
@@ -231,11 +263,7 @@ private fun PersonHeader(person: Person) {
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
-            val badges = buildList {
-                person.birthDate?.takeIf { it.isNotBlank() }?.let { add("Born $it") }
-                person.deathDate?.takeIf { it.isNotBlank() }?.let { add("Died $it") }
-                person.birthplace?.takeIf { it.isNotBlank() }?.let { add(it) }
-            }
+            val badges = personMetadataBadges(person, todayIso = LocalDate.now().toString())
             if (badges.isNotEmpty()) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -267,6 +295,7 @@ private fun PersonHeader(person: Person) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            ExternalProfileSection(person = person)
         }
     }
 }
@@ -305,7 +334,10 @@ private fun PersonPortrait(person: Person) {
 @Composable
 private fun FilmographyHeader(
     selected: PersonMediaFilter,
+    availableFilters: List<PersonMediaFilter>,
     totalLoaded: Int,
+    totalItems: Int,
+    hasMore: Boolean,
     onSelect: (PersonMediaFilter) -> Unit,
 ) {
     Column(
@@ -320,9 +352,9 @@ private fun FilmographyHeader(
                 color = ContinuumOnSurface,
                 modifier = Modifier.weight(1f),
             )
-            if (totalLoaded > 0) {
+            personWorksCountLabel(total = totalItems, loaded = totalLoaded, hasMore = hasMore)?.let { label ->
                 Text(
-                    text = if (totalLoaded == 1) "1 title" else "$totalLoaded titles",
+                    text = label,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Normal,
                     color = ContinuumSecondaryText,
@@ -333,7 +365,7 @@ private fun FilmographyHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {
-            PersonMediaFilter.values().forEach { filter ->
+            availableFilters.forEach { filter ->
                 FilterChip(
                     title = filter.title,
                     isSelected = filter == selected,
@@ -370,8 +402,64 @@ private fun FilterChip(
     }
 }
 
-private fun personInitials(name: String): String {
-    val parts = name.split(' ').filter { it.isNotBlank() }
-    val initials = parts.take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }
-    return if (initials.isEmpty()) "?" else initials.joinToString("")
+@Composable
+private fun ExternalProfileSection(person: Person) {
+    val rows = buildList {
+        person.homepage?.trim()?.takeIf { it.isNotBlank() }?.let { add("Homepage" to it) }
+        person.tmdbId?.trim()?.takeIf { it.isNotBlank() }?.let { add("TMDB" to it) }
+        person.imdbId?.trim()?.takeIf { it.isNotBlank() }?.let { add("IMDb" to it) }
+        person.tvdbId?.trim()?.takeIf { it.isNotBlank() }?.let { add("TVDB" to it) }
+        person.plexGuid?.trim()?.takeIf { it.isNotBlank() }?.let { add("Plex" to it) }
+    }
+    if (rows.isEmpty()) return
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        rows.forEach { (label, value) ->
+            Surface(
+                shape = PillShape,
+                color = ContinuumSurfaceElevated.copy(alpha = 0.55f),
+            ) {
+                Text(
+                    text = "$label: $value",
+                    fontSize = 11.sp,
+                    color = ContinuumSecondaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                )
+            }
+        }
+    }
 }
+
+@Composable
+private fun PagingFooter(
+    isLoading: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            isLoading -> CircularProgressIndicator(color = ContinuumOnSurface)
+            error != null -> Text(
+                text = error,
+                color = ContinuumSecondaryText,
+                modifier = Modifier.clickable(onClick = onRetry),
+            )
+        }
+    }
+}
+
+private fun personWorkCardAspectRatio(item: BrowseItem): Float =
+    if (item.type == "audiobook") {
+        1f
+    } else {
+        2f / 3.3f
+    }

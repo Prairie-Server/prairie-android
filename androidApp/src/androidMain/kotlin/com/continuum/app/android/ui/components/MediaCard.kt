@@ -60,6 +60,7 @@ fun MediaCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     width: Dp = 120.dp,
+    artworkAspectRatio: Float = 2f / 3.3f,
     overlay: OverlayData? = null,
     actions: MediaCardActions = MediaCardActions(),
 ) {
@@ -79,7 +80,7 @@ fun MediaCard(
             modifier = Modifier
                 .fillMaxWidth()
                 // iOS posterAspectRatio = 2 : 3.3 (posterCardWidth 120 / height 198).
-                .aspectRatio(2f / 3.3f)
+                .aspectRatio(artworkAspectRatio)
                 .clip(MaterialTheme.shapes.small),
         ) {
             ThumbhashImage(
