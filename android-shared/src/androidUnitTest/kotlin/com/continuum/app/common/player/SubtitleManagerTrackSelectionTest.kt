@@ -106,6 +106,48 @@ class SubtitleManagerTrackSelectionTest {
     }
 
     @Test
+    fun appSubtitleLanguageFallbackPrefersExternalTextCuesOverEmbeddedPgs() {
+        val embeddedPgs = TrackGroup(
+            subtitle(
+                label = "English (SDH)",
+                language = "en",
+                sampleMimeType = "application/x-media3-cues",
+                codecs = MimeTypes.APPLICATION_PGS,
+            )
+        )
+        val englishSidecar = TrackGroup(
+            subtitle(
+                label = "The Day of the Jackal (2024) - S01E06 [Bluray-1080p Remux]-SiCFoI.en.sdh.srt",
+                language = "en",
+                sampleMimeType = "application/x-media3-cues",
+                codecs = MimeTypes.TEXT_VTT,
+            )
+        )
+        val tracks = Tracks(
+            listOf(
+                Tracks.Group(embeddedPgs, false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(false)),
+                Tracks.Group(englishSidecar, false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(false)),
+            ),
+        )
+
+        val selection = resolveSubtitleSelection(
+            tracks,
+            PlayerSubtitleInfo(
+                index = 6,
+                language = "en",
+                codec = "subrip",
+                label = "English",
+                source = "external",
+                forced = null,
+                url = "/stream/session-1/subtitles/6.vtt",
+            ),
+        )
+
+        assertSame(englishSidecar, selection?.mediaTrackGroup)
+        assertEquals(0, selection?.trackIndex)
+    }
+
+    @Test
     fun deliveredVttSubtitleUrlsUseWebvttMimeEvenWhenSourceCodecIsSubrip() {
         val configuration = SubtitleManager().buildSubtitleConfigurations(
             subtitles = listOf(
@@ -176,10 +218,16 @@ class SubtitleManagerTrackSelectionTest {
         assertEquals(MimeTypes.TEXT_VTT, configurations.single().mimeType)
     }
 
-    private fun subtitle(label: String?, language: String?): Format =
+    private fun subtitle(
+        label: String?,
+        language: String?,
+        sampleMimeType: String = MimeTypes.APPLICATION_SUBRIP,
+        codecs: String? = null,
+    ): Format =
         Format.Builder()
             .setLabel(label)
             .setLanguage(language)
-            .setSampleMimeType(MimeTypes.APPLICATION_SUBRIP)
+            .setSampleMimeType(sampleMimeType)
+            .setCodecs(codecs)
             .build()
 }

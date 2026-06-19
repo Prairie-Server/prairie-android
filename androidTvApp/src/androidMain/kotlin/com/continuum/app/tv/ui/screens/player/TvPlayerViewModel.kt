@@ -14,6 +14,7 @@ import com.continuum.app.common.player.SessionState
 import com.continuum.app.common.player.SleepTimerController
 import com.continuum.app.common.player.SleepTimerState
 import com.continuum.app.common.player.StartParams
+import com.continuum.app.common.player.isBitmapSubtitleCodecOrMime
 import com.continuum.app.common.player.backend.VideoBackendCapabilities
 import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
 import com.continuum.app.common.player.video.VideoPlaybackStartRequest
@@ -70,6 +71,7 @@ data class PlayerTrackEntry(
     val language: String?,
     val isSelected: Boolean,
     val displayLabel: String = label,
+    val codecOrMime: String? = null,
 )
 
 internal fun subtitleTracksWithSelection(
@@ -79,6 +81,44 @@ internal fun subtitleTracksWithSelection(
     tracks.map { track ->
         track.copy(isSelected = selectedIndex >= 0 && track.index == selectedIndex)
     }
+
+internal fun preferredAutoTextSubtitleIndex(
+    tracks: List<PlayerTrackEntry>,
+    preferredLanguage: String?,
+): Int? {
+    val selected = tracks.firstOrNull { it.isSelected } ?: return null
+    if (!isBitmapSubtitleCodecOrMime(selected.codecOrMime)) return null
+
+    val targetLanguage = normalizedSubtitleLanguage(selected.language)
+        ?: normalizedSubtitleLanguage(preferredLanguage)
+        ?: return null
+
+    return tracks.firstOrNull { track ->
+        track.index != selected.index &&
+            !isBitmapSubtitleCodecOrMime(track.codecOrMime) &&
+            normalizedSubtitleLanguage(track.language) == targetLanguage
+    }?.index
+}
+
+private fun normalizedSubtitleLanguage(language: String?): String? {
+    val primary = language
+        ?.trim()
+        ?.takeUnless { it.isBlank() || it.equals("und", ignoreCase = true) }
+        ?.lowercase()
+        ?.replace('_', '-')
+        ?.substringBefore('-')
+        ?: return null
+    return when (primary) {
+        "eng" -> "en"
+        "spa" -> "es"
+        "fre", "fra" -> "fr"
+        "ger", "deu" -> "de"
+        "dut", "nld" -> "nl"
+        "jpn" -> "ja"
+        "dan" -> "da"
+        else -> primary
+    }
+}
 
 /**
  * How the video surface scales to fill the player area. Session-scoped
@@ -345,6 +385,7 @@ class TvPlayerViewModel(
     // later user track change isn't overridden.
     private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
     private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
+    private var autoTextSubtitleSelectionAttempted = false
 
     data class UiState(
         val isLoading: Boolean = true,
@@ -1102,6 +1143,7 @@ class TvPlayerViewModel(
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
+        resolveAutoPreferredTextSubtitle(subtitle)
     }
 
     fun onTracksChanged(
@@ -1120,6 +1162,22 @@ class TvPlayerViewModel(
         }
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
+        resolveAutoPreferredTextSubtitle(subtitle)
+    }
+
+    private fun resolveAutoPreferredTextSubtitle(subtitle: List<PlayerTrackEntry>) {
+        if (autoTextSubtitleSelectionAttempted) return
+        if (launchArgs.initialSubtitleTrackIndex != null) return
+        if (subtitle.isEmpty()) return
+        if (subtitle.none { it.isSelected }) return
+
+        val targetIndex = preferredAutoTextSubtitleIndex(
+            tracks = subtitle,
+            preferredLanguage = _uiState.value.preferredTextLanguage,
+        )
+        autoTextSubtitleSelectionAttempted = true
+        targetIndex ?: return
+        _subtitleSelectRequests.tryEmit(targetIndex)
     }
 
     /**

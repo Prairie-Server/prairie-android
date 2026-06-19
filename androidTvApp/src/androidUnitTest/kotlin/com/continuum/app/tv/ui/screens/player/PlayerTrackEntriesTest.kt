@@ -56,6 +56,43 @@ class PlayerTrackEntriesTest {
     }
 
     @Test
+    fun autoSubtitlePreferenceMovesSelectedPgsToMatchingTextSidecar() {
+        val tracks = listOf(
+            PlayerTrackEntry(
+                index = 2,
+                label = "English (SDH)",
+                language = "en",
+                isSelected = true,
+                codecOrMime = MimeTypes.APPLICATION_PGS,
+            ),
+            PlayerTrackEntry(
+                index = 6,
+                label = "The Day of the Jackal (2024) - S01E06 [Bluray-1080p Remux]-SiCFoI.en.sdh.srt",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+        )
+
+        assertEquals(6, preferredAutoTextSubtitleIndex(tracks, preferredLanguage = "en"))
+    }
+
+    @Test
+    fun autoSubtitlePreferenceLeavesSelectedTextTrackAlone() {
+        val tracks = listOf(
+            PlayerTrackEntry(
+                index = 6,
+                label = "English VTT",
+                language = "en",
+                isSelected = true,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+        )
+
+        assertEquals(null, preferredAutoTextSubtitleIndex(tracks, preferredLanguage = "en"))
+    }
+
+    @Test
     fun textTracksExposeEmbeddedBitmapSubtitlesAndPreserveMedia3FlatIndex() {
         val group = TrackGroup(
             Format.Builder()
@@ -83,6 +120,7 @@ class PlayerTrackEntriesTest {
         assertEquals(listOf(0, 1), entries.map { it.index })
         assertEquals(listOf("English SDH", "English VTT"), entries.map { it.label })
         assertTrue(entries[0].displayLabel.contains("PGS"))
+        assertEquals(listOf(MimeTypes.APPLICATION_PGS, MimeTypes.APPLICATION_SUBRIP), entries.map { it.codecOrMime })
     }
 
     @Test

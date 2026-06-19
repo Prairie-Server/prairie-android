@@ -5,6 +5,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.util.Log
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -334,7 +335,11 @@ internal fun resolveSubtitleSelection(
         }?.let { return it.selection }
     }
     if (language != null) {
-        candidates.firstOrNull { it.language?.trim()?.lowercase() == language }?.let { return it.selection }
+        val languageMatches = candidates.filter {
+            it.language?.trim()?.lowercase() == language
+        }
+        languageMatches.firstOrNull { !it.isBitmap }?.let { return it.selection }
+        languageMatches.firstOrNull()?.let { return it.selection }
     }
     return null
 }
@@ -343,6 +348,7 @@ private data class TextTrackCandidate(
     val selection: SubtitleSelection,
     val label: String?,
     val language: String?,
+    val isBitmap: Boolean,
 )
 
 private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
@@ -355,11 +361,33 @@ private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
                 selection = SubtitleSelection(group.mediaTrackGroup, trackIndex),
                 label = format.label,
                 language = format.language,
+                isBitmap = isBitmapSubtitleCodecOrMime(format.subtitleCodecOrMime()),
             )
         }
     }
     return candidates
 }
+
+fun isBitmapSubtitleCodecOrMime(codecOrMime: String?): Boolean {
+    val normalized = codecOrMime
+        ?.trim()
+        ?.lowercase()
+        ?.replace('_', '-')
+        ?: return false
+    return normalized == MimeTypes.APPLICATION_PGS ||
+        normalized == MimeTypes.APPLICATION_DVBSUBS ||
+        normalized.contains("pgs") ||
+        normalized.contains("hdmv") ||
+        normalized.contains("dvd") ||
+        normalized.contains("dvbsubs")
+}
+
+private fun Format.subtitleCodecOrMime(): String? =
+    if (sampleMimeType == MEDIA3_CUES_MIME_TYPE) {
+        codecs ?: sampleMimeType
+    } else {
+        sampleMimeType ?: codecs
+    }
 
 private fun Tracks.describeTextTracks(): String {
     val parts = mutableListOf<String>()
@@ -377,3 +405,4 @@ private fun Tracks.describeTextTracks(): String {
 }
 
 private const val TAG = "SiloSubtitles"
+private const val MEDIA3_CUES_MIME_TYPE = "application/x-media3-cues"

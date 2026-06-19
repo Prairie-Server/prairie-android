@@ -30,6 +30,10 @@ class TvDialogScalingTest {
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/detail/TvRatingDialog.kt",
     ).readText()
 
+    private val mediaInfoDialog = File(
+        "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/detail/TvMediaInfoDialog.kt",
+    ).readText()
+
     private val aiTranslateDialog = File(
         "src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvAiTranslateDialog.kt",
     ).readText()
@@ -125,6 +129,48 @@ class TvDialogScalingTest {
                 assertFalse(source.contains("RoundedCornerShape(28.dp)"))
                 assertFalse(source.contains(".border(1.2.dp"))
             }
+    }
+
+    @Test
+    fun optionDialogRowsUseCompactTvOsMappedScale() {
+        assertTrue(optionDialog.contains(".width(320.dp)"))
+        assertTrue(optionDialog.contains(".padding(horizontal = 12.dp, vertical = 12.dp)"))
+        assertTrue(optionDialog.contains("verticalArrangement = Arrangement.spacedBy(8.dp)"))
+        assertTrue(optionDialog.contains(".heightIn(max = 240.dp)"))
+        assertTrue(optionDialog.contains("verticalArrangement = Arrangement.spacedBy(4.dp)"))
+        assertTrue(optionDialog.contains("scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)"))
+        assertTrue(optionDialog.contains(".heightIn(min = 40.dp)"))
+        assertTrue(optionDialog.contains(".padding(horizontal = 12.dp, vertical = 7.dp)"))
+        assertTrue(optionDialog.contains("fontSize = 13.sp"))
+        assertTrue(optionDialog.contains("fontSize = 11.sp"))
+        assertFalse(optionDialog.contains(".width(340.dp)"))
+        assertFalse(optionDialog.contains(".heightIn(min = 52.dp)"))
+        assertFalse(optionDialog.contains("fontSize = 18.sp"))
+        assertFalse(optionDialog.contains("fontSize = 16.sp"))
+        assertFalse(optionDialog.contains("focusedScale = 1.025f"))
+    }
+
+    @Test
+    fun mediaInfoDialogUsesCompactTvSideSheet() {
+        assertTrue(mediaInfoDialog.contains(".fillMaxWidth(0.36f)"))
+        assertTrue(mediaInfoDialog.contains(".fillMaxHeight(0.88f)"))
+        assertTrue(mediaInfoDialog.contains("RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp)"))
+        assertTrue(mediaInfoDialog.contains(".border(0.6.dp"))
+        assertTrue(mediaInfoDialog.contains(".padding(horizontal = 20.dp, vertical = 22.dp)"))
+        assertTrue(mediaInfoDialog.contains("verticalArrangement = Arrangement.spacedBy(9.dp)"))
+        assertTrue(mediaInfoDialog.contains("fontSize = 18.sp"))
+        assertTrue(mediaInfoDialog.contains("fontSize = 12.sp"))
+        assertTrue(mediaInfoDialog.contains("val scrollState = rememberScrollState()"))
+        assertTrue(mediaInfoDialog.contains(".verticalScroll(scrollState)"))
+        assertTrue(mediaInfoDialog.contains("canScrollBackward = scrollState.value > 0"))
+        assertTrue(mediaInfoDialog.contains("canScrollForward = scrollState.value < scrollState.maxValue"))
+        assertFalse(mediaInfoDialog.contains(".fillMaxWidth(0.46f)"))
+        assertFalse(mediaInfoDialog.contains(".fillMaxHeight()"))
+        assertFalse(mediaInfoDialog.contains("RoundedCornerShape(topStart = 30.dp, bottomStart = 30.dp)"))
+        assertFalse(mediaInfoDialog.contains(".border(1.dp"))
+        assertFalse(mediaInfoDialog.contains(".padding(horizontal = 28.dp, vertical = 34.dp)"))
+        assertFalse(mediaInfoDialog.contains("MaterialTheme.typography.headlineSmall"))
+        assertFalse(mediaInfoDialog.contains("MaterialTheme.typography.bodyLarge"))
     }
 
     @Test

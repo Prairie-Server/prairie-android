@@ -91,31 +91,32 @@ fun TvOptionDialog(
             val panelShape = RoundedCornerShape(14.dp)
             Column(
                 modifier = Modifier
-                    .width(340.dp)
+                    .width(320.dp)
                     .background(
                         color = DarkBackground.copy(alpha = 0.68f),
                         shape = panelShape,
                     )
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
                     text = title.uppercase(),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 16.sp,
-                        letterSpacing = 1.1.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 14.sp,
+                        letterSpacing = 0.8.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White.copy(alpha = 0.58f),
-                    modifier = Modifier.padding(horizontal = 8.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp),
                 )
 
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 300.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                        .heightIn(max = 240.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     items(
                         options,
@@ -153,7 +154,7 @@ private fun TvOptionDialogRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(12.dp)
     val restContent = if (enabled) Color.White else Color.White.copy(alpha = 0.42f)
 
     Surface(
@@ -172,7 +173,7 @@ private fun TvOptionDialogRow(
             disabledContainerColor = Color.White.copy(alpha = 0.03f),
             disabledContentColor = Color.White.copy(alpha = 0.38f),
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.025f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
             border = Border(
                 border = BorderStroke(
@@ -182,22 +183,22 @@ private fun TvOptionDialogRow(
                 shape = shape,
             ),
             focusedBorder = Border(
-                border = BorderStroke(2.dp, DarkBackground.copy(alpha = 0.82f)),
+                border = BorderStroke(1.5.dp, DarkBackground.copy(alpha = 0.82f)),
                 shape = shape,
             ),
         ),
         glow = ClickableSurfaceDefaults.glow(
             focusedGlow = Glow(
-                elevationColor = Color.White.copy(alpha = 0.18f),
-                elevation = 16.dp,
+                elevationColor = Color.White.copy(alpha = 0.14f),
+                elevation = 10.dp,
             ),
         ),
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = 40.dp)
             .then(
                 if (isFocused) {
-                    Modifier.border(2.dp, Color.White.copy(alpha = 0.98f), shape)
+                    Modifier.border(1.5.dp, Color.White.copy(alpha = 0.98f), shape)
                 } else {
                     Modifier
                 },
@@ -207,19 +208,19 @@ private fun TvOptionDialogRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .alpha(if (enabled) 1f else 0.72f)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 18.sp,
-                        lineHeight = 20.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                     ),
                     color = if (isFocused) FocusedContent else restContent,
@@ -228,8 +229,8 @@ private fun TvOptionDialogRow(
                     Text(
                         text = it,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 16.sp,
-                            lineHeight = 20.sp,
+                            fontSize = 11.sp,
+                            lineHeight = 13.sp,
                         ),
                         color = if (isFocused) {
                             FocusedContent.copy(alpha = 0.70f)
@@ -244,10 +245,10 @@ private fun TvOptionDialogRow(
                     imageVector = Icons.Filled.CheckCircle,
                     contentDescription = null,
                     tint = if (isFocused) FocusedContent else Color.White.copy(alpha = 0.82f),
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             } else {
-                Spacer(modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.size(18.dp))
             }
         }
     }

@@ -1225,7 +1225,7 @@ private fun HudSubtitlesPane(
 
 @Composable
 private fun StyleSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(top = 5.dp)) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
@@ -1235,7 +1235,7 @@ private fun StyleSection(title: String, content: @Composable () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) { content() }
     }
@@ -1252,10 +1252,10 @@ private fun StyleColorSwatch(hex: String, selected: Boolean, enabled: Boolean, o
     }
     Box(
         modifier = Modifier
-            .size(36.dp)
+            .size(28.dp)
             .clip(CircleShape)
             .background(hexToColor(hex))
-            .border(width = if (isFocused || selected) 3.dp else 1.dp, color = ring, shape = CircleShape)
+            .border(width = if (isFocused || selected) 2.dp else 1.dp, color = ring, shape = CircleShape)
             .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() },
     )
 }
@@ -1393,7 +1393,7 @@ private fun HudChaptersPane(
         ) { idx, ch ->
             HudChapterRow(
                 chapter = ch,
-                onFocused = { onSelectChapter(idx) },
+                onSelect = { onSelectChapter(idx) },
             )
         }
     }
@@ -1402,11 +1402,10 @@ private fun HudChaptersPane(
 @Composable
 private fun HudChapterRow(
     chapter: VersionChapter,
-    onFocused: () -> Unit,
+    onSelect: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    LaunchedEffect(isFocused) { if (isFocused) onFocused() }
 
     val bg = if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent
     val fg = if (isFocused) Color.White else Color.White.copy(alpha = 0.86f)
@@ -1416,20 +1415,28 @@ private fun HudChapterRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
-            .focusable(interactionSource = interactionSource)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .clickable(enabled = true, interactionSource = interactionSource, indication = null) { onSelect() }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             text = formatTime(chapter.startSeconds),
             color = fg.copy(alpha = 0.72f),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.Medium,
+            ),
         )
         Text(
             text = chapter.title.ifBlank { "Chapter ${chapter.index + 1}" },
             color = fg,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
             modifier = Modifier.weight(1f),
         )
     }

@@ -56,6 +56,32 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
+    fun subtitleStyleSwatchesFitInsideCompactHud() {
+        assertTrue(hudSource.contains(".size(28.dp)"))
+        assertFalse(hudSource.contains(".size(36.dp)"))
+        assertTrue(hudSource.contains("horizontalArrangement = Arrangement.spacedBy(6.dp)"))
+        assertTrue(hudSource.contains("modifier = Modifier.padding(top = 5.dp)"))
+    }
+
+    @Test
+    fun chapterRowsCommitOnCenterSelect() {
+        assertTrue(hudSource.contains("onSelect = { onSelectChapter(idx) }"))
+        assertTrue(hudSource.contains("private fun HudChapterRow("))
+        assertTrue(hudSource.contains(".clickable(enabled = true, interactionSource = interactionSource, indication = null) { onSelect() }"))
+        assertFalse(hudSource.contains("onFocused = { onSelectChapter(idx) }"))
+    }
+
+    @Test
+    fun chapterRowsUseCompactHudTypography() {
+        assertTrue(hudSource.contains(".padding(horizontal = 12.dp, vertical = 7.dp)"))
+        assertTrue(hudSource.contains("fontSize = 10.sp"))
+        assertTrue(hudSource.contains("lineHeight = 12.sp"))
+        assertTrue(hudSource.contains("fontSize = 11.sp"))
+        assertTrue(hudSource.contains("lineHeight = 13.sp"))
+        assertFalse(hudSource.contains(".padding(horizontal = 16.dp, vertical = 10.dp)"))
+    }
+
+    @Test
     fun timelineShowsBufferedProgress() {
         assertTrue(screenSource.contains("bufferedAheadSec = bufferedAheadSec"))
         assertTrue(screenSource.contains("val bufferedAheadSec ="))

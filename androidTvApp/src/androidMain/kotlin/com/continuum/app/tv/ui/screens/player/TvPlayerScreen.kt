@@ -1849,16 +1849,18 @@ internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEnt
                 val media3FlatTextIndex = flatTextIndex
                 flatTextIndex++
                 val label = format.label.orEmpty().ifBlank { format.language?.uppercase() ?: "" }
+                val codecOrMime = format.subtitleCodecOrMime()
                 result.add(
                     PlayerTrackEntry(
                         index = media3FlatTextIndex,
                         label = label,
                         language = format.language,
                         isSelected = group.isTrackSelected(trackIndex),
+                        codecOrMime = codecOrMime,
                         displayLabel = formatSubtitleTrackDisplayLabel(
                             rawLabel = label,
                             language = format.language,
-                            codecOrMime = format.subtitleCodecOrMime(),
+                            codecOrMime = codecOrMime,
                             isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
                             index = flatTextIndex,
                         ),
