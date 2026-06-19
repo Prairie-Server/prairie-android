@@ -133,11 +133,11 @@ private fun TvPersonDetailContent(
             .fillMaxSize()
             .padding(
                 start = Spacing.safeArea,
-                top = 48.dp,
+                top = 22.dp,
                 end = Spacing.safeArea,
-                bottom = 28.dp,
+                bottom = 20.dp,
             ),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PersonHeader(person = person)
         FilmographyHeader(
@@ -189,20 +189,20 @@ private fun TvPersonDetailContent(
 private fun PersonHeader(person: Person) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(48.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
         verticalAlignment = Alignment.Top,
     ) {
         PersonPortrait(person = person)
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 text = person.name,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 72.sp,
-                lineHeight = 76.sp,
+                fontSize = 38.sp,
+                lineHeight = 42.sp,
                 letterSpacing = 0.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -217,10 +217,16 @@ private fun PersonHeader(person: Person) {
             if (bio != null) {
                 Text(
                     text = bio,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 22.sp, lineHeight = 29.sp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
                     color = Color.White.copy(alpha = 0.78f),
-                    maxLines = 7,
+                    maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Text(
+                    text = "No biography or personal details are available yet.",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                    color = Color.White.copy(alpha = 0.48f),
                 )
             }
         }
@@ -229,7 +235,7 @@ private fun PersonHeader(person: Person) {
 
 @Composable
 private fun PersonPortrait(person: Person) {
-    val width = 300.dp
+    val width = 96.dp
     val height = (width.value * 1.5f).dp
     Box(
         modifier = Modifier
@@ -394,8 +400,8 @@ private fun FilterChoiceChip(
     }
 }
 
-private const val PersonGridColumns = 6
-private val PersonGridItemSpacing = 20.dp
+private const val PersonGridColumns = 7
+private val PersonGridItemSpacing = 16.dp
 
 private fun personWorkCardAspectRatio(item: BrowseItem): Float? =
     if (item.type == "audiobook") {
