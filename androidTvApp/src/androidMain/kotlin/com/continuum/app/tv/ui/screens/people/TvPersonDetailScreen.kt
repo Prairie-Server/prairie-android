@@ -64,11 +64,9 @@ import org.koin.core.parameter.parametersOf
  * + name + birth/death/birthplace badges + bio) over a media-type filter row
  * and a poster grid.
  *
- * TV idioms follow [com.continuum.app.tv.ui.screens.library.TvLibraryDetailScreen]:
- * a 6-column `LazyVerticalGrid` with the editorial header spanning the full
- * width as the first item, `TvMediaCard` posters with d-pad focus, and a
- * focus-claiming `LaunchedEffect` so the remote lands on the first title once
- * the filmography loads. `onOpenItemDetail` routes a poster to its detail page.
+ * TV idioms follow the tvOS person screen: a fixed identity header + filter
+ * area, with only the filmography grid scrolling under it. `onOpenItemDetail`
+ * routes a poster to its detail page.
  */
 @Composable
 fun TvPersonDetailScreen(
@@ -130,53 +128,57 @@ private fun TvPersonDetailContent(
         initialFocusRequested = true
     }
 
-    // Shared catalog grid. The portrait + works filter row ride along as the
-    // full-width header so they scroll with the posters.
-    TvCatalogGrid(
-        items = state.items,
-        isLoading = state.isLoadingItems,
-        hasMore = state.hasMore,
-        onItemClick = onOpenItemDetail,
-        onLoadMore = onLoadMore,
-        modifier = Modifier.fillMaxSize(),
-        fixedColumnCount = PersonGridColumns,
-        contentPadding = PaddingValues(
-            start = Spacing.safeArea,
-            top = Spacing.xxxl,
-            end = Spacing.safeArea,
-            bottom = Spacing.xxxl,
-        ),
-        horizontalSpacing = PersonGridItemSpacing,
-        verticalSpacing = Spacing.sectionSpacing,
-        firstItemFocusRequester = firstItemFocusRequester,
-        artworkAspectRatioForItem = ::personWorkCardAspectRatio,
-        header = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                PersonHeader(person = person)
-                FilmographyHeader(
-                    selected = state.selectedFilter,
-                    availableFilters = state.availableFilters,
-                    totalLoaded = state.items.size,
-                    totalItems = state.totalItems,
-                    hasMore = state.hasMore,
-                    onSelect = onFilterSelected,
-                )
-                state.pagingError?.let { error ->
-                    Text(
-                        text = error,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
-                        color = Color.White.copy(alpha = 0.62f),
-                    )
-                }
-            }
-        },
-        emptyState = {
-            TvCatalogEmptyState(message = "No titles found.")
-        },
-    )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(
+                start = Spacing.safeArea,
+                top = 48.dp,
+                end = Spacing.safeArea,
+                bottom = 28.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(22.dp),
+    ) {
+        PersonHeader(person = person)
+        FilmographyHeader(
+            selected = state.selectedFilter,
+            availableFilters = state.availableFilters,
+            totalLoaded = state.items.size,
+            totalItems = state.totalItems,
+            hasMore = state.hasMore,
+            onSelect = onFilterSelected,
+        )
+        state.pagingError?.let { error ->
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
+                color = Color.White.copy(alpha = 0.62f),
+            )
+        }
+
+        TvCatalogGrid(
+            items = state.items,
+            isLoading = state.isLoadingItems,
+            hasMore = state.hasMore,
+            onItemClick = onOpenItemDetail,
+            onLoadMore = onLoadMore,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            fixedColumnCount = PersonGridColumns,
+            contentPadding = PaddingValues(
+                start = 0.dp,
+                top = 6.dp,
+                end = 0.dp,
+                bottom = Spacing.xxl,
+            ),
+            horizontalSpacing = PersonGridItemSpacing,
+            verticalSpacing = Spacing.sectionSpacing,
+            firstItemFocusRequester = firstItemFocusRequester,
+            artworkAspectRatioForItem = ::personWorkCardAspectRatio,
+            emptyState = {
+                TvCatalogEmptyState(message = "No titles found.")
+            },
+        )
+    }
 }
 
 // ============================================================================
@@ -187,20 +189,20 @@ private fun TvPersonDetailContent(
 private fun PersonHeader(person: Person) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(48.dp),
         verticalAlignment = Alignment.Top,
     ) {
         PersonPortrait(person = person)
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(
                 text = person.name,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 46.sp,
-                lineHeight = 50.sp,
+                fontSize = 72.sp,
+                lineHeight = 76.sp,
                 letterSpacing = 0.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -215,13 +217,9 @@ private fun PersonHeader(person: Person) {
             if (bio != null) {
                 Text(
                     text = bio,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 22.sp, lineHeight = 29.sp),
                     color = Color.White.copy(alpha = 0.78f),
-                    // TV can't D-pad-scroll an inner text box and the auto-focus
-                    // lands on the grid below, so keep the bio to a viewport-sized
-                    // block (more than the old 6-line clip, but not so tall it
-                    // pushes the filmography off-screen or strands the bio's top).
-                    maxLines = 12,
+                    maxLines = 7,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -231,7 +229,7 @@ private fun PersonHeader(person: Person) {
 
 @Composable
 private fun PersonPortrait(person: Person) {
-    val width = 220.dp
+    val width = 300.dp
     val height = (width.value * 1.5f).dp
     Box(
         modifier = Modifier
