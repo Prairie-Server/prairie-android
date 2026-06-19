@@ -48,6 +48,7 @@ import com.continuum.app.tv.ui.theme.ProgressTrack
 import com.continuum.app.tv.ui.theme.ProgressFill
 import com.continuum.app.tv.ui.theme.RowDimens
 import com.continuum.app.tv.ui.theme.continuumCardDefaults
+import com.continuum.app.tv.ui.util.tvArtworkAspectRatioForMediaType
 
 /**
  * The core focusable media card used throughout the TV app.
@@ -72,6 +73,7 @@ fun TvMediaCard(
     year: Int? = null,
     userState: MediaItemUserState? = null,
     progress: Float? = null,
+    mediaType: String? = null,
     width: Dp = TvCardWidth,
     fillWidth: Boolean = false,
     artworkAspectRatio: Float? = null,
@@ -81,7 +83,9 @@ fun TvMediaCard(
     actions: TvMediaCardActions = TvMediaCardActions(),
 ) {
     val overlayState = LocalCardOverlayUiState.current
-    val effectiveAspectRatio = artworkAspectRatio ?: (2f / 3f)
+    val effectiveAspectRatio = artworkAspectRatio
+        ?: tvArtworkAspectRatioForMediaType(mediaType)
+        ?: (2f / 3f)
     val height = width / effectiveAspectRatio
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()

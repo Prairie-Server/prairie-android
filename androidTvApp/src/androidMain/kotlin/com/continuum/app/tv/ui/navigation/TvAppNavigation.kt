@@ -323,6 +323,9 @@ fun TvAppNavigation(
                         ),
                     )
                 },
+                onOpenPersonDetail = { personId ->
+                    navController.navigate(TvRoute.PersonDetail(personId).route)
+                },
             )
         }
 

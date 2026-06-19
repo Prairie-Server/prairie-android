@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.tv.ui.components.TvCatalogGrid
 import com.continuum.app.tv.ui.components.TvFilterChip
 import com.continuum.app.tv.ui.components.tvOutlinedTextFieldColors
@@ -60,7 +61,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvSearchScreen(
-    onItemClick: (contentId: String) -> Unit,
+    onResultClick: (BrowseItem) -> Unit,
     searchFieldFocusRequester: FocusRequester? = null,
     viewModel: TvSearchViewModel = koinViewModel(),
 ) {
@@ -91,7 +92,8 @@ fun TvSearchScreen(
             items = state.items,
             isLoading = state.isLoading || state.isLoadingMore,
             hasMore = state.hasMore,
-            onItemClick = onItemClick,
+            onItemClick = { },
+            onBrowseItemClick = onResultClick,
             onLoadMore = viewModel::loadMore,
             modifier = Modifier.fillMaxSize(),
             minCellWidth = 152.dp,

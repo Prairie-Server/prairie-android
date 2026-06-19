@@ -610,6 +610,7 @@ private fun LibraryGrid(
                     posterThumbhash = item.posterThumbhash,
                     year = item.year.takeIf { it > 0 },
                     userState = userState,
+                    mediaType = item.type,
                     width = TvCardWidth,
                     fillWidth = true,
                     onClick = { onItemClick(item.contentId) },

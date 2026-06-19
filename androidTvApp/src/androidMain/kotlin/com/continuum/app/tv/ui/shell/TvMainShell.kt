@@ -99,6 +99,7 @@ import com.continuum.app.tv.ui.theme.DarkBackground
 import com.continuum.app.common.ui.components.profileAvatarDisplayText
 import com.continuum.app.common.ui.components.rememberProfileServerUrl
 import com.continuum.app.common.ui.components.resolveAvatarUrl
+import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.model.admin.shouldShowClientAdminSurface
 import com.continuum.app.model.auth.isActingAdmin
 import com.continuum.app.model.personal.UserLibrary
@@ -163,6 +164,7 @@ fun TvMainShell(
     onSwitchServer: () -> Unit,
     onPairDevice: () -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit,
+    onOpenPersonDetail: (personId: Int) -> Unit,
 ) {
     val nestedNav = rememberNavController()
     val currentEntry by nestedNav.currentBackStackEntryAsState()
@@ -628,7 +630,13 @@ fun TvMainShell(
                 }
                 composable(TvMainRoute.Search.route) {
                     TvSearchScreen(
-                        onItemClick = onOpenItemDetail,
+                        onResultClick = { item ->
+                            openBrowseItem(
+                                item = item,
+                                onOpenItemDetail = onOpenItemDetail,
+                                onOpenPersonDetail = onOpenPersonDetail,
+                            )
+                        },
                         searchFieldFocusRequester = searchInputFocusRequester,
                     )
                 }
@@ -1042,6 +1050,18 @@ private fun TvLibraryTypeContent(
             initialSection = selectedPill.toLibraryTab(),
             sectionRequestNonce = sectionRequestNonce,
         )
+    }
+}
+
+private fun openBrowseItem(
+    item: BrowseItem,
+    onOpenItemDetail: (contentId: String) -> Unit,
+    onOpenPersonDetail: (personId: Int) -> Unit,
+) {
+    if (item.type.equals("person", ignoreCase = true)) {
+        item.contentId.toIntOrNull()?.let(onOpenPersonDetail) ?: onOpenItemDetail(item.contentId)
+    } else {
+        onOpenItemDetail(item.contentId)
     }
 }
 

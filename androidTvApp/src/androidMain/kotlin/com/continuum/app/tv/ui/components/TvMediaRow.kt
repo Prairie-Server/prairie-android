@@ -207,6 +207,7 @@ fun TvMediaRow(
                             year = item.year.takeIf { it > 0 },
                             userState = item.userState,
                             progress = rowItem.progress,
+                            mediaType = item.type,
                             width = posterWidth ?: TvCardWidth,
                             onClick = { onItemClick(item.contentId) },
                             focusRequester = itemFocusRequester,

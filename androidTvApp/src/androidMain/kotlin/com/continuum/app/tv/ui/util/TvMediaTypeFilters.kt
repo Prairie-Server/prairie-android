@@ -17,6 +17,9 @@ fun isTvHiddenMediaType(type: String?): Boolean = isEbookLikeLibraryType(type)
 
 fun isAudiobookMediaType(type: String?): Boolean = isAudiobookLikeLibraryType(type)
 
+fun tvArtworkAspectRatioForMediaType(type: String?): Float? =
+    if (isAudiobookMediaType(type)) 1f else null
+
 @JvmName("browseItemsVisibleOnTv")
 fun Iterable<BrowseItem>.visibleOnTv(): List<BrowseItem> =
     filterNot { isTvHiddenMediaType(it.type) }

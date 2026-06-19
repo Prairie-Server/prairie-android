@@ -31,6 +31,7 @@ import androidx.tv.material3.Text
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.overlays.OverlayDataExtractor
 import com.continuum.app.tv.ui.theme.Spacing
+import com.continuum.app.tv.ui.util.tvArtworkAspectRatioForMediaType
 
 /**
  * Poster grid with automatic pagination. Fed by a [List] of
@@ -63,7 +64,10 @@ fun TvCatalogGrid(
     verticalSpacing: Dp = 32.dp,
     firstItemFocusRequester: FocusRequester? = null,
     firstItemCardModifier: Modifier = Modifier,
-    artworkAspectRatioForItem: (BrowseItem) -> Float? = { null },
+    artworkAspectRatioForItem: (BrowseItem) -> Float? = { item ->
+        tvArtworkAspectRatioForMediaType(item.type)
+    },
+    onBrowseItemClick: ((BrowseItem) -> Unit)? = null,
     header: (@Composable () -> Unit)? = null,
     emptyState: (@Composable () -> Unit)? = null,
 ) {
@@ -129,7 +133,8 @@ fun TvCatalogGrid(
                     posterThumbhash = item.posterThumbhash,
                     year = item.year.takeIf { it > 0 },
                     userState = userState,
-                    onClick = { onItemClick(item.contentId) },
+                    mediaType = item.type,
+                    onClick = { onBrowseItemClick?.invoke(item) ?: onItemClick(item.contentId) },
                     fillWidth = true,
                     artworkAspectRatio = artworkAspectRatioForItem(item),
                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
