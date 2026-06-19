@@ -1,51 +1,70 @@
 package com.continuum.app.android.ui.screens.auth
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.continuum.app.android.ui.components.aurora.AuroraEyebrow
+import com.continuum.app.android.ui.components.aurora.AuroraErrorLabel
+import com.continuum.app.android.ui.components.aurora.AuroraGhostButton
+import com.continuum.app.android.ui.components.aurora.AuroraInkTertiary
+import com.continuum.app.android.ui.components.aurora.AuroraPrimaryButton
+import com.continuum.app.android.ui.components.aurora.AuroraScreen
+import com.continuum.app.android.ui.components.aurora.AuroraScrim
+import com.continuum.app.android.ui.components.aurora.AuroraTextField
+import com.continuum.app.android.ui.components.aurora.AuroraVariant
+import com.continuum.app.android.ui.components.aurora.auroraGlass
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Login screen with username / password fields.
+ * Password-first sign-in. Mirrors silo-apple iOS phone `LoginView` (Aurora):
+ * wordmark, "Step 02 — Sign in" eyebrow + "Welcome back", then a glass card with
+ * Username + Password fields, the cream "Sign in" button, and the
+ * Create-account / Change-server ghost buttons.
  *
- * @param signupEnabled Whether the "Create Account" link should be shown.
- * @param onNavigateToSignup Called when the user taps "Create Account".
+ * @param signupEnabled Whether the "Create account" ghost is shown.
+ * @param onNavigateToSignup Tapped "Create account".
  * @param onNavigateToProfiles Called after a successful login.
+ * @param onChangeServer Tapped "Change server" (back to server setup).
  */
 @Composable
 fun LoginScreen(
     signupEnabled: Boolean = false,
     onNavigateToSignup: () -> Unit,
     onNavigateToProfiles: () -> Unit,
+    onChangeServer: () -> Unit = {},
     viewModel: LoginViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    var showPassword by remember { mutableStateOf(false) }
 
-    // Propagate the parameter into the ViewModel once.
-    LaunchedEffect(signupEnabled) {
-        viewModel.setSignupEnabled(signupEnabled)
-    }
-
-    // React to successful login.
+    LaunchedEffect(signupEnabled) { viewModel.setSignupEnabled(signupEnabled) }
     LaunchedEffect(state.loginSuccess) {
         if (state.loginSuccess) {
             viewModel.onLoginSuccessConsumed()
@@ -53,91 +72,94 @@ fun LoginScreen(
         }
     }
 
-    AuthStage {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            ContinuumLogo()
+    AuroraScreen(variant = AuroraVariant.SignIn, scrim = AuroraScrim.Soft) {
+        ContinuumLogo()
 
-            Spacer(modifier = Modifier.height(18.dp))
-
+        Spacer(Modifier.height(30.dp))
+        AuroraEyebrow(text = "Step 02 — Sign in", centered = true)
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Welcome back",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFFF3EFE9),
+        )
+        state.serverHostLabel?.let { host ->
+            Spacer(Modifier.height(8.dp))
             Text(
-                text = "Sign In",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = AuthColors.OnBackground,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Pick up where you left off.",
-                fontSize = 15.sp,
-                color = AuthColors.OnSurfaceVariant,
+                text = host,
+                modifier = Modifier.fillMaxWidth(),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 14.sp,
+                color = AuroraInkTertiary,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
             )
+        }
+        Spacer(Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(32.dp))
-
-            state.error?.let { error ->
-                AuthErrorBanner(message = error)
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            ContinuumTextField(
+        Column2Glass {
+            AuroraTextField(
+                label = "Username",
                 value = state.username,
                 onValueChange = viewModel::onUsernameChanged,
-                label = "Username",
+                placeholder = "yourname",
                 imeAction = ImeAction.Next,
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            ContinuumPasswordField(
+            AuroraTextField(
+                label = "Password",
                 value = state.password,
                 onValueChange = viewModel::onPasswordChanged,
-                label = "Password",
-                imeAction = ImeAction.Done,
+                placeholder = "••••••",
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Go,
                 onImeAction = viewModel::onLoginClick,
+                visualTransformation = if (showPassword) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailing = {
+                    IconButton(onClick = { showPassword = !showPassword }) {
+                        Icon(
+                            imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            tint = Color.White.copy(alpha = 0.62f),
+                        )
+                    }
+                },
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            state.error?.let { AuroraErrorLabel(it) }
 
-            Text(
-                text = "Forgot Password?",
-                fontSize = 13.sp,
-                color = AuthColors.OnSurfaceVariant,
-                textAlign = TextAlign.End,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(end = 4.dp),
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            ContinuumButton(
-                text = "Sign In",
+            AuroraPrimaryButton(
+                label = if (state.isLoading) "Signing in…" else "Sign in",
                 onClick = viewModel::onLoginClick,
                 isLoading = state.isLoading,
+                modifier = Modifier.fillMaxWidth(),
             )
 
-            if (state.signupEnabled) {
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = "Create Account",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = AuthColors.OnBackground,
-                    modifier = Modifier.clickable(onClick = onNavigateToSignup),
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp, androidx.compose.ui.Alignment.CenterHorizontally),
+            ) {
+                if (state.signupEnabled) {
+                    AuroraGhostButton(label = "Create account", onClick = onNavigateToSignup)
+                }
+                AuroraGhostButton(label = "Change server", onClick = onChangeServer)
             }
         }
     }
+}
+
+@Composable
+private fun Column2Glass(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .auroraGlass(cornerRadius = 24.dp, emphasized = true)
+            .padding(22.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+        content = content,
+    )
 }

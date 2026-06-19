@@ -16,8 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Movie
@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.continuum.app.model.auth.AuthSession
 import com.continuum.app.model.auth.User
 
@@ -74,13 +75,13 @@ fun AccountSection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Avatar placeholder
+                // Avatar — iOS ProfileAvatarView size 56.
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center,
@@ -89,84 +90,94 @@ fun AccountSection(
                         imageVector = Icons.Default.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(30.dp),
                     )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                // iOS HStack spacing 14.
+                Spacer(modifier = Modifier.width(14.dp))
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    // iOS .title3.weight(.semibold) ≈ 20pt semibold.
                     Text(
                         text = user.username,
-                        style = MaterialTheme.typography.titleMedium,
+                        fontSize = 20.sp,
+                        lineHeight = 24.sp,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
                     )
+                    // iOS .footnote subtitle line in secondary color.
                     Text(
                         text = user.email,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
 
-                // Role badge
-                Box(
-                    modifier = Modifier
-                        .clip(MaterialTheme.shapes.extraSmall)
-                        .background(
-                            if (user.role == "admin") {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            }
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        text = user.role.replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Medium,
-                        color = if (user.role == "admin") {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-            }
+                Spacer(modifier = Modifier.width(8.dp))
 
-            SettingsClickableRow(
-                icon = Icons.Default.Security,
-                label = "Manage Sessions",
-                onClick = onManageSessions,
-            )
-
-            SettingsClickableRow(
-                icon = Icons.Default.Devices,
-                label = "Pair Device",
-                onClick = onPairDevice,
-            )
-
-            SettingsClickableRow(
-                icon = Icons.Default.Movie,
-                label = "Requests",
-                onClick = onRequests,
-            )
-
-            if (isAdminVisible) {
-                SettingsClickableRow(
-                    icon = Icons.Default.AdminPanelSettings,
-                    label = "Admin",
-                    onClick = onAdmin,
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(18.dp),
                 )
             }
 
-            SettingsClickableRow(
-                icon = Icons.AutoMirrored.Filled.Logout,
-                label = "Sign Out",
-                onClick = onSignOut,
-                labelColor = MaterialTheme.colorScheme.error,
-                iconTint = MaterialTheme.colorScheme.error,
+            SettingsRowLabel(
+                title = "Manage Sessions",
+                icon = Icons.Default.Security,
+                badgeColor = SettingsBadgeGray,
+                onClick = onManageSessions,
+                showChevron = true,
             )
+
+            SettingsRowLabel(
+                title = "Pair Device",
+                icon = Icons.Default.Devices,
+                badgeColor = SettingsBadgeTeal,
+                onClick = onPairDevice,
+                showChevron = true,
+            )
+
+            SettingsRowLabel(
+                title = "Requests",
+                icon = Icons.Default.Movie,
+                badgeColor = SettingsBadgeOrange,
+                onClick = onRequests,
+                showChevron = true,
+            )
+
+            if (isAdminVisible) {
+                // iOS "Admin Dashboard": indigo badge, wrench icon.
+                SettingsRowLabel(
+                    title = "Admin Dashboard",
+                    icon = Icons.Default.Build,
+                    badgeColor = SettingsBadgeIndigo,
+                    onClick = onAdmin,
+                    showChevron = true,
+                )
+            }
+
+            // iOS "Sign Out": its own section, centered destructive text.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onSignOut)
+                    .padding(horizontal = 16.dp, vertical = 11.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Sign Out",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }

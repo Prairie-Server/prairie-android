@@ -7,43 +7,43 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.continuum.app.android.ui.components.ContinuumTopBar
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
-import com.continuum.app.android.ui.util.formatBytes
+import com.continuum.app.android.ui.theme.ContinuumError
+import com.continuum.app.android.ui.theme.ContinuumPrimary
+import com.continuum.app.android.ui.theme.ContinuumSecondaryText
+import com.continuum.app.android.ui.theme.ContinuumSuccess
+import com.continuum.app.android.ui.theme.ContinuumSurface
+import com.continuum.app.android.ui.theme.ContinuumWarning
 import com.continuum.app.model.admin.AdminStats
-import com.continuum.app.model.admin.WatchProviderActivity
 import com.continuum.app.viewmodel.AdminStatsViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -56,7 +56,7 @@ fun AdminStatsScreen(
     val state by viewModel.uiState.collectAsState()
 
     Scaffold(
-        topBar = { ContinuumTopBar(title = "Dashboard", onBackClick = onBackClick) },
+        topBar = { ContinuumTopBar(title = "Admin", onBackClick = onBackClick) },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         when {
@@ -74,147 +74,91 @@ fun AdminStatsScreen(
                     .fillMaxSize()
                     .padding(padding),
             ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    state.stats?.let { stats ->
-                        item { StatsGrid(stats) }
-                        item { TraktSection(stats) }
-                    }
-                    item { Spacer(Modifier.height(24.dp)) }
+                state.stats?.let { stats ->
+                    StatsGrid(stats)
                 }
             }
         }
     }
 }
+
+private data class StatTile(
+    val title: String,
+    val value: String,
+    val icon: ImageVector,
+    val color: Color,
+)
 
 @Composable
 private fun StatsGrid(stats: AdminStats) {
+    // Mirrors iOS AdminDashboardView.statsContent: a 2-column LazyVGrid with 12pt
+    // spacing and 16pt content padding, six stat cards in this exact order.
     val tiles = listOf(
-        Triple(Icons.Default.Inventory2, "Total Items", stats.totalItems.toString()),
-        Triple(Icons.Default.Movie, "Movies", "${stats.totalMovies} (${stats.totalMovieFiles} files)"),
-        Triple(Icons.Default.Tv, "Shows", "${stats.totalShows} (${stats.totalShowFiles} files)"),
-        Triple(Icons.Default.VideoLibrary, "Files", stats.totalFiles.toString()),
-        Triple(Icons.Default.People, "Users", stats.totalUsers.toString()),
-        Triple(Icons.Default.PlayArrow, "Active Streams", stats.activeStreams.toString()),
-        Triple(Icons.Default.Storage, "Storage", formatBytes(stats.totalStorageBytes)),
+        StatTile("Total Items", stats.totalItems.toString(), Icons.Filled.VideoLibrary, ContinuumPrimary),
+        StatTile("Users", stats.totalUsers.toString(), Icons.Filled.People, ContinuumSuccess),
+        StatTile("Movies", stats.totalMovies.toString(), Icons.Filled.Movie, ContinuumWarning),
+        StatTile("TV Shows", stats.totalShows.toString(), Icons.Filled.Tv, ContinuumPrimary),
+        StatTile("Active Streams", stats.activeStreams.toString(), Icons.Filled.PlayCircle, ContinuumError),
+        StatTile("Storage", formatStorageBytes(stats.totalStorageBytes), Icons.Filled.Storage, ContinuumSecondaryText),
     )
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        tiles.chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { (icon, label, value) ->
-                    StatCard(icon, label, value, Modifier.weight(1f))
-                }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatCard(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        ),
-        shape = MaterialTheme.shapes.medium,
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        items(tiles) { tile ->
+            StatCard(tile)
         }
     }
 }
 
 @Composable
-private fun TraktSection(stats: AdminStats) {
-    val activity = stats.watchProviderActivity
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "Watch Provider Activity",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            ),
-            shape = MaterialTheme.shapes.medium,
+private fun StatCard(tile: StatTile) {
+    // Mirrors iOS statCard: VStack(leading, spacing 12) with the icon top-left,
+    // the value in continuumTitle, the label in continuumCaption, 16pt padding,
+    // an 8pt rounded continuumSurface background.
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ContinuumSurface,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                TraktActivityRows(activity)
+            Row(Modifier.fillMaxWidth()) {
+                Icon(
+                    imageVector = tile.icon,
+                    contentDescription = null,
+                    tint = tile.color,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.weight(1f))
             }
+            Text(
+                text = tile.value,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = tile.title,
+                style = MaterialTheme.typography.bodySmall,
+                color = ContinuumSecondaryText,
+            )
         }
     }
 }
 
-@Composable
-private fun TraktActivityRows(activity: WatchProviderActivity) {
-    ActivityRow(Icons.Default.People, "Trakt-connected profiles", activity.traktConnectedProfiles.toString())
-    ActivityRow(Icons.Default.People, "Trakt-enabled profiles", activity.traktEnabledProfiles.toString())
-    ActivityRow(Icons.Default.Sync, "Sync runs (24h)", activity.syncRuns24h.toString())
-    ActivityRow(Icons.Default.Sync, "Sync errors (24h)", activity.syncErrors24h.toString())
-    ActivityRow(Icons.Default.Bolt, "Scrobbles (24h)", activity.scrobbles24h.toString())
-    ActivityRow(Icons.Default.Bolt, "Open scrobbles", activity.openScrobbles.toString())
-    ActivityRow(Icons.Default.VideoLibrary, "Imported watched (24h)", activity.importedWatched24h.toString())
-    ActivityRow(Icons.Default.VideoLibrary, "Imported progress (24h)", activity.importedProgress24h.toString())
-    ActivityRow(Icons.Default.VideoLibrary, "Exported watched (24h)", activity.exportedWatched24h.toString())
-    ActivityRow(Icons.Default.VideoLibrary, "Pending exports", activity.pendingExports.toString())
-    ActivityRow(Icons.Default.VideoLibrary, "Failed exports", activity.failedExports.toString())
-    val lastSync = activity.lastSyncCompletedAt
-    if (lastSync != null) {
-        ActivityRow(Icons.Default.Sync, "Last sync completed", lastSync)
-    }
-}
-
-@Composable
-private fun ActivityRow(icon: ImageVector, label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
+// Mirrors iOS AdminDashboardView.formatBytes exactly: 1.1f TB / 1.1f GB / .0f MB.
+private fun formatStorageBytes(bytes: Long): String {
+    val tb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0 * 1024.0)
+    if (tb >= 1.0) return "%.1f TB".format(tb)
+    val gb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+    if (gb >= 1.0) return "%.1f GB".format(gb)
+    val mb = bytes.toDouble() / (1024.0 * 1024.0)
+    return "%.0f MB".format(mb)
 }

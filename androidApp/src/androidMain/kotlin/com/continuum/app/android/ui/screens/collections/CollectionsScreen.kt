@@ -3,7 +3,10 @@ package com.continuum.app.android.ui.screens.collections
 import com.continuum.app.viewmodel.CollectionSection
 import com.continuum.app.viewmodel.CollectionsViewModel
 import com.continuum.app.viewmodel.GroupAction
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,29 +20,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.outlined.CollectionsBookmark
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,8 +51,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.components.ContinuumTopBar
 import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
@@ -79,19 +78,21 @@ fun CollectionsScreen(
                 onBackClick = onBackClick,
                 actions = {
                     IconButton(onClick = { viewModel.openGroupAction(GroupAction.Create) }) {
-                        Icon(Icons.Default.Folder, contentDescription = "Add group")
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = "Add group",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    IconButton(onClick = viewModel::showCreateSheet) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Create collection",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 },
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = viewModel::showCreateSheet,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Create collection")
-            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
@@ -108,7 +109,7 @@ fun CollectionsScreen(
             }
             state.collections.isEmpty() && state.groups.isEmpty() -> {
                 EmptyStateView(
-                    title = "No collections yet",
+                    title = "No collections",
                     subtitle = "Create a collection to organize your media",
                     icon = Icons.Outlined.CollectionsBookmark,
                     modifier = Modifier.padding(padding),
@@ -124,7 +125,6 @@ fun CollectionsScreen(
                 ) {
                     LazyColumn(
                         contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         for (section in state.sections) {
                             item(key = "header:${section.groupId ?: "ungrouped"}") {
@@ -145,30 +145,41 @@ fun CollectionsScreen(
                                 )
                             }
 
-                            if (section.collections.isEmpty()) {
-                                item(key = "empty:${section.groupId ?: "ungrouped"}") {
-                                    Text(
-                                        text = "Drop collections here to add them to this group.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    )
-                                }
-                            } else {
-                                items(
-                                    items = section.collections,
-                                    key = { "${section.groupId ?: "ungrouped"}:${it.id}" },
-                                ) { collection ->
-                                    CollectionCard(
-                                        collection = collection,
-                                        onClick = { onCollectionClick(collection.id) },
-                                        onDeleteClick = { viewModel.deleteCollection(collection.id) },
-                                        onMoveClick = {
-                                            viewModel.openGroupAction(GroupAction.Move(collection))
-                                        },
-                                    )
+                            item(key = "section:${section.groupId ?: "ungrouped"}") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.medium)
+                                        .background(MaterialTheme.colorScheme.surface),
+                                ) {
+                                    if (section.collections.isEmpty()) {
+                                        Text(
+                                            text = "Drop collections here to add them to this group.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 11.dp),
+                                        )
+                                    } else {
+                                        section.collections.forEachIndexed { index, collection ->
+                                            if (index > 0) {
+                                                HorizontalDivider(
+                                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                                    modifier = Modifier.padding(start = 16.dp),
+                                                )
+                                            }
+                                            CollectionCard(
+                                                collection = collection,
+                                                onClick = { onCollectionClick(collection.id) },
+                                                onDeleteClick = { viewModel.deleteCollection(collection.id) },
+                                                onMoveClick = {
+                                                    viewModel.openGroupAction(GroupAction.Move(collection))
+                                                },
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -220,15 +231,16 @@ private fun SectionHeader(
     ) {
         Text(
             text = section.name,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodySmall,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
         if (onRename != null || onDelete != null) {
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
+                        imageVector = Icons.Default.MoreHoriz,
                         contentDescription = "Group options",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -239,7 +251,7 @@ private fun SectionHeader(
                 ) {
                     if (onRename != null) {
                         DropdownMenuItem(
-                            text = { Text("Rename group") },
+                            text = { Text("Rename") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                             onClick = {
                                 menuExpanded = false
@@ -263,6 +275,7 @@ private fun SectionHeader(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CollectionCard(
     collection: Collection,
@@ -271,83 +284,77 @@ private fun CollectionCard(
     onMoveClick: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
-        shape = MaterialTheme.shapes.medium,
-    ) {
+    Box {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { menuExpanded = true },
+                )
+                .padding(horizontal = 16.dp)
+                .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = if (collection.collectionType == "smart") {
-                    Icons.Default.AutoAwesome
-                } else {
-                    Icons.Outlined.FolderOpen
-                },
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp),
-            )
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Text(
                     text = collection.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = buildString {
-                        append(collection.collectionType.replaceFirstChar { it.uppercase() })
-                        collection.itemCount?.let { append(" · $it items") }
-                    },
+                    text = rowSubtitle(collection),
                     style = MaterialTheme.typography.bodySmall,
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Collection options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Move to group…") },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onMoveClick()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onDeleteClick()
-                        },
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
         }
+
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Move") },
+                leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null) },
+                onClick = {
+                    menuExpanded = false
+                    onMoveClick()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Delete") },
+                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                onClick = {
+                    menuExpanded = false
+                    onDeleteClick()
+                },
+            )
+        }
+    }
+}
+
+private fun rowSubtitle(collection: Collection): String {
+    val kind = collection.collectionType.replaceFirstChar { it.uppercase() }
+    val count = collection.itemCount
+    return if (count != null && count > 0) {
+        "$kind · $count item${if (count == 1) "" else "s"}"
+    } else {
+        kind
     }
 }
 
@@ -375,7 +382,7 @@ private fun GroupActionDialog(
             onDismiss = onDismiss,
         )
         is GroupAction.Rename -> NameDialog(
-            title = "Rename group",
+            title = "Rename “${action.group.name}”",
             confirmLabel = "Save",
             initialName = action.group.name,
             isBusy = isBusy,
@@ -385,9 +392,9 @@ private fun GroupActionDialog(
         )
         is GroupAction.Delete -> AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Delete group?") },
+            title = { Text("Delete “${action.group.name}”?") },
             text = {
-                Text("Collections in “${action.group.name}” will move to Ungrouped. This cannot be undone.")
+                Text("Collections in this group will move to Ungrouped. This cannot be undone.")
             },
             confirmButton = {
                 TextButton(
@@ -415,6 +422,7 @@ private fun NameDialog(
     title: String,
     confirmLabel: String,
     initialName: String,
+    prompt: String = "Group name",
     isBusy: Boolean,
     error: String?,
     onConfirm: (String) -> Unit,
@@ -430,7 +438,7 @@ private fun NameDialog(
                     value = name,
                     onValueChange = { name = it },
                     singleLine = true,
-                    label = { Text("Name") },
+                    label = { Text(prompt) },
                 )
                 if (error != null) {
                     Spacer(Modifier.height(8.dp))
@@ -466,7 +474,7 @@ private fun MoveDialog(
     var selected by remember(collection.id) { mutableStateOf(collection.groupId) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Move “${collection.name}”") },
+        title = { Text("Move “${collection.name}” to") },
         text = {
             Column {
                 GroupOptionRow(
@@ -512,8 +520,19 @@ private fun GroupOptionRow(label: String, selected: Boolean, onClick: () -> Unit
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }

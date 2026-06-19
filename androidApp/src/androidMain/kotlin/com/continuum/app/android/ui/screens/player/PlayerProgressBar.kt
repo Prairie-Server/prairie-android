@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -17,7 +16,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.util.formatClockTime
 
 /**
@@ -40,7 +41,11 @@ fun PlayerProgressBar(
     val displayPosition = if (isSeeking) seekPosition else position.toFloat()
     val maxDuration = duration.toFloat().coerceAtLeast(1f)
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    // iOS bottom bar is VStack(spacing: 8): progress slider, then the time row.
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Slider(
             value = displayPosition.coerceIn(0f, maxDuration),
             enabled = enabled,
@@ -61,21 +66,23 @@ fun PlayerProgressBar(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        // iOS time row: current time left, duration right, `.caption`
+        // (~12sp) at 0.8 white opacity, monospaced digits.
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 text = formatClockTime(displayPosition.toDouble()),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color.White.copy(alpha = 0.8f),
             )
             Text(
                 text = formatClockTime(duration),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color.White.copy(alpha = 0.8f),
             )
         }
     }

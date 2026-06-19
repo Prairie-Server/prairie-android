@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -51,33 +50,40 @@ fun AudiobookTransport(
     onNextChapter: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // iOS AudioTransportControls: HStack spacing 28, onSurface-tinted glyphs;
+    // outer chapter buttons ~24dp (.title3), skip buttons ~32dp (.title), and
+    // an 82dp accent play circle with a 32dp heavy glyph.
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (hasChapters) {
             IconButton(
                 onClick = onPrevChapter,
                 enabled = enabled,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(44.dp),
             ) {
-                Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous chapter", modifier = Modifier.size(30.dp))
+                Icon(
+                    Icons.Filled.SkipPrevious,
+                    contentDescription = "Previous Chapter",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(24.dp),
+                )
             }
-            Spacer(modifier = Modifier.size(8.dp))
         }
         IconButton(
             onClick = onSkipBack,
             enabled = enabled,
-            modifier = Modifier.size(56.dp),
+            modifier = Modifier.size(50.dp),
         ) {
             Icon(
                 imageVector = skipBackIcon(skipBackSeconds),
                 contentDescription = "Back $skipBackSeconds seconds",
-                modifier = Modifier.size(36.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(32.dp),
             )
         }
-        Spacer(modifier = Modifier.size(16.dp))
         Box(
             modifier = Modifier
                 .size(82.dp)
@@ -96,29 +102,33 @@ fun AudiobookTransport(
                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                 contentDescription = if (isPlaying) "Pause" else "Play",
                 tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(32.dp),
             )
         }
-        Spacer(modifier = Modifier.size(16.dp))
         IconButton(
             onClick = onSkipForward,
             enabled = enabled,
-            modifier = Modifier.size(56.dp),
+            modifier = Modifier.size(50.dp),
         ) {
             Icon(
                 imageVector = skipForwardIcon(skipForwardSeconds),
                 contentDescription = "Forward $skipForwardSeconds seconds",
-                modifier = Modifier.size(36.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(32.dp),
             )
         }
         if (hasChapters) {
-            Spacer(modifier = Modifier.size(8.dp))
             IconButton(
                 onClick = onNextChapter,
                 enabled = enabled,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(44.dp),
             ) {
-                Icon(Icons.Filled.SkipNext, contentDescription = "Next chapter", modifier = Modifier.size(30.dp))
+                Icon(
+                    Icons.Filled.SkipNext,
+                    contentDescription = "Next Chapter",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(24.dp),
+                )
             }
         }
     }

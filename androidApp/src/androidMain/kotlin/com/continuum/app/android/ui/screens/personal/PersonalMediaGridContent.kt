@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -35,19 +37,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
-import com.continuum.app.android.ui.components.FavoriteButton
 import com.continuum.app.android.ui.components.LoadingIndicator
 import com.continuum.app.android.ui.components.MediaCardContextMenu
 import com.continuum.app.android.ui.components.WatchedBadge
-import com.continuum.app.android.ui.components.WatchlistButton
 import com.continuum.app.android.ui.components.rememberBrowseItemCardActions
 import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.catalog.BrowseItem
 import com.continuum.app.viewmodel.FavoritesViewModel
+import com.continuum.app.viewmodel.HistoryViewModel
 import com.continuum.app.viewmodel.PersonalListUiState
 import com.continuum.app.viewmodel.WatchlistViewModel
 import org.koin.compose.viewmodel.koinViewModel
@@ -65,8 +68,8 @@ fun FavoritesGridContent(
         state = state,
         modifier = modifier,
         contentPadding = contentPadding,
-        emptyTitle = "No favorites yet",
-        emptySubtitle = "Items you mark as favorites will appear here",
+        emptyTitle = "No favorites",
+        emptySubtitle = "Tap the heart icon on any item to add it here",
         emptyIcon = Icons.Outlined.FavoriteBorder,
         onRetry = viewModel::retry,
         onRefresh = viewModel::refresh,
@@ -76,7 +79,6 @@ fun FavoritesGridContent(
                 item = item,
                 onClick = { onItemClick(item.contentId) },
                 onFavoriteToggle = { viewModel.toggleFavorite(item.contentId) },
-                showFavoriteButton = true,
                 isFavorite = true,
             )
         },
@@ -96,8 +98,8 @@ fun WatchlistGridContent(
         state = state,
         modifier = modifier,
         contentPadding = contentPadding,
-        emptyTitle = "Your watchlist is empty",
-        emptySubtitle = "Add items to your watchlist to keep track of what you want to watch",
+        emptyTitle = "Watchlist is empty",
+        emptySubtitle = "Tap the bookmark icon on any item to add it here",
         emptyIcon = Icons.Outlined.BookmarkBorder,
         onRetry = viewModel::retry,
         onRefresh = viewModel::refresh,
@@ -107,8 +109,35 @@ fun WatchlistGridContent(
                 item = item,
                 onClick = { onItemClick(item.contentId) },
                 onWatchlistToggle = { viewModel.removeFromWatchlist(item.contentId) },
-                showWatchlistButton = true,
                 isInWatchlist = true,
+            )
+        },
+    )
+}
+
+@Composable
+fun HistoryGridContent(
+    onItemClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    viewModel: HistoryViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectAsState()
+
+    PersonalMediaGridContent(
+        state = state,
+        modifier = modifier,
+        contentPadding = contentPadding,
+        emptyTitle = "No watch history",
+        emptySubtitle = "Items you watch will appear here",
+        emptyIcon = Icons.Outlined.History,
+        onRetry = viewModel::retry,
+        onRefresh = viewModel::refresh,
+        onLoadMore = viewModel::loadMore,
+        itemContent = { item ->
+            MediaGridItem(
+                item = item,
+                onClick = { onItemClick(item.contentId) },
             )
         },
     )
@@ -172,11 +201,11 @@ private fun PersonalMediaGridContent(
                     .padding(contentPadding),
             ) {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 110.dp),
+                    columns = GridCells.Fixed(3),
                     state = gridState,
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(
                         items = state.items,
@@ -214,10 +243,8 @@ fun MediaGridItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onFavoriteToggle: (() -> Unit)? = null,
-    showFavoriteButton: Boolean = false,
     isFavorite: Boolean = false,
     onWatchlistToggle: (() -> Unit)? = null,
-    showWatchlistButton: Boolean = false,
     isInWatchlist: Boolean = false,
 ) {
     val (actions, userState) = rememberBrowseItemCardActions(item)
@@ -228,6 +255,7 @@ fun MediaGridItem(
             onClick = onClick,
             onLongClick = { menuExpanded = true },
         ),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box {
             ThumbhashImage(
@@ -236,8 +264,8 @@ fun MediaGridItem(
                 contentDescription = item.title,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
-                    .clip(MaterialTheme.shapes.small),
+                    .aspectRatio(2f / 3.3f)
+                    .clip(RoundedCornerShape(8.dp)),
             )
 
             if (userState.played) {
@@ -247,34 +275,20 @@ fun MediaGridItem(
 
         androidx.compose.material3.Text(
             text = item.title,
-            style = MaterialTheme.typography.bodySmall,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp),
         )
 
         if (item.year > 0) {
             androidx.compose.material3.Text(
                 text = item.year.toString(),
-                style = MaterialTheme.typography.labelSmall,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        if (showFavoriteButton && onFavoriteToggle != null) {
-            FavoriteButton(
-                isFavorite = isFavorite,
-                onToggle = onFavoriteToggle,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-
-        if (showWatchlistButton && onWatchlistToggle != null) {
-            WatchlistButton(
-                isInWatchlist = isInWatchlist,
-                onToggle = onWatchlistToggle,
-                modifier = Modifier.padding(top = 4.dp),
             )
         }
 

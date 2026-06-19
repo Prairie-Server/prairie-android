@@ -14,11 +14,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
@@ -59,6 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.continuum.app.android.ui.theme.ContinuumBackground
 import com.continuum.app.android.ui.theme.ContinuumOnSurface
 import com.continuum.app.android.ui.theme.ContinuumSecondaryText
@@ -193,6 +193,9 @@ private fun HeroTitle(detail: ItemDetail) {
     val seriesTitle = detail.seriesTitle?.takeIf { it.isNotBlank() }
 
     if (isEpisode && seriesTitle != null) {
+        // iOS PhoneEpisodeHierarchyTitle: series 34pt heavy, episode 22pt
+        // semibold, optional subtitle 13pt heavy tracked, spacing 6.
+        val (episodePrimary, episodeSubtitle) = splitHeroTitle(detail.title)
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -200,7 +203,8 @@ private fun HeroTitle(detail: ItemDetail) {
         ) {
             Text(
                 text = seriesTitle,
-                style = MaterialTheme.typography.displaySmall,
+                fontSize = 34.sp,
+                lineHeight = 38.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = DetailPrimaryText,
                 textAlign = TextAlign.Center,
@@ -208,20 +212,35 @@ private fun HeroTitle(detail: ItemDetail) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = detail.title,
-                style = MaterialTheme.typography.headlineLarge,
+                text = episodePrimary,
+                fontSize = 22.sp,
+                lineHeight = 26.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = DetailPrimaryText.copy(alpha = 0.9f),
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (episodeSubtitle != null) {
+                Text(
+                    text = episodeSubtitle.uppercase(),
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.0.sp,
+                    color = DetailPrimaryText.copy(alpha = 0.76f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         return
     }
 
     val logoUrl = detail.logoUrl
     if (!logoUrl.isNullOrBlank()) {
+        // iOS hero logo height — 160pt on compact phones, full width.
         ThumbhashImage(
             url = logoUrl,
             thumbhash = null,
@@ -229,21 +248,63 @@ private fun HeroTitle(detail: ItemDetail) {
             contentScale = ContentScale.Fit,
             transparent = true,
             modifier = Modifier
-                .heightIn(max = 120.dp)
-                .widthIn(max = 280.dp),
+                .fillMaxWidth()
+                .height(160.dp),
         )
         return
     }
 
-    Text(
-        text = detail.title,
-        style = MaterialTheme.typography.displayMedium,
-        fontWeight = FontWeight.ExtraBold,
-        color = DetailPrimaryText,
-        textAlign = TextAlign.Center,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
+    // iOS PhoneHeroTitle: primary 30pt heavy, optional subtitle 13pt heavy
+    // tracked, spacing 4.
+    val (primary, subtitle) = splitHeroTitle(detail.title)
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = primary,
+            fontSize = 30.sp,
+            lineHeight = 34.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = DetailPrimaryText,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle.uppercase(),
+                fontSize = 13.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.2.sp,
+                color = DetailPrimaryText.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * Mirrors `PhoneHeroMetadata.splitTitle` — splits "Monarch: Legacy of
+ * Monsters" into a heavier primary line over a lighter subtitle.
+ */
+private fun splitHeroTitle(raw: String): Pair<String, String?> {
+    val separators = listOf(": ", " — ", " – ", " - ")
+    for (sep in separators) {
+        val idx = raw.indexOf(sep)
+        if (idx >= 0) {
+            val head = raw.substring(0, idx).trim()
+            val tail = raw.substring(idx + sep.length).trim()
+            if (head.isNotEmpty() && tail.isNotEmpty()) {
+                return head to tail
+            }
+        }
+    }
+    return raw to null
 }
 
 @Composable
@@ -254,8 +315,10 @@ private fun EyebrowChip(text: String) {
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelSmall,
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
             fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.6.sp,
             color = DetailPrimaryText,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
         )
@@ -264,29 +327,31 @@ private fun EyebrowChip(text: String) {
 
 @Composable
 private fun SourceRow(tokens: List<String>, ratingChip: String?) {
+    // iOS PhoneDetailHero.sourceRow: HStack spacing 8, tokens 14pt medium
+    // (0.85 alpha), middle-dot separators 14pt semibold (0.4 alpha).
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tokens.forEachIndexed { index, token ->
             if (index > 0) {
                 Text(
-                    text = "  ·  ",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "·",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = DetailPrimaryText.copy(alpha = 0.4f),
                 )
             }
             Text(
                 text = token,
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = DetailPrimaryText.copy(alpha = 0.85f),
                 maxLines = 1,
             )
         }
         if (!ratingChip.isNullOrBlank()) {
-            if (tokens.isNotEmpty()) Spacer(Modifier.width(8.dp))
             ContentRatingChip(text = ratingChip)
         }
     }
@@ -305,8 +370,10 @@ private fun ContentRatingChip(text: String) {
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelSmall,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
             fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.8.sp,
             color = DetailPrimaryText,
         )
     }
@@ -317,15 +384,18 @@ private fun OverviewBlock(text: String) {
     var expanded by remember(text) { mutableStateOf(false) }
     val canExpand = text.length > 140
 
+    // iOS overviewBlock: 15pt regular (0.78 alpha), lineSpacing 3, top pad 8.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 4.dp)
+            .padding(top = 8.dp)
             .clickable(enabled = canExpand) { expanded = !expanded },
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.bodyMedium,
+            fontSize = 15.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.Normal,
             color = DetailPrimaryText.copy(alpha = 0.78f),
             maxLines = if (expanded) Int.MAX_VALUE else 3,
             overflow = TextOverflow.Ellipsis,
@@ -336,22 +406,28 @@ private fun OverviewBlock(text: String) {
 
 @Composable
 private fun FactsRow(tokens: List<String>) {
+    // iOS FlowingFactsRow: tokens 13pt medium (0.78 alpha), middle-dot
+    // separators 13pt semibold (0.4 alpha), spacing 8, top pad 4.
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tokens.forEachIndexed { index, token ->
             if (index > 0) {
                 Text(
-                    text = " · ",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "·",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = DetailPrimaryText.copy(alpha = 0.4f),
                 )
             }
             Text(
                 text = token,
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
                 color = DetailPrimaryText.copy(alpha = 0.78f),
             )
         }
@@ -383,15 +459,17 @@ fun PrimaryPillButton(
             .fillMaxWidth()
             .height(52.dp),
     ) {
+        // iOS PhonePrimaryPillButton: icon 17pt bold, label 17pt semibold, spacing 10.
         Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(17.dp),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.titleMedium,
+            fontSize = 17.sp,
+            lineHeight = 22.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -425,11 +503,12 @@ fun CircleActionButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
+        // iOS PhoneCircleActionButton: icon 16pt semibold.
         Icon(
             imageVector = if (isActive) activeIcon else icon,
             contentDescription = contentDescription,
             tint = if (isActive) activeTint else Color.White,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(16.dp),
         )
     }
 }
@@ -458,7 +537,7 @@ fun CircleOverflowButton(
                 imageVector = Icons.Filled.MoreHoriz,
                 contentDescription = contentDescription,
                 tint = Color.White,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(16.dp),
             )
         }
         DropdownMenu(
@@ -489,19 +568,28 @@ fun VersionPillButton(
             .height(36.dp)
             .clickable(onClick = onClick),
     ) {
+        // iOS PhoneVersionPillButton: leading stack icon 13pt (0.78), label
+        // 12pt medium (0.7), value 13pt semibold, chevron 10pt (0.6).
         Row(
             modifier = Modifier.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Icon(
+                imageVector = Icons.Filled.Layers,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.78f),
+                modifier = Modifier.size(13.dp),
+            )
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelMedium,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
                 color = Color.White.copy(alpha = 0.7f),
             )
             Text(
                 text = currentValue,
-                style = MaterialTheme.typography.labelLarge,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White,
                 maxLines = 1,
@@ -511,7 +599,7 @@ fun VersionPillButton(
                 imageVector = Icons.Outlined.KeyboardArrowDown,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.6f),
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(10.dp),
             )
         }
     }
@@ -562,7 +650,6 @@ fun HeroActionStack(
                 isActive = isFavorite,
                 contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
                 onClick = onToggleFavorite,
-                activeTint = Color(0xFFEF5350),
             )
             CircleActionButton(
                 icon = Icons.Filled.BookmarkBorder,
@@ -585,7 +672,6 @@ fun HeroActionStack(
                     isActive = userRating != null,
                     contentDescription = userRating?.let { "Rated $it of 5" } ?: "Rate",
                     onClick = onRateClick,
-                    activeTint = Color(0xFFFFC107),
                 )
             }
             if (downloadSlot != null) {
@@ -613,30 +699,39 @@ fun SectionHeader(
     trailingText: String? = null,
     modifier: Modifier = Modifier,
 ) {
+    // iOS PhoneSectionHeader: eyebrow label 11pt bold tracking 1.6 (0.55
+    // alpha), title 22pt semibold, trailing 13pt medium, column spacing 4.
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = SafePadding),
         verticalAlignment = Alignment.Bottom,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(
                 text = label.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.6.sp,
                 color = ContinuumOnSurface.copy(alpha = 0.55f),
             )
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = DetailPrimaryText,
             )
         }
         if (!trailingText.isNullOrBlank()) {
             Text(
                 text = trailingText,
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
                 color = ContinuumSecondaryText,
             )
         }
@@ -666,22 +761,29 @@ fun SeasonChips(
         ) { season ->
             val isSelected = season.seasonNumber == selectedSeasonNumber
             val label = if (season.isSpecials) "Specials" else "Season ${season.seasonNumber}"
+            // iOS PhoneSeasonChips: 14pt (semibold selected / medium
+            // unselected), hpad 16, height 36, unselected fill white-0.06.
             Surface(
                 shape = PillShape,
-                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.10f),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (isSelected) Color.White else Color.White.copy(alpha = 0.20f),
-                ),
-                modifier = Modifier.clickable { onSeasonSelected(season.seasonNumber) },
+                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.06f),
+                border = if (isSelected) {
+                    null
+                } else {
+                    androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+                },
+                modifier = Modifier
+                    .height(36.dp)
+                    .clickable { onSeasonSelected(season.seasonNumber) },
             ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isSelected) Color.Black else DetailPrimaryText,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = label,
+                        fontSize = 14.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (isSelected) Color.Black else Color.White,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
             }
         }
     }
@@ -819,23 +921,43 @@ fun DetailFactsList(
     val rows = buildDetailFacts(detail)
     if (rows.isEmpty()) return
 
+    // iOS PhoneDetailFactsSection: thin 1px dividers (white 0.08) between
+    // rows, label 11pt bold tracking 1.2 (0.5 alpha) width 100, value 14pt
+    // regular, top-aligned, hspacing 16, row vpad 12.
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = SafePadding),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        rows.forEach { (label, value) ->
-            Row(modifier = Modifier.fillMaxWidth()) {
+        rows.forEachIndexed { index, (label, value) ->
+            if (index > 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.08f)),
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ContinuumOnSurface.copy(alpha = 0.55f),
-                    modifier = Modifier.width(120.dp),
+                    text = label.uppercase(),
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                    color = ContinuumOnSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.width(100.dp),
                 )
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Normal,
                     color = DetailPrimaryText,
                     modifier = Modifier.weight(1f),
                 )

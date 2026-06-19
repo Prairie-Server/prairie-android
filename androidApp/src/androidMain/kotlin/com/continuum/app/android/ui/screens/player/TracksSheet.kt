@@ -109,7 +109,8 @@ fun TracksSheet(
                 SectionHeader("Audio")
                 audioTracks.forEachIndexed { index, track ->
                     TrackRow(
-                        label = audioTrackLabel(track, index),
+                        label = audioTrackName(track, index),
+                        attributes = audioTrackAttributes(track),
                         isSelected = index == selectedAudioIndex,
                         onClick = {
                             onSelectAudio(index)
@@ -190,7 +191,10 @@ private fun TrackRow(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
+    attributes: String? = null,
 ) {
+    // iOS phone TrackRow: a Button with VStack(name, optional attributes
+    // caption) and a trailing tint checkmark when selected.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -199,20 +203,27 @@ private fun TrackRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = label,
-            color = Color.White,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (attributes != null && attributes.isNotBlank()) {
+                Text(
+                    text = attributes,
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                )
+            }
+        }
         if (isSelected) {
+            // iOS uses `.tint` (accent) for the selection checkmark.
             Icon(
                 imageVector = Icons.Filled.Check,
                 contentDescription = "Selected",
-                tint = Color.White,
-                modifier = Modifier
-                    .background(Color.Transparent)
-                    .padding(start = 8.dp),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 8.dp),
             )
         } else {
             Box(modifier = Modifier.padding(start = 8.dp))
@@ -220,17 +231,17 @@ private fun TrackRow(
     }
 }
 
-private fun audioTrackLabel(track: AudioTrack, index: Int): String {
-    val name = listOfNotNull(
+private fun audioTrackName(track: AudioTrack, index: Int): String =
+    listOfNotNull(
         track.title?.takeIf { it.isNotBlank() },
         track.language?.takeIf { it.isNotBlank() }?.uppercase(),
     ).joinToString(" · ").ifBlank { "Audio ${index + 1}" }
-    val codecBits = listOfNotNull(
+
+private fun audioTrackAttributes(track: AudioTrack): String =
+    listOfNotNull(
         track.codec?.takeIf { it.isNotBlank() }?.uppercase(),
         track.channels?.let { "${it}ch" },
     ).joinToString(" · ")
-    return if (codecBits.isNotBlank()) "$name — $codecBits" else name
-}
 
 internal fun subtitleTrackLabel(sub: PlayerSubtitleInfo, index: Int): String =
     formatSubtitleTrackDisplayLabel(

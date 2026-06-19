@@ -483,6 +483,7 @@ fun PlayerOverlay(
     ChaptersSheet(
         isVisible = chaptersSheetVisible,
         chapters = state.chapters,
+        position = state.position,
         onSelect = { idx ->
             viewModel.onSeekToChapter(idx)?.let { sec -> viewModel.onSeek(sec) }
         },

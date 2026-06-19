@@ -132,8 +132,9 @@ android {
     }
     packaging {
         resources {
-            // BouncyCastle (bcprov/bctls/bcutil) + jspecify each ship this OSGi
-            // multi-release stub; drop the duplicates so the APK packages.
+            // BouncyCastle (bcprov/bctls/bcutil, pulled in via android-shared's
+            // LAN-pairing engine) + jspecify each ship this OSGi multi-release
+            // stub; drop the duplicates so the APK packages.
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
     }

@@ -64,11 +64,13 @@ fun CatalogGrid(
     }
 
     LazyVerticalGrid(
+        // iOS phone: 3-column poster grid, 8pt column spacing, 12pt row spacing,
+        // 16pt horizontal page padding (ContinuumTheme.padding).
         columns = GridCells.Fixed(3),
         state = gridState,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier,
     ) {
         items(

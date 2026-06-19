@@ -1,32 +1,40 @@
 package com.continuum.app.android.ui.screens.collections
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CollectionsBookmark
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -34,7 +42,7 @@ import com.continuum.app.android.ui.components.ContinuumTopBar
 import com.continuum.app.android.ui.components.EmptyStateView
 import com.continuum.app.android.ui.components.ErrorView
 import com.continuum.app.android.ui.components.LoadingIndicator
-import com.continuum.app.android.ui.components.MediaCard
+import com.continuum.app.common.ui.components.ThumbhashImage
 import com.continuum.app.model.section.LibraryCollection
 import com.continuum.app.model.section.LibraryCollectionsResponse
 import com.continuum.app.network.ApiResult
@@ -210,8 +218,8 @@ fun LibraryCollectionsScreen(
             }
             state.isEmpty -> {
                 EmptyStateView(
-                    title = "No collections found",
-                    subtitle = "This library does not have any collections yet",
+                    title = "No collections yet",
+                    subtitle = "Create library collections in the web app to feature curated shelves here.",
                     icon = Icons.Outlined.CollectionsBookmark,
                     modifier = Modifier.padding(padding),
                 )
@@ -225,9 +233,9 @@ fun LibraryCollectionsScreen(
                         .padding(padding),
                 ) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 132.dp),
+                        columns = GridCells.Fixed(3),
                         contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         state.sections.forEachIndexed { index, section ->
@@ -238,9 +246,9 @@ fun LibraryCollectionsScreen(
                                 ) {
                                     Text(
                                         text = section.name,
-                                        style = MaterialTheme.typography.titleMedium.copy(
-                                            fontWeight = FontWeight.SemiBold
-                                        ),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.padding(top = if (index == 0) 0.dp else 8.dp),
                                     )
@@ -268,39 +276,77 @@ private fun LibraryCollectionCard(
     collection: LibraryCollection,
     onClick: () -> Unit,
 ) {
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
+    val countLabel = collection.itemCount?.takeIf { it > 0 }?.toString() ?: "Smart"
+    val typeLabel = when {
+        collection.kind == "user_collections" -> "User collection"
+        else -> collection.collectionType
+            ?.replaceFirstChar { it.uppercase() }
+            ?: "Collection"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-            ) {
-                MediaCard(
-                    title = collection.name,
-                    posterUrl = collection.posterUrl,
-                    posterThumbhash = collection.posterThumbhash,
-                    onClick = onClick,
-                    modifier = Modifier.fillMaxWidth(),
-                    width = 160.dp,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3.3f)
+                .clip(MaterialTheme.shapes.small),
+            contentAlignment = Alignment.BottomEnd,
+        ) {
+            if (!collection.posterUrl.isNullOrEmpty()) {
+                ThumbhashImage(
+                    url = collection.posterUrl,
+                    thumbhash = collection.posterThumbhash,
+                    contentDescription = collection.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CollectionsBookmark,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
-            val footerLabel = when {
-                collection.kind == "user_collections" -> "User collection"
-                collection.itemCount != null -> "${collection.itemCount} items"
-                else -> "Collection"
-            }
+
             Text(
-                text = footerLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                text = countLabel,
+                fontSize = 11.sp,
+                color = Color.White,
+                modifier = Modifier
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(100))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
             )
         }
+
+        Text(
+            text = collection.name,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        Text(
+            text = typeLabel,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

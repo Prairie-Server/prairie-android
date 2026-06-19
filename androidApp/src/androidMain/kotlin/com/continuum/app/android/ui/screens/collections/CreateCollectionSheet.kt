@@ -55,8 +55,8 @@ fun CreateCollectionSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
+                .padding(16.dp)
+                .padding(bottom = 16.dp),
         ) {
             Text(
                 text = "New Collection",
@@ -64,12 +64,12 @@ fun CreateCollectionSheet(
                 color = MaterialTheme.colorScheme.onSurface,
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             OutlinedTextField(
                 value = name,
                 onValueChange = onNameChanged,
-                label = { Text("Collection Name") },
+                label = { Text("Collection name") },
                 singleLine = true,
                 isError = error != null,
                 supportingText = if (error != null) {
@@ -86,7 +86,7 @@ fun CreateCollectionSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 text = "Collection Type",
@@ -132,7 +132,7 @@ fun CreateCollectionSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                 }
-                Text("Create")
+                Text("Create Collection")
             }
         }
     }

@@ -1,35 +1,65 @@
 package com.continuum.app.android.ui.screens.auth
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.continuum.app.android.R
+import com.continuum.app.android.ui.components.aurora.AuroraErrorLabel
+import com.continuum.app.android.ui.components.aurora.AuroraEyebrow
+import com.continuum.app.android.ui.components.aurora.AuroraFieldLabel
+import com.continuum.app.android.ui.components.aurora.AuroraGhostButton
+import com.continuum.app.android.ui.components.aurora.AuroraInk
+import com.continuum.app.android.ui.components.aurora.AuroraPrimaryButton
+import com.continuum.app.android.ui.components.aurora.AuroraScreen
+import com.continuum.app.android.ui.components.aurora.AuroraSegment
+import com.continuum.app.android.ui.components.aurora.AuroraTextField
+import com.continuum.app.android.ui.components.aurora.AuroraVariant
+import com.continuum.app.android.ui.components.aurora.auroraGlass
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * First screen the user sees. Allows entering the Silo server URL.
  *
+ * Rebuilt to match silo-apple's `ServerSetupView` (Aurora): a single centered
+ * glass form over the plum backdrop. Protocol + port stay tucked under
+ * "Advanced options".
+ *
  * After validating the server:
- * - If [SetupStatusResponse.needsSetup] is true, navigates to [onNavigateToSetup].
- * - Otherwise navigates to [onNavigateToLogin], indicating whether signup is enabled.
+ * - If the server needs setup, navigates to [onNavigateToSetup].
+ * - Otherwise navigates to [onNavigateToLogin], indicating whether signup is
+ *   enabled.
  */
 @Composable
 fun ServerSetupScreen(
@@ -56,59 +86,115 @@ fun ServerSetupScreen(
         }
     }
 
-    AuthStage {
-        Column(
+    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+
+    AuroraScreen(variant = AuroraVariant.Server) {
+        // Silo wordmark (iOS width 132).
+        Image(
+            painter = painterResource(id = R.drawable.silo_wordmark),
+            contentDescription = "Silo",
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(horizontal = 24.dp),
+                .width(132.dp)
+                .height(40.dp),
+            contentScale = ContentScale.Fit,
+        )
+
+        Spacer(Modifier.height(30.dp))
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ContinuumLogo()
-
-            Spacer(modifier = Modifier.height(18.dp))
-
+            AuroraEyebrow(text = "Step 01 — Connect", centered = true)
             Text(
-                text = "Connect to Your Server",
+                text = "Add your server",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = AuthColors.OnBackground,
+                color = AuroraInk,
                 textAlign = TextAlign.Center,
             )
+        }
 
-            Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(24.dp))
 
-            Text(
-                text = "Enter the server address for your Silo library.",
-                fontSize = 15.sp,
-                color = AuthColors.OnSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            state.error?.let { error ->
-                AuthErrorBanner(message = error)
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            ContinuumTextField(
+        // Glass card.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .auroraGlass(cornerRadius = 24.dp, emphasized = true)
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            AuroraTextField(
+                label = "Server address",
                 value = state.serverUrl,
                 onValueChange = viewModel::onServerUrlChanged,
-                label = "Server URL",
+                placeholder = "media.example.com",
                 keyboardType = KeyboardType.Uri,
                 imeAction = ImeAction.Go,
                 onImeAction = viewModel::onConnectClick,
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            // Advanced options disclosure.
+            val chevronRotation by animateFloatAsState(
+                targetValue = if (showAdvanced) 180f else 0f,
+                label = "advancedChevron",
+            )
+            AuroraGhostButton(
+                label = "Advanced options",
+                onClick = { showAdvanced = !showAdvanced },
+                fillMaxWidth = true,
+                trailing = {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = AuroraInk.copy(alpha = 0.62f),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .rotate(chevronRotation),
+                    )
+                },
+            )
 
-            ContinuumButton(
-                text = "Connect",
+            AnimatedVisibility(visible = showAdvanced) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AuroraFieldLabel("Protocol")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(
+                                ServerSetupScheme.Auto,
+                                ServerSetupScheme.Https,
+                                ServerSetupScheme.Http,
+                            ).forEach { scheme ->
+                                AuroraSegment(
+                                    title = scheme.label,
+                                    isSelected = state.selectedScheme == scheme,
+                                    onClick = { viewModel.onSchemeSelected(scheme) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                    AuroraTextField(
+                        label = "Port",
+                        value = state.port,
+                        onValueChange = viewModel::onPortChanged,
+                        placeholder = "8096",
+                        keyboardType = KeyboardType.Number,
+                    )
+                }
+            }
+
+            state.error?.let { error ->
+                AuroraErrorLabel(error)
+            }
+
+            AuroraPrimaryButton(
+                label = if (state.isLoading) "Connecting…" else "Connect",
                 onClick = viewModel::onConnectClick,
                 isLoading = state.isLoading,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
     }

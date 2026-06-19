@@ -4,9 +4,9 @@ import com.continuum.app.common.ui.components.ThumbhashImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -65,6 +65,7 @@ fun MediaCard(
 ) {
     val overlayState = LocalCardOverlayUiState.current
     var menuExpanded by remember { mutableStateOf(false) }
+    // iOS MediaCard.swift: VStack(alignment: .leading, spacing: 4).
     Column(
         modifier = modifier
             .width(width)
@@ -72,11 +73,13 @@ fun MediaCard(
                 onClick = onClick,
                 onLongClick = if (actions.isEmpty) null else { { menuExpanded = true } },
             ),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
+                // iOS posterAspectRatio = 2 : 3.3 (posterCardWidth 120 / height 198).
+                .aspectRatio(2f / 3.3f)
                 .clip(MaterialTheme.shapes.small),
         ) {
             ThumbhashImage(
@@ -145,8 +148,7 @@ fun MediaCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
+        // iOS titleText: .continuumSubheadline (14sp), 2 lines.
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall,
@@ -157,9 +159,10 @@ fun MediaCard(
         )
 
         if (year != null && year > 0) {
+            // iOS yearText: .continuumCaption (12sp) at secondary text.
             Text(
                 text = year.toString(),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth(),
             )

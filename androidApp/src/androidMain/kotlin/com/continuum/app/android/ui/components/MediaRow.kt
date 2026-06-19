@@ -7,10 +7,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.PlayArrow
 import com.continuum.app.model.catalog.isBookLikeItemType
@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.continuum.app.model.section.SectionItem
 import com.continuum.app.overlays.OverlayData
@@ -53,6 +54,7 @@ fun MediaRow(
     onSeeAllClick: (() -> Unit)? = null,
     showProgress: Boolean = false,
     cardStyle: CardStyle = CardStyle.Poster,
+    icon: ImageVector? = null,
     modifier: Modifier = Modifier,
     cardActions: (SectionItem) -> MediaCardActions = { MediaCardActions() },
 ) {
@@ -95,6 +97,10 @@ fun MediaRow(
     }
 
     Column(modifier = modifier) {
+        // iOS MediaRow header: optional leading icon (16pt semibold onSurface,
+        // 6pt to the title), continuumHeadline (16sp) title, plain caption
+        // "See All" at onSurface 0.6 — no chevron. rowVerticalSpacing =
+        // smallPadding (8dp) below the header.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -103,27 +109,31 @@ fun MediaRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (onSeeAllClick != null) {
-                Row(
-                    modifier = Modifier.clickable(onClick = onSeeAllClick),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "See All",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (icon != null) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        imageVector = icon,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(16.dp),
                     )
                 }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            if (onSeeAllClick != null) {
+                Text(
+                    text = "See All",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.clickable(onClick = onSeeAllClick),
+                )
             }
         }
 

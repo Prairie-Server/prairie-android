@@ -106,12 +106,14 @@ fun MovieDetailContent(
         null
     }
 
+    // iOS below-fold section spacing is 36 (hero→first section 32). Use 36
+    // uniformly — the closest single-value match to the iOS column rhythm.
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .background(ContinuumBackground)
             .background(detailScreenBackgroundBrush(dominantColor)),
-        verticalArrangement = Arrangement.spacedBy(LargePadding),
+        verticalArrangement = Arrangement.spacedBy(36.dp),
     ) {
         item(contentType = "detail-hero") {
             DetailHero(

@@ -30,34 +30,38 @@ fun ChapterProgressBar(
     onSeek: (Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val hasChapters = chapters.isNotEmpty()
     val sliderMax = durationSeconds.toFloat().coerceAtLeast(1f)
     val sliderValue = positionSeconds.toFloat().coerceIn(0f, sliderMax)
+    val remaining = (durationSeconds - positionSeconds).coerceAtLeast(0.0)
 
+    // iOS AudioScrubberSection: VStack(spacing: 10) of the track and a time
+    // row showing elapsed (left) and -remaining (right) in caption-weight,
+    // monospaced, secondary text. The Material slider stands in for the slim
+    // accent-gradient capsule track.
     Column(modifier = modifier.fillMaxWidth()) {
-        if (hasChapters && chapterCountLabel.isNotBlank()) {
-            Text(
-                text = chapterCountLabel,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
         Slider(
             value = sliderValue,
             valueRange = 0f..sliderMax,
             onValueChange = { onSeek(it.toDouble().coerceIn(0.0, durationSeconds.coerceAtLeast(0.0))) },
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(formatClockTime(positionSeconds), style = MaterialTheme.typography.labelSmall)
-            Text(formatClockTime(durationSeconds), style = MaterialTheme.typography.labelSmall)
+            Text(
+                text = formatClockTime(positionSeconds),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "-" + formatClockTime(remaining),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

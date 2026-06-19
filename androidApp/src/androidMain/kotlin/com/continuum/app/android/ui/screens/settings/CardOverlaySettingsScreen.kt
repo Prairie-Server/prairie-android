@@ -444,6 +444,10 @@ private fun OverlayRow(
                     alpha = if (isExpanded) 0.55f else 0.35f,
                 ),
             )
+            .border(
+                BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
+                RoundedCornerShape(14.dp),
+            )
             .animateContentSize()
             .padding(14.dp),
     ) {

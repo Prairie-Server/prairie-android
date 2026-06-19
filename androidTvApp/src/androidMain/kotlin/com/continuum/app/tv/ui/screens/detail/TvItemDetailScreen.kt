@@ -316,6 +316,29 @@ private fun TvDetailContent(
     }
 }
 
+data class TvWatchTogetherHostTarget(
+    val contentId: String,
+    val fileId: Int?,
+)
+
+fun tvWatchTogetherHostTarget(
+    detailContentId: String,
+    detailType: String,
+    nextUpContentId: String?,
+    selectedFileId: Int?,
+): TvWatchTogetherHostTarget? {
+    val targetContentId = when (detailType.lowercase()) {
+        "movie", "episode" -> detailContentId
+        "series", "season" -> nextUpContentId?.takeIf { it.isNotBlank() } ?: return null
+        else -> return null
+    }.takeIf { it.isNotBlank() } ?: return null
+
+    return TvWatchTogetherHostTarget(
+        contentId = targetContentId,
+        fileId = selectedFileId,
+    )
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun HeroActionRow(
@@ -397,6 +420,12 @@ private fun HeroActionRow(
         selectorVersions.firstOrNull { it.fileId == selectedFileId } ?: selectorVersions.firstOrNull()
     }
     val isAudiobook = isAudiobookItemType(detail.type)
+    val watchTogetherTarget = tvWatchTogetherHostTarget(
+        detailContentId = detail.contentId,
+        detailType = detail.type,
+        nextUpContentId = nextUp?.contentId,
+        selectedFileId = selectedFileId,
+    )
     // Down from the action cluster lands on the selector row (when shown) rather
     // than skipping into the body. Mirrors Apple's full-width `.focusSection()`.
     val selectorFocus = remember { FocusRequester() }
@@ -502,9 +531,7 @@ private fun HeroActionRow(
                 onClick = { ratingOpen = true },
             )
 
-            // Watch Together is video-only — audiobooks use a separate player
-            // with no room support, so hide it for them.
-            if (!isAudiobook) {
+            if (watchTogetherTarget != null) {
                 TvSquareToggleButton(
                     icon = Icons.Filled.Groups,
                     iconActive = Icons.Filled.Groups,
@@ -644,7 +671,11 @@ private fun HeroActionRow(
         TvWatchTogetherEntryDialog(
             isBusy = watchTogetherState.isBusy,
             error = watchTogetherState.error,
-            onHost = { watchTogetherViewModel.createRoom(detail.contentId, selectedFileId) },
+            onHost = {
+                watchTogetherTarget?.let { target ->
+                    watchTogetherViewModel.createRoom(target.contentId, target.fileId)
+                }
+            },
             onJoin = {
                 watchTogetherViewModel.clearError()
                 watchTogetherOpen = false

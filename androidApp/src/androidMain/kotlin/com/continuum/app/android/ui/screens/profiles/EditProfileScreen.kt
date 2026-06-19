@@ -152,6 +152,7 @@ fun EditProfileScreen(
                     label = "Child Profile",
                     checked = state.isChild,
                     onCheckedChange = viewModel::onChildToggled,
+                    subtitle = "Restricts content to kid-friendly ratings",
                 )
 
                 if (state.isChild) {
@@ -208,7 +209,7 @@ fun EditProfileScreen(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 ContinuumButton(
-                    text = "Save",
+                    text = "Save Changes",
                     onClick = viewModel::onSaveClick,
                     isLoading = state.isSaving,
                 )

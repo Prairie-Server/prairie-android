@@ -1,14 +1,15 @@
 package com.continuum.app.android.ui.screens.settings
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
- * Settings section showing server connection details and management entry points.
+ * Connection section. Mirrors the iOS phone Settings `Server` row: a
+ * single teal-badged `server.rack` row whose trailing value is the
+ * active server label, with a disclosure chevron that opens the server
+ * list.
  */
 @Composable
 fun ServerInfoSection(
@@ -17,20 +18,13 @@ fun ServerInfoSection(
     modifier: Modifier = Modifier,
 ) {
     SettingsSectionCard(modifier = modifier) {
-        SettingsSectionHeader("Server")
-
-        SettingsRow(label = "Server URL") {
-            Text(
-                text = serverUrl.ifBlank { "Not connected" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        SettingsClickableRow(
-            icon = Icons.Default.Storage,
-            label = "Manage Servers",
+        SettingsRowLabel(
+            title = "Server",
+            icon = Icons.Default.Dns,
+            badgeColor = SettingsBadgeTeal,
+            value = serverUrl.ifBlank { "Not connected" },
             onClick = onManageServersClick,
+            showChevron = true,
         )
     }
 }
