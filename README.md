@@ -215,8 +215,15 @@ Known gaps the docs track: TV has no reader/ebooks and no downloads management b
 - The Android modules target Java 21.
 - The server repo lives at [`Silo-Server/silo-server`](https://github.com/Silo-Server/silo-server).
 
-## License
+## License & Trademarks
 
 Silo Android is licensed under `AGPL-3.0-or-later`. See [LICENSE](LICENSE).
+
+The **Silo name, logo, and wordmark are trademarks of Silo Media L.L.C.** and
+are **not** covered by the AGPL. You're free to fork and redistribute the code,
+but forks and redistributions must not use the Silo brand as their identity and
+must remove or replace the brand assets. Publishing a Silo-branded app to an app
+store requires written permission. See [TRADEMARK.md](TRADEMARK.md) for what's
+permitted — including referential use like "compatible with Silo."
 
 The checked-in Media3 FFmpeg decoder AAR and other third-party dependencies retain their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
