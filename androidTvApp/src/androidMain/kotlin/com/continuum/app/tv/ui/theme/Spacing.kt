@@ -84,6 +84,57 @@ object TvSkyline {
 
     /** Bar opacity while focus is down in the content zone — tvOS `barDimmedOpacity`. */
     const val barDimmedOpacity = 0.70f
+
+    /** Profile dropdown width, mapped from a 480pt tvOS panel. */
+    val profileMenuWidth = 240.dp
+
+    /** Profile dropdown body inset, mapped from 12pt tvOS vertical padding. */
+    val profileMenuPanelVerticalPadding = 6.dp
+
+    /** Gap between rows in the profile dropdown, mapped from 4pt tvOS spacing. */
+    val profileMenuItemSpacing = 2.dp
+
+    /** Profile dropdown header inset, mapped from 32pt x 12pt tvOS padding. */
+    val profileMenuHeaderHorizontalPadding = 16.dp
+    val profileMenuHeaderVerticalPadding = 6.dp
+
+    /** Gap between avatar and account text, mapped from a 20pt tvOS gap. */
+    val profileMenuHeaderGap = 10.dp
+
+    /** Profile dropdown avatar size, mapped from a 64pt tvOS avatar. */
+    val profileMenuAvatarSize = 32.dp
+
+    /** Profile header typography, mapped from 28pt / 34pt tvOS title text. */
+    val profileMenuHeaderTitleSize = 14.sp
+    val profileMenuHeaderTitleLineHeight = 17.sp
+
+    /** Profile subtitle typography, mapped from 20pt / 24pt tvOS metadata text. */
+    val profileMenuHeaderSubtitleSize = 10.sp
+    val profileMenuHeaderSubtitleLineHeight = 12.sp
+
+    /** Divider inset, mapped from 24pt x 8pt tvOS padding. */
+    val profileMenuDividerHorizontalPadding = 12.dp
+    val profileMenuDividerVerticalPadding = 4.dp
+
+    /** Outer row inset inside the panel, mapped from 16pt tvOS padding. */
+    val profileMenuRowOuterHorizontalPadding = 8.dp
+
+    /** Row content inset, mapped from 24pt x 16pt tvOS padding. */
+    val profileMenuRowContentHorizontalPadding = 12.dp
+    val profileMenuRowContentVerticalPadding = 8.dp
+
+    /** Gap between row icon and text, mapped from a 20pt tvOS gap. */
+    val profileMenuRowGap = 10.dp
+
+    /** Profile row icon size, mapped from a 32pt tvOS icon. */
+    val profileMenuRowIconSize = 16.dp
+
+    /** Profile row capsule radius, mapped from a 16pt tvOS radius. */
+    val profileMenuRowCornerRadius = 8.dp
+
+    /** Profile row typography, mapped from 28pt / 34pt tvOS row text. */
+    val profileMenuRowTextSize = 14.sp
+    val profileMenuRowLineHeight = 17.sp
 }
 
 object HeroDimens {
@@ -106,4 +157,13 @@ object RowDimens {
     /** 16:9 episode/backdrop card — tvOS 360×200pt → 180×100dp. */
     val BackdropHeight = 100.dp
     val BackdropWidth = 180.dp
+
+    /** Watched badge geometry scales with the active poster width. */
+    const val WatchedBadgeSizeFraction = 0.24f
+    const val WatchedBadgeIconSizeFraction = 0.55f
+    const val WatchedBadgePaddingFraction = 0.06f
+    val WatchedBadgeMinSize = 20.dp
+    val WatchedBadgeMaxSize = 32.dp
+    val WatchedBadgeMinPadding = 4.dp
+    val WatchedBadgeMaxPadding = 8.dp
 }

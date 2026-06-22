@@ -250,8 +250,8 @@ internal fun SquaredPillSurface(
     )
     val innerBorderWidth by animateDpAsState(
         targetValue = when {
-            isFocused && primary -> 1.8.dp
-            isFocused -> 1.5.dp
+            isFocused && primary -> 0.9.dp
+            isFocused -> 0.75.dp
             primary -> 0.8.dp
             else -> 1.2.dp
         },
@@ -312,11 +312,11 @@ internal fun SquaredPillSurface(
                 ambientColor = Color.Black.copy(alpha = shadowOpacity),
                 spotColor = Color.Black.copy(alpha = shadowOpacity),
             )
-            // Compact focus outline: width 2.5dp, inset 1.5dp (outline radius = TvControlCorner + 2).
+            // Compact focus outline, half-scale port of tvOS width 2.5 / inset 3.
             .focusRing(
                 visible = isFocused,
                 color = focusOutlineColor,
-                width = 2.5.dp,
+                width = 1.25.dp,
                 inset = 1.5.dp,
                 corner = TvControlCorner + 2.dp,
             )
@@ -377,7 +377,7 @@ fun TvSquareToggleButton(
         label = "toggleInnerBorder",
     )
     val innerBorderWidth by animateDpAsState(
-        targetValue = if (isFocused) 1.6.dp else 1.4.dp,
+        targetValue = if (isFocused) 0.8.dp else 1.4.dp,
         animationSpec = focusSpring(),
         label = "toggleInnerBorderWidth",
     )
@@ -423,7 +423,7 @@ fun TvSquareToggleButton(
             .focusRing(
                 visible = isFocused,
                 color = Color.White.copy(alpha = 0.96f),
-                width = 3.dp,
+                width = 1.5.dp,
                 inset = 2.5.dp,
                 corner = TvControlCorner + 2.dp,
             )

@@ -31,15 +31,19 @@ import com.continuum.app.android.ui.screens.settings.ThemePreference
 import com.continuum.app.android.ui.theme.ContinuumTheme
 import com.continuum.app.android.ui.theme.ThemeManager
 import com.continuum.app.common.settings.PlayerSettingsStore
+import com.continuum.app.common.startup.warmAuthenticatedStartup
 import com.continuum.app.common.ui.components.StartupSplashVideo
 import com.continuum.app.network.ServerRegistry
 import com.continuum.app.network.TokenManager
-import kotlinx.coroutines.delay
+import com.continuum.app.repository.AuthRepository
+import com.continuum.app.repository.PersonalDataRepository
+import com.continuum.app.repository.ProfileRepository
+import com.continuum.app.repository.SectionRepository
+import com.continuum.app.repository.port.HomeCachePort
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import org.koin.java.KoinJavaComponent.get
-
-private const val STARTUP_SPLASH_MINIMUM_MILLIS = 1_000L
 
 class MainActivity : ComponentActivity() {
 
@@ -65,7 +69,7 @@ class MainActivity : ComponentActivity() {
             val themePref by themeManager.themePreference.collectAsState()
             var startRoute by remember { mutableStateOf<String?>(null) }
             var pendingExternalRoute by remember { mutableStateOf<String?>(null) }
-            var minimumSplashElapsed by remember { mutableStateOf(false) }
+            var splashPlaybackComplete by remember { mutableStateOf(false) }
             val darkTheme = when (themePref) {
                 ThemePreference.DARK -> true
                 ThemePreference.LIGHT -> false
@@ -73,23 +77,23 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(Unit) {
-                startRoute = resolveStartDestination()
+                val route = resolveStartDestination()
+                startRoute = route
+                launchAuthenticatedStartupWarmup(route)
             }
             LaunchedEffect(Unit) {
                 incomingDeviceLoginRoutes.collect { route ->
                     pendingExternalRoute = route
                 }
             }
-            LaunchedEffect(Unit) {
-                delay(STARTUP_SPLASH_MINIMUM_MILLIS)
-                minimumSplashElapsed = true
-            }
 
             ContinuumTheme(darkTheme = darkTheme) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val resolvedRoute = startRoute
-                    if (resolvedRoute == null || !minimumSplashElapsed) {
-                        StartupSplashVideo()
+                    if (resolvedRoute == null || !splashPlaybackComplete) {
+                        StartupSplashVideo(
+                            onPlaybackComplete = { splashPlaybackComplete = true },
+                        )
                     } else {
                         AppNavigation(
                             startDestination = resolvedRoute,
@@ -174,6 +178,19 @@ class MainActivity : ComponentActivity() {
         }
 
         return Route.Home.route
+    }
+
+    private fun launchAuthenticatedStartupWarmup(startRoute: String) {
+        if (startRoute != Route.Home.route) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            warmAuthenticatedStartup(
+                authRepository = get(AuthRepository::class.java),
+                profileRepository = get(ProfileRepository::class.java),
+                personalDataRepository = get(PersonalDataRepository::class.java),
+                sectionRepository = get(SectionRepository::class.java),
+                homeCache = get(HomeCachePort::class.java),
+            )
+        }
     }
 
     private fun isOnline(): Boolean {

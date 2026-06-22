@@ -87,6 +87,11 @@ fun TvMediaCard(
         ?: tvArtworkAspectRatioForMediaType(mediaType)
         ?: (2f / 3f)
     val height = width / effectiveAspectRatio
+    val watchedBadgeSize = (width * RowDimens.WatchedBadgeSizeFraction)
+        .coerceIn(RowDimens.WatchedBadgeMinSize, RowDimens.WatchedBadgeMaxSize)
+    val watchedBadgeIconSize = watchedBadgeSize * RowDimens.WatchedBadgeIconSizeFraction
+    val watchedBadgePadding = (width * RowDimens.WatchedBadgePaddingFraction)
+        .coerceIn(RowDimens.WatchedBadgeMinPadding, RowDimens.WatchedBadgeMaxPadding)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
@@ -147,8 +152,8 @@ fun TvMediaCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(12.dp)
-                            .size(40.dp)
+                            .padding(watchedBadgePadding)
+                            .size(watchedBadgeSize)
                             .background(Color.White, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -156,7 +161,7 @@ fun TvMediaCard(
                             imageVector = Icons.Default.Check,
                             contentDescription = "Watched",
                             tint = Color.Black,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(watchedBadgeIconSize),
                         )
                     }
                 }

@@ -70,7 +70,7 @@ fun TvPlaybackSelectorRow(
         modifier = modifier
             .fillMaxWidth()
             .focusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (editions.size > 1) {

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.absoluteOffset
@@ -1172,9 +1171,9 @@ private fun TvProfileDropdown(
 
     Column(
         modifier = modifier
-            .width(320.dp)
+            .width(TvSkyline.profileMenuWidth)
             .tvSkylinePanelChrome()
-            .padding(vertical = 12.dp)
+            .padding(vertical = TvSkyline.profileMenuPanelVerticalPadding)
             .focusGroup()
             // No page scrim, so trap directional focus inside the dropdown —
             // arrows can't leak into the bar/content behind it; only Back closes.
@@ -1187,7 +1186,7 @@ private fun TvProfileDropdown(
                     true
                 } else false
             },
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(TvSkyline.profileMenuItemSpacing),
     ) {
         ProfileDropdownHeader(accountState)
 
@@ -1232,13 +1231,16 @@ private fun ProfileDropdownHeader(accountState: TvAccountState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 22.dp, vertical = 8.dp),
+            .padding(
+                horizontal = TvSkyline.profileMenuHeaderHorizontalPadding,
+                vertical = TvSkyline.profileMenuHeaderVerticalPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(TvSkyline.profileMenuHeaderGap),
     ) {
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(TvSkyline.profileMenuAvatarSize)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center,
@@ -1265,7 +1267,10 @@ private fun ProfileDropdownHeader(accountState: TvAccountState) {
                 text = accountState.displayName,
                 color = ContinuumOnSurface,
                 fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = TvSkyline.profileMenuHeaderTitleSize,
+                    lineHeight = TvSkyline.profileMenuHeaderTitleLineHeight,
+                ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1276,7 +1281,10 @@ private fun ProfileDropdownHeader(accountState: TvAccountState) {
                 Text(
                     text = subtitle.uppercase(),
                     color = ContinuumOnSurface.copy(alpha = 0.38f),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = TvSkyline.profileMenuHeaderSubtitleSize,
+                        lineHeight = TvSkyline.profileMenuHeaderSubtitleLineHeight,
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1290,7 +1298,10 @@ private fun ProfileDropdownDivider() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(
+                horizontal = TvSkyline.profileMenuDividerHorizontalPadding,
+                vertical = TvSkyline.profileMenuDividerVerticalPadding,
+            )
             .height(1.dp)
             .background(Color.White.copy(alpha = 0.10f)),
     )
@@ -1311,15 +1322,16 @@ private fun ProfileDropdownRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val contentColor = if (isFocused) DarkBackground else ContinuumOnSurface.copy(alpha = 0.9f)
+    val rowShape = RoundedCornerShape(TvSkyline.profileMenuRowCornerRadius)
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp)
+            .padding(horizontal = TvSkyline.profileMenuRowOuterHorizontalPadding)
             .let { if (focusRequester != null) it.focusRequester(focusRequester) else it },
         onClick = onClick,
         interactionSource = interactionSource,
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        shape = ClickableSurfaceDefaults.shape(rowShape),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
@@ -1330,33 +1342,38 @@ private fun ProfileDropdownRow(
             pressedContentColor = DarkBackground,
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(12.dp)),
-            focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(12.dp)),
+            border = Border(border = BorderStroke(0.dp, Color.Transparent), shape = rowShape),
+            focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = rowShape),
         ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 13.dp),
+                .padding(
+                    horizontal = TvSkyline.profileMenuRowContentHorizontalPadding,
+                    vertical = TvSkyline.profileMenuRowContentVerticalPadding,
+                ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(TvSkyline.profileMenuRowGap),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(TvSkyline.profileMenuRowIconSize),
             )
             Text(
                 text = label,
                 color = contentColor,
                 fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = TvSkyline.profileMenuRowTextSize,
+                    lineHeight = TvSkyline.profileMenuRowLineHeight,
+                ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Spacer(modifier = Modifier.width(0.dp))
         }
     }
 }

@@ -122,6 +122,39 @@ class TvSkylineTokenParityTest {
     }
 
     @Test
+    fun profileDropdownUsesHalfScaleSkylineGeometry() {
+        assertToken("val profileMenuWidth = 240.dp")
+        assertToken("val profileMenuPanelVerticalPadding = 6.dp")
+        assertToken("val profileMenuItemSpacing = 2.dp")
+        assertToken("val profileMenuHeaderHorizontalPadding = 16.dp")
+        assertToken("val profileMenuHeaderVerticalPadding = 6.dp")
+        assertToken("val profileMenuHeaderGap = 10.dp")
+        assertToken("val profileMenuAvatarSize = 32.dp")
+        assertToken("val profileMenuHeaderTitleSize = 14.sp")
+        assertToken("val profileMenuHeaderSubtitleSize = 10.sp")
+        assertToken("val profileMenuDividerHorizontalPadding = 12.dp")
+        assertToken("val profileMenuDividerVerticalPadding = 4.dp")
+        assertToken("val profileMenuRowOuterHorizontalPadding = 8.dp")
+        assertToken("val profileMenuRowContentHorizontalPadding = 12.dp")
+        assertToken("val profileMenuRowContentVerticalPadding = 8.dp")
+        assertToken("val profileMenuRowGap = 10.dp")
+        assertToken("val profileMenuRowIconSize = 16.dp")
+        assertToken("val profileMenuRowCornerRadius = 8.dp")
+        assertToken("val profileMenuRowTextSize = 14.sp")
+
+        assertTrue(shell.contains(".width(TvSkyline.profileMenuWidth)"))
+        assertTrue(shell.contains(".padding(vertical = TvSkyline.profileMenuPanelVerticalPadding)"))
+        assertTrue(shell.contains("Arrangement.spacedBy(TvSkyline.profileMenuItemSpacing)"))
+        assertTrue(shell.contains("TvSkyline.profileMenuRowContentHorizontalPadding"))
+        assertTrue(shell.contains("TvSkyline.profileMenuRowContentVerticalPadding"))
+        assertTrue(shell.contains("TvSkyline.profileMenuRowIconSize"))
+        assertTrue(shell.contains("TvSkyline.profileMenuRowTextSize"))
+        assertFalse(shell.contains(".width(320.dp)"))
+        assertFalse(shell.contains(".padding(horizontal = 16.dp, vertical = 13.dp)"))
+        assertFalse(shell.contains("modifier = Modifier.size(22.dp)"))
+    }
+
+    @Test
     fun cascadeSelectorUsesHalfScalePanelGeometry() {
         assertTrue(cascadeSelector.contains("val CascadeLibraryColumnWidth = 230.dp"))
         assertTrue(cascadeSelector.contains("val CascadeFlyoutWidth = 150.dp"))
@@ -151,6 +184,27 @@ class TvSkylineTokenParityTest {
     fun posterCardsUseSharedTvOsMappedPosterGeometry() {
         assertTrue(mediaCard.contains("val TvCardWidth: Dp = RowDimens.PosterWidth"))
         assertFalse(mediaCard.contains("val TvCardWidth: Dp = 200.dp"))
+    }
+
+    @Test
+    fun posterWatchedBadgeScalesWithCardWidth() {
+        assertToken("const val WatchedBadgeSizeFraction = 0.24f")
+        assertToken("const val WatchedBadgeIconSizeFraction = 0.55f")
+        assertToken("const val WatchedBadgePaddingFraction = 0.06f")
+        assertToken("val WatchedBadgeMinSize = 20.dp")
+        assertToken("val WatchedBadgeMaxSize = 32.dp")
+        assertToken("val WatchedBadgeMinPadding = 4.dp")
+        assertToken("val WatchedBadgeMaxPadding = 8.dp")
+
+        assertTrue(mediaCard.contains("val watchedBadgeSize = (width * RowDimens.WatchedBadgeSizeFraction)"))
+        assertTrue(mediaCard.contains("val watchedBadgeIconSize = watchedBadgeSize * RowDimens.WatchedBadgeIconSizeFraction"))
+        assertTrue(mediaCard.contains("val watchedBadgePadding = (width * RowDimens.WatchedBadgePaddingFraction)"))
+        assertTrue(mediaCard.contains(".padding(watchedBadgePadding)"))
+        assertTrue(mediaCard.contains(".size(watchedBadgeSize)"))
+        assertTrue(mediaCard.contains("modifier = Modifier.size(watchedBadgeIconSize)"))
+        assertFalse(mediaCard.contains(".padding(12.dp)"))
+        assertFalse(mediaCard.contains(".size(40.dp)"))
+        assertFalse(mediaCard.contains("modifier = Modifier.size(22.dp)"))
     }
 
     @Test

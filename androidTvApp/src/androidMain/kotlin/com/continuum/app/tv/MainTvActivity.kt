@@ -8,34 +8,46 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.continuum.app.common.settings.PlayerSettingsStore
+import com.continuum.app.common.startup.warmAuthenticatedStartup
 import com.continuum.app.common.ui.components.StartupSplashVideo
 import com.continuum.app.network.ServerRegistry
 import com.continuum.app.network.TokenManager
+import com.continuum.app.repository.AuthRepository
+import com.continuum.app.repository.PersonalDataRepository
+import com.continuum.app.repository.ProfileRepository
+import com.continuum.app.repository.SectionRepository
+import com.continuum.app.repository.port.HomeCachePort
 import com.continuum.app.tv.ui.navigation.TvAppNavigation
 import com.continuum.app.tv.ui.navigation.TvRoute
 import com.continuum.app.tv.ui.screens.player.TvPlayerRemoteKeyBridge
 import com.continuum.app.tv.ui.theme.ContinuumTvTheme
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.core.qualifier.named
 import org.koin.java.KoinJavaComponent.get
 
-private const val STARTUP_SPLASH_MINIMUM_MILLIS = 1_000L
 class MainTvActivity : ComponentActivity() {
 
     // Shared flow with [TvAppNavigation]. We publish the launching Uri here so
@@ -52,34 +64,42 @@ class MainTvActivity : ComponentActivity() {
 
         setContent {
             var startRoute by remember { mutableStateOf<String?>(null) }
-            var minimumSplashElapsed by remember { mutableStateOf(false) }
+            var splashPlaybackComplete by remember { mutableStateOf(false) }
 
             LaunchedEffect(Unit) {
-                startRoute = resolveStartDestination()
-            }
-            LaunchedEffect(Unit) {
-                delay(STARTUP_SPLASH_MINIMUM_MILLIS)
-                minimumSplashElapsed = true
+                val route = resolveStartDestination()
+                startRoute = route
+                launchAuthenticatedStartupWarmup(route)
             }
 
             ContinuumTvTheme {
                 val resolvedRoute = startRoute
-                if (resolvedRoute == null || !minimumSplashElapsed) {
+                if (resolvedRoute == null || !splashPlaybackComplete) {
                     val splashFocus = remember { FocusRequester() }
                     LaunchedEffect(Unit) { runCatching { splashFocus.requestFocus() } }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .background(Color(0xFF050505))
                             .focusRequester(splashFocus)
                             .focusable()
                             .onPreviewKeyEvent {
                                 // Consume input during the splash so it never causes an
-                                // input-dispatch-timeout ANR; let any press skip the min delay.
-                                minimumSplashElapsed = true
+                                // input-dispatch-timeout ANR.
                                 true
                             },
                     ) {
-                        StartupSplashVideo()
+                        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                            val videoWidth = (maxWidth * 0.25f).coerceAtMost(440.dp)
+                            StartupSplashVideo(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .width(videoWidth)
+                                    .aspectRatio(16f / 9f),
+                                backgroundColor = Color.Transparent,
+                                onPlaybackComplete = { splashPlaybackComplete = true },
+                            )
+                        }
                     }
                 } else {
                     TvAppNavigation(
@@ -157,5 +177,18 @@ class MainTvActivity : ComponentActivity() {
         if (profileId.isNullOrBlank()) return TvRoute.ProfileSelection.route
 
         return TvRoute.Main.route
+    }
+
+    private fun launchAuthenticatedStartupWarmup(startRoute: String) {
+        if (startRoute != TvRoute.Main.route) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            warmAuthenticatedStartup(
+                authRepository = get(AuthRepository::class.java),
+                profileRepository = get(ProfileRepository::class.java),
+                personalDataRepository = get(PersonalDataRepository::class.java),
+                sectionRepository = get(SectionRepository::class.java),
+                homeCache = get(HomeCachePort::class.java),
+            )
+        }
     }
 }

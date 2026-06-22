@@ -29,17 +29,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -95,9 +92,6 @@ import com.continuum.app.tv.ui.components.TvSquareToggleButton
 import com.continuum.app.tv.ui.components.TvPillVariant
 import com.continuum.app.tv.ui.components.TvRowStyle
 import com.continuum.app.tv.ui.screens.audiobook.formatAudiobookTime
-import com.continuum.app.tv.ui.screens.watchtogether.TvJoinCodeDialog
-import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherEntryDialog
-import com.continuum.app.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
 import com.continuum.app.tv.ui.theme.Spacing
 import com.continuum.app.tv.ui.theme.TvSmoothBringIntoViewSpec
 import kotlin.math.roundToInt
@@ -151,7 +145,6 @@ fun TvItemDetailScreen(
             onItemDetail = onItemDetail,
             onSeriesClick = onSeriesClick,
             onSeasonClick = onSeasonClick,
-            onWatchTogether = onWatchTogether,
             onOpenPerson = onOpenPerson,
         )
     }
@@ -167,7 +160,6 @@ private fun TvDetailContent(
     onItemDetail: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
-    onWatchTogether: (RoomSnapshot) -> Unit,
     onOpenPerson: (personId: Long) -> Unit,
 ) {
     val playFocus = remember { FocusRequester() }
@@ -259,7 +251,6 @@ private fun TvDetailContent(
                                     onPlay = onPlay,
                                     onSeriesClick = onSeriesClick,
                                     onSeasonClick = onSeasonClick,
-                                    onWatchTogether = onWatchTogether,
                                 )
                             },
                         )
@@ -458,29 +449,6 @@ private fun TvDetailContent(
     }
 }
 
-data class TvWatchTogetherHostTarget(
-    val contentId: String,
-    val fileId: Int?,
-)
-
-fun tvWatchTogetherHostTarget(
-    detailContentId: String,
-    detailType: String,
-    nextUpContentId: String?,
-    selectedFileId: Int?,
-): TvWatchTogetherHostTarget? {
-    val targetContentId = when (detailType.lowercase()) {
-        "movie", "episode" -> detailContentId
-        "series", "season" -> nextUpContentId?.takeIf { it.isNotBlank() } ?: return null
-        else -> return null
-    }.takeIf { it.isNotBlank() } ?: return null
-
-    return TvWatchTogetherHostTarget(
-        contentId = targetContentId,
-        fileId = selectedFileId,
-    )
-}
-
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun HeroActionRow(
@@ -491,33 +459,8 @@ private fun HeroActionRow(
     onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
-    onWatchTogether: (RoomSnapshot) -> Unit,
 ) {
     var moreOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var mediaInfoOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var ratingOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var watchTogetherOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var joinByCodeOpen by remember(detail.contentId) { mutableStateOf(false) }
-    // True only while the user is actively in the Watch Together flow. If they
-    // back out of the dialogs while a createRoom/joinRoom is still in flight we
-    // clear this, so the room result that lands afterwards is ignored instead of
-    // force-navigating into the player.
-    var wtFlowActive by remember(detail.contentId) { mutableStateOf(false) }
-    val watchTogetherViewModel: TvWatchTogetherViewModel = koinViewModel()
-    val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
-    // Route the one-shot room result out to navigation, then clear it so a
-    // recomposition doesn't re-fire. Only navigate if the flow is still active.
-    LaunchedEffect(watchTogetherState.result) {
-        watchTogetherState.result?.let { room ->
-            if (wtFlowActive) {
-                wtFlowActive = false
-                watchTogetherOpen = false
-                joinByCodeOpen = false
-                onWatchTogether(room)
-            }
-            watchTogetherViewModel.consumeResult()
-        }
-    }
     // Series / season detail target the *next-up episode* rather than the
     // container itself (mirrors silo-apple's TVSeriesDetailView /
     // TVSeasonDetailView). For those types the hero Play button, the resume
@@ -540,13 +483,11 @@ private fun HeroActionRow(
     val hasResume = resumePosition != null
 
     // tvOS overflow: episode Go-to-Series / Go-to-Season navigation and season
-    // Go-to-Series (mirrors `TVSeasonDetailView.moreMenu`), plus Media Info (the
-    // only access to stream info on Android until the player-HUD parity
-    // sub-project). Show the ⋯ button when it would hold ≥1 item.
+    // Go-to-Series (mirrors `TVMovieDetailView.moreMenu` /
+    // `TVSeasonDetailView.moreMenu`). Movies do not show an overflow button.
     val hasSeriesNavigation = detail.type in setOf("episode", "season") && detail.seriesId != null
     val hasOverflowNavigation = hasSeriesNavigation
-    val hasMediaInfo = detail.versions.isNotEmpty()
-    val hasOverflowMenu = hasOverflowNavigation || hasMediaInfo
+    val hasOverflowMenu = hasOverflowNavigation
 
     // Version set + selection state driving the selector row / Play file id.
     // Series/season use the next-up episode's versions + the next-up selection;
@@ -562,12 +503,6 @@ private fun HeroActionRow(
         selectorVersions.firstOrNull { it.fileId == selectedFileId } ?: selectorVersions.firstOrNull()
     }
     val isAudiobook = isAudiobookItemType(detail.type)
-    val watchTogetherTarget = tvWatchTogetherHostTarget(
-        detailContentId = detail.contentId,
-        detailType = detail.type,
-        nextUpContentId = nextUp?.contentId,
-        selectedFileId = selectedFileId,
-    )
     // Down from the action cluster lands on the selector row (when shown) rather
     // than skipping into the body. Mirrors Apple's full-width `.focusSection()`.
     val selectorFocus = remember { FocusRequester() }
@@ -584,8 +519,9 @@ private fun HeroActionRow(
     // when next-up resolves would only risk yanking focus back if the viewer had
     // already moved into the seasons/episodes rails.
 
-    Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        // Action row — `HStack(spacing 36)` (TVMovieDetailView.actionRow). One
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Action row — tvOS `HStack(spacing: 36)` mapped through the same
+        // half-scale dp port as the button internals. One
         // focusGroup; Down from the far-right toggle is redirected onto the
         // selector row via focusProperties.
         Row(
@@ -598,9 +534,9 @@ private fun HeroActionRow(
                     } else {
                         Modifier
                     },
-                ),
+            ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(36.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             TvPrimaryPillButton(
                 icon = Icons.Filled.PlayArrow,
@@ -662,29 +598,6 @@ private fun HeroActionRow(
                 contentDescription = if (state.isWatched) watchedUnmarkLabel(detail) else watchedMarkLabel(detail),
                 onClick = viewModel::onToggleWatched,
             )
-
-            // Android extras kept in the tvOS square-control grammar: Rate opens
-            // the star rating dialog; Watch Together opens the host/join entry.
-            TvSquareToggleButton(
-                icon = Icons.Outlined.StarBorder,
-                iconActive = Icons.Filled.Star,
-                isActive = state.userRating != null,
-                contentDescription = if (state.userRating != null) "Edit your rating" else "Rate this title",
-                onClick = { ratingOpen = true },
-            )
-
-            if (watchTogetherTarget != null) {
-                TvSquareToggleButton(
-                    icon = Icons.Filled.Groups,
-                    iconActive = Icons.Filled.Groups,
-                    isActive = false,
-                    contentDescription = "Watch Together",
-                    onClick = {
-                        wtFlowActive = true
-                        watchTogetherOpen = true
-                    },
-                )
-            }
 
             if (hasOverflowMenu) {
                 TvSquareToggleButton(
@@ -766,83 +679,11 @@ private fun HeroActionRow(
                     )
                 }
             }
-            if (hasMediaInfo) {
-                add(
-                    TvDialogOption(
-                        key = "media-info",
-                        title = "Media info",
-                        subtitle = null,
-                        onClick = {
-                            moreOpen = false
-                            mediaInfoOpen = true
-                        },
-                    ),
-                )
-            }
         }
         TvOptionDialog(
             title = "More Actions",
             options = options,
             onDismiss = { moreOpen = false },
-        )
-    }
-
-    if (mediaInfoOpen) {
-        TvMediaInfoDialog(
-            versions = detail.versions,
-            onDismiss = { mediaInfoOpen = false },
-        )
-    }
-
-    if (ratingOpen) {
-        TvRatingDialog(
-            currentRating = state.userRating,
-            onSetRating = { stars ->
-                viewModel.onSetRating(stars)
-                ratingOpen = false
-            },
-            onClearRating = {
-                viewModel.onClearRating()
-                ratingOpen = false
-            },
-            onDismiss = { ratingOpen = false },
-        )
-    }
-
-    if (watchTogetherOpen) {
-        TvWatchTogetherEntryDialog(
-            isBusy = watchTogetherState.isBusy,
-            error = watchTogetherState.error,
-            onHost = {
-                watchTogetherTarget?.let { target ->
-                    watchTogetherViewModel.createRoom(target.contentId, target.fileId)
-                }
-            },
-            onJoin = {
-                watchTogetherViewModel.clearError()
-                watchTogetherOpen = false
-                joinByCodeOpen = true
-            },
-            onDismiss = {
-                watchTogetherViewModel.clearError()
-                watchTogetherViewModel.consumeResult()
-                wtFlowActive = false
-                watchTogetherOpen = false
-            },
-        )
-    }
-
-    if (joinByCodeOpen) {
-        TvJoinCodeDialog(
-            isBusy = watchTogetherState.isBusy,
-            error = watchTogetherState.error,
-            onJoin = { code -> watchTogetherViewModel.joinRoom(code) },
-            onDismiss = {
-                watchTogetherViewModel.clearError()
-                watchTogetherViewModel.consumeResult()
-                wtFlowActive = false
-                joinByCodeOpen = false
-            },
         )
     }
 }
