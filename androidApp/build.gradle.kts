@@ -9,6 +9,21 @@ plugins {
     alias(libs.plugins.androidx.baselineprofile)
 }
 
+val siloVersionName = providers
+    .gradleProperty("siloVersionName")
+    .orElse(providers.environmentVariable("SILO_VERSION_NAME"))
+    .orElse("0.1.0")
+
+val siloVersionCode = providers
+    .gradleProperty("siloVersionCode")
+    .orElse(providers.environmentVariable("SILO_VERSION_CODE"))
+    .map { value ->
+        val code = value.toIntOrNull() ?: error("siloVersionCode must be an integer.")
+        require(code > 0) { "siloVersionCode must be positive." }
+        code
+    }
+    .orElse(1)
+
 kotlin {
     androidTarget {
         compilations.all {
@@ -98,8 +113,8 @@ android {
         applicationId = "com.continuum.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = siloVersionCode.get()
+        versionName = siloVersionName.get()
         // Shadow the android-shared BuildConfig field so per-app flavors
         // (e.g., a "no-FFmpeg" sideload build for size-constrained QA) can
         // override without rebuilding the shared module. The runtime reads

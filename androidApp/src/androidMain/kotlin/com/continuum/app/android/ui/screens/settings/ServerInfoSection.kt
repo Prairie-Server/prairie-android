@@ -2,8 +2,10 @@ package com.continuum.app.android.ui.screens.settings
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.continuum.app.android.BuildConfig
 
 /**
  * Connection section. Mirrors the iOS phone Settings `Server` row: a
@@ -25,6 +27,12 @@ fun ServerInfoSection(
             value = serverUrl.ifBlank { "Not connected" },
             onClick = onManageServersClick,
             showChevron = true,
+        )
+        SettingsRowLabel(
+            title = "Version",
+            icon = Icons.Default.Info,
+            badgeColor = SettingsBadgeGray,
+            value = BuildConfig.VERSION_NAME,
         )
     }
 }
