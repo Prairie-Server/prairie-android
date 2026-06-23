@@ -29,7 +29,8 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 
 | | |
 |---|---|
-| **Apps** | Phone (`com.continuum.app`) · Android TV (`com.continuum.app.tv`) |
+| **Apps** | Android phone · Android TV |
+| **Application IDs** | Phone `com.continuum.app` · Android TV `com.continuum.app.tv` |
 | **Language / UI** | Kotlin 2.1.20 · Jetpack Compose (Material 3) · Compose for TV (`androidx.tv`) |
 | **Playback** | AndroidX **Media3 / ExoPlayer** 1.10.0 (+ optional FFmpeg audio extension, optional MPV backend path) |
 | **Networking** | **Ktor** 3.1.2 client · kotlinx.serialization · WebSockets for realtime |
