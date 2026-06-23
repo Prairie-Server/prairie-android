@@ -30,10 +30,12 @@ jobs:
             module: androidApp
             artifact-name: android-phone-debug-apks
             apk-path: androidApp/build/outputs/apk/debug/*.apk
+            release-prefix: silo-phone
           - name: Android TV debug APK
             module: androidTvApp
             artifact-name: android-tv-debug-apks
             apk-path: androidTvApp/build/outputs/apk/debug/*.apk
+            release-prefix: silo-tv
 
     steps:
       - name: Check out sources
@@ -105,9 +107,64 @@ jobs:
             "${args[@]}" \
             --max-workers=2
 
+      - name: Collect debug APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version_label="${SILO_VERSION_NAME:-dev}"
+          artifact_dir="release-artifacts/${{ matrix.artifact-name }}"
+          mkdir -p "${artifact_dir}"
+
+          for apk in ${{ matrix.apk-path }}; do
+            apk_name="$(basename "${apk}")"
+            variant="${apk_name#${{ matrix.module }}-}"
+            cp "${apk}" "${artifact_dir}/${{ matrix.release-prefix }}-${version_label}-${variant}"
+          done
+
       - name: Upload debug APKs
         uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact-name }}
-          path: ${{ matrix.apk-path }}
+          path: release-artifacts/${{ matrix.artifact-name }}/*.apk
           if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: build-debug
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download APK artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: android-*-debug-apks
+          path: release-artifacts
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+
+          release_tag="${GITHUB_REF_NAME}"
+          release_title="Silo Android ${release_tag}"
+          apk_files=(release-artifacts/**/*.apk)
+
+          if (( ${#apk_files[@]} == 0 )); then
+            echo "::error::No APK files were downloaded for release upload."
+            exit 1
+          fi
+
+          if ! gh release view "${release_tag}" >/dev/null 2>&1; then
+            gh release create "${release_tag}" \
+              --title "${release_title}" \
+              --notes "Debug APK builds for ${release_tag}."
+          fi
+
+          gh release upload "${release_tag}" "${apk_files[@]}" --clobber

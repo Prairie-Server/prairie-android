@@ -243,7 +243,7 @@ val androidTvModule = module {
     single { WatchNextSeeder(androidContext(), get()) }
 
     // Deep-link bridge between MainTvActivity (producer) and TvAppNavigation
-    // (consumer). The Activity writes the incoming continuum:// Uri here on
+    // (consumer). The Activity writes incoming Silo app-scheme URIs here on
     // cold-launch (read from launching intent in onCreate) and warm-launch
     // (onNewIntent); the navigation Composable observes the flow and routes
     // to ItemDetail / Player once the user is past the auth chain. Using a

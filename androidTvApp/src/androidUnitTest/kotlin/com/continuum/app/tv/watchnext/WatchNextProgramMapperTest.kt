@@ -31,7 +31,7 @@ class WatchNextProgramMapperTest {
             nowMs = 1_000L,
         )
         assertEquals(WatchNextProgramMapper.WATCH_NEXT_TYPE_CONTINUE, fields?.watchNextType)
-        assertEquals("continuum://play/abc", fields?.intentUri)
+        assertEquals("silo://play/abc", fields?.intentUri)
         assertEquals("continue_watching:abc", fields?.externalId)
     }
 
@@ -43,7 +43,7 @@ class WatchNextProgramMapperTest {
             nowMs = 1_000L,
         )
         assertEquals(WatchNextProgramMapper.WATCH_NEXT_TYPE_NEXT, fields?.watchNextType)
-        assertEquals("continuum://item/xyz", fields?.intentUri)
+        assertEquals("silo://item/xyz", fields?.intentUri)
     }
 
     @Test

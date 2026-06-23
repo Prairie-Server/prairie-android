@@ -30,8 +30,8 @@ object WatchNextProgramMapper {
             else -> PROGRAM_TYPE_TV_EPISODE
         }
         val intentUri = when (watchNextType) {
-            WATCH_NEXT_TYPE_CONTINUE -> "continuum://play/${item.contentId}"
-            else -> "continuum://item/${item.contentId}"
+            WATCH_NEXT_TYPE_CONTINUE -> "silo://play/${item.contentId}"
+            else -> "silo://item/${item.contentId}"
         }
         return WatchNextProgramFields(
             externalId = "$sectionType:${item.contentId}",

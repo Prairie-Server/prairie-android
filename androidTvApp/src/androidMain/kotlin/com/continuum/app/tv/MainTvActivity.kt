@@ -141,17 +141,16 @@ class MainTvActivity : ComponentActivity() {
     }
 
     /**
-     * Pushes a `continuum://` deep-link Uri into the shared [pendingDeepLink]
-     * flow for [TvAppNavigation] to consume. Non-`continuum` schemes (and
-     * intents without data) are ignored so unrelated launch intents don't
-     * clobber a queued URI. Nullable parameter to accommodate the cold-launch
-     * call site where the Activity's intent may be null.
+     * Pushes a Silo deep-link Uri into the shared [pendingDeepLink] flow for
+     * [TvAppNavigation] to consume. Non-Silo schemes (and intents without data)
+     * are ignored so unrelated launch intents don't clobber a queued URI.
+     * Nullable parameter to accommodate the cold-launch call site where the
+     * Activity's intent may be null.
      */
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        // `continuum` carries Watch Next / play links; `silo` carries
-        // device-pairing handoffs (silo://device?token=…). Both are consumed
-        // by TvAppNavigation's pendingDeepLink collector.
+        // `silo` is the current app scheme; `continuum` is kept for legacy
+        // Watch Next and pairing links created by older builds.
         if (data.scheme == "continuum" || data.scheme == "silo") {
             pendingDeepLink.value = data
         }
