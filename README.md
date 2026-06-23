@@ -13,6 +13,7 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 ## Table of contents
 
 - [What's inside](#whats-inside)
+- [Install APKs](#install-apks)
 - [Feature overview](#feature-overview)
 - [Architecture](#architecture)
 - [Project structure](#project-structure)
@@ -38,6 +39,19 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 | **SDK** | minSdk 24 · targetSdk 35 · compileSdk 36 · JDK 21 |
 
 The clients talk to a Silo server over its `/api/v1/*` REST + WebSocket API. The server owns the library, scanning, metadata, transcoding decisions, and auth; the clients render it and drive playback.
+
+---
+
+## Install APKs
+
+Latest debug APKs are published on each tagged release.
+
+| App | Downloader code | Downloader link | Direct APK |
+|---|---:|---|---|
+| Android | `1051382` | <http://aftv.news/1051382> | <https://github.com/Silo-Server/silo-android/releases/latest/download/silo-android-latest-universal-debug.apk> |
+| Android TV | `1636227` | <http://aftv.news/1636227> | <https://github.com/Silo-Server/silo-android/releases/latest/download/silo-android-tv-latest-universal-debug.apk> |
+
+Install **Downloader by AFTVnews** on Android TV / Google TV, enter the code for the app you want, then allow APK installs from Downloader when prompted.
 
 ---
 

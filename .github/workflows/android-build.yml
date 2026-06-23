@@ -161,8 +161,20 @@ jobs:
           release_title="Silo Android ${release_tag}"
           android_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-latest-universal-debug.apk"
           android_tv_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-tv-latest-universal-debug.apk"
+          android_downloader_url="http://aftv.news/1051382"
+          android_tv_downloader_url="http://aftv.news/1636227"
           release_notes="$(cat <<EOF
           Debug APK builds for ${release_tag}.
+
+          Install with Downloader by AFTVnews:
+
+          Android:
+          Code 1051382
+          ${android_downloader_url}
+
+          Android TV:
+          Code 1636227
+          ${android_tv_downloader_url}
 
           Latest Android APK:
           ${android_latest_url}
