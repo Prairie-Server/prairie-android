@@ -30,12 +30,12 @@ jobs:
             module: androidApp
             artifact-name: android-phone-debug-apks
             apk-path: androidApp/build/outputs/apk/debug/*.apk
-            release-prefix: silo-phone
+            release-prefix: silo-android
           - name: Android TV debug APK
             module: androidTvApp
             artifact-name: android-tv-debug-apks
             apk-path: androidTvApp/build/outputs/apk/debug/*.apk
-            release-prefix: silo-tv
+            release-prefix: silo-android-tv
 
     steps:
       - name: Check out sources
@@ -120,6 +120,10 @@ jobs:
             apk_name="$(basename "${apk}")"
             variant="${apk_name#${{ matrix.module }}-}"
             cp "${apk}" "${artifact_dir}/${{ matrix.release-prefix }}-${version_label}-${variant}"
+
+            if [[ "${variant}" == "universal-debug.apk" ]]; then
+              cp "${apk}" "${artifact_dir}/${{ matrix.release-prefix }}-latest-${variant}"
+            fi
           done
 
       - name: Upload debug APKs
@@ -155,6 +159,18 @@ jobs:
 
           release_tag="${GITHUB_REF_NAME}"
           release_title="Silo Android ${release_tag}"
+          android_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-latest-universal-debug.apk"
+          android_tv_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-tv-latest-universal-debug.apk"
+          release_notes="$(cat <<EOF
+          Debug APK builds for ${release_tag}.
+
+          Latest Android APK:
+          ${android_latest_url}
+
+          Latest Android TV APK:
+          ${android_tv_latest_url}
+          EOF
+          )"
           apk_files=(release-artifacts/**/*.apk)
 
           if (( ${#apk_files[@]} == 0 )); then
@@ -165,7 +181,11 @@ jobs:
           if ! gh release view "${release_tag}" >/dev/null 2>&1; then
             gh release create "${release_tag}" \
               --title "${release_title}" \
-              --notes "Debug APK builds for ${release_tag}."
+              --notes "${release_notes}"
+          else
+            gh release edit "${release_tag}" \
+              --title "${release_title}" \
+              --notes "${release_notes}"
           fi
 
           gh release upload "${release_tag}" "${apk_files[@]}" --clobber
