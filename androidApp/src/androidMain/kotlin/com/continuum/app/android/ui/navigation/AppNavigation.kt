@@ -1,7 +1,10 @@
 package com.continuum.app.android.ui.navigation
 
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +36,6 @@ import com.continuum.app.android.ui.screens.detail.ItemDetailScreen
 import com.continuum.app.android.ui.screens.detail.ItemDetailViewModel
 import com.continuum.app.android.ui.screens.watchtogether.WatchTogetherEntrySheet
 import com.continuum.app.android.ui.screens.watchtogether.WatchTogetherLobbyScreen
-import com.continuum.app.android.ui.screens.notifications.InboxScreen
 import com.continuum.app.android.ui.screens.people.PersonDetailScreen
 import com.continuum.app.android.ui.screens.people.PersonDetailViewModel
 import com.continuum.app.android.ui.screens.personal.FavoritesScreen
@@ -61,6 +63,7 @@ import com.continuum.app.network.TokenManager
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
@@ -105,6 +108,12 @@ fun AppNavigation(
     }
 
     ProvideCardOverlays(store = overlayPrefsStore, sessionKey = overlaySessionKey) {
+    // Shared-element host: lets a tapped poster morph into the item-detail
+    // backdrop. The scope is published via CompositionLocal so deep descendants
+    // (a poster card, the detail hero) can opt in without threading it through
+    // every composable signature in between.
+    SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalSharedTransitionScope provides this) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -194,7 +203,7 @@ fun AppNavigation(
                 code = code,
                 onDone = {
                     if (!navController.popBackStack()) {
-                        navController.navigate(Route.Video.route) {
+                        navController.navigate(Route.Home.route) {
                             popUpTo(0) { inclusive = true }
                         }
                     }
@@ -217,7 +226,7 @@ fun AppNavigation(
                     // already exist (so the user stays signed in), else
                     // ProfileSelection or Login as appropriate.
                     val target = when (destination) {
-                        ServerSwitchDestination.Home -> Route.Video.route
+                        ServerSwitchDestination.Home -> Route.Home.route
                         ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
                         ServerSwitchDestination.Login -> Route.Login.route
                     }
@@ -234,7 +243,7 @@ fun AppNavigation(
         composable(Route.ProfileSelection.route) {
             ProfileSelectionScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Video.route) {
+                    navController.navigate(Route.Home.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
@@ -271,19 +280,12 @@ fun AppNavigation(
         }
 
         // ---- Main tabs ----
-        // Legacy media-mode routes kept as aliases so existing navigations
-        // (login/start, server switch) still resolve into the new shell.
-        composable(Route.Video.route) {
-            MainScreen(navController, Tab.Home)
-        }
-        composable(Route.Audio.route) {
-            MainScreen(navController, Tab.Libraries)
-        }
-        composable(Route.Reading.route) {
-            MainScreen(navController, Tab.Libraries)
-        }
         composable(Route.Home.route) {
-            MainScreen(navController, Tab.Home)
+            // Publish this destination's visibility scope so poster cards in the
+            // home rails can morph into the detail hero on tap.
+            CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
+                MainScreen(navController, Tab.Home)
+            }
         }
         composable(Route.Libraries.route) {
             MainScreen(navController, Tab.Libraries)
@@ -293,6 +295,22 @@ fun AppNavigation(
         }
         composable(Route.Downloads.route) {
             MainScreen(navController, Tab.Downloads)
+        }
+        // ---- Legacy route aliases (defensive) ----
+        // Pre-consolidation builds had standalone Video/Audio/Reading/Inbox
+        // destinations; they were folded into the Home shell. A NavController
+        // back stack restored from such a build could still reference these route
+        // strings — and navigating to a route with no registered destination
+        // throws (crash on launch). Register no-op aliases that redirect to Home
+        // so a restore can never hit an unregistered destination.
+        for (legacyRoute in listOf("video", "audio", "reading", "inbox")) {
+            composable(legacyRoute) {
+                LaunchedEffect(Unit) {
+                    navController.navigate(Route.Home.route) {
+                        popUpTo(legacyRoute) { inclusive = true }
+                    }
+                }
+            }
         }
         composable(Route.Settings.route) {
             SettingsScreen(
@@ -448,6 +466,9 @@ fun AppNavigation(
                 },
             ),
         ) {
+            // Publish this destination's visibility scope so the detail backdrop
+            // (and the "More Like This" rail) take part in the hero morph.
+            CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
             val detailViewModel = koinViewModel<ItemDetailViewModel>()
             var wtTarget by remember { mutableStateOf<Pair<String, Int?>?>(null) }
             ItemDetailScreen(
@@ -493,6 +514,7 @@ fun AppNavigation(
                     onNavigate = { route -> navController.navigate(route) },
                     onDismiss = { wtTarget = null },
                 )
+            }
             }
         }
 
@@ -644,13 +666,6 @@ fun AppNavigation(
         composable(Route.Calendar.route) {
             MainScreen(navController, Tab.Calendar)
         }
-        composable(Route.Inbox.route) {
-            InboxScreen(
-                onBackClick = { navController.popBackStack() },
-                onItemClick = { contentId -> navController.navigate(Route.ItemDetail(contentId).route) },
-            )
-        }
-
         composable(Route.History.route) {
             HistoryScreen(
                 onBackClick = { navController.popBackStack() },
@@ -687,6 +702,8 @@ fun AppNavigation(
             }
         }
 
+    }
+    }
     }
     }
 }

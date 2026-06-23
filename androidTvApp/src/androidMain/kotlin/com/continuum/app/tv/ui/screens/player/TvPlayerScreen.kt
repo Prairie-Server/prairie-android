@@ -72,6 +72,7 @@ import androidx.media3.common.VideoSize
 import android.os.Bundle
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -90,8 +91,11 @@ import com.continuum.app.common.player.backend.PlaybackEngineCommand
 import com.continuum.app.common.player.backend.VideoPlaybackBackendFactory
 import com.continuum.app.common.player.backend.VideoPlaybackBackendRequest
 import com.continuum.app.common.player.backend.VideoPlaybackFormFactor
+import com.continuum.app.common.player.backend.isLikelyAdaptiveHlsStreamUrl
 import com.continuum.app.common.player.video.PlaybackStartupStallDetector
 import com.continuum.app.common.player.video.VideoPlayerTrackEntry
+import com.continuum.app.common.player.video.isMpvPreferredOriginalPlaybackContainer
+import com.continuum.app.model.playback.PlaybackExecutionPlan
 import com.continuum.app.model.watchtogether.RoomPlaybackState
 import com.continuum.app.player.formatSubtitleTrackDisplayLabel
 import com.continuum.app.tv.R
@@ -101,9 +105,11 @@ import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import kotlin.coroutines.resume
 
 private const val CONTROLS_AUTO_HIDE_MS = 5_000L
 // Skip back is 10s; skip forward is 30s, matching tvOS (gobackward.10 /
@@ -254,14 +260,35 @@ fun TvPlayerScreen(
     // Connect a MediaController to the ContinuumPlaybackService. Async —
     // downstream effects gate on a non-null controller.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
-    val videoBackend = remember(mediaController, backendFactory, contentId, preferredFileId) {
-        mediaController?.let { controller ->
+    val videoBackend = remember(
+        sessionPlayer,
+        mediaController,
+        backendFactory,
+        contentId,
+        preferredFileId,
+        state.playMethod,
+        state.playbackPlan,
+        state.delivery,
+        state.container,
+        state.streamUrl,
+    ) {
+        val plan = state.playbackPlan
+        val delivery = plan?.delivery ?: state.delivery
+        (sessionPlayer ?: mediaController)?.let { player ->
             backendFactory.create(
-                player = controller,
+                player = player,
                 request = VideoPlaybackBackendRequest(
                     contentId = contentId,
                     fileId = preferredFileId,
+                    playMethod = state.playMethod,
+                    delivery = delivery,
+                    plannedEngine = plan?.engine,
+                    routeFamily = plan?.routeFamily,
                     formFactor = VideoPlaybackFormFactor.Tv,
+                    hasHardContainer = state.playMethod == com.continuum.app.model.playback.PlayMethod.DIRECT &&
+                        isHardPlaybackContainer(state.container),
+                    hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
+                    isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(state.streamUrl),
                 ),
             )
         }
@@ -568,7 +595,13 @@ fun TvPlayerScreen(
                     viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
                     // F2 fallback: if the stream ends without a credits marker
                     // having fired the trigger, auto-advance / prompt now.
-                    if (playbackState == Player.STATE_ENDED) viewModel.onApproachingEnd(videoEnded = true)
+                    // A deliberate exit also stops the controller, which can
+                    // report STATE_ENDED before navigation completes; ignore
+                    // that teardown signal so the Up-Next surface does not
+                    // briefly flash over the leaving player.
+                    if (playbackState == Player.STATE_ENDED && !exitRequested) {
+                        viewModel.onApproachingEnd(videoEnded = true)
+                    }
                 }
                 override fun onTracksChanged(tracks: Tracks) {
                     val audio = extractTrackEntries(tracks, C.TRACK_TYPE_AUDIO)
@@ -643,14 +676,25 @@ fun TvPlayerScreen(
     }
 
     // Prepare the player when a stream URL becomes available.
-    LaunchedEffect(videoBackend, state.sessionId, state.streamUrl, state.playMethod, state.startPosition) {
+    LaunchedEffect(
+        videoBackend,
+        state.sessionId,
+        state.streamUrl,
+        state.playMethod,
+        state.playbackPlan,
+        state.delivery,
+        state.startPosition,
+    ) {
         if (exitRequested) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         val method = state.playMethod ?: return@LaunchedEffect
+        val plan = state.playbackPlan
+        val delivery = plan?.delivery ?: state.delivery
         val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = url,
             playMethod = method,
+            delivery = delivery,
             serverUrl = state.serverUrl,
             container = state.container,
             subtitles = state.subtitleUrls,
@@ -658,6 +702,7 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
             durationSeconds = state.duration,
+            audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
         )
         state.sessionId?.let { sessionId ->
             startupStallDetector.onMounted(
@@ -670,21 +715,27 @@ fun TvPlayerScreen(
         // Tell the playback service which engine to own for this media (Track A
         // Task 0). ASS/SSA subtitles route to MPV (libass fidelity); the service
         // resolves device-floor + route intent and rebinds + transfers state.
-        mediaController?.let { controller ->
-            val engineRequest = VideoPlaybackBackendRequest(
-                contentId = contentId,
-                fileId = preferredFileId,
-                playMethod = method,
-                formFactor = VideoPlaybackFormFactor.Tv,
-                hasStyledSubtitles = state.subtitleUrls
-                    .any { it.codec?.lowercase() in setOf("ass", "ssa") },
-            )
-            controller.sendCustomCommand(
-                SessionCommand(PlaybackEngineCommand.SET_ENGINE, Bundle.EMPTY),
-                Bundle().apply {
-                    putString(PlaybackEngineCommand.ARG_REQUEST_JSON, PlaybackEngineCommand.encode(engineRequest))
-                },
-            )
+        val controller = mediaController ?: return@LaunchedEffect
+        val engineRequest = VideoPlaybackBackendRequest(
+            contentId = contentId,
+            fileId = preferredFileId,
+            playMethod = method,
+            delivery = delivery,
+            plannedEngine = plan?.engine,
+            routeFamily = plan?.routeFamily,
+            formFactor = VideoPlaybackFormFactor.Tv,
+            hasHardContainer = method == com.continuum.app.model.playback.PlayMethod.DIRECT &&
+                isHardPlaybackContainer(state.container),
+            hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
+            isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
+        )
+        val switchResult = controller.awaitEngineSwitch(engineRequest)
+        if (!switchResult.success) {
+            viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
+            return@LaunchedEffect
+        }
+        if (switchResult.swapped) {
+            return@LaunchedEffect
         }
         backend.mount(mediaSpec)
     }
@@ -700,9 +751,12 @@ fun TvPlayerScreen(
         val backend = videoBackend ?: return@LaunchedEffect
         val url = state.streamUrl ?: return@LaunchedEffect
         val method = state.playMethod ?: return@LaunchedEffect
+        val plan = state.playbackPlan
+        val delivery = plan?.delivery ?: state.delivery
         val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = url,
             playMethod = method,
+            delivery = delivery,
             serverUrl = state.serverUrl,
             container = state.container,
             subtitles = state.subtitleUrls,
@@ -710,7 +764,30 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
             durationSeconds = state.duration,
+            audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
         )
+        val controller = mediaController ?: return@LaunchedEffect
+        val engineRequest = VideoPlaybackBackendRequest(
+            contentId = contentId,
+            fileId = preferredFileId,
+            playMethod = method,
+            delivery = delivery,
+            plannedEngine = plan?.engine,
+            routeFamily = plan?.routeFamily,
+            formFactor = VideoPlaybackFormFactor.Tv,
+            hasHardContainer = method == com.continuum.app.model.playback.PlayMethod.DIRECT &&
+                isHardPlaybackContainer(state.container),
+            hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
+            isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
+        )
+        val switchResult = controller.awaitEngineSwitch(engineRequest)
+        if (!switchResult.success) {
+            viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
+            return@LaunchedEffect
+        }
+        if (switchResult.swapped) {
+            return@LaunchedEffect
+        }
         backend.refresh(mediaSpec)
     }
 
@@ -1004,6 +1081,7 @@ fun TvPlayerScreen(
                             videoQualities = state.videoQualities,
                             subtitleTracks = state.subtitleTracks,
                             stats = state.stats,
+                            playbackPlan = state.playbackPlan,
                             videoFillMode = state.videoFillMode,
                             onSelectAudio = { idx ->
                                 val selectedTrack = state.audioTracks
@@ -1828,6 +1906,28 @@ private fun PlayerTrackEntry.toVideoTrackEntry(): VideoPlayerTrackEntry =
         isSelected = isSelected,
     )
 
+internal fun com.continuum.app.model.playback.PlayerSubtitleInfo.isStyledSubtitle(): Boolean {
+    val normalizedCodec = codec
+        ?.trim()
+        ?.lowercase()
+        ?.replace('_', '-')
+    val normalizedUrl = url.substringBefore('?').substringBefore('#').lowercase()
+    return normalizedCodec in setOf("ass", "ssa", "text/x-ssa") ||
+        normalizedUrl.endsWith(".ass") ||
+        normalizedUrl.endsWith(".ssa")
+}
+
+private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
+    val plan = this ?: return emptyList()
+    return plan.source.audioCodec
+        ?.takeIf { plan.claims.audio.passthrough }
+        ?.let { listOf(it) }
+        .orEmpty()
+}
+
+internal fun isHardPlaybackContainer(container: String?): Boolean =
+    isMpvPreferredOriginalPlaybackContainer(container)
+
 private const val TAG = "TvPlayerScreen"
 
 /**
@@ -1976,6 +2076,37 @@ private fun formatVideoQualityLabel(format: Format, trackIndex: Int): String {
     val parts = listOfNotNull(resolution, bitrate)
     return if (parts.isEmpty()) "Variant ${trackIndex + 1}" else parts.joinToString(" · ")
 }
+
+private data class EngineSwitchResult(
+    val success: Boolean,
+    val swapped: Boolean,
+)
+
+private suspend fun MediaController.awaitEngineSwitch(request: VideoPlaybackBackendRequest): EngineSwitchResult =
+    suspendCancellableCoroutine { continuation ->
+        val future = sendCustomCommand(
+            SessionCommand(PlaybackEngineCommand.SET_ENGINE, Bundle.EMPTY),
+            Bundle().apply {
+                putString(PlaybackEngineCommand.ARG_REQUEST_JSON, PlaybackEngineCommand.encode(request))
+            },
+        )
+        future.addListener(
+            {
+                val switchResult = runCatching {
+                    val result = future.get()
+                    EngineSwitchResult(
+                        success = result.resultCode == SessionResult.RESULT_SUCCESS,
+                        swapped = result.extras.getBoolean(PlaybackEngineCommand.RESULT_SWAPPED, false),
+                    )
+                }.getOrDefault(EngineSwitchResult(success = false, swapped = false))
+                if (continuation.isActive) {
+                    continuation.resume(switchResult)
+                }
+            },
+            MoreExecutors.directExecutor(),
+        )
+        continuation.invokeOnCancellation { future.cancel(false) }
+    }
 
 /**
  * Apply (or clear, for [VIDEO_QUALITY_AUTO_ID]) a video quality override on the

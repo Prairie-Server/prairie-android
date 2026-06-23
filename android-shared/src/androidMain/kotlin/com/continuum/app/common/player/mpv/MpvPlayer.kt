@@ -7,6 +7,7 @@ import android.os.Build
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -43,7 +44,10 @@ import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.KeyStore
 import java.util.concurrent.CopyOnWriteArraySet
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 
 @androidx.media3.common.util.UnstableApi
 class MpvPlayer(
@@ -184,6 +188,7 @@ class MpvPlayer(
             cacheDir.path,
         )
         mpv.setOptionString("profile", "fast")
+        mpv.setOptionString("msg-level", "all=info")
         mpv.setOptionString("vo", videoOutput)
         mpv.setOptionString("ao", audioOutput)
         mpv.setOptionString("gpu-context", "android")
@@ -198,7 +203,11 @@ class MpvPlayer(
         mpv.setOptionString("hwdec", hwDec)
         mpv.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
 
-        mpv.setOptionString("tls-verify", "no")
+        mpv.setOptionString("tls-verify", "yes")
+        writeAndroidCaBundle(configDir)?.let { caBundle ->
+            mpv.setOptionString("tls-ca-file", caBundle.path)
+            Log.i(TAG, "MPV TLS CA bundle: ${caBundle.path}")
+        }
 
         // Modest in-memory buffering, matching the working findroid/Wholphin MPV
         // configs. The previous config used cache-on-disk + cache-secs/
@@ -345,6 +354,40 @@ class MpvPlayer(
         }
     }
 
+    private fun writeAndroidCaBundle(configDir: File): File? {
+        val caBundleFile = File(configDir, "android-ca-bundle.pem")
+        return runCatching {
+            val trustManagerFactory = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm(),
+            )
+            trustManagerFactory.init(null as KeyStore?)
+            val certificates = trustManagerFactory.trustManagers
+                .filterIsInstance<X509TrustManager>()
+                .flatMap { it.acceptedIssuers.asIterable() }
+                .distinctBy { certificate ->
+                    certificate.subjectX500Principal.name to certificate.serialNumber
+                }
+
+            if (certificates.isEmpty()) {
+                Log.w(TAG, "Android trust manager returned no CA certificates for MPV")
+                null
+            } else {
+                caBundleFile.outputStream().bufferedWriter(Charsets.US_ASCII).use { writer ->
+                    certificates.forEach { certificate ->
+                        writer.appendLine("-----BEGIN CERTIFICATE-----")
+                        Base64.encodeToString(certificate.encoded, Base64.NO_WRAP)
+                            .chunked(64)
+                            .forEach { line -> writer.appendLine(line) }
+                        writer.appendLine("-----END CERTIFICATE-----")
+                    }
+                }
+                caBundleFile
+            }
+        }.onFailure { e ->
+            Log.w(TAG, "Failed to write Android CA bundle for MPV", e)
+        }.getOrNull()
+    }
+
     private val listeners: ListenerSet<Player.Listener> =
         ListenerSet(context.mainLooper, Clock.DEFAULT) { listener: Player.Listener, flags: FlagSet
             ->
@@ -358,10 +401,12 @@ class MpvPlayer(
 
     @Player.State private var playbackState: Int = STATE_IDLE
     private var currentPlayWhenReady: Boolean = false
+    private var currentPlayerError: PlaybackException? = null
 
     @Player.RepeatMode private val repeatMode: Int = REPEAT_MODE_OFF
     private var currentTracks: Tracks = Tracks.EMPTY
     private var playbackParameters: PlaybackParameters = PlaybackParameters.DEFAULT
+    private var passthroughEnabled: Boolean = false
 
     private var isPlayerReady: Boolean = false
     private var isSeekable: Boolean = false
@@ -372,6 +417,15 @@ class MpvPlayer(
     private var initialCommands = mutableListOf<Array<String>>()
     private var initialIndex: Int = 0
     private var initialSeekTo: Long = 0L
+    private var awaitingInitialLoad: Boolean = false
+    /**
+     * True between issuing a seamless playlist auto-advance and the next item
+     * becoming ready. The advance re-arms [awaitingInitialLoad]; without this
+     * flag the END_FILE for the just-finished item (which mpv delivers AFTER we
+     * prepared the next one) would trip the initial-open failure guard and raise
+     * a spurious fatal error mid-queue. Consumed by that one expected END_FILE.
+     */
+    private var seamlessAdvanceInFlight: Boolean = false
     private var oldMediaItem: MediaItem? = null
     private var currentVideoWidth: Int = 0
     private var currentVideoHeight: Int = 0
@@ -437,6 +491,11 @@ class MpvPlayer(
                                 )
                             } else {
                                 prepareMediaItem(currentMediaItemIndex + 1)
+                                // Mark the advance AFTER prepareMediaItem (whose
+                                // resetInternalState clears the flag) so the
+                                // upcoming END_FILE for the finished item isn't
+                                // mistaken for an initial-open failure.
+                                seamlessAdvanceInFlight = true
                                 playWhenReady = true
                             }
                         } else {
@@ -581,6 +640,8 @@ class MpvPlayer(
                 }
 
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
+                    awaitingInitialLoad = false
+                    currentPlayerError = null
                     if (!isPlayerReady) {
                         isPlayerReady = true
                         applyPendingInitialSeek()
@@ -596,7 +657,39 @@ class MpvPlayer(
                         setPlayerStateAndNotifyIfChanged(playbackState = STATE_READY)
                     }
                 }
+
+                MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
+                    if (awaitingInitialLoad && !isPlayerReady) {
+                        if (seamlessAdvanceInFlight) {
+                            // Expected END_FILE for the item we just advanced past
+                            // during a seamless playlist transition — not an open
+                            // failure. Consume the suppression; a genuine failure to
+                            // open the NEXT item will arrive with the flag cleared.
+                            seamlessAdvanceInFlight = false
+                        } else {
+                            failPlaybackOpen()
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    private fun failPlaybackOpen() {
+        awaitingInitialLoad = false
+        isPlayerReady = false
+        val error = PlaybackException(
+            "MPV could not open the playback stream. Check the server certificate and network connection.",
+            null,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        )
+        currentPlayerError = error
+        setPlayerStateAndNotifyIfChanged(
+            playWhenReady = false,
+            playbackState = STATE_IDLE,
+        )
+        listeners.sendEvent(EVENT_PLAYER_ERROR) { listener ->
+            listener.onPlayerError(error)
         }
     }
 
@@ -693,6 +786,8 @@ class MpvPlayer(
         mpv.command(arrayOf("playlist-clear"))
         mpv.command(arrayOf("playlist-remove", "current"))
         internalMediaItems = mediaItems
+        awaitingInitialLoad = false
+        currentPlayerError = null
         if (resetPosition) {
             initialSeekTo = 0L
             currentPositionMs = 0L
@@ -707,6 +802,8 @@ class MpvPlayer(
         mpv.command(arrayOf("playlist-clear"))
         mpv.command(arrayOf("playlist-remove", "current"))
         internalMediaItems = mediaItems
+        awaitingInitialLoad = false
+        currentPlayerError = null
         initialIndex = startIndex
         initialSeekTo = startPositionMs.coerceAtLeast(0L)
         currentPositionMs = initialSeekTo
@@ -743,6 +840,8 @@ class MpvPlayer(
             internalMediaItems.clear()
             currentMediaItemIndex = 0
             oldMediaItem = null
+            awaitingInitialLoad = false
+            currentPlayerError = null
             resetInternalState()
             listeners.sendEvent(EVENT_TIMELINE_CHANGED) { listener ->
                 listener.onTimelineChanged(currentTimeline, TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
@@ -776,6 +875,8 @@ class MpvPlayer(
 
         internalMediaItems.getOrNull(initialIndex)?.let { mediaItem ->
             resetInternalState()
+            currentPlayerError = null
+            awaitingInitialLoad = true
             mediaItem.localConfiguration?.subtitleConfigurations?.forEach { subtitle ->
                 initialCommands.add(
                     arrayOf("sub-add",
@@ -795,14 +896,25 @@ class MpvPlayer(
 
     private fun applyHttpHeaderFields() {
         val headerString = httpHeaderFieldsProvider()
-            .filter { (name, value) -> name.isNotBlank() && value.isNotBlank() }
+            .filter { (name, value) ->
+                name.isNotBlank() &&
+                    value.isNotBlank() &&
+                    !name.containsHeaderSeparator() &&
+                    !value.containsHeaderSeparator() &&
+                    ':' !in name
+            }
             .joinToString("\r\n") { (name, value) -> "$name: $value" }
         mpv.setPropertyString("http-header-fields", headerString)
     }
 
+    private fun String.containsHeaderSeparator(): Boolean =
+        any { it == '\r' || it == '\n' }
+
     private fun prepareMediaItem(index: Int) {
         internalMediaItems.getOrNull(index)?.let { mediaItem ->
             resetInternalState()
+            currentPlayerError = null
+            awaitingInitialLoad = true
             mediaItem.localConfiguration?.subtitleConfigurations?.forEach { subtitle ->
                 initialCommands.add(
                     arrayOf("sub-add",
@@ -824,7 +936,7 @@ class MpvPlayer(
 
     override fun getPlaybackSuppressionReason(): Int = PLAYBACK_SUPPRESSION_REASON_NONE
 
-    override fun getPlayerError(): PlaybackException? = null
+    override fun getPlayerError(): PlaybackException? = currentPlayerError
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         if (currentPlayWhenReady != playWhenReady) {
@@ -916,7 +1028,15 @@ class MpvPlayer(
     override fun getMaxSeekToPreviousPosition(): Long = 0
 
     override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {
-        mpv.setPropertyDouble("speed", playbackParameters.speed.toDouble())
+        val requestedSpeed = playbackParameters.speed.toDouble()
+        if (passthroughEnabled && requestedSpeed != 1.0) {
+            Log.w(TAG, "Blocking MPV speed=$requestedSpeed while audio passthrough is enabled")
+            this.playbackParameters = this.playbackParameters.withSpeed(1.0f)
+            mpv.setPropertyDouble("speed", 1.0)
+            return
+        }
+        this.playbackParameters = playbackParameters
+        mpv.setPropertyDouble("speed", requestedSpeed)
     }
 
     override fun getPlaybackParameters(): PlaybackParameters = playbackParameters
@@ -926,6 +1046,8 @@ class MpvPlayer(
         mpv.command(arrayOf("stop"))
         isPlayerReady = false
         isSeekable = false
+        awaitingInitialLoad = false
+        currentPlayerError = null
         initialSeekTo = 0L
         currentPositionMs = 0L
         currentDurationMs = null
@@ -1202,6 +1324,7 @@ class MpvPlayer(
 
     private fun resetInternalState() {
         isPlayerReady = false
+        seamlessAdvanceInFlight = false
         isSeekable = false
         playbackState = STATE_IDLE
         currentPositionMs = null
@@ -1371,6 +1494,37 @@ class MpvPlayer(
             Log.d(TAG, "MPV option set: $name = $value")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set MPV option: $name = $value", e)
+        }
+    }
+
+    fun setAudioPassthroughCodecs(codecs: List<String>) {
+        val value = codecs
+            .mapNotNull { codec ->
+                // mpv's `audio-spdif` only accepts these bitstream formats.
+                // Normalize common server/codec spelling variants so they aren't
+                // dropped on a hyphen/underscore mismatch. Anything genuinely
+                // unsupported (e.g. AC-4, which mpv cannot bitstream) is LOGGED
+                // rather than silently dropped, so a capability/engine mismatch is
+                // diagnosable instead of degrading to silent software decode.
+                when (codec.lowercase().replace('_', '-')) {
+                    "ac3", "ac-3" -> "ac3"
+                    "eac3", "e-ac3", "eac3-joc", "ec3" -> "eac3"
+                    "dts" -> "dts"
+                    "dts-hd", "dtshd", "dts-hd-ma", "dtshd-ma" -> "dts-hd"
+                    "truehd", "mlp" -> "truehd"
+                    else -> {
+                        Log.w(TAG, "Unsupported mpv passthrough codec dropped: $codec")
+                        null
+                    }
+                }
+            }
+            .distinct()
+            .joinToString(",")
+        passthroughEnabled = value.isNotBlank()
+        setOption("audio-spdif", value)
+        if (passthroughEnabled) {
+            playbackParameters = playbackParameters.withSpeed(1.0f)
+            mpv.setPropertyDouble("speed", 1.0)
         }
     }
 

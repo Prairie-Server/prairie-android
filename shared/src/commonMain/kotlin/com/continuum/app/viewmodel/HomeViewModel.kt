@@ -108,14 +108,47 @@ class HomeViewModel(
         when (val result = sectionRepository.getHomeSections()) {
             is ApiResult.Success -> {
                 val sections = result.data.sections
-                val resolvedPairs: List<Pair<ResolvedSection, Boolean>> = sections.map { section ->
-                    viewModelScope.async {
-                        when (val itemsResult = sectionRepository.getHomeSectionItems(section.id)) {
-                            is ApiResult.Success -> (itemsResult.data.section ?: section) to true
-                            else -> section to false
+                // `/home/sections` already returns each section with its items
+                // hydrated inline — identical to the per-section `/items` payload
+                // (progress + user_state included). Use them directly instead of
+                // re-fetching every section: the previous fan-out was an N+1
+                // re-downloading data already in hand. Defensive fallback resolves
+                // only sections the server left un-inlined (older deployments / a
+                // section type that reports a non-zero total but ships no items).
+                val needsFetch = sections.filter { it.items.isEmpty() && it.totalCount > 0 }
+                val resolvedPairs: List<Pair<ResolvedSection, Boolean>> = if (needsFetch.isEmpty()) {
+                    sections.map { it to true }
+                } else {
+                    val byId = needsFetch.map { section ->
+                        viewModelScope.async {
+                            section.id to when (val itemsResult = sectionRepository.getHomeSectionItems(section.id)) {
+                                is ApiResult.Success -> {
+                                    // The response carries items either nested under
+                                    // `section` or as a sibling top-level `items` list.
+                                    // Honor both — using only `.section` silently drops
+                                    // a successful refetch that returned items at the top
+                                    // level, leaving the section empty and filtered out.
+                                    val data = itemsResult.data
+                                    val responseSection = data.section
+                                    val hydrated = when {
+                                        responseSection != null && responseSection.items.isNotEmpty() ->
+                                            responseSection
+                                        responseSection != null && responseSection.totalCount == 0 ->
+                                            responseSection
+                                        responseSection != null && data.items.isNotEmpty() ->
+                                            responseSection.copy(items = data.items)
+                                        data.items.isNotEmpty() ->
+                                            section.copy(items = data.items)
+                                        else -> null
+                                    }
+                                    if (hydrated != null) hydrated to true else section to false
+                                }
+                                else -> section to false
+                            }
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll().toMap()
+                    sections.map { section -> byId[section.id] ?: (section to true) }
+                }
                 val resolved = resolvedPairs.map { it.first }.filter { it.items.isNotEmpty() }
                 // Don't persist a partially-resolved home over a good cached one.
                 val fullyResolved = resolvedPairs.all { it.second }

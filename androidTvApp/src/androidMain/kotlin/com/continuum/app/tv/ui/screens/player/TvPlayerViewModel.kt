@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.continuum.app.common.player.PlaybackAnalyticsListener
 import com.continuum.app.common.player.PlaybackCapabilityDetector
+import com.continuum.app.common.player.PlaybackRecoveryAction
+import com.continuum.app.common.player.PlaybackRecoveryPlanner
 import com.continuum.app.common.player.PlaybackSessionLifecycle
 import com.continuum.app.common.player.PlaybackSessionManager
 import com.continuum.app.common.player.PlayerNotice
@@ -19,13 +21,19 @@ import com.continuum.app.common.player.backend.VideoBackendCapabilities
 import com.continuum.app.common.player.video.VideoPlaybackSessionCoordinator
 import com.continuum.app.common.player.video.VideoPlaybackStartRequest
 import com.continuum.app.common.player.video.VideoPlayerUiState
+import com.continuum.app.common.player.video.resolvedPlaybackDelivery
 import com.continuum.app.common.settings.PlayerSettingsStore
 import com.continuum.app.domain.player.IntroAutoSkipController
 import com.continuum.app.domain.player.IntroAutoSkipState
 import com.continuum.app.model.catalog.TimeRange
 import com.continuum.app.model.catalog.VersionChapter
 import com.continuum.app.model.settings.SubtitleAppearance
+import com.continuum.app.model.playback.PlaybackDelivery
 import com.continuum.app.model.playback.PlayMethod
+import com.continuum.app.model.playback.PlaybackEngineKind
+import com.continuum.app.model.playback.PlaybackExecutionPlan
+import com.continuum.app.model.playback.PlaybackRouteFamily
+import com.continuum.app.model.playback.PlaybackRouteEventRequest
 import com.continuum.app.model.playback.PlaybackSessionResponse
 import com.continuum.app.model.playback.PlayerSubtitleInfo
 import com.continuum.app.model.playback.mergeDownloadedSubtitles
@@ -100,6 +108,41 @@ internal fun preferredAutoTextSubtitleIndex(
     }?.index
 }
 
+internal fun resolveInitialSubtitleTrackIndex(
+    requestedOrdinal: Int,
+    subtitleTracks: List<PlayerTrackEntry>,
+    mountedSubtitles: List<PlayerSubtitleInfo>,
+): Int? {
+    val requested = mountedSubtitles.getOrNull(requestedOrdinal)
+        ?: mountedSubtitles.firstOrNull { it.index == requestedOrdinal }
+        ?: return null
+
+    return subtitleTracks.firstOrNull { it.matchesMountedSubtitle(requested) }?.index
+}
+
+private fun PlayerTrackEntry.matchesMountedSubtitle(subtitle: PlayerSubtitleInfo): Boolean {
+    val targetLabel = subtitle.label?.trim()?.takeIf { it.isNotBlank() }
+    if (targetLabel != null) {
+        val rawLabel = label.trim()
+        val friendlyLabel = displayLabel.trim()
+        if (rawLabel == targetLabel || friendlyLabel == targetLabel) return true
+        if (
+            rawLabel.equals(targetLabel, ignoreCase = true) ||
+            friendlyLabel.equals(targetLabel, ignoreCase = true)
+        ) {
+            return true
+        }
+    }
+
+    val targetLanguage = normalizedSubtitleLanguage(subtitle.language)
+    val trackLanguage = normalizedSubtitleLanguage(language)
+    if (targetLanguage == null || trackLanguage != targetLanguage) return false
+
+    val targetCodec = normalizedSubtitleCodec(subtitle.codec ?: subtitleCodecFromUrl(subtitle.url))
+    val trackCodec = normalizedSubtitleCodec(codecOrMime)
+    return targetCodec == null || trackCodec == null || targetCodec == trackCodec
+}
+
 private fun normalizedSubtitleLanguage(language: String?): String? {
     val primary = language
         ?.trim()
@@ -119,6 +162,28 @@ private fun normalizedSubtitleLanguage(language: String?): String? {
         else -> primary
     }
 }
+
+private fun normalizedSubtitleCodec(codecOrMime: String?): String? {
+    val normalized = codecOrMime
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.lowercase()
+        ?.replace('_', '-')
+        ?: return null
+    return when {
+        normalized == "ass" || normalized == "ssa" || normalized.contains("x-ssa") -> "ssa"
+        normalized == "srt" || normalized.contains("subrip") -> "srt"
+        normalized == "vtt" || normalized == "text/vtt" || normalized.contains("webvtt") -> "vtt"
+        normalized.contains("pgs") || normalized.contains("hdmv") -> "pgs"
+        normalized.contains("dvd") || normalized.contains("dvb") -> "dvd"
+        else -> normalized
+    }
+}
+
+private fun subtitleCodecFromUrl(url: String): String =
+    url.substringBefore('?')
+        .substringBefore('#')
+        .substringAfterLast('.', "")
 
 /**
  * How the video surface scales to fill the player area. Session-scoped
@@ -329,6 +394,9 @@ class TvPlayerViewModel(
 
     companion object {
         private const val TAG = "TvPlayerViewModel"
+        // A transient network blip retries the same route this many times before
+        // demoting to a server transcode (resets once playback progresses).
+        private const val MAX_TRANSIENT_NETWORK_RETRIES = 1
         // Record a durable position roughly every 10s of content time.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
         // Auto-play countdown shown on the Up-Next overlay before the next
@@ -386,6 +454,20 @@ class TvPlayerViewModel(
     private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
     private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
     private var autoTextSubtitleSelectionAttempted = false
+    private val recoveryPlanner = PlaybackRecoveryPlanner()
+
+    /**
+     * Engines we've already mounted for the current content, so the recovery
+     * planner never bounces back to one that already failed (MEDIA3_DIRECT ↔
+     * MPV_DIRECT ping-pong). Cleared on every fresh [loadContent].
+     */
+    private val attemptedEngines = mutableSetOf<PlaybackEngineKind>()
+
+    /** Guards [startServerRecoveryFallback] against concurrent fallbacks racing the same session. */
+    private var recoveryJob: Job? = null
+
+    /** Same-route retries spent on transient network errors; reset once playback progresses. */
+    private var transientNetworkRetries = 0
 
     data class UiState(
         val isLoading: Boolean = true,
@@ -400,6 +482,8 @@ class TvPlayerViewModel(
         val artworkUrl: String? = null,
         val sessionId: String? = null,
         val playMethod: PlayMethod? = null,
+        val playbackPlan: PlaybackExecutionPlan? = null,
+        val delivery: PlaybackDelivery? = null,
         val streamUrl: String? = null,
         val container: String? = null,
         val serverUrl: String = "",
@@ -681,6 +765,8 @@ class TvPlayerViewModel(
         suppressResumeRewind: Boolean = false,
     ) {
         introAutoSkipController.reset()
+        // Fresh content: forget engines attempted for the previous item.
+        attemptedEngines.clear()
 
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
@@ -692,6 +778,7 @@ class TvPlayerViewModel(
                         roomId = roomId,
                         resumePositionOverride = startPositionOverride,
                         audioTrackIndex = initialAudioTrackIndex,
+                        subtitleTrackIndex = pendingInitialSubtitleIndex,
                         suppressResumeRewind = suppressResumeRewind,
                     ),
                 )) {
@@ -704,6 +791,8 @@ class TvPlayerViewModel(
                                 artworkUrl = result.artworkUrl,
                                 sessionId = result.sessionId,
                                 playMethod = result.playMethod,
+                                playbackPlan = result.playbackPlan,
+                                delivery = result.delivery,
                                 streamUrl = result.streamUrl,
                                 container = result.container,
                                 serverUrl = result.serverUrl,
@@ -779,7 +868,7 @@ class TvPlayerViewModel(
      */
     fun onUnsupportedPlayback(reason: com.continuum.app.common.player.Playability) {
         val state = _uiState.value
-        val sessionId = state.sessionId ?: return
+        if (state.sessionId == null) return
 
         val notice = when (reason) {
             is com.continuum.app.common.player.Playability.UnsupportedDvProfile ->
@@ -794,10 +883,29 @@ class TvPlayerViewModel(
         }
         Log.i(TAG, "Preflight fallback: $notice")
 
-        viewModelScope.launch {
+        val recoveryAction = recoveryPlanner.planForPlayability(state.playbackPlan, reason, attemptedEngines)
+        if (applyAlternateDirectFallback(state, recoveryAction)) return
+        startServerRecoveryFallback(notice, recoveryAction, state)
+    }
+
+    private fun startServerRecoveryFallback(
+        notice: String,
+        recoveryAction: PlaybackRecoveryAction,
+        state: UiState,
+    ) {
+        // Single-flight: a second player/preflight error arriving before the
+        // first fallback finishes must not launch a competing transcode session
+        // (which would orphan one server session and race _uiState).
+        if (recoveryJob?.isActive == true) {
+            Log.i(TAG, "Server recovery already in flight; ignoring duplicate fallback request")
+            return
+        }
+        recoveryJob = viewModelScope.launch {
+            val sessionId = state.sessionId ?: return@launch
             val activeFileId = state.selectedFileId ?: state.mediaFileId ?: return@launch
             val capabilities = capabilityDetector.detect()
             val selectedAudioIndex = state.audioTracks.firstOrNull { it.isSelected }?.index ?: 0
+            val selectedSubtitleIndex = selectedSubtitleTrackIndex(state)
             val sessionResponse = PlaybackSessionResponse(
                 sessionId = sessionId,
                 userId = 0,
@@ -811,12 +919,50 @@ class TvPlayerViewModel(
                 durationSeconds = state.duration,
                 subtitleUrls = state.subtitleUrls,
                 playbackInfo = null,
+                playbackPlan = state.playbackPlan,
+            )
+            val fallbackMode = when (recoveryAction) {
+                is PlaybackRecoveryAction.ServerRemux -> PlaybackSessionManager.TranscodeMode.REMUX
+                is PlaybackRecoveryAction.AlternateDirectEngine -> PlaybackSessionManager.TranscodeMode.REMUX
+                is PlaybackRecoveryAction.ServerTranscode,
+                PlaybackRecoveryAction.None,
+                -> PlaybackSessionManager.TranscodeMode.FULL
+            }
+            playbackSessionManager.reportRouteEvent(
+                sessionId = sessionId,
+                request = PlaybackRouteEventRequest(
+                    planId = state.playbackPlan?.planId,
+                    fromEngine = state.playbackPlan?.engine,
+                    toEngine = PlaybackEngineKind.MEDIA3_HLS,
+                    // Report the remux delivery the planner actually chose
+                    // (progressive vs HLS) rather than the source delivery.
+                    delivery = when (recoveryAction) {
+                        is PlaybackRecoveryAction.ServerRemux -> recoveryAction.delivery
+                        else -> state.playbackPlan?.delivery ?: state.delivery
+                    },
+                    routeFamily = state.playbackPlan?.routeFamily,
+                    fallbackReason = fallbackMode.name.lowercase(),
+                    errorClass = when (recoveryAction) {
+                        is PlaybackRecoveryAction.ServerRemux -> recoveryAction.errorClass
+                        is PlaybackRecoveryAction.ServerTranscode -> recoveryAction.errorClass
+                        is PlaybackRecoveryAction.AlternateDirectEngine -> recoveryAction.errorClass
+                        PlaybackRecoveryAction.None -> null
+                    },
+                    decoderName = state.stats.videoDecoderName ?: state.stats.audioDecoderName,
+                    droppedFrames = state.stats.droppedFrames,
+                    audioUnderruns = state.stats.audioUnderruns,
+                    subtitleRenderer = state.stats.subtitleRendering,
+                    claims = state.playbackPlan?.claims,
+                    blockers = state.playbackPlan?.capabilities?.blockers.orEmpty(),
+                ),
             )
             when (val r = playbackSessionManager.startTranscodeFallback(
                 session = sessionResponse,
                 seekSeconds = state.position,
                 resolution = "",
-                mode = PlaybackSessionManager.TranscodeMode.FULL,
+                mode = fallbackMode,
+                audioTrackIndex = selectedAudioIndex,
+                subtitleTrackIndex = selectedSubtitleIndex,
             )) {
                 is ApiResult.Success -> {
                     val fallback = r.data
@@ -826,8 +972,10 @@ class TvPlayerViewModel(
                             fileId = activeFileId,
                             capabilities = capabilities,
                             audioTrackIndex = fallback.audioTrackIndex,
+                            subtitleTrackIndex = selectedSubtitleIndex,
                             qualityPreference = null,
                             startPosition = fallback.position,
+                            preserveDirectAudioSelection = true,
                         ),
                         session = fallback,
                     )
@@ -839,6 +987,8 @@ class TvPlayerViewModel(
                             error = null,
                             sessionId = fallback.sessionId,
                             playMethod = fallback.playMethod,
+                            playbackPlan = fallback.playbackPlan,
+                            delivery = fallback.resolvedPlaybackDelivery(),
                             streamUrl = fallback.streamUrl,
                             startPosition = fallback.position,
                         )
@@ -854,6 +1004,67 @@ class TvPlayerViewModel(
         }
     }
 
+    private fun applyAlternateDirectFallback(
+        state: UiState,
+        recoveryAction: PlaybackRecoveryAction,
+    ): Boolean {
+        val action = recoveryAction as? PlaybackRecoveryAction.AlternateDirectEngine ?: return false
+        val plan = state.playbackPlan ?: return false
+        val sessionId = state.sessionId ?: return false
+        // Record the engine we're leaving (and the one we're moving to) so a later
+        // failure can't bounce back to an engine that already failed.
+        attemptedEngines.add(plan.engine)
+        attemptedEngines.add(action.engine)
+        val nextRouteFamily = when (action.engine) {
+            PlaybackEngineKind.MPV_DIRECT -> PlaybackRouteFamily.COMPATIBILITY_DIRECT
+            PlaybackEngineKind.MEDIA3_DIRECT -> PlaybackRouteFamily.PLATFORM_NATIVE
+            else -> plan.routeFamily
+        }
+        viewModelScope.launch {
+            playbackSessionManager.reportRouteEvent(
+                sessionId = sessionId,
+                request = PlaybackRouteEventRequest(
+                    planId = plan.planId,
+                    fromEngine = plan.engine,
+                    toEngine = action.engine,
+                    delivery = plan.delivery,
+                    routeFamily = nextRouteFamily,
+                    fallbackReason = "alternate_direct_engine",
+                    errorClass = action.errorClass,
+                    decoderName = state.stats.videoDecoderName ?: state.stats.audioDecoderName,
+                    droppedFrames = state.stats.droppedFrames,
+                    audioUnderruns = state.stats.audioUnderruns,
+                    subtitleRenderer = state.stats.subtitleRendering,
+                    claims = plan.claims,
+                    blockers = plan.capabilities.blockers,
+                ),
+            )
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = null,
+                playbackPlan = plan.copy(
+                    engine = action.engine,
+                    routeFamily = nextRouteFamily,
+                    timeline = plan.timeline.copy(playerStartSeconds = state.position),
+                    decisionTrace = plan.decisionTrace +
+                        "client_fallback=alternate_direct_engine:${plan.engine}->${action.engine}",
+                ),
+                startPosition = state.position,
+            )
+        }
+        return true
+    }
+
+    private fun selectedSubtitleTrackIndex(state: UiState): Int {
+        val selected = state.subtitleTracks.firstOrNull { it.isSelected } ?: return -1
+        return state.subtitleUrls
+            .firstOrNull { selected.matchesMountedSubtitle(it) }
+            ?.index
+            ?: -1
+    }
+
     fun onPositionChanged(positionMs: Long, durationMs: Long) {
         if (positionMs < 0) return
 
@@ -865,6 +1076,11 @@ class TvPlayerViewModel(
                 position = positionSec,
                 duration = if (durationSec > 0) durationSec else it.duration,
             )
+        }
+        // Playback is progressing — restore the transient-network retry budget so
+        // a later, unrelated blip gets a fresh retry instead of demoting at once.
+        if (positionSec > 0 && transientNetworkRetries > 0) {
+            transientNetworkRetries = 0
         }
         // F2: auto-advance / prompt when playback CROSSES the credits point —
         // only on the transition from before to after, so resuming an episode
@@ -1187,14 +1403,10 @@ class TvPlayerViewModel(
      * -1 = Off: emitted immediately; the screen's collector finds no match and
      * calls selectSubtitle(null), turning subtitles off.
      *
-     * A positive value is the catalog subtitle track index. NOTE: that index
-     * space is not guaranteed identical to the player's flattened text-track
-     * ordinal (PlayerTrackEntry.index), so this is best-effort and must be
-     * verified on-device (embedded vs sidecar ordering). We consume the pending
-     * value on the FIRST tracks-changed that actually carries subtitle tracks —
-     * never lingering — so a later subtitle download/refresh can't make a stale
-     * pre-selection fire and fight the label-based auto-select path. If no track
-     * with that index is present we leave the preferred-language auto path alone.
+     * A positive value is the detail selector's ordinal into
+     * FileVersion.subtitleTracks, not Media3's flattened text-track ordinal.
+     * Resolve it through the mounted server subtitle metadata first so embedded
+     * CEA-608 or other player-discovered tracks do not shift the target.
      */
     private fun resolvePendingInitialSubtitle(subtitle: List<PlayerTrackEntry>) {
         val index = pendingInitialSubtitleIndex ?: return
@@ -1207,7 +1419,11 @@ class TvPlayerViewModel(
         // only act during initial load.
         if (subtitle.isEmpty()) return
         pendingInitialSubtitleIndex = null
-        if (subtitle.any { it.index == index }) _subtitleSelectRequests.tryEmit(index)
+        resolveInitialSubtitleTrackIndex(
+            requestedOrdinal = index,
+            subtitleTracks = subtitle,
+            mountedSubtitles = _uiState.value.subtitleUrls,
+        )?.let { _subtitleSelectRequests.tryEmit(it) }
     }
 
     fun onSubtitleSelectionApplied(index: Int) {
@@ -1667,6 +1883,8 @@ class TvPlayerViewModel(
                 isLoading = false,
                 sessionId = null,
                 playMethod = null,
+                playbackPlan = null,
+                delivery = null,
                 streamUrl = null,
                 container = null,
                 subtitleUrls = emptyList(),
@@ -1686,11 +1904,58 @@ class TvPlayerViewModel(
      * an actionable error. The error UI offers [retry].
      */
     fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        val state = _uiState.value
+        val message = error.localizedMessage?.takeIf { msg -> msg.isNotBlank() }
+            ?: "Playback failed. Please try again."
+        // #8: a transient network blip shouldn't immediately demote a healthy
+        // direct stream to a server transcode for the rest of playback. Retry the
+        // SAME route a bounded number of times first; transientNetworkRetries
+        // resets to 0 once playback actually progresses (onPositionChanged), so a
+        // persistent outage still falls through to the recovery ladder below.
+        val isTransientNetwork =
+            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        if (isTransientNetwork &&
+            state.sessionId != null &&
+            transientNetworkRetries < MAX_TRANSIENT_NETWORK_RETRIES
+        ) {
+            transientNetworkRetries++
+            Log.i(TAG, "Transient network error; retrying same route ($transientNetworkRetries/$MAX_TRANSIENT_NETWORK_RETRIES)")
+            retry()
+            return
+        }
+        val recoveryAction = recoveryPlanner.planForPlayerError(state.playbackPlan, error, attemptedEngines)
+        if (applyAlternateDirectFallback(state, recoveryAction)) return
+        if (state.sessionId != null && recoveryAction != PlaybackRecoveryAction.None) {
+            startServerRecoveryFallback(message, recoveryAction, state)
+            return
+        }
         _uiState.update {
             it.copy(
                 isLoading = false,
-                error = error.localizedMessage?.takeIf { msg -> msg.isNotBlank() }
-                    ?: "Playback failed. Please try again.",
+                error = message,
+            )
+        }
+    }
+
+    fun onEngineSwitchFailed(message: String) {
+        val state = _uiState.value
+        if (state.sessionId != null) {
+            // Don't blindly remux: prefer another direct engine, then fall through
+            // the plan's remux/transcode ladder. A transcode-only source can't be
+            // rescued by a remux that copies the same streams.
+            val recoveryAction = recoveryPlanner.planForEngineSwitchFailure(
+                state.playbackPlan,
+                attemptedEngines,
+            )
+            if (applyAlternateDirectFallback(state, recoveryAction)) return
+            startServerRecoveryFallback(message, recoveryAction, state)
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = message,
             )
         }
     }

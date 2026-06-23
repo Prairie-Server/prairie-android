@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,6 +63,9 @@ import com.continuum.app.tv.ui.theme.ContinuumOnSurface
 import com.continuum.app.tv.ui.theme.DarkBackground
 import com.continuum.app.tv.ui.theme.TvSkyline
 import com.continuum.app.tv.ui.theme.navRailLabel
+
+private const val TopMenuInitialPreviewDelayMillis = 180L
+private const val TopMenuPanelSwitchDelayMillis = 80L
 
 /**
  * Layout constants for the top menu band. Vertical-clearance / anchor tokens
@@ -138,8 +140,8 @@ fun TvTopMenuBar(
     selectedRoot: TvRootDestination?,
     destinations: List<TvRootDestination>,
     accountState: TvAccountState,
-    unreadCount: Int = 0,
     onSelectRoot: (TvRootDestination) -> Unit,
+    onSelectTab: (TvLibraryTabType) -> Unit = {},
     onSearchClick: () -> Unit,
     onProfileClick: () -> Unit,
     onMoveDown: () -> Unit,
@@ -171,6 +173,13 @@ fun TvTopMenuBar(
     // (which is unreliable while the parent suppresses focus mid-animation).
     var focusedButton by remember { mutableStateOf<TvTopMenuFocus?>(null) }
 
+    fun selectedEntryRequester(): FocusRequester = when (val root = selectedRoot) {
+        TvRootDestination.Home -> homeFocusRequester
+        TvRootDestination.Calendar -> calendarFocusRequester
+        is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
+        null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
+    }
+
     // Focus the selected tab when `focusRequest` actually changes (the
     // content→bar Up path). We track the last-handled value so a bare
     // suppression lift (e.g. closing the profile dropdown, which flips
@@ -181,13 +190,7 @@ fun TvTopMenuBar(
         if (isFocusSuppressed) return@LaunchedEffect
         if (focusRequest == lastHandledFocusRequest) return@LaunchedEffect
         lastHandledFocusRequest = focusRequest
-        val target = when (val root = selectedRoot) {
-            TvRootDestination.Home -> homeFocusRequester
-            TvRootDestination.Calendar -> calendarFocusRequester
-            is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
-            null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
-        }
-        runCatching { target.requestFocus() }
+        runCatching { selectedEntryRequester().requestFocus() }
     }
 
     LaunchedEffect(focusedButton) {
@@ -204,15 +207,17 @@ fun TvTopMenuBar(
         }
     }
 
-    // Dwell-to-preview (tvOS `TVTopMenuBar` per-tab dwell timer): resting focus
-    // on a library-type tab for ~700ms opens its cascade panel in preview;
-    // moving focus re-keys this effect (auto-cancelling the pending delay).
+    // Dwell-to-preview (tvOS `TVTopMenuBar` per-tab dwell timer): focus resting
+    // on a library-type tab opens its cascade panel in preview; moving focus
+    // re-keys this effect (auto-cancelling the pending delay). The first open
+    // waits briefly to avoid flashing panels during casual bar traversal, but
+    // once a panel is already visible tab-to-tab switching should feel direct.
     // Landing on any non-panel button (or losing focus) closes the preview
     // immediately so a stale panel never lingers under the wrong tab.
     LaunchedEffect(focusedButton) {
         val focus = focusedButton
         if (focus is TvTopMenuFocus.Tab) {
-            delay(700)
+            delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
             onDwell(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
         } else {
             onDwell(null)
@@ -232,12 +237,7 @@ fun TvTopMenuBar(
     // currently-selected tab, not whatever the geometric focus search would
     // pick (which, with the old align-zoned layout, wrongly landed in the
     // trailing cluster). On non-tab routes (Search) we enter the search icon.
-    val barEntryRequester = when (val root = selectedRoot) {
-        TvRootDestination.Home -> homeFocusRequester
-        TvRootDestination.Calendar -> calendarFocusRequester
-        is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
-        null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
-    }
+    val barEntryRequester = selectedEntryRequester()
 
     // Single full-width Row (wordmark · flexible gap · centered tabs · flexible
     // gap · trailing search+profile) so D-pad Left/Right traverse the whole bar
@@ -267,19 +267,31 @@ fun TvTopMenuBar(
             .focusGroup()
             .focusProperties { enter = { barEntryRequester } }
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
-                    // On a library-type tab, d-pad-down opens that tab's cascade
-                    // panel (and focuses into it) instead of diving to content.
-                    // Home/Calendar/Search keep the move-to-content behavior.
-                    val focus = focusedButton
-                    if (focus is TvTopMenuFocus.Tab) {
-                        onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
-                    } else {
-                        onMoveDown()
+                val focus = focusedButton
+                when {
+                    event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown -> {
+                        // On a library-type tab, d-pad-down opens that tab's cascade
+                        // panel (and focuses into it) instead of diving to content.
+                        // Home/Calendar/Search keep the move-to-content behavior.
+                        if (focus is TvTopMenuFocus.Tab) {
+                            onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
+                        } else {
+                            onMoveDown()
+                        }
+                        true
                     }
-                    true
-                } else {
-                    false
+                    // Center/Enter on a focused library-type tab jumps straight to
+                    // that tab's content (Recommended) instead of just previewing.
+                    // Commit on key-UP and swallow BOTH phases so the trailing
+                    // key-up can't bleed into the newly-focused content card and
+                    // open whatever item it lands on (the "commit key bleed" the
+                    // cascade rows guard against the same way).
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter) &&
+                        focus is TvTopMenuFocus.Tab -> {
+                        if (event.type == KeyEventType.KeyUp) onSelectTab(focus.type)
+                        true
+                    }
+                    else -> false
                 }
             },
         verticalAlignment = Alignment.Bottom,
@@ -334,7 +346,7 @@ fun TvTopMenuBar(
                                     focusedButton.takeUnless { it == TvTopMenuFocus.Tab(type) }
                                 }
                             },
-                            onClick = { onSelectRoot(destination) },
+                            onClick = { onSelectTab(type) },
                             // Library-type tabs publish their anchor so the shell
                             // can position the cascade panel under them. The
                             // d-pad-down → enter-panel intercept lives on the
@@ -365,7 +377,7 @@ fun TvTopMenuBar(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Trailing cluster: Search icon + profile avatar (with unread badge).
+        // Trailing cluster: Search icon + profile avatar.
         Row(
             modifier = Modifier
                 .padding(end = TvSkyline.safeAreaX)
@@ -390,7 +402,6 @@ fun TvTopMenuBar(
 
             TvTopMenuProfileButton(
                 accountState = accountState,
-                unreadCount = unreadCount,
                 isFocused = focusedButton == TvTopMenuFocus.Profile,
                 focusRequester = profileFocusRequester,
                 onFocusChanged = { hasFocus ->
@@ -578,7 +589,6 @@ private fun TvTopMenuIconButton(
 @Composable
 private fun TvTopMenuProfileButton(
     accountState: TvAccountState,
-    unreadCount: Int,
     isFocused: Boolean,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
@@ -614,7 +624,6 @@ private fun TvTopMenuProfileButton(
         Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.Center) {
             TvTopMenuAvatar(
                 accountState = accountState,
-                unreadCount = unreadCount,
                 isFocused = isFocused,
             )
         }
@@ -624,7 +633,6 @@ private fun TvTopMenuProfileButton(
 @Composable
 private fun TvTopMenuAvatar(
     accountState: TvAccountState,
-    unreadCount: Int,
     isFocused: Boolean,
 ) {
     val avatarText = remember(accountState.avatar, accountState.displayName) {
@@ -664,33 +672,5 @@ private fun TvTopMenuAvatar(
                 )
             }
         }
-        if (unreadCount > 0) {
-            TvUnreadBadge(
-                unreadCount = unreadCount,
-                modifier = Modifier.align(Alignment.TopEnd),
-            )
-        }
-    }
-}
-
-/** Decorative unread-count pill overlaid on the profile avatar; caps at "9+". */
-@Composable
-private fun TvUnreadBadge(unreadCount: Int, modifier: Modifier = Modifier) {
-    val label = if (unreadCount > 9) "9+" else unreadCount.toString()
-    Box(
-        modifier = modifier
-            .defaultMinSize(minWidth = 13.dp, minHeight = 13.dp)
-            .clip(CircleShape)
-            .background(Color(0xFFE53935))
-            .border(1.dp, Color.Black.copy(alpha = 0.55f), CircleShape)
-            .padding(horizontal = 3.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            style = navRailLabel,
-        )
     }
 }

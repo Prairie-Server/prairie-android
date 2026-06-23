@@ -1,6 +1,8 @@
 package com.continuum.app.tv.ui.shell
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,7 +30,6 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
@@ -105,7 +106,6 @@ import com.continuum.app.model.personal.UserLibrary
 import com.continuum.app.network.ApiResult
 import com.continuum.app.network.ServerRegistry
 import com.continuum.app.repository.AuthRepository
-import com.continuum.app.repository.NotificationsRepository
 import com.continuum.app.repository.PersonalDataRepository
 import com.continuum.app.repository.ProfileRepository
 import com.continuum.app.tv.data.preferences.TvLibraryScopeStore
@@ -117,7 +117,6 @@ import com.continuum.app.tv.ui.components.tvSkylinePanelChrome
 import com.continuum.app.tv.ui.navigation.TvMainRoute
 import com.continuum.app.tv.ui.screens.library.TvLibraryDetailScreen
 import com.continuum.app.tv.ui.screens.library.TvLibraryTab
-import com.continuum.app.tv.ui.screens.notifications.TvInboxScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminHubScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminLogsScreen
 import com.continuum.app.tv.ui.screens.admin.TvAdminScansScreen
@@ -171,9 +170,7 @@ fun TvMainShell(
     val authRepository: AuthRepository = koinInject()
     val personalDataRepository: PersonalDataRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
-    val notificationsRepository: NotificationsRepository = koinInject()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
-    val unreadCount by notificationsRepository.unreadCount.collectAsState()
     val serverUrl = rememberProfileServerUrl()
 
     // The raw list of libraries visible to this profile on TV, sorted by the
@@ -235,33 +232,28 @@ fun TvMainShell(
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
     val searchInputFocusRequester = remember { FocusRequester() }
+    var contentUpFallback by remember { mutableStateOf<(() -> Boolean)?>(null) }
 
-    // Counter pattern from tvOS spec §2.5: incrementing this nudges the menu
-    // bar to re-request focus on its currently selected button. The bar's
-    // `LaunchedEffect(focusRequest, isFocusSuppressed)` reacts.
-    var menuFocusRequest by remember { mutableIntStateOf(0) }
-    // Dedicated counter for returning focus to the profile AVATAR (not the
-    // selected tab) when the profile dropdown closes. Kept separate from
-    // `menuFocusRequest` (which always targets the selected tab) so closing the
-    // dropdown lands back on the avatar that opened it.
-    var profileFocusRequest by remember { mutableIntStateOf(0) }
-    var contentFocusRequest by remember { mutableIntStateOf(0) }
-    var isMenuFocused by remember { mutableStateOf(false) }
-
-    var profileMenuOpen by remember { mutableStateOf(false) }
+    // All shell focus/overlay state — the menu-refocus / profile-refocus /
+    // panel-entry nudge counters, the menu-focused / profile-open / panel flags —
+    // lives in ONE holder with named transitions and a derived `mode`, instead of
+    // the loose bag of counters + booleans this file used to mutate from a dozen
+    // sites (the source of a long "fix focus" tail). See [TvShellFocusState].
+    val focusState = rememberTvShellFocusState()
+    // Vestigial: superseded in practice by the content `focusRestorer()` and never
+    // bumped now (kept only as TvHomeScreen's `focusRequest` param). Deliberately
+    // left OUT of the focus holder — folding dead state in would only muddy it.
+    val contentFocusRequest by remember { mutableIntStateOf(0) }
 
     // --- Skyline cascade panel host (Stage 4) ----------------------------------
     // Mirrors tvOS `TVMainTabView.persistentPanels`. The cascade overlays are
     // ALWAYS composed (one per visible library-type tab) and toggled by alpha +
     // focus-block; we never add/remove them reactively (Compose-for-TV focus
-    // graph thrash). `openPanel` selects the active one; `panelEntersFocus` flips
-    // true only once the user commits to entering (d-pad-down or dwell+down) so a
-    // mere preview doesn't steal focus; `panelFocusEntryToken` re-fires the
-    // selector's focus-entry effect. `tabAnchors` carries each tab's measured
-    // coordinates for positioning.
-    var openPanel by remember { mutableStateOf<TvTopMenuPanel?>(null) }
-    var panelEntersFocus by remember { mutableStateOf(false) }
-    var panelFocusEntryToken by remember { mutableIntStateOf(0) }
+    // graph thrash). `focusState.openPanel` selects the active one;
+    // `focusState.panelEntersFocus` flips true only once the user commits to
+    // entering (d-pad-down or dwell+down) so a mere preview doesn't steal focus;
+    // `focusState.panelFocusEntryToken` re-fires the selector's focus-entry
+    // effect. `tabAnchors` carries each tab's measured coordinates.
     val tabAnchors = remember { mutableStateMapOf<TvTopMenuPanel, LayoutCoordinates>() }
     val panelScope = rememberCoroutineScope()
 
@@ -311,8 +303,8 @@ fun TvMainShell(
     }
 
     // Secondary routes (reached FROM another screen — Settings -> Favorites/
-    // Watchlist/History/Collections/Requests, Requests -> MyRequests, profile ->
-    // Inbox) push onto the current route instead of flattening to the tab root,
+    // Watchlist/History/Collections/Requests, Requests -> MyRequests) push onto
+    // the current route instead of flattening to the tab root,
     // so Back returns to the parent screen (e.g. Settings) rather than Home.
     val navigateToSecondary: (String) -> Unit = { route ->
         if (route != currentRoute) {
@@ -335,7 +327,7 @@ fun TvMainShell(
     }
 
     val moveFocusToContent: (String) -> Unit = { route ->
-        profileMenuOpen = false
+        focusState.closeProfileMenuForContent()
         if (route == TvMainRoute.Search.route) {
             runCatching { searchInputFocusRequester.requestFocus() }
         } else {
@@ -359,41 +351,10 @@ fun TvMainShell(
         moveFocusToContent(route)
     }
 
-    // --- Cascade panel choreography (tvOS openPanelPreview / openPanelAndEnter /
-    // closePanel). Preview shows the panel without taking focus; entering flips
-    // focus into it; closing returns focus to the originating bar tab. ----------
-    val handleDwell: (TvTopMenuPanel?) -> Unit = { panel ->
-        // An ENTERED panel (panelEntersFocus == true) is never changed or closed
-        // by dwell — only Back or a commit closes it. Dwell only manipulates a
-        // mere PREVIEW.
-        if (!panelEntersFocus) {
-            if (panel != null) {
-                // Preview the newly-focused tab (switching the preview if a
-                // different tab's preview was showing).
-                openPanel = panel
-            } else {
-                // Focus left the tabs to a non-panel button; drop the preview.
-                openPanel = null
-            }
-        }
-    }
-
-    val openPanelAndEnter: (TvTopMenuPanel) -> Unit = { panel ->
-        openPanel = panel
-        panelEntersFocus = true
-        panelFocusEntryToken++
-    }
-
-    val closePanel: (Boolean) -> Unit = { returnFocusToBar ->
-        openPanel = null
-        panelEntersFocus = false
-        // Return focus to the bar (lands on its selected tab) for a Back-close.
-        // A commit suppresses this so its moveFocusToContent isn't raced back to
-        // the bar by the menuFocusRequest bump.
-        if (returnFocusToBar) {
-            menuFocusRequest++
-        }
-    }
+    // Cascade panel choreography (tvOS openPanelPreview / openPanelAndEnter /
+    // closePanel) now lives on [focusState]: `previewPanel` shows a panel without
+    // taking focus, `enterPanel` flips focus into it, `closePanel` returns focus
+    // to the originating bar tab.
 
     // Commit a scope (and optionally a section pill) from the cascade: persist
     // the library scope, record the session pill, navigate to that type's route,
@@ -411,7 +372,7 @@ fun TvMainShell(
             navigateToRoute(route)
         }
         // Close WITHOUT returning focus to the bar; commit wants content focus.
-        closePanel(false)
+        focusState.closePanel(false)
         moveFocusToContent(route)
     }
 
@@ -425,17 +386,8 @@ fun TvMainShell(
     }
 
     fun closeMenuAnd(action: () -> Unit): () -> Unit = {
-        profileMenuOpen = false
+        focusState.closeProfileMenuForContent()
         action()
-    }
-
-    // Open the notifications inbox: close the profile menu, navigate to the
-    // nested inbox route, then move focus into the content area so the D-pad
-    // lands on the inbox rather than lingering on the (now-hidden) menu.
-    val openInbox: () -> Unit = {
-        profileMenuOpen = false
-        navigateToSecondary(TvMainRoute.Inbox.route)
-        moveFocusToContent(TvMainRoute.Inbox.route)
     }
 
     // Scroll-driven visibility for the top menu bar. Mirrors Apple's
@@ -466,8 +418,8 @@ fun TvMainShell(
     // closing the profile panel), the scroll-driven fade may have slid the menu
     // off-screen (visibility 0). Snap it back to fully visible first so we don't
     // focus an invisible bar. Guarded on >0 so it never runs on first compose.
-    LaunchedEffect(menuFocusRequest) {
-        if (menuFocusRequest > 0 && menuVisibility.value < 1f) {
+    LaunchedEffect(focusState.menuFocusRequest) {
+        if (focusState.menuFocusRequest > 0 && menuVisibility.value < 1f) {
             menuVisibility.animateTo(1f)
         }
     }
@@ -478,7 +430,7 @@ fun TvMainShell(
         // would be wrongly ejected even though that type exists.
         if (!librariesLoaded) return@LaunchedEffect
         // Only media-root tabs are eligible for the "tab no longer visible"
-        // redirect. Non-tab routes (Settings, Inbox, Favorites, Search, …) map
+        // redirect. Non-tab routes (Settings, Favorites, Search, …) map
         // to null and must be left alone — otherwise navigating to Settings
         // would silently eject the user back to Home. If the selected root is a
         // LibraryType whose type has no libraries, snap to Home.
@@ -500,38 +452,34 @@ fun TvMainShell(
                 if (ev.type == KeyEventType.KeyUp &&
                     (ev.key == Key.Back || ev.key == Key.Escape)
                 ) {
-                    when {
-                        // An open cascade panel takes Back first: just close it
-                        // (returning focus to the bar) and fully consume — no
-                        // nav-pop / exit. Back is centralized here, not in the
-                        // selector, so it can't be double-handled.
-                        openPanel != null -> {
-                            closePanel(true)
-                            true
-                        }
-                        profileMenuOpen -> {
-                            profileMenuOpen = false
-                            profileFocusRequest++
-                            true
-                        }
-                        isMenuFocused -> {
+                    // Centralized shell Back. The 4-way priority (panel >
+                    // profile menu > focused bar > nav) is decided by
+                    // [TvShellFocusState.onBack], which also applies the state
+                    // half (close panel / dropdown); we run only the side effect
+                    // each action needs. Keeping it here — not in the selector or
+                    // the bar — means Back can never be double-handled.
+                    when (focusState.onBack()) {
+                        // Panel/dropdown already closed by onBack(): just consume.
+                        TvShellBackAction.ClosePanel,
+                        TvShellBackAction.CloseProfileMenu -> true
+                        // Focus was on the bar: hand it back to content.
+                        TvShellBackAction.MoveFocusToContent -> {
                             moveFocusToContent(currentRoute)
                             true
                         }
-                        // Pop within the inner NavHost when there's history to
-                        // pop. navigateToRoute uses popUpTo(start) { saveState }
-                        // so the back stack stays flat — typically [Home,
-                        // currentTab] — and this pops the current tab back to
-                        // Home through the standard Navigation Compose path,
-                        // restoring saved state (scroll, ViewModel) cleanly.
-                        nestedNav.previousBackStackEntry != null -> {
-                            nestedNav.popBackStack()
-                            true
+                        // Nothing to dismiss. Pop the flat inner NavHost when
+                        // there's history (popUpTo(start) { saveState } keeps the
+                        // stack typically [Home, currentTab] and restores saved
+                        // scroll/ViewModel cleanly); otherwise fall through so the
+                        // activity's OnBackPressedDispatcher finishes the app.
+                        TvShellBackAction.DelegateToNav -> {
+                            if (nestedNav.previousBackStackEntry != null) {
+                                nestedNav.popBackStack()
+                                true
+                            } else {
+                                false
+                            }
                         }
-                        // No inner history. Fall through so the activity's
-                        // OnBackPressedDispatcher finishes the activity (default
-                        // Android Back behavior at the root).
-                        else -> false
                     }
                 } else {
                     false
@@ -568,12 +516,19 @@ fun TvMainShell(
                 .onPreviewKeyEvent { ev ->
                     when {
                         ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp -> {
-                            // Try to move focus up inside content; if that
-                            // fails (we're already on the top row), hand
-                            // focus to the menu bar.
-                            val moved = focusManager.moveFocus(FocusDirection.Up)
-                            if (!moved) {
-                                menuFocusRequest++
+                            val contentHandledUp = contentUpFallback?.invoke()
+                            if (contentHandledUp != null) {
+                                if (!contentHandledUp) {
+                                    focusState.requestMenuFocus()
+                                }
+                            } else {
+                                // Try to move focus up inside content; if that
+                                // fails (we're already on the top row), hand
+                                // focus to the menu bar.
+                                val moved = focusManager.moveFocus(FocusDirection.Up)
+                                if (!moved) {
+                                    focusState.requestMenuFocus()
+                                }
                             }
                             // Always consume: we performed the move (or routed
                             // to the menu) ourselves in the preview phase.
@@ -607,8 +562,9 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.ForYou.route)
                             moveFocusToContent(TvMainRoute.ForYou.route)
                         },
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
+                        onContentUpFallbackChanged = { contentUpFallback = it },
                     )
                 }
                 composable(TvMainRoute.Home.route) {
@@ -623,8 +579,9 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.ForYou.route)
                             moveFocusToContent(TvMainRoute.ForYou.route)
                         },
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
+                        onContentUpFallbackChanged = { contentUpFallback = it },
                     )
                 }
                 composable(TvMainRoute.Search.route) {
@@ -643,14 +600,14 @@ fun TvMainShell(
                     TvLibrariesScreen(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.Libraries.route) {
                     TvLibrariesScreen(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 // Content-type tabs (Skyline §3.1). Each renders the library
@@ -667,7 +624,8 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Movies] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                        onContentUpFallbackChanged = { contentUpFallback = it },
                     )
                 }
                 composable(TvMainRoute.Series.route) {
@@ -679,7 +637,8 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Series] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                        onContentUpFallbackChanged = { contentUpFallback = it },
                     )
                 }
                 composable(TvMainRoute.Music.route) {
@@ -691,7 +650,8 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Music] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                        onContentUpFallbackChanged = { contentUpFallback = it },
                     )
                 }
                 composable(TvMainRoute.Audiobooks.route) {
@@ -703,13 +663,14 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Audiobooks] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                        onContentUpFallbackChanged = { contentUpFallback = it },
                     )
                 }
                 composable(TvMainRoute.ForYou.route) {
                     TvRecommendationsScreen(
                         onItemClick = onOpenItemDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.Requests.route) {
@@ -719,7 +680,7 @@ fun TvMainShell(
                         onOpenRequestDetail = { mt, id ->
                             navigateToSecondary(TvMainRoute.RequestDetail(mt, id).route)
                         },
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.MyRequests.route) {
@@ -728,7 +689,7 @@ fun TvMainShell(
                         onOpenRequestDetail = { mt, id ->
                             navigateToSecondary(TvMainRoute.RequestDetail(mt, id).route)
                         },
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(
@@ -747,25 +708,25 @@ fun TvMainShell(
                 composable(TvMainRoute.Collections.route) {
                     TvCollectionsScreen(
                         onCollectionClick = onOpenCollectionDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.Watchlist.route) {
                     TvWatchlistScreen(
                         onItemClick = onOpenItemDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.Favorites.route) {
                     TvFavoritesScreen(
                         onItemClick = onOpenItemDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.History.route) {
                     TvHistoryScreen(
                         onItemClick = onOpenItemDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.Settings.route) {
@@ -791,32 +752,22 @@ fun TvMainShell(
                         onManageServers = onSwitchServer,
                         onSignedOut = onSignedOut,
                         onSwitchProfile = onSwitchProfile,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.ManageSessions.route) {
                     TvManageSessionsScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
                 }
-                composable(TvMainRoute.Inbox.route) {
-                    TvInboxScreen(
-                        onOpenItemDetail = onOpenItemDetail,
-                        onBack = {
-                            if (nestedNav.previousBackStackEntry != null) {
-                                nestedNav.popBackStack()
-                            }
-                        },
-                    )
-                }
                 composable(TvMainRoute.Calendar.route) {
                     TvCalendarScreen(
                         onOpenItemDetail = onOpenItemDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.Browse.route) {
                     TvBrowseScreen(
                         onOpenItemDetail = onOpenItemDetail,
-                        onInitialContentFocus = { profileMenuOpen = false },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
                 composable(TvMainRoute.AdminHub.route) {
@@ -875,21 +826,37 @@ fun TvMainShell(
             selectedRoot = selectedRoot,
             destinations = visibleRoots,
             accountState = accountSnapshot,
-            unreadCount = unreadCount,
             onSelectRoot = onSelectRoot,
+            onSelectTab = { type ->
+                // Enter/Select on a library-type tab jumps straight to that
+                // type's Recommended content. Prefer a full scope commit (so it
+                // lands on Recommended and closes any open preview panel); fall
+                // back to a plain route nav if the active library hasn't
+                // resolved yet.
+                val activeLib = activeLibrary(type)
+                if (activeLib != null) {
+                    commitScope(type, activeLib, TvLibraryPill.Recommended)
+                } else {
+                    onSelectRoot(TvRootDestination.LibraryType(type))
+                }
+            },
             onSearchClick = onSearchPressed,
-            onProfileClick = { profileMenuOpen = !profileMenuOpen },
+            onProfileClick = { focusState.toggleProfileMenu() },
             onMoveDown = { moveFocusToContent(currentRoute) },
-            isMenuFocused = isMenuFocused,
-            onMenuFocusChange = { isMenuFocused = it },
-            isFocusSuppressed = profileMenuOpen,
-            focusRequest = menuFocusRequest,
-            profileFocusRequest = profileFocusRequest,
+            isMenuFocused = focusState.isMenuFocused,
+            // setMenuFocused(true) also clears any stale "entered" flag: focus on
+            // a bar button means we're NOT inside a panel, so a geometric d-pad-Up
+            // escape out of an entered panel can't leave it stuck (which would
+            // freeze dwell preview-switching under the previously-entered tab).
+            onMenuFocusChange = focusState::updateMenuFocused,
+            isFocusSuppressed = focusState.isMenuFocusSuppressed,
+            focusRequest = focusState.menuFocusRequest,
+            profileFocusRequest = focusState.profileFocusRequest,
             isSearchActive = currentRoute == TvMainRoute.Search.route,
             visibility = menuVisibility.value,
-            openPanel = openPanel,
-            onDwell = handleDwell,
-            onEnterPanel = openPanelAndEnter,
+            openPanel = focusState.openPanel,
+            onDwell = focusState::previewPanel,
+            onEnterPanel = focusState::enterPanel,
             onTabAnchor = { panel, coords -> tabAnchors[panel] = coords },
             modifier = Modifier
                 .fillMaxWidth()
@@ -910,8 +877,13 @@ fun TvMainShell(
         visibleRoots.forEach { dest ->
             if (dest is TvRootDestination.LibraryType) {
                 val panel = TvTopMenuPanel.Root(dest)
-                val active = openPanel == panel
+                val active = focusState.openPanel == panel
                 val anchor = tabAnchors[panel]
+                val panelAlpha by animateFloatAsState(
+                    targetValue = if (active) 1f else 0f,
+                    animationSpec = tween(durationMillis = if (active) 90 else 70),
+                    label = "tvTopMenuCascadePanelAlpha",
+                )
                 Box(
                     modifier = Modifier
                         .absoluteOffset {
@@ -924,7 +896,7 @@ fun TvMainShell(
                             )
                         }
                         .widthIn(max = maxPanelWidthDp)
-                        .alpha(if (active) 1f else 0f)
+                        .alpha(panelAlpha)
                         .focusProperties { canFocus = active }
                         .zIndex(2f),
                 ) {
@@ -933,22 +905,21 @@ fun TvMainShell(
                         libraries = libraries.filter { dest.type.matches(it) },
                         currentScopeId = activeLibrary(dest.type)?.id,
                         selectedPill = pillSelections[dest.type] ?: TvLibraryPill.Recommended,
-                        entersPanel = active && panelEntersFocus,
-                        focusEntryToken = panelFocusEntryToken,
+                        entersPanel = active && focusState.panelEntersFocus,
+                        focusEntryToken = focusState.panelFocusEntryToken,
                         onCommitLibrary = { lib -> commitScope(dest.type, lib, TvLibraryPill.Recommended) },
                         onCommitSection = { lib, pill -> commitScope(dest.type, lib, pill) },
                         onPanelFocusChanged = { /* optional bar-dim tracking */ },
-                        onClose = { closePanel(true) },
+                        onClose = { focusState.closePanel(true) },
                         modifier = Modifier,
                     )
                 }
             }
         }
 
-        if (profileMenuOpen) {
+        if (focusState.profileMenuOpen) {
             TvProfileDropdown(
                 accountState = accountSnapshot,
-                onNotifications = openInbox,
                 onSwitchProfile = closeMenuAnd(onSwitchProfile),
                 onWatchlist = closeMenuAnd {
                     navigateToSecondary(TvMainRoute.Watchlist.route)
@@ -972,10 +943,7 @@ fun TvMainShell(
                 },
                 onSwitchServer = closeMenuAnd(onSwitchServer),
                 onSignOut = closeMenuAnd(onSignedOut),
-                onDismiss = {
-                    profileMenuOpen = false
-                    profileFocusRequest++
-                },
+                onDismiss = { focusState.dismissProfileMenu() },
                 modifier = Modifier
                     // The profile avatar now leads the *trailing* cluster, so the
                     // dropdown anchors at the bar's end edge, under the avatar.
@@ -1008,6 +976,7 @@ private fun TvLibraryTypeContent(
     onItemClick: (contentId: String) -> Unit,
     onLibraryCollectionClick: (libraryId: Int, collectionId: String, title: String) -> Unit,
     onInitialContentFocus: () -> Unit,
+    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
 ) {
     if (library == null) {
         // Only assert "no libraries" once loading has settled AND this type
@@ -1046,6 +1015,7 @@ private fun TvLibraryTypeContent(
             onInitialContentFocus = onInitialContentFocus,
             initialSection = selectedPill.toLibraryTab(),
             sectionRequestNonce = sectionRequestNonce,
+            onContentUpFallbackChanged = onContentUpFallbackChanged,
         )
     }
 }
@@ -1065,7 +1035,7 @@ private fun openBrowseItem(
 /**
  * Maps an in-app route string to the corresponding top-menu destination, or
  * `null` when the route is not one of the media-root tabs. Non-tab routes
- * (Settings, Collections, Favorites, Watchlist, History, Inbox, ForYou, …) are
+ * (Settings, Collections, Favorites, Watchlist, History, ForYou, …) are
  * legitimately navigable destinations reached from the profile menu / detail
  * flows; they must not be treated as the Video tab. Returning `null` keeps the
  * top bar from highlighting any tab and tells the redirect effect to leave the
@@ -1084,7 +1054,7 @@ private fun mapRouteToRoot(route: String): TvRootDestination? = when (route) {
     TvMainRoute.Calendar.route -> TvRootDestination.Calendar
     // Search / ForYou are no longer tabs — they map to null so no top tab is
     // highlighted (Search is a trailing icon; ForYou is reached as a Home row).
-    // Requests/MyRequests/Settings/Inbox/Audio/Libraries are likewise non-tab.
+    // Requests/MyRequests/Settings/Audio/Libraries are likewise non-tab.
     else -> null
 }
 
@@ -1144,16 +1114,14 @@ private fun cascadePanelOffset(
  * consumes input and focuses its first row on open; Back/Menu closes it and
  * returns focus to the avatar via [onDismiss].
  *
- * Row set + order mirrors tvOS, plus the Android-only Notifications row near
- * the top: Notifications · Switch Profile · Watchlist · Favorites · History ·
- * Settings · (Admin Dashboard, admin only) · Switch Server · Sign Out.
+ * Row set + order mirrors tvOS: Switch Profile · Watchlist · Favorites ·
+ * History · Settings · (Admin Dashboard, admin only) · Switch Server · Sign Out.
  * Calendar is no longer here — it is a top-level tab.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TvProfileDropdown(
     accountState: TvAccountState,
-    onNotifications: () -> Unit,
     onSwitchProfile: () -> Unit,
     onWatchlist: () -> Unit,
     onFavorites: () -> Unit,
@@ -1193,12 +1161,11 @@ private fun TvProfileDropdown(
         ProfileDropdownDivider()
 
         ProfileDropdownRow(
-            label = "Notifications",
-            icon = Icons.Filled.Notifications,
+            label = "Switch Profile",
+            icon = Icons.Filled.People,
             focusRequester = firstFocus,
-            onClick = onNotifications,
+            onClick = onSwitchProfile,
         )
-        ProfileDropdownRow(label = "Switch Profile", icon = Icons.Filled.People, onClick = onSwitchProfile)
         ProfileDropdownRow(label = "Watchlist", icon = Icons.Filled.Bookmark, onClick = onWatchlist)
         ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
         ProfileDropdownRow(label = "History", icon = Icons.Filled.History, onClick = onHistory)
