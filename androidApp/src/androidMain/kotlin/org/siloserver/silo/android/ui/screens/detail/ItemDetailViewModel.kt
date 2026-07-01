@@ -92,6 +92,8 @@ class ItemDetailViewModel(
     val downloads: StateFlow<List<DownloadRecord>> = downloadsRepository.records
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private var watchedMutationGeneration = 0
+
     init {
         // Refresh once so server-side records are visible when the user
         // lands on the detail screen (e.g., to show 'Downloaded' on a file
@@ -527,11 +529,12 @@ class ItemDetailViewModel(
         val currentDetail = _uiState.value.detail ?: return
         val current = currentDetail.userData?.played == true
         val target = !current
+        val generation = ++watchedMutationGeneration
         updatePlayedState(target)
         viewModelScope.launch {
             when (personalDataRepository.setWatched(contentId, target)) {
                 is ApiResult.Success -> { /* already updated */ }
-                else -> updatePlayedState(current)
+                else -> if (generation == watchedMutationGeneration) updatePlayedState(current)
             }
         }
     }

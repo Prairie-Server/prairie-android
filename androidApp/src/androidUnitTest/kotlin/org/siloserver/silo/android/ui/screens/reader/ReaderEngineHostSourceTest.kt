@@ -166,6 +166,20 @@ class ReaderEngineHostSourceTest {
     }
 
     @Test
+    fun reflowCrashRecoveryReseedsLatestLocatorBeforeRemount() {
+        val readerSource = reflowSourceFile.readText()
+        val onCrashBody = readerSource.substringAfter("onCrash = {")
+            .substringBefore("},")
+        val relocatedBody = readerSource.substringAfter("is ReflowEvent.Relocated -> {")
+            .substringBefore("}")
+
+        assertTrue(readerSource.contains("var latestPageProgression by remember(source)"))
+        assertTrue(relocatedBody.contains("latestPageProgression = ev.pageProgression"))
+        assertTrue(onCrashBody.contains("pendingPageProgression = latestPageProgression"))
+        assertTrue(onCrashBody.contains("relocationGate = ReflowInitialRelocationGate(latestPageProgression)"))
+    }
+
+    @Test
     fun epubReaderUsesEncodedDirectoryBaseUrlForWebViewResources() {
         val source = epubReaderSourceFile.readText()
 

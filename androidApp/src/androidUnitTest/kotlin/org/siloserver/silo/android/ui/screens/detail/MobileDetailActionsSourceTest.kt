@@ -26,6 +26,8 @@ class MobileDetailActionsSourceTest {
         assertTrue(itemDetail.contains("onToggleWatched = { viewModel.toggleWatched() }"))
         assertTrue(viewModel.contains("fun toggleWatched()"))
         assertTrue(viewModel.contains("personalDataRepository.setWatched(contentId, target)"))
+        assertTrue(viewModel.contains("watchedMutationGeneration"))
+        assertTrue(viewModel.contains("if (generation == watchedMutationGeneration)"))
     }
 
     @Test

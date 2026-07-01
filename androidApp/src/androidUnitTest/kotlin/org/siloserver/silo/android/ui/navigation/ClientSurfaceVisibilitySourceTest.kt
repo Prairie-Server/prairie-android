@@ -2,7 +2,6 @@ package org.siloserver.silo.android.ui.navigation
 
 import java.io.File
 import kotlin.test.Test
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ClientSurfaceVisibilitySourceTest {
@@ -25,12 +24,12 @@ class ClientSurfaceVisibilitySourceTest {
         assertTrue(settingsScreen.contains("CLIENT_REQUESTS_SURFACE_ENABLED"))
         assertTrue(accountSection.contains("isRequestsVisible: Boolean = false"))
         assertTrue(accountSection.contains("if (isRequestsVisible)"))
-        assertFalse(mainScreen.contains("onRequestsClick = { navController.navigate(Route.Requests.route) }"))
+        assertTrue(mainScreen.contains("onRequestsClick = if (CLIENT_REQUESTS_SURFACE_ENABLED)"))
     }
 
     @Test
     fun watchTogetherCodeRemainsRoutableButHiddenFromMobileDetailOverflow() {
         assertTrue(itemDetailScreen.contains("CLIENT_WATCH_TOGETHER_SURFACE_ENABLED"))
-        assertFalse(itemDetailScreen.contains("onWatchTogether = { onWatchTogether(detail.contentId, explicitFileId) }"))
+        assertTrue(itemDetailScreen.contains("onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED)"))
     }
 }

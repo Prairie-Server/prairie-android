@@ -55,6 +55,7 @@ import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.SubtitlesRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
@@ -407,7 +408,13 @@ class PlayerViewModel(
                     return@launch
                 }
 
-                runCatching { playerSettingsStore.refreshFromServer() }
+                try {
+                    playerSettingsStore.refreshFromServer()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not refresh player settings before playback", e)
+                }
                 when (val playbackState = videoPlaybackCoordinator.start(
                     VideoPlaybackStartRequest(
                         contentId = contentId,
@@ -431,6 +438,8 @@ class PlayerViewModel(
                     }
                     is VideoPlayerUiState.Loading -> Unit
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading content", e)
                 _uiState.update {

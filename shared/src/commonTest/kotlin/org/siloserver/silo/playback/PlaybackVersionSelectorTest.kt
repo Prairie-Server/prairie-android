@@ -32,6 +32,24 @@ class PlaybackVersionSelectorTest {
     }
 
     @Test
+    fun numericResolutionLabelsRankByTheirActualHeight() {
+        val version480 = FileVersion(fileId = 480, resolution = "480p")
+        val version540 = FileVersion(fileId = 540, resolution = "540p")
+        val version360 = FileVersion(fileId = 360, resolution = "360p")
+
+        assertEquals(540, playbackResolutionRank("540p"))
+        assertEquals(360, playbackResolutionRank("360"))
+        assertEquals(
+            540,
+            selectPlaybackVersion(
+                versions = listOf(version480, version540, version360),
+                lastFileId = null,
+                preferredQuality = "auto",
+            ).fileId,
+        )
+    }
+
+    @Test
     fun lastPlayedFileStillWinsWhenAvailable() {
         val selected = selectPlaybackVersion(
             versions = listOf(version4k, version1080, version720),

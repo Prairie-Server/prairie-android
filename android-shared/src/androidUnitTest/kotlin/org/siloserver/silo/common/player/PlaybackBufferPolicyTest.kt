@@ -65,4 +65,22 @@ class PlaybackBufferPolicyTest {
         assertEquals(192 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced).targetBufferBytes)
         assertEquals(256 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback).targetBufferBytes)
     }
+
+    @Test
+    fun lowMemoryDevicesUseSmallerByteCaps() {
+        val lowMemory = PlaybackBufferDeviceProfile(memoryClassMb = 128, isLowRamDevice = true)
+
+        assertEquals(48 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart, lowMemory).targetBufferBytes)
+        assertEquals(64 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced, lowMemory).targetBufferBytes)
+        assertEquals(96 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback, lowMemory).targetBufferBytes)
+    }
+
+    @Test
+    fun roomyDevicesKeepLargeByteCaps() {
+        val roomy = PlaybackBufferDeviceProfile(memoryClassMb = 384, isLowRamDevice = false)
+
+        assertEquals(160 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart, roomy).targetBufferBytes)
+        assertEquals(192 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced, roomy).targetBufferBytes)
+        assertEquals(256 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback, roomy).targetBufferBytes)
+    }
 }

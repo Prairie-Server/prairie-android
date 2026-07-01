@@ -1,5 +1,6 @@
 package org.siloserver.silo.common.player
 
+import android.app.ActivityManager
 import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -134,7 +135,10 @@ class SiloPlayerFactory(
         // buffer in the background. A finite byte cap lets low-bitrate
         // streams grow toward the time limit while preventing high-bitrate
         // remuxes from filling the app heap on memory-constrained TVs.
-        val bufferPolicy = PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart)
+        val bufferPolicy = PlaybackBufferPolicy.forMode(
+            PlaybackBufferMode.QuickStart,
+            playbackBufferDeviceProfile(),
+        )
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ bufferPolicy.minBufferMs,
@@ -167,6 +171,14 @@ class SiloPlayerFactory(
         )
 
         return builder.build()
+    }
+
+    private fun playbackBufferDeviceProfile(): PlaybackBufferDeviceProfile {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        return PlaybackBufferDeviceProfile(
+            memoryClassMb = activityManager?.memoryClass ?: 0,
+            isLowRamDevice = activityManager?.isLowRamDevice == true,
+        )
     }
 
     /**

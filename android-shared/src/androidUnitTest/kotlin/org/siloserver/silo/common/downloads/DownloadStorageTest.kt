@@ -157,6 +157,20 @@ class DownloadStorageTest {
     }
 
     @Test
+    fun `prepareWrite validation failure keeps existing downloaded bytes`() {
+        val storage = newStorage()
+        storage.prepareWrite("srv1", "profA", 7, fileName = "Existing.mkv")
+            .writeTargetBytes(ByteArray(10))
+
+        assertFailsWith<IllegalArgumentException> {
+            storage.prepareWrite("srv1", "profA", 7)
+        }
+
+        assertTrue(storage.exists("srv1", "profA", 7))
+        assertEquals("Existing.mkv", storage.locateLocalMedia("srv1", "profA", 7)?.displayName)
+    }
+
+    @Test
     fun `prepareWrite creates parent directories and returns target when original container is known`() {
         val storage = newStorage()
         val target = storage.prepareWrite("srv1", "profA", 7, container = "epub")
