@@ -50,35 +50,36 @@ class TvLauncherIconAssetsTest {
     }
 
     @Test
-    fun legacyTvLauncherIconsKeepAndroidDensityDimensions() {
+    fun legacyTvLauncherIconsUseFireTvBannerDimensions() {
         val expected = mapOf(
-            "mipmap-mdpi/ic_launcher.png" to 48,
-            "mipmap-hdpi/ic_launcher.png" to 72,
-            "mipmap-xhdpi/ic_launcher.png" to 96,
-            "mipmap-xxhdpi/ic_launcher.png" to 144,
-            "mipmap-xxxhdpi/ic_launcher.png" to 192,
+            "mipmap-mdpi/ic_launcher.png" to (160 to 90),
+            "mipmap-hdpi/ic_launcher.png" to (240 to 135),
+            "mipmap-xhdpi/ic_launcher.png" to (320 to 180),
+            "mipmap-xxhdpi/ic_launcher.png" to (480 to 270),
+            "mipmap-xxxhdpi/ic_launcher.png" to (640 to 360),
         )
 
-        expected.forEach { (path, size) ->
+        expected.forEach { (path, dimensions) ->
             val image = ImageIO.read(File("src/androidMain/res/$path"))
-            assertEquals(size, image.width, path)
-            assertEquals(size, image.height, path)
+            assertEquals(dimensions.first, image.width, path)
+            assertEquals(dimensions.second, image.height, path)
+            assertEquals(image.width * 9, image.height * 16, "$path must stay 16:9 for Fire OS app-library tiles.")
         }
     }
 
     @Test
-    fun legacyTvLauncherIconIsCircleFriendlyForGoogleTvRows() {
+    fun legacyTvLauncherIconIsOpaqueBannerTileForFireOsRows() {
         val icon = ImageIO.read(
             File("src/androidMain/res/mipmap-xxxhdpi/ic_launcher.png"),
         )
 
-        assertEquals(192, icon.width)
-        assertEquals(192, icon.height)
-        assertTrue(icon.colorModel.hasAlpha(), "Legacy TV launcher icon should keep transparent corners.")
-        assertEquals(0, icon.alphaAt(0, 0), "Top-left corner should be transparent.")
-        assertEquals(0, icon.alphaAt(icon.width - 1, 0), "Top-right corner should be transparent.")
-        assertEquals(0, icon.alphaAt(0, icon.height - 1), "Bottom-left corner should be transparent.")
-        assertEquals(0, icon.alphaAt(icon.width - 1, icon.height - 1), "Bottom-right corner should be transparent.")
+        assertEquals(640, icon.width)
+        assertEquals(360, icon.height)
+        assertTrue(!icon.colorModel.hasAlpha(), "Legacy Fire OS launcher tile should be an opaque 16:9 banner.")
+        assertEquals(255, icon.alphaAt(0, 0), "Top-left corner should be opaque.")
+        assertEquals(255, icon.alphaAt(icon.width - 1, 0), "Top-right corner should be opaque.")
+        assertEquals(255, icon.alphaAt(0, icon.height - 1), "Bottom-left corner should be opaque.")
+        assertEquals(255, icon.alphaAt(icon.width - 1, icon.height - 1), "Bottom-right corner should be opaque.")
         assertTrue(icon.alphaAt(icon.width / 2, icon.height / 2) > 240, "Center blue field should remain opaque.")
     }
 }
