@@ -29,9 +29,7 @@ private fun isUnsafeEpubResourceUrl(value: String): Boolean {
     return normalized.startsWith("javascript:") ||
         normalized.startsWith("vbscript:") ||
         normalized.startsWith("data:") ||
-        normalized.startsWith("http://") ||
-        normalized.startsWith("https://") ||
-        normalized.startsWith("file://") ||
+        ABSOLUTE_URL_SCHEME_REGEX.containsMatchIn(normalized) ||
         normalized.startsWith("//")
 }
 
@@ -78,6 +76,7 @@ private fun Char.isIgnoredUrlPolicyCharacter(): Boolean =
 private val HTML_CHARACTER_REFERENCE_REGEX = Regex(
     """&(#x[0-9a-fA-F]+;?|#[0-9]+;?|[a-zA-Z][a-zA-Z0-9]+;)""",
 )
+private val ABSOLUTE_URL_SCHEME_REGEX = Regex("""^[a-z][a-z0-9+.-]*:""")
 
 private val BLOCKED_ELEMENT_WITH_BODY_REGEX = Regex(
     """<\s*(script|iframe|object|embed|form|textarea|select|button)\b[^>]*>.*?<\s*/\s*\1\s*>""",

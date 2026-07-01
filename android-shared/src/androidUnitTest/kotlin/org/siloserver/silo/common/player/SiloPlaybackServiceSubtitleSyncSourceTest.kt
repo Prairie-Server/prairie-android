@@ -30,6 +30,20 @@ class SiloPlaybackServiceSubtitleSyncSourceTest {
     }
 
     @Test
+    fun savedSyncOffsetsAreAppliedWhenBindingMpvAfterEngineSwap() {
+        val bindNewPlayerBody = source.substringAfter("private fun bindNewPlayer(")
+            .substringBefore("} catch (t: Throwable)")
+
+        assertTrue(
+            bindNewPlayerBody.contains("applyCurrentSyncOffsetsToMpv(newPlayer)"),
+            "binding a newly-created MPV player must push already-saved sync offsets even when settings flows do not emit again",
+        )
+        assertTrue(source.contains("val mpvPlayer = player as? MpvPlayer ?: return"))
+        assertTrue(source.contains("mpvPlayer.setAudioDelayMs(delayProcessor.getActiveDelayMs())"))
+        assertTrue(source.contains("mpvPlayer.setSubtitleDelayMs(subtitleOffsetHolder.getOffsetMs())"))
+    }
+
+    @Test
     fun subtitleSyncReparseIsLimitedToItemsWithTextTracks() {
         assertTrue(source.contains("val hasConfiguredSubtitles ="))
         assertTrue(source.contains("val hasTextTracks ="))
