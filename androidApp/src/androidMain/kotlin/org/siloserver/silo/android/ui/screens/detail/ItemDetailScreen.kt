@@ -42,6 +42,7 @@ import org.siloserver.silo.model.catalog.isBookLikeItemType
 import org.siloserver.silo.model.ebook.chooseEbookVersion
 import org.siloserver.silo.model.ebook.isInAppReadableEbookVersion
 import org.siloserver.silo.model.ebook.isSupportedEbookVersion
+import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.siloserver.silo.network.ServerRegistry
 import org.koin.compose.koinInject
 
@@ -156,6 +157,10 @@ fun ItemDetailScreen(
                     .takeIf { state.hasExplicitAudioSelection }
                 val explicitSubtitleIndex = state.selectedSubtitleIndex
                     .takeIf { state.hasExplicitSubtitleSelection }
+                val playbackFileId = explicitFileId ?: detail.versions
+                    .getOrNull(effectiveSelectedVersionIndex)
+                    ?.fileId
+                    ?.takeIf { state.hasExplicitAudioSelection || state.hasExplicitSubtitleSelection }
                 val effectiveAudiobookFileId = detail.versions
                     .getOrNull(effectiveSelectedVersionIndex)
                     ?.fileId
@@ -333,6 +338,7 @@ fun ItemDetailScreen(
                             onSeasonSelected = { viewModel.selectSeason(it) },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
+                            onToggleWatched = { viewModel.toggleWatched() },
                             userRating = state.userRating,
                             onSetRating = { viewModel.setRating(it) },
                             onClearRating = { viewModel.clearRating() },
@@ -352,8 +358,10 @@ fun ItemDetailScreen(
                                 )
                             },
                             seriesDownloadState = seriesDownloadState,
-                            onWatchTogether = {
-                                onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null)
+                            onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
+                                { onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null) }
+                            } else {
+                                null
                             },
                         )
                     }
@@ -386,7 +394,7 @@ fun ItemDetailScreen(
                             onPlayClick = {
                                 onPlayClick(
                                     detail.contentId,
-                                    explicitFileId,
+                                    playbackFileId,
                                     explicitAudioIndex,
                                     explicitSubtitleIndex,
                                     playbackResumePosition(detail.userData),
@@ -394,6 +402,7 @@ fun ItemDetailScreen(
                             },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
+                            onToggleWatched = { viewModel.toggleWatched() },
                             userRating = state.userRating,
                             onSetRating = { viewModel.setRating(it) },
                             onClearRating = { viewModel.clearRating() },
@@ -425,7 +434,11 @@ fun ItemDetailScreen(
                                     }
                                 }
                             },
-                            onWatchTogether = { onWatchTogether(detail.contentId, explicitFileId) },
+                            onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
+                                { onWatchTogether(detail.contentId, explicitFileId) }
+                            } else {
+                                null
+                            },
                         )
                     }
                 }
