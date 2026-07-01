@@ -2,6 +2,7 @@ package org.siloserver.silo.tv.ui.screens.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.catalog.CastMember
 import org.siloserver.silo.model.catalog.EpisodeListItem
@@ -69,6 +70,7 @@ data class TvItemDetailUiState(
     val selectedNextUpFileId: Int? = null,
     val selectedNextUpAudioIndex: Int? = null,
     val selectedNextUpSubtitleIndex: Int? = null,
+    val preferredQuality: String = "auto",
 )
 
 /**
@@ -83,6 +85,7 @@ data class TvItemDetailUiState(
 class TvItemDetailViewModel(
     private val catalogRepository: CatalogRepository,
     private val personalDataRepository: PersonalDataRepository,
+    private val playerSettingsStore: PlayerSettingsStore,
     private val contentId: String,
 ) : ViewModel() {
 
@@ -90,7 +93,18 @@ class TvItemDetailViewModel(
     val uiState: StateFlow<TvItemDetailUiState> = _uiState.asStateFlow()
 
     init {
+        observePreferredQuality()
         if (contentId.isNotBlank()) loadAll()
+    }
+
+    private fun observePreferredQuality() {
+        viewModelScope.launch {
+            playerSettingsStore.preferredQualityFlow.collect { quality ->
+                _uiState.update {
+                    it.copy(preferredQuality = quality.trim().ifBlank { "auto" })
+                }
+            }
+        }
     }
 
     fun openPerson(member: CastMember, onOpenPerson: (Long) -> Unit) {
@@ -108,6 +122,9 @@ class TvItemDetailViewModel(
     }
 
     fun loadAll() {
+        viewModelScope.launch {
+            runCatching { playerSettingsStore.refreshFromServer() }
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             seedCachedDetail()

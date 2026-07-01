@@ -55,7 +55,7 @@ class TvCascadeInteractionSourceTest {
     fun cascadeEntryFocusLandsOnCurrentScopeLibraryRow() {
         assertTrue(cascadeSource.contains("val target = currentScopeId ?: libraries.firstOrNull()?.id"))
         assertTrue(cascadeSource.contains("anchorId = id"))
-        assertTrue(cascadeSource.contains("libraryRequesters[id]?.requestFocus()"))
+        assertTrue(cascadeSource.contains("libraryRequesters[id]?.let { runCatching { it.requestFocus() } }"))
         assertTrue(cascadeSource.contains("Key.DirectionRight"))
         assertTrue(cascadeSource.contains("focusFirstPillToken++"))
         assertTrue(cascadeSource.contains("onCommitSection(anchorLibrary, pill)"))
@@ -63,8 +63,8 @@ class TvCascadeInteractionSourceTest {
 
     @Test
     fun cascadeFooterDescriptionUsesReadableTvCaptionToken() {
-        assertTrue(cascadeSource.contains("internal val CascadeFooterTextSize = 9.5.sp"))
-        assertTrue(cascadeSource.contains("private val CascadeFooterLineHeight = 12.sp"))
+        assertTrue(cascadeSource.contains("internal val CascadeFooterTextSize = 13.sp"))
+        assertTrue(cascadeSource.contains("private val CascadeFooterLineHeight = 16.sp"))
         assertTrue(cascadeSource.contains("fontSize = CascadeFooterTextSize"))
         assertTrue(cascadeSource.contains("lineHeight = CascadeFooterLineHeight"))
         assertTrue(cascadeSource.contains("SiloOnSurface.copy(alpha = 0.52f)"))
