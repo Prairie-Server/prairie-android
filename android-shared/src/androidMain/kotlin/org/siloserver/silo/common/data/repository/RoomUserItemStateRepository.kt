@@ -1,0 +1,274 @@
+package org.siloserver.silo.common.data.repository
+
+import androidx.room.withTransaction
+import org.siloserver.silo.common.data.db.SiloDatabase
+import org.siloserver.silo.common.data.db.entity.ContentItemStateEntity
+import org.siloserver.silo.common.data.db.entity.DirtyOperationEntity
+import org.siloserver.silo.common.data.db.entity.UserItemStateEntity
+import org.siloserver.silo.common.data.sync.OutboxOperation
+import org.siloserver.silo.common.data.sync.OutboxSyncScheduler
+import org.siloserver.silo.common.data.sync.revertForTerminalOp
+import org.siloserver.silo.network.AuthScopeSnapshot
+import org.siloserver.silo.repository.port.EbookLocalProgress
+import org.siloserver.silo.repository.port.LocalContentState
+import org.siloserver.silo.repository.port.OutboxHandle
+import org.siloserver.silo.repository.port.UserItemStatePort
+import org.siloserver.silo.repository.port.WriteOutcome
+import kotlinx.serialization.json.JsonPrimitive
+import java.util.UUID
+
+/**
+ * Room-backed [UserItemStatePort] (Track B). Each content-level mutation
+ * writes an optimistic [ContentItemStateEntity] projection **and** a pending
+ * [DirtyOperationEntity] outbox op in one transaction, then returns a handle so
+ * [org.siloserver.silo.repository.PersonalDataRepository] can [resolve] the op
+ * with the inline network outcome.
+ *
+ * Scope is captured as ONE atomic [AuthScopeSnapshot] per call (not separate
+ * server/profile reads, which could straddle a switch). The snapshot's
+ * `(serverId, profileId)` scopes the projection + outbox rows, and the handle
+ * carries the snapshot so the repository can PIN the inline network call to the
+ * exact scope the op was recorded for — a switch between record and send then
+ * can't route the write to the wrong account. No active scope (or no profile) →
+ * records nothing and returns [OutboxHandle.NONE]; the inline call still runs
+ * (unpinned, current scope) so foreground behaviour is unchanged.
+ *
+ * Coalesce keys are server-scoped (`serverId|profileId|contentId|kind`) so a
+ * newer pending op of the same kind+target replaces an older un-synced one
+ * without crossing server/profile boundaries.
+ */
+class RoomUserItemStateRepository(
+    private val db: SiloDatabase,
+    private val snapshotProvider: suspend () -> AuthScopeSnapshot?,
+    private val syncScheduler: OutboxSyncScheduler = OutboxSyncScheduler.NONE,
+    private val now: () -> Long = { System.currentTimeMillis() },
+    private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+) : UserItemStatePort {
+
+    private val contentDao = db.contentItemStateDao()
+    private val userStateDao = db.userItemStateDao()
+    private val outboxDao = db.dirtyOperationDao()
+
+    override suspend fun recordWatched(contentId: String, watched: Boolean): OutboxHandle =
+        record(contentId, OutboxOperation.SET_WATCHED, JsonPrimitive(watched).toString()) {
+            it.copy(watched = watched)
+        }
+
+    override suspend fun recordFavorite(contentId: String, favorite: Boolean): OutboxHandle =
+        record(contentId, OutboxOperation.SET_FAVORITE, JsonPrimitive(favorite).toString()) {
+            it.copy(favorite = favorite)
+        }
+
+    override suspend fun recordRating(contentId: String, rating: Int?): OutboxHandle =
+        record(
+            contentId,
+            OutboxOperation.SET_RATING,
+            if (rating == null) "null" else JsonPrimitive(rating).toString(),
+        ) {
+            it.copy(ratingValue = rating)
+        }
+
+    override suspend fun recordPosition(
+        contentId: String,
+        fileId: Int,
+        positionSeconds: Double,
+        durationSeconds: Double?,
+    ) {
+        // Reject values that would enqueue invalid JSON and poison the drain
+        // (a NaN/Infinity/negative would parse-fail after claim and retry forever).
+        if (contentId.isBlank() || !positionSeconds.isFinite() || positionSeconds < 0.0) return
+        val safeDuration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
+
+        val snapshot = snapshotProvider() ?: return
+        val serverId = snapshot.serverId
+        val profileId = snapshot.profileId ?: return
+        val nowMs = now()
+
+        db.withTransaction {
+            // File-level local projection for resume (preserve track/cfi fields).
+            val existing = userStateDao.get(serverId, profileId, contentId, fileId)
+            val row = existing?.copy(
+                positionSeconds = positionSeconds,
+                durationSeconds = safeDuration,
+                clientUpdatedAtMs = nowMs,
+            ) ?: UserItemStateEntity(
+                serverId = serverId,
+                profileId = profileId,
+                contentId = contentId,
+                fileId = fileId,
+                positionSeconds = positionSeconds,
+                durationSeconds = safeDuration,
+                audioFingerprint = null,
+                subtitleFingerprint = null,
+                cfi = null,
+                readProgress = null,
+                clientUpdatedAtMs = nowMs,
+                serverUpdatedAtMs = null,
+            )
+            userStateDao.upsert(row)
+
+            // Content-level outbox op: syncProgress is keyed by content id, so the
+            // coalesce key omits fileId — all pending positions for the item
+            // collapse to the latest.
+            outboxDao.enqueueCoalescing(
+                DirtyOperationEntity(
+                    opKind = OutboxOperation.SET_POSITION,
+                    serverId = serverId,
+                    profileId = profileId,
+                    targetContentId = contentId,
+                    targetFileId = fileId,
+                    coalesceKey = "$serverId|$profileId|$contentId|${OutboxOperation.SET_POSITION}",
+                    idempotencyKey = idGenerator(),
+                    payloadJson = OutboxOperation.encodePositionPayload(positionSeconds, safeDuration),
+                    createdAtMs = nowMs,
+                    nextAttemptAtMs = nowMs,
+                ),
+            )
+        }
+    }
+
+    override suspend fun localPosition(contentId: String, fileId: Int): Double? {
+        val snapshot = snapshotProvider() ?: return null
+        val profileId = snapshot.profileId ?: return null
+        return userStateDao.get(snapshot.serverId, profileId, contentId, fileId)
+            ?.positionSeconds
+            ?.takeIf { it > 0.0 }
+    }
+
+    override suspend fun localPositionForContent(contentId: String): Double? {
+        val snapshot = snapshotProvider() ?: return null
+        val profileId = snapshot.profileId ?: return null
+        return userStateDao.getByContent(snapshot.serverId, profileId, contentId)
+            .mapNotNull { it.positionSeconds.takeIf { p -> p > 0.0 } }
+            .maxOrNull()
+    }
+
+    override suspend fun recordEbookProgress(
+        contentId: String,
+        fileId: Int,
+        location: String,
+        progress: Double,
+    ) {
+        if (contentId.isBlank() || location.isBlank() || !progress.isFinite()) return
+        val clamped = progress.coerceIn(0.0, 1.0)
+        val snapshot = snapshotProvider() ?: return
+        val serverId = snapshot.serverId
+        val profileId = snapshot.profileId ?: return
+        val nowMs = now()
+
+        db.withTransaction {
+            val existing = userStateDao.get(serverId, profileId, contentId, fileId)
+            val row = existing?.copy(cfi = location, readProgress = clamped, clientUpdatedAtMs = nowMs)
+                ?: UserItemStateEntity(
+                    serverId = serverId,
+                    profileId = profileId,
+                    contentId = contentId,
+                    fileId = fileId,
+                    positionSeconds = 0.0,
+                    durationSeconds = null,
+                    audioFingerprint = null,
+                    subtitleFingerprint = null,
+                    cfi = location,
+                    readProgress = clamped,
+                    clientUpdatedAtMs = nowMs,
+                    serverUpdatedAtMs = null,
+                )
+            userStateDao.upsert(row)
+
+            outboxDao.enqueueCoalescing(
+                DirtyOperationEntity(
+                    opKind = OutboxOperation.SET_EBOOK_PROGRESS,
+                    serverId = serverId,
+                    profileId = profileId,
+                    targetContentId = contentId,
+                    targetFileId = fileId,
+                    coalesceKey = "$serverId|$profileId|$contentId|${OutboxOperation.SET_EBOOK_PROGRESS}",
+                    idempotencyKey = idGenerator(),
+                    payloadJson = OutboxOperation.encodeEbookProgressPayload(fileId, location, clamped),
+                    createdAtMs = nowMs,
+                    nextAttemptAtMs = nowMs,
+                ),
+            )
+        }
+    }
+
+    override suspend fun localEbookProgress(contentId: String, fileId: Int): EbookLocalProgress? {
+        val snapshot = snapshotProvider() ?: return null
+        val profileId = snapshot.profileId ?: return null
+        val row = userStateDao.get(snapshot.serverId, profileId, contentId, fileId) ?: return null
+        val location = row.cfi ?: return null
+        return EbookLocalProgress(location = location, progress = row.readProgress ?: 0.0)
+    }
+
+    override suspend fun resolve(handle: OutboxHandle, outcome: WriteOutcome) {
+        if (handle.opId < 0) return
+        when (outcome) {
+            // Acked: server matches our optimistic projection; just drop the op.
+            WriteOutcome.SYNCED -> outboxDao.deleteById(handle.opId)
+            // Rejected for good: drop the op AND revert the optimistic projection
+            // field so the card overlay defers to server state (no fake local state
+            // across cold starts).
+            WriteOutcome.TERMINAL -> db.withTransaction {
+                outboxDao.getById(handle.opId)?.let { contentDao.revertForTerminalOp(it) }
+                outboxDao.deleteById(handle.opId)
+            }
+            // Transient: leave the pending op and ask the sync engine to drain it.
+            // Triggered here (not in record()) so it can't race the inline call.
+            WriteOutcome.RETRIABLE -> syncScheduler.requestSync()
+        }
+    }
+
+    override suspend fun localContentStates(contentIds: List<String>): Map<String, LocalContentState> {
+        if (contentIds.isEmpty()) return emptyMap()
+        val snapshot = snapshotProvider() ?: return emptyMap()
+        val profileId = snapshot.profileId ?: return emptyMap()
+        return contentDao.getForContentIds(snapshot.serverId, profileId, contentIds.distinct())
+            .associate { it.contentId to LocalContentState(watched = it.watched, favorite = it.favorite) }
+    }
+
+    private suspend fun record(
+        contentId: String,
+        opKind: String,
+        payloadJson: String,
+        applyField: (ContentItemStateEntity) -> ContentItemStateEntity,
+    ): OutboxHandle {
+        val snapshot = snapshotProvider() ?: return OutboxHandle.NONE
+        val serverId = snapshot.serverId
+        val profileId = snapshot.profileId ?: return OutboxHandle.NONE
+        val nowMs = now()
+
+        var opId = OutboxHandle.NONE.opId
+        db.withTransaction {
+            // Read-modify-write so a single-field mutation (e.g. favorite) does
+            // not clobber another field (e.g. an existing rating) on the row.
+            val existing = contentDao.get(serverId, profileId, contentId)
+                ?: ContentItemStateEntity(
+                    serverId = serverId,
+                    profileId = profileId,
+                    contentId = contentId,
+                    watched = null,
+                    ratingValue = null,
+                    favorite = null,
+                    clientUpdatedAtMs = nowMs,
+                    serverUpdatedAtMs = null,
+                )
+            contentDao.upsert(applyField(existing).copy(clientUpdatedAtMs = nowMs))
+
+            opId = outboxDao.enqueueCoalescing(
+                DirtyOperationEntity(
+                    opKind = opKind,
+                    serverId = serverId,
+                    profileId = profileId,
+                    targetContentId = contentId,
+                    targetFileId = null,
+                    coalesceKey = "$serverId|$profileId|$contentId|$opKind",
+                    idempotencyKey = idGenerator(),
+                    payloadJson = payloadJson,
+                    createdAtMs = nowMs,
+                    nextAttemptAtMs = nowMs,
+                ),
+            )
+        }
+        return OutboxHandle(opId, snapshot)
+    }
+}

@@ -33,7 +33,7 @@ verified facts from docs 01–07 into change-order form. When a fact is marked
   (video copy + audio copy, delivered as HLS) is what the server picks when the container
   is the only problem — we keep that path because it preserves Atmos in the HLS payload.
   (`PlayerViewModel.handleSessionStarted`, doc 07 §3.)
-- **Current gap:** `androidApp/src/androidMain/kotlin/com/continuum/app/android/service/PlaybackService.kt`
+- **Current gap:** `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/service/PlaybackService.kt`
   constructs a second, uninitialised `ExoPlayer` that is never wired to the UI player in
   `PlayerScreen` / `TvPlayerScreen`. The recommendation below is to **consolidate onto a
   single `MediaSessionService`-owned player** that both the phone UI and, once `media3-session`
@@ -194,7 +194,7 @@ the same class (see §5):
 
 ```xml
 <service
-    android:name="com.continuum.app.common.player.SiloPlaybackService"
+    android:name="org.siloserver.silo.common.player.SiloPlaybackService"
     android:exported="false"
     android:foregroundServiceType="mediaPlayback">
     <intent-filter>
@@ -224,8 +224,8 @@ Per doc 06 §1.1, combine `UiModeManager` with `FEATURE_LEANBACK`. Add the helpe
 `android-shared`:
 
 ```kotlin
-// android-shared/src/androidMain/kotlin/com/continuum/app/common/player/TvMode.kt
-package com.continuum.app.common.player
+// android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/TvMode.kt
+package org.siloserver.silo.common.player
 
 import android.app.UiModeManager
 import android.content.Context
@@ -337,12 +337,12 @@ this guide gives the phone-preset and TV-preset builders that read from the prob
 
 ## 3. Constructing the ExoPlayer instance — evolved `SiloPlayerFactory`
 
-This section replaces `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/SiloPlayerFactory.kt`.
+This section replaces `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SiloPlayerFactory.kt`.
 It addresses doc 07 blockers #3, #4, #5, #6, and #7. Fields and setters below are
 verified against doc 01 §3, doc 03 §7.2, doc 05 §5, and doc 06 §2.
 
 ```kotlin
-package com.continuum.app.common.player
+package org.siloserver.silo.common.player
 
 import android.app.UiModeManager
 import android.content.Context
@@ -368,9 +368,9 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
-import com.continuum.app.model.playback.PlayMethod
-import com.continuum.app.model.playback.PlayerSubtitleInfo
-import com.continuum.app.network.TokenManager
+import org.siloserver.silo.model.playback.PlayMethod
+import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import org.siloserver.silo.network.TokenManager
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -760,7 +760,7 @@ Rename `androidApp/.../service/PlaybackService.kt` to
 manifests can declare the same service class:
 
 ```kotlin
-package com.continuum.app.common.player
+package org.siloserver.silo.common.player
 
 import android.app.PendingIntent
 import android.content.Intent

@@ -29,8 +29,8 @@ Repo snapshot date: 2026-04-17
 ## 2. Player construction
 
 - **ExoPlayer instances are built in two places:**
-  - `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/SiloPlayerFactory.kt:73-77` — `ExoPlayer.Builder(context, renderersFactory).setTrackSelector(trackSelector).setAudioAttributes(audioAttributes, handleAudioFocus = true).setHandleAudioBecomingNoisy(true).build()`. Used by both the phone player (`androidApp/.../PlayerScreen.kt:66`) and the TV player (`androidTvApp/.../TvPlayerScreen.kt:81`).
-  - `androidApp/src/androidMain/kotlin/com/continuum/app/android/service/PlaybackService.kt:36-39` — a second, separate `ExoPlayer.Builder(this)...build()` inside a `MediaSessionService`. This second player is **never connected** to the UI player; the service player has no RenderersFactory, no TrackSelector, and is wired to a `MediaSession` that the `PlayerScreen` / `TvPlayerScreen` do not reference.
+  - `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SiloPlayerFactory.kt:73-77` — `ExoPlayer.Builder(context, renderersFactory).setTrackSelector(trackSelector).setAudioAttributes(audioAttributes, handleAudioFocus = true).setHandleAudioBecomingNoisy(true).build()`. Used by both the phone player (`androidApp/.../PlayerScreen.kt:66`) and the TV player (`androidTvApp/.../TvPlayerScreen.kt:81`).
+  - `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/service/PlaybackService.kt:36-39` — a second, separate `ExoPlayer.Builder(this)...build()` inside a `MediaSessionService`. This second player is **never connected** to the UI player; the service player has no RenderersFactory, no TrackSelector, and is wired to a `MediaSession` that the `PlayerScreen` / `TvPlayerScreen` do not reference.
 - **Collaborators passed to `ExoPlayer.Builder` (factory path):**
   - `RenderersFactory`: custom `DefaultRenderersFactory` (`SiloPlayerFactory.kt:41-46`) with `extensionRendererMode = EXTENSION_RENDERER_MODE_ON` (or `_PREFER` if `preferFfmpegAudio=true`; `PREFER` is never actually set because no FFmpeg extension is on the classpath — see section 1) and `enableDecoderFallback(true)`.
   - `TrackSelector`: `DefaultTrackSelector` (see section 4).
@@ -106,7 +106,7 @@ Repo snapshot date: 2026-04-17
 ## 7. Android TV application
 
 - **TV app uses the same `SiloPlayerFactory`** (`androidTvModule.kt:45`) — constructed with `isTv = true`, which flips tunneling on and audio offload off.
-- **Separate UI:** `androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt` — does not share any Compose code with the phone `PlayerScreen`. Uses `androidx.tv.material3` for focusable controls, D-pad-driven menu flows (`TvTrackMenus.kt`), and owns the Media3 `Player.Listener` inline.
+- **Separate UI:** `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt` — does not share any Compose code with the phone `PlayerScreen`. Uses `androidx.tv.material3` for focusable controls, D-pad-driven menu flows (`TvTrackMenus.kt`), and owns the Media3 `Player.Listener` inline.
 - **Tunneling:** enabled via `setTunnelingEnabled(isTv = true)` in the factory.
 - **Refresh-rate / display-mode switching:** yes, via `HdrDisplayController` attached on composition (`TvPlayerScreen.kt:86-89`), driven by `onVideoSizeChanged` + `player.videoFormat?.frameRate` (`TvPlayerScreen.kt:121-131`).
 - **Leanback extension usage:** none. The app declares `<uses-feature android:name="android.software.leanback" android:required="true" />` and uses `LEANBACK_LAUNCHER` (`androidTvApp/src/androidMain/AndroidManifest.xml:5-7, :33`), but the old `media3-exoplayer-leanback` (now rolled into core) is not explicitly required and no Leanback player UI is in use — all transport controls are custom Compose.

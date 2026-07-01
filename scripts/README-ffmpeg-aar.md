@@ -158,7 +158,7 @@ Pass a persistent `WORKDIR` to avoid re-cloning Media3 (~150 MB) and
 FFmpeg (~200 MB) on every run:
 
 ```sh
-WORKDIR=$HOME/tmp/continuum-ffmpeg bash scripts/build-ffmpeg-aar.sh
+WORKDIR=$HOME/tmp/silo-ffmpeg bash scripts/build-ffmpeg-aar.sh
 ```
 
 The Media3 and FFmpeg clones are reused across runs; only the FFmpeg

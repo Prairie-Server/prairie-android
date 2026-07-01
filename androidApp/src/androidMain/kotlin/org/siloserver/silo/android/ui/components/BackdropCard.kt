@@ -1,0 +1,200 @@
+package org.siloserver.silo.android.ui.components
+
+import org.siloserver.silo.common.ui.components.ThumbhashImage
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import org.siloserver.silo.model.catalog.MediaItemUserState
+
+/**
+ * Landscape card for "Continue Watching" / "Next Up" sections.
+ * Shows a 16:9 backdrop with a play button overlay, progress bar, and title.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun BackdropCard(
+    title: String,
+    backdropUrl: String?,
+    backdropThumbhash: String?,
+    seriesTitle: String? = null,
+    seasonNumber: Int? = null,
+    episodeNumber: Int? = null,
+    progress: Float? = null,
+    remainingMinutes: Int? = null,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    width: Dp = 280.dp,
+    userState: MediaItemUserState? = null,
+    actions: MediaCardActions = MediaCardActions(),
+    // Center overlay glyph — play for watch/listen, a book for reading.
+    overlayIcon: ImageVector = Icons.Default.PlayArrow,
+    overlayContentDescription: String = "Play",
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Column(
+        modifier = modifier
+            .width(width)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (actions.isEmpty) null else { { menuExpanded = true } },
+            ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(10.dp),
+                ),
+        ) {
+            ThumbhashImage(
+                url = backdropUrl,
+                thumbhash = backdropThumbhash,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            // Bottom scrim gradient
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0xAA000000)),
+                        ),
+                    ),
+            )
+
+            // Play button circle
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .align(Alignment.Center)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = overlayIcon,
+                    contentDescription = overlayContentDescription,
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+
+            // Progress bar at bottom
+            if (progress != null && progress > 0f) {
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .align(Alignment.BottomCenter),
+                    color = Color.White,
+                    trackColor = Color.Black.copy(alpha = 0.4f),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        if (seriesTitle != null) {
+            // Episode card: show series title, then episode tag + episode title
+            Text(
+                text = seriesTitle,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            val episodeTag = formatEpisodeTag(seasonNumber, episodeNumber)
+            val subtitle = if (episodeTag != null) "$episodeTag \u2022 $title" else title
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            // Movie card: just show the title
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        // Remaining time
+        if (remainingMinutes != null && remainingMinutes > 0) {
+            Text(
+                text = "${remainingMinutes}m left",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        MediaCardContextMenu(
+            expanded = menuExpanded,
+            onDismiss = { menuExpanded = false },
+            actions = actions,
+            isPlayed = userState?.played == true,
+            isFavorite = userState?.isFavorite == true,
+            isInWatchlist = userState?.inWatchlist == true,
+        )
+    }
+}
+
+private fun formatEpisodeTag(season: Int?, episode: Int?): String? {
+    if (season == null && episode == null) return null
+    val s = season?.let { "S${it.toString().padStart(2, '0')}" } ?: ""
+    val e = episode?.let { "E${it.toString().padStart(2, '0')}" } ?: ""
+    return "$s$e"
+}

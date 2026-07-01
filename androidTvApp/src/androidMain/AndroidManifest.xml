@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- libmpv declares minSdk 26. ContinuumPlaybackService gates MPV creation
+    <!-- libmpv declares minSdk 26. SiloPlaybackService gates MPV creation
          to API 26+ and uses Media3 on Android 7/API 24-25. -->
     <uses-sdk tools:overrideLibrary="dev.jdtech.mpv" />
 
@@ -23,13 +23,13 @@
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
 
     <application
-        android:name=".ContinuumTvApplication"
+        android:name=".SiloTvApplication"
         android:allowBackup="true"
         android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ContinuumTv">
+        android:theme="@style/Theme.SiloTv">
 
         <activity
             android:name=".MainTvActivity"
@@ -38,7 +38,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:label="@string/app_name"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.ContinuumTv">
+            android:theme="@style/Theme.SiloTv">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <!-- TV launchers use LEANBACK_LAUNCHER instead of LAUNCHER. -->
@@ -48,7 +48,6 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="continuum" />
                 <!-- Device-pairing links from the `silo` scheme (e.g.
                      silo://device?token=…) so a QR/login flow on another
                      device can hand off to this TV for approval. -->
@@ -59,7 +58,7 @@
         <!-- Media3 documents this as an exported service so system media
              controllers can discover and bind to the app session. -->
         <service
-            android:name="com.continuum.app.common.player.ContinuumPlaybackService"
+            android:name="org.siloserver.silo.common.player.SiloPlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
             tools:ignore="ExportedService">
@@ -70,7 +69,7 @@
 
         <!-- Disable WorkManager's androidx.startup auto-init so our explicit
              `WorkManager.initialize(this, workManagerConfiguration)` call in
-             ContinuumTvApplication.onCreate wins with TvWorkerFactory wired
+             SiloTvApplication.onCreate wins with TvWorkerFactory wired
              in. Otherwise auto-init runs first with the default reflection
              factory and WatchNextSyncWorker can never be instantiated. -->
         <provider

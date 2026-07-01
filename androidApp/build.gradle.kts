@@ -107,10 +107,10 @@ android {
         .map(String::toBoolean)
         .getOrElse(false)
 
-    namespace = "com.continuum.app.android"
+    namespace = "org.siloserver.silo.android"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.continuum.app"
+        applicationId = "org.siloserver.silo"
         minSdk = 24
         targetSdk = 35
         versionCode = siloVersionCode.get()

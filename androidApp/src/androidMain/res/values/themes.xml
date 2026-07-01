@@ -2,9 +2,9 @@
 <resources>
     <!--
         Base XML theme for the splash / system integration layer.
-        Compose applies ContinuumTheme at runtime for all in-app theming.
+        Compose applies SiloTheme at runtime for all in-app theming.
     -->
-    <style name="Theme.Continuum" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Silo" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@color/dark_surface</item>
         <item name="android:windowBackground">@color/dark_background</item>

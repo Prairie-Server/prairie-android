@@ -26,13 +26,13 @@
 # --- kotlinx.serialization ----------------------------------------------------
 # kotlinx-serialization-core ships the generic @Serializable rules; these pin the
 # generated serializers + Companions for Silo's own models (all under
-# com.continuum.app), which R8 cannot see are reached only reflectively from the
+# org.siloserver.silo), which R8 cannot see are reached only reflectively from the
 # JSON format.
--keep,includedescriptorclasses class com.continuum.app.**$$serializer { *; }
--keepclasseswithmembers,includedescriptorclasses class com.continuum.app.** {
+-keep,includedescriptorclasses class org.siloserver.silo.**$$serializer { *; }
+-keepclasseswithmembers,includedescriptorclasses class org.siloserver.silo.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keepclassmembers class com.continuum.app.** {
+-keepclassmembers class org.siloserver.silo.** {
     *** Companion;
 }
 

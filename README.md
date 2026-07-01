@@ -2,7 +2,7 @@
 
 Android **phone** and **Android TV** clients for the [Silo](https://github.com/Silo-Server/silo-server) self-hosted media server — stream and download your movies, shows, music, audiobooks, and ebooks, with quality-aware playback and multi-server/multi-profile support.
 
-Built as a Kotlin Multiplatform project: one shared business-logic core, two Jetpack Compose apps (touch + 10-foot TV). The repo preserves the existing application IDs and Kotlin package namespaces (`com.continuum.app`) for install continuity, but all user-facing names and server references use Silo.
+Built as a Kotlin Multiplatform project: one shared business-logic core, two Jetpack Compose apps (touch + 10-foot TV). This branch uses the full Silo namespace cut: Kotlin packages live under `org.siloserver.silo`, with phone application ID `org.siloserver.silo` and TV application ID `org.siloserver.silo.tv`. Installs under legacy IDs do not upgrade in place; users should expect a fresh app install, sign-in, and offline media download.
 
 > **Status:** Early WIP (`v0.1.0`). The architecture is solid and the feature surface is broad; some areas are intentionally "bones-level" and under active redesign (see [Roadmap](#roadmap)).
 >
@@ -30,7 +30,7 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 | | |
 |---|---|
 | **Apps** | Android phone · Android TV |
-| **Application IDs** | Phone `com.continuum.app` · Android TV `com.continuum.app.tv` |
+| **Application IDs** | Phone `org.siloserver.silo` · Android TV `org.siloserver.silo.tv` |
 | **Language / UI** | Kotlin 2.1.20 · Jetpack Compose (Material 3) · Compose for TV (`androidx.tv`) |
 | **Playback** | AndroidX **Media3 / ExoPlayer** 1.10.0 (+ optional FFmpeg audio extension, optional MPV backend path) |
 | **Networking** | **Ktor** 3.1.2 client · kotlinx.serialization · WebSockets for realtime |
@@ -120,7 +120,7 @@ Three library layers under two app shells. Dependencies only point downward.
 
 ### Modules
 - **`shared`** (KMP, `commonMain`) — the cross-platform core: Ktor `HttpClient`, typed API classes, repositories, most ViewModels, domain models, and the `ApiResult` type.
-- **`android-shared`** — Android-only playback infrastructure shared by both apps: the Media3 `ContinuumPlaybackService`, player/backend factory, capability probes, the stream-auth OkHttp interceptor, public downloads, and DataStore-backed settings.
+- **`android-shared`** — Android-only playback infrastructure shared by both apps: the Media3 `SiloPlaybackService`, player/backend factory, capability probes, the stream-auth OkHttp interceptor, public downloads, and DataStore-backed settings.
 - **`androidApp`** — the phone app: Compose Material 3 screens, bottom-nav shell, `MainActivity`.
 - **`androidTvApp`** — the TV app: Compose for TV, tvOS-aligned top-menu shell, D-pad focus, `MainTvActivity`, plus TV-only Watch Next integration.
 
@@ -134,10 +134,10 @@ Three library layers under two app shells. Dependencies only point downward.
 `sharedModules()` (network + repositories) is combined with the player and Android modules at app startup. The Android apps override the in-memory `TokenManager`/`ServerRegistry` with persistent implementations. ViewModels are resolved with `koinViewModel()`; nav arguments flow in through Koin parameters / `SavedStateHandle`.
 
 ### Navigation & boot
-Each app computes a start destination from registry/token/profile/offline state (`ServerSetup → Login → ProfileSelection → main`), then runs a Compose nav graph. The phone uses an Apple-aligned bottom shell (`Home`, `Libraries`, `For You`, `Calendar`, and conditional `Downloads`). The TV uses a tvOS-aligned top menu (`Home`, available media-type tabs, `Calendar`, plus search/profile actions). Deep links handle device pairing (`silo://…` / `continuum://…`).
+Each app computes a start destination from registry/token/profile/offline state (`ServerSetup → Login → ProfileSelection → main`), then runs a Compose nav graph. The phone uses an Apple-aligned bottom shell (`Home`, `Libraries`, `For You`, `Calendar`, and conditional `Downloads`). The TV uses a tvOS-aligned top menu (`Home`, available media-type tabs, `Calendar`, plus search/profile actions). Deep links handle device pairing through `silo://device?...` and supported HTTPS `/device` or `/auth/device` URLs.
 
 ### Playback pipeline
-The UI never owns the player directly — a `MediaController` drives the shared `ContinuumPlaybackService` (a Media3 `MediaSessionService`), so there's exactly one session for system controls. `PlaybackSessionManager` negotiates the play method with the server, `PlaybackSessionLifecycle` handles progress reporting and outage/`404` recovery, and capability probes decide what's advertised. Offline playback bypasses the server entirely via a local `file://` URI.
+The UI never owns the player directly — a `MediaController` drives the shared `SiloPlaybackService` (a Media3 `MediaSessionService`), so there's exactly one session for system controls. `PlaybackSessionManager` negotiates the play method with the server, `PlaybackSessionLifecycle` handles progress reporting and outage/`404` recovery, and capability probes decide what's advertised. Offline playback bypasses the server entirely via a local `file://` URI.
 
 ### Persistence
 Per-profile/device player settings live in DataStore (debounced, flushed on `onStop`), tokens in `EncryptedSharedPreferences`, reader/audiobook local state in scoped stores or Room-backed projections, and downloaded bytes in public `MediaStore`/Downloads paths with original filenames and formats.
@@ -226,7 +226,7 @@ Known gaps the docs track: TV has no reader/ebooks and no downloads management b
 
 ## Notes
 
-- Android phone and TV app IDs remain `com.continuum.app` and `com.continuum.app.tv` in this migration.
+- Android phone and TV app IDs remain `org.siloserver.silo` and `org.siloserver.silo.tv` in this migration.
 - The Android modules target Java 21.
 - The server repo lives at [`Silo-Server/silo-server`](https://github.com/Silo-Server/silo-server).
 

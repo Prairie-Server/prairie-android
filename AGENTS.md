@@ -21,7 +21,7 @@ This repository contains only the Silo Android clients. Shared Kotlin logic live
 
 ## Coding Style & Naming Conventions
 
-Use Kotlin 2.1, Java 21 targets, and Compose idioms. Keep the existing `com.continuum.app` package and application ID namespaces during this migration for install continuity. Kotlin classes and composables use `PascalCase`; functions and properties use `camelCase`.
+Use Kotlin 2.1, Java 21 targets, and Compose idioms. The Silo package root is `org.siloserver.silo`; the phone application ID is `org.siloserver.silo`, and the TV application ID is `org.siloserver.silo.tv`. This repo is on the full Silo namespace cut, so do not add legacy package IDs, legacy storage names, or old-brand symbols. Kotlin classes and composables use `PascalCase`; functions and properties use `camelCase`.
 
 ## Testing Guidelines
 

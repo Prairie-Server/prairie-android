@@ -32,7 +32,7 @@ Kotlin Multiplatform. Modules:
 Stack: Kotlin 2.1.20, Compose Multiplatform 1.7.3, Material3, Compose-for-TV 1.0.1,
 Coil3 3.1.0, Media3/ExoPlayer 1.10.0 + libmpv, Koin DI, navigation-compose 2.9.0,
 Room 2.8.4, DataStore, WorkManager. minSdk 24, targetSdk 35, compileSdk 36.
-Package root `com.continuum.app` (dirs say "continuum"; product is "Silo").
+Package root `org.siloserver.silo` (dirs say "silo"; product is "Silo").
 iOS-parity is a deliberate design driver — many files say "Mirrors iosApp …".
 
 ---
@@ -99,7 +99,7 @@ Delivered: cold-launch-only splash (phone+TV); theme toggle + plumbing removed
 blur-up** (decoder in `android-shared/.../ui/components/ThumbHash.kt`, wired as
 Coil placeholder in `ThumbhashImage.kt`); hero backdrop decode cap; content
 **skeletons** (`androidApp/.../ui/components/Skeleton.kt` + Home/Detail/Browse/
-Libraries); **QuickStart** buffer default (`ContinuumPlayerFactory.kt`); **buffered
+Libraries); **QuickStart** buffer default (`SiloPlayerFactory.kt`); **buffered
 scrubber** (`PlayerProgressBar.kt` + `bufferedPosition` plumbed through
 `PlayerViewModel`/`PlayerScreen`/`PlayerOverlay`/`PlayerControls`); **TV smooth
 scroll** (`TvSmoothBringIntoViewSpec` provided in `TvSkylineSectionFeed` +
@@ -268,7 +268,7 @@ Existing guards to preserve: `runCatching` around every `requestFocus()`,
 **Shipped:** `release` buildType on both apps (`isMinifyEnabled` +
 `isShrinkResources`, debug-signed for installable smoke testing) sharing one root
 `proguard-rules.pro` with keep rules for the reflection/JNI-heavy components
-(kotlinx.serialization serializers under `com.continuum.app.**`, Koin ViewModels,
+(kotlinx.serialization serializers under `org.siloserver.silo.**`, Koin ViewModels,
 Media3 FFmpeg `Class.forName` renderer, libmpv JNI, BouncyCastle TLS-PSK, Room,
 + Ktor/OkHttp/Coil3/zxing dontwarns). `androidx.profileinstaller` in both apps;
 new `:baselineprofile` macrobenchmark module (cold-start + scroll generator,

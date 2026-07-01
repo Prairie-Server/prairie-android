@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- libmpv declares minSdk 26. ContinuumPlaybackService gates MPV creation
+    <!-- libmpv declares minSdk 26. SiloPlaybackService gates MPV creation
          to API 26+ and uses Media3 on Android 7/API 24-25. -->
     <uses-sdk tools:overrideLibrary="dev.jdtech.mpv" />
 
@@ -20,12 +20,12 @@
         android:maxSdkVersion="28" />
 
     <application
-        android:name=".ContinuumApplication"
+        android:name=".SiloApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Continuum">
+        android:theme="@style/Theme.Silo">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,22 +45,12 @@
                     android:host="device"
                     android:scheme="silo" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-
-                <data
-                    android:host="device"
-                    android:scheme="continuum" />
-            </intent-filter>
         </activity>
 
         <!-- Media3 documents this as an exported service so system media
              controllers can discover and bind to the app session. -->
         <service
-            android:name="com.continuum.app.common.player.ContinuumPlaybackService"
+            android:name="org.siloserver.silo.common.player.SiloPlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
             tools:ignore="ExportedService">
@@ -71,7 +61,7 @@
 
         <!-- Disable WorkManager's androidx.startup auto-init so our explicit
              `WorkManager.initialize(this, workManagerConfiguration)` call in
-             ContinuumApplication.onCreate wins with AppWorkerFactory wired
+             SiloApplication.onCreate wins with AppWorkerFactory wired
              in. Otherwise auto-init runs first with the default factory and
              custom workers (DownloadWorker) crash on instantiation. -->
         <provider

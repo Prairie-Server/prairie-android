@@ -333,7 +333,7 @@ The runtime resolution walks through:
 `DefaultRenderersFactory` already builds an audio sink that will passthrough anything `AudioCapabilities.supportsEncoding(...)` says the platform supports. Silo's `SiloPlayerFactory` uses this pattern:
 
 ```kotlin
-// android-shared/src/androidMain/kotlin/com/continuum/app/common/player/SiloPlayerFactory.kt
+// android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SiloPlayerFactory.kt
 val renderersFactory = DefaultRenderersFactory(context)
     // EXTENSION_RENDERER_MODE_ON registers Opus / FLAC / FFmpeg extensions
     // behind the platform codecs. PREFER would register them in front.
@@ -501,7 +501,7 @@ The first call to `register()` returns the current snapshot; subsequent changes 
     - https://developer.android.com/reference/androidx/media3/exoplayer/audio/DefaultAudioSink
     - https://developer.android.com/reference/androidx/media3/exoplayer/trackselection/DefaultTrackSelector.Parameters.Builder
 - Silo App codebase, the already-wired reference implementation for this document:
-    - `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/SiloPlayerFactory.kt`
+    - `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SiloPlayerFactory.kt`
 
 ## Validation log
 

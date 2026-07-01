@@ -17,7 +17,7 @@ File pointers are repository-relative.
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| Media3/ExoPlayer engine via shared `MediaSessionService` | ✅ | ✅ | One session per process; UI drives it via `MediaController`. `android-shared/.../player/ContinuumPlaybackService.kt` |
+| Media3/ExoPlayer engine via shared `MediaSessionService` | ✅ | ✅ | One session per process; UI drives it via `MediaController`. `android-shared/.../player/SiloPlaybackService.kt` |
 | Direct Play | ✅ | ✅ | Progressive HTTP; server-selected from advertised capabilities |
 | Remux (HLS, container/audio re-mux) | ✅ | ✅ | `PlaybackSessionManager.startTranscodeFallback` |
 | Transcode (HLS full re-encode) | ✅ | ✅ | Server-chosen or runtime fallback |

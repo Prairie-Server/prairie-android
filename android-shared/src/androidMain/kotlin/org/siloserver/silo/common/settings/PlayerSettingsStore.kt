@@ -1,0 +1,114 @@
+package org.siloserver.silo.common.settings
+
+import org.siloserver.silo.model.settings.SubtitleAppearance
+import kotlinx.coroutines.flow.Flow
+
+interface PlayerSettingsStore {
+    // Booleans
+    val autoSkipIntroFlow: Flow<Boolean>
+    val autoSkipCreditsFlow: Flow<Boolean>
+    val autoPlayNextFlow: Flow<Boolean>
+    val hdrEnabledFlow: Flow<Boolean>
+    val dvProfile7HDR10FallbackFlow: Flow<Boolean>
+    /** Per-profile preference for restricting downloads to unmetered (Wi-Fi)
+     *  networks. Default true. Consumed by [DownloadEnqueuer] at enqueue
+     *  time to set the WorkManager NetworkType constraint. */
+    val downloadsWifiOnlyFlow: Flow<Boolean>
+
+    // Doubles
+    val playbackSpeedFlow: Flow<Double>
+
+    // Ints
+    val audioSyncMsFlow: Flow<Int>
+    val subtitleSyncMsFlow: Flow<Int>
+    val nextUpPromptSecondsFlow: Flow<Int>
+    val sleepTimerDefaultMinutesFlow: Flow<Int>
+    /** Seconds to skip back on resume (F1). Default 7; 0 = off. Local-only. */
+    val resumeRewindSecondsFlow: Flow<Int>
+    /** Consecutive auto-advances before the "Still watching?" prompt (F2). Default 3; 0 = off. Local-only. */
+    val passOutThresholdFlow: Flow<Int>
+
+    // Strings
+    val preferredQualityFlow: Flow<String>
+    val audioLanguageFlow: Flow<String>
+    val videoGravityFlow: Flow<String>
+    val orientationModeFlow: Flow<String>
+
+    // Composite
+    val subtitleAppearanceFlow: Flow<SubtitleAppearance>
+
+    /**
+     * Whether the user has enabled a device-scoped subtitle-appearance
+     * override (mirrors iOS `subtitleUsesDeviceAppearanceOverride`).
+     * When false, the effective subtitle appearance comes from the
+     * user-level setting; when true, the local override is in effect.
+     */
+    val subtitleUsesDeviceOverrideFlow: Flow<Boolean>
+
+    // Setters
+    suspend fun setAutoSkipIntro(value: Boolean)
+    suspend fun setAutoSkipCredits(value: Boolean)
+    suspend fun setAutoPlayNext(value: Boolean)
+    suspend fun setHdrEnabled(value: Boolean)
+    suspend fun setDvProfile7HDR10Fallback(value: Boolean)
+    suspend fun setDownloadsWifiOnly(value: Boolean)
+
+    suspend fun setPlaybackSpeed(value: Double)
+
+    suspend fun setAudioSyncMs(value: Int)
+    suspend fun setSubtitleSyncMs(value: Int)
+    suspend fun setNextUpPromptSeconds(value: Int)
+    suspend fun setSleepTimerDefaultMinutes(value: Int)
+    /** Set resume skip-back seconds (clamped 0..30; 0 = off). */
+    suspend fun setResumeRewindSeconds(value: Int)
+    /** Set the pass-out prompt threshold (clamped 0..10; 0 = off). */
+    suspend fun setPassOutThreshold(value: Int)
+
+    suspend fun setPreferredQuality(value: String)
+    suspend fun setAudioLanguage(value: String)
+    suspend fun setVideoGravity(value: String)
+    suspend fun setOrientationMode(value: String)
+
+    suspend fun setSubtitleAppearance(value: SubtitleAppearance)
+
+    /**
+     * Pull every device-scoped setting from `/api/v1/settings/effective`
+     * and write the resolved values into the local DataStore without
+     * round-tripping them back to the server. Mirrors iOS
+     * `PlayerSettings.refreshFromServer()`. Safe to call repeatedly
+     * (idempotent with respect to local state); silently no-ops when no
+     * profile is active or the network is unreachable.
+     */
+    suspend fun refreshFromServer()
+
+    /**
+     * Toggle the device-level override for `subtitle_appearance`. When
+     * `enabled` is false, deletes the device override on the server and
+     * refetches the effective appearance from the user-level setting.
+     * When true, pushes the current local appearance up as a device
+     * override.
+     */
+    suspend fun setSubtitleDeviceOverrideEnabled(enabled: Boolean)
+
+    /**
+     * Clear the server-side device override for one key. Local DataStore
+     * is repopulated from the cascade (user → global → default) on the
+     * next refresh.
+     */
+    suspend fun resetDeviceSetting(key: String)
+
+    /**
+     * Clear every server-side device override. Mirrors iOS
+     * `PlayerSettings.resetAllDeviceSettings()` — the user's "Reset
+     * Playback Overrides" action.
+     */
+    suspend fun resetAllDeviceSettings()
+
+    /**
+     * Cancel any in-flight debounce, drain pending writes, and suspend
+     * until each one acks. Use this from app-lifecycle ON_STOP to make
+     * sure settings the user just toggled survive a backgrounding /
+     * process death window.
+     */
+    suspend fun flushPendingDeviceSettings()
+}

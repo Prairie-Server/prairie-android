@@ -19,7 +19,7 @@ plugins {
  * generator (targetProjectPath = ":androidTvApp") later.
  */
 android {
-    namespace = "com.continuum.app.baselineprofile"
+    namespace = "org.siloserver.silo.baselineprofile"
     compileSdk = 36
 
     defaultConfig {

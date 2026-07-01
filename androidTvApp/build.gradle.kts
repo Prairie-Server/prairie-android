@@ -105,10 +105,10 @@ android {
         .map(String::toBoolean)
         .getOrElse(false)
 
-    namespace = "com.continuum.app.tv"
+    namespace = "org.siloserver.silo.tv"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.continuum.app.tv"
+        applicationId = "org.siloserver.silo.tv"
         minSdk = 24
         targetSdk = 35
         versionCode = siloVersionCode.get()

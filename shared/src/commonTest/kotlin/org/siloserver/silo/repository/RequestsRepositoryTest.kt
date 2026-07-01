@@ -1,0 +1,157 @@
+package org.siloserver.silo.repository
+
+import org.siloserver.silo.model.request.CreateMediaRequest
+import org.siloserver.silo.model.request.MediaRequest
+import org.siloserver.silo.model.request.RequestMediaDetail
+import org.siloserver.silo.model.request.RequestMediaPage
+import org.siloserver.silo.model.request.RequestMediaType
+import org.siloserver.silo.model.request.RequestOutcome
+import org.siloserver.silo.model.request.RequestsDiscoverResponse
+import org.siloserver.silo.model.request.RequestsFeatureStatus
+import org.siloserver.silo.model.request.RequestsListResponse
+import org.siloserver.silo.model.request.RequestStatus
+import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.api.RequestsApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+private fun stubRequest(
+    id: String,
+    tmdbId: Int,
+    status: String = RequestStatus.Pending,
+    outcome: String = RequestOutcome.Active,
+): MediaRequest = MediaRequest(
+    id = id,
+    mediaType = RequestMediaType.Movie,
+    tmdbId = tmdbId,
+    title = "Movie $tmdbId",
+    year = 2026,
+    status = status,
+    outcome = outcome,
+    createdAt = "2026-06-01T00:00:00Z",
+    updatedAt = "2026-06-01T00:00:00Z",
+)
+
+private class FakeRequestsApi(
+    private val mineResult: ApiResult<RequestsListResponse> = ApiResult.Success(RequestsListResponse()),
+    private val createResult: ApiResult<MediaRequest> = ApiResult.NetworkError(IllegalStateException("no fake")),
+    private val cancelResult: ApiResult<MediaRequest> = ApiResult.NetworkError(IllegalStateException("no fake")),
+) : RequestsApi {
+
+    var mineCalls = 0
+
+    override suspend fun status(): ApiResult<RequestsFeatureStatus> =
+        ApiResult.Success(RequestsFeatureStatus(requestsEnabled = true))
+
+    override suspend fun discover(): ApiResult<RequestsDiscoverResponse> =
+        ApiResult.Success(RequestsDiscoverResponse())
+
+    override suspend fun discoverSection(section: String, page: Int): ApiResult<RequestMediaPage> =
+        ApiResult.Success(RequestMediaPage(page = page))
+
+    override suspend fun search(
+        query: String,
+        mediaType: String?,
+        page: Int,
+    ): ApiResult<RequestMediaPage> = ApiResult.Success(RequestMediaPage(page = page))
+
+    override suspend fun detail(mediaType: String, tmdbId: Int): ApiResult<RequestMediaDetail> =
+        ApiResult.NetworkError(IllegalStateException("no fake"))
+
+    override suspend fun create(request: CreateMediaRequest): ApiResult<MediaRequest> = createResult
+
+    override suspend fun mine(
+        status: String?,
+        outcome: String?,
+        limit: Int?,
+        offset: Int?,
+    ): ApiResult<RequestsListResponse> {
+        mineCalls++
+        return mineResult
+    }
+
+    override suspend fun get(id: String): ApiResult<MediaRequest> =
+        ApiResult.NetworkError(IllegalStateException("no fake"))
+
+    override suspend fun cancel(id: String): ApiResult<MediaRequest> = cancelResult
+}
+
+class RequestsRepositoryTest {
+
+    @Test
+    fun `mine refresh populates state flow`() = runTest {
+        val seeded = listOf(stubRequest("a", 1), stubRequest("b", 2))
+        val api = FakeRequestsApi(mineResult = ApiResult.Success(RequestsListResponse(seeded)))
+        val repo = RequestsRepository(api)
+
+        assertTrue(repo.mine.first().isEmpty())
+        val result = repo.refreshMine()
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(seeded, repo.mine.first())
+        assertEquals(1, api.mineCalls)
+    }
+
+    @Test
+    fun `create upserts returned request into mine`() = runTest {
+        val existing = stubRequest("existing", 1)
+        val created = stubRequest("created", 2)
+        val api = FakeRequestsApi(
+            mineResult = ApiResult.Success(RequestsListResponse(listOf(existing))),
+            createResult = ApiResult.Success(created),
+        )
+        val repo = RequestsRepository(api)
+        repo.refreshMine()
+
+        val result = repo.create(
+            CreateMediaRequest(
+                mediaType = RequestMediaType.Movie,
+                tmdbId = 2,
+                title = "Movie 2",
+            ),
+        )
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(listOf(existing, created), repo.mine.first())
+        assertEquals(1, api.mineCalls)
+    }
+
+    @Test
+    fun `cancel replaces matching request in mine`() = runTest {
+        val existing = stubRequest("a", 1, status = RequestStatus.Pending)
+        val other = stubRequest("b", 2)
+        val cancelled = existing.copy(
+            status = RequestStatus.Failed,
+            outcome = RequestOutcome.Cancelled,
+            updatedAt = "2026-06-02T00:00:00Z",
+        )
+        val api = FakeRequestsApi(
+            mineResult = ApiResult.Success(RequestsListResponse(listOf(existing, other))),
+            cancelResult = ApiResult.Success(cancelled),
+        )
+        val repo = RequestsRepository(api)
+        repo.refreshMine()
+
+        val result = repo.cancel("a")
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(listOf(cancelled, other), repo.mine.first())
+    }
+
+    @Test
+    fun `reset clears mine state flow`() = runTest {
+        val seeded = listOf(stubRequest("a", 1), stubRequest("b", 2))
+        val api = FakeRequestsApi(mineResult = ApiResult.Success(RequestsListResponse(seeded)))
+        val repo = RequestsRepository(api)
+
+        repo.refreshMine()
+        assertTrue(repo.mine.first().isNotEmpty())
+
+        repo.reset()
+
+        assertTrue(repo.mine.first().isEmpty())
+    }
+}

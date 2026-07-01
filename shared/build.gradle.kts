@@ -41,7 +41,7 @@ kotlin {
 }
 
 android {
-    namespace = "com.continuum.app.shared"
+    namespace = "org.siloserver.silo.shared"
     compileSdk = 36
     defaultConfig {
         minSdk = 24

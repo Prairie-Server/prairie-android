@@ -68,13 +68,13 @@ Direct play must be first-class from day one:
 
 The Android code already has the start of the right shape:
 
-- A single `ContinuumPlaybackService` owns the process player and exposes it
+- A single `SiloPlaybackService` owns the process player and exposes it
   through Media3 `MediaSession`; engine swaps are handled by
   `PlaybackEngineCommand.SET_ENGINE`.
 - `VideoPlaybackBackendSelector` can choose Media3 or MPV, but current auto
   policy still defaults to Media3 except hard containers, styled subtitles, and
   a few system routes.
-- `ContinuumPlayerFactory` builds Media3 with FFmpeg audio extension priority
+- `SiloPlayerFactory` builds Media3 with FFmpeg audio extension priority
   when enabled and can also build an `MpvPlayer`.
 - `MpvPlayer` wraps libmpv as a Media3 `BasePlayer` with `gpu-next`, `aaudio`,
   `mediacodec-copy`, bounded cache, and HTTP auth headers.
@@ -638,15 +638,15 @@ The Android TV app is launch-ready for this playback contract when:
 
 | Claim | Evidence |
 | --- | --- |
-| Android has a single MediaSession-owned player and async engine swap result. | `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt:48`, `:220` |
-| Android current auto selector is Media3-first except MPV for hard containers/styled subtitles. | `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/backend/VideoPlaybackBackendSelector.kt:5` |
-| Android MPV route uses libmpv with `gpu-next`, `aaudio`, `mediacodec-copy`, bounded cache, and currently disables TLS verification. | `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/mpv/MpvPlayer.kt:49`, `:180`, `:201` |
-| Android marks MPV audio delay unsupported today. | `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/backend/VideoBackendCapabilities.kt:35` |
-| Android Media3 factory prefers FFmpeg audio extension when enabled and maps remux/transcode to HLS. | `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt:73`, `:88`, `:336` |
-| Android subtitle sidecars are text-only for Media3 and bitmap subtitles are only detected. | `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/SubtitleManager.kt:40`, `:258`, `:371` |
-| Android advertises sink passthrough codecs from Media3/Android audio capabilities. | `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/AudioCapabilityManager.kt:94` |
-| Android shared API response is flat session/url/play_method, not a plan. | `shared/src/commonMain/kotlin/com/continuum/app/model/playback/PlaybackModels.kt:13` |
-| Android repository currently drops quality preference and subtitle track index from the start request. | `shared/src/commonMain/kotlin/com/continuum/app/repository/PlaybackRepository.kt:20` |
+| Android has a single MediaSession-owned player and async engine swap result. | `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SiloPlaybackService.kt:48`, `:220` |
+| Android current auto selector is Media3-first except MPV for hard containers/styled subtitles. | `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/backend/VideoPlaybackBackendSelector.kt:5` |
+| Android MPV route uses libmpv with `gpu-next`, `aaudio`, `mediacodec-copy`, bounded cache, and currently disables TLS verification. | `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/mpv/MpvPlayer.kt:49`, `:180`, `:201` |
+| Android marks MPV audio delay unsupported today. | `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/backend/VideoBackendCapabilities.kt:35` |
+| Android Media3 factory prefers FFmpeg audio extension when enabled and maps remux/transcode to HLS. | `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SiloPlayerFactory.kt:73`, `:88`, `:336` |
+| Android subtitle sidecars are text-only for Media3 and bitmap subtitles are only detected. | `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SubtitleManager.kt:40`, `:258`, `:371` |
+| Android advertises sink passthrough codecs from Media3/Android audio capabilities. | `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/AudioCapabilityManager.kt:94` |
+| Android shared API response is flat session/url/play_method, not a plan. | `shared/src/commonMain/kotlin/org/siloserver/silo/model/playback/PlaybackModels.kt:13` |
+| Android repository currently drops quality preference and subtitle track index from the start request. | `shared/src/commonMain/kotlin/org/siloserver/silo/repository/PlaybackRepository.kt:20` |
 | Server resolver currently decides direct/remux/transcode from video/audio/container/resolution. | `../../../silo-server/internal/playback/resolver.go:57` |
 | Server start playback request/response are flat and transport-centric. | `../../../silo-server/internal/api/handlers/playback.go:256`, `:280` |
 | Server planning only runs for capability-led starts with no explicit play method. | `../../../silo-server/internal/api/handlers/playback.go:1225` |
@@ -669,7 +669,7 @@ The Android TV app is launch-ready for this playback contract when:
 ## 13. Validation Log
 
 - verified: Android already has both Media3 and MPV internal player paths.
-  Confirmed by `ContinuumPlayerFactory` and `MpvPlayer`.
+  Confirmed by `SiloPlayerFactory` and `MpvPlayer`.
 - verified: current Android routing is not yet a full execution plan. Confirmed
   by flat `PlaybackSessionResponse` and `VideoPlaybackBackendSelector`.
 - verified: server resolver can distinguish direct/remux/transcode, but not

@@ -70,7 +70,7 @@ SKIP_ABIS=(x86)                 # keep armeabi-v7a / arm64-v8a / x86_64
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUTPUT_AAR="$REPO_ROOT/android-shared/libs/media3-decoder-ffmpeg-${MEDIA3_TAG}.aar"
 
-WORKDIR=${WORKDIR:-$(mktemp -d -t continuum-ffmpeg-XXXXXX)}
+WORKDIR=${WORKDIR:-$(mktemp -d -t silo-ffmpeg-XXXXXX)}
 MEDIA3_DIR="$WORKDIR/media-${MEDIA3_TAG}"
 EXT_MODULE="$MEDIA3_DIR/libraries/decoder_ffmpeg"
 FFMPEG_MODULE_PATH="$EXT_MODULE/src/main"

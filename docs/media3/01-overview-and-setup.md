@@ -427,10 +427,10 @@ plugins {
 }
 
 android {
-    namespace = "com.continuum.app"
+    namespace = "org.siloserver.silo"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.continuum.app"
+        applicationId = "org.siloserver.silo"
         minSdk = 24
         targetSdk = 35
     }

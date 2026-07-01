@@ -40,7 +40,7 @@ cases; this document suite remains the Media3 reference.
   `DefaultRenderersFactory` knobs, and phone vs TV preset examples.
 - **[07 — Current implementation review](07-current-implementation-review.md)** —
   Gap analysis of the current Silo code: which Media3 modules are declared per
-  module, how `ContinuumPlayerFactory` builds the player today, and every
+  module, how `SiloPlayerFactory` builds the player today, and every
   concrete gap against the HDR / DV / Atmos target, ranked.
 - **[08 — Implementation guide](08-implementation-guide.md)** — The concrete,
   end-to-end "how to land this" recipe: Gradle edits, manifest changes, evolved
@@ -66,7 +66,7 @@ cases; this document suite remains the Media3 reference.
   TrueHD / E-AC-3 JOC to leave the device as a bitstream. Common causes: eARC not
   negotiated, AVR in stand-by, Android system's "Surround sound" toggle forced off.
 - **"Where do I set the buffer size?"** `DefaultLoadControl.Builder` in
-  `android-shared/.../player/ContinuumPlayerFactory.kt`, driven by
+  `android-shared/.../player/SiloPlayerFactory.kt`, driven by
   `PlaybackBufferPolicy`. The current default is `SmoothPlayback`
   (45 s min / 90 s max, 5 s initial start, 15 s after rebuffer).
 - **"The player is out of sync on my TV."** 24 fps source on a 60 Hz panel produces
