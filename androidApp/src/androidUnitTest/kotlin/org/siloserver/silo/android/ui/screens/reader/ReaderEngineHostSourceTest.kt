@@ -152,6 +152,7 @@ class ReaderEngineHostSourceTest {
     @Test
     fun reflowWebViewKeepsBridgeCallbacksFreshAcrossRecomposition() {
         val webViewSource = reflowWebViewSourceFile.readText()
+        val readerSource = reflowSourceFile.readText()
 
         assertTrue(webViewSource.contains("val currentOnEvent by rememberUpdatedState(onEvent)"))
         assertTrue(webViewSource.contains("val currentOnCrash by rememberUpdatedState(onCrash)"))
@@ -159,6 +160,23 @@ class ReaderEngineHostSourceTest {
         assertTrue(webViewSource.contains("currentOnReady(ReflowController(webView))"))
         assertTrue(webViewSource.contains("currentOnCrash()"))
         assertTrue(webViewSource.contains("currentOnEvent(event)"))
+        assertTrue(readerSource.contains("var webViewResetKey by remember(source)"))
+        assertTrue(readerSource.contains("key(webViewResetKey)"))
+        assertTrue(readerSource.contains("webViewResetKey += 1"))
+    }
+
+    @Test
+    fun reflowCrashRecoveryReseedsLatestLocatorBeforeRemount() {
+        val readerSource = reflowSourceFile.readText()
+        val onCrashBody = readerSource.substringAfter("onCrash = {")
+            .substringBefore("},")
+        val relocatedBody = readerSource.substringAfter("is ReflowEvent.Relocated -> {")
+            .substringBefore("}")
+
+        assertTrue(readerSource.contains("var latestPageProgression by remember(source)"))
+        assertTrue(relocatedBody.contains("latestPageProgression = ev.pageProgression"))
+        assertTrue(onCrashBody.contains("pendingPageProgression = latestPageProgression"))
+        assertTrue(onCrashBody.contains("relocationGate = ReflowInitialRelocationGate(latestPageProgression)"))
     }
 
     @Test

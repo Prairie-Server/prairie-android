@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,6 +57,8 @@ import androidx.tv.material3.Text
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -92,6 +95,8 @@ import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendRequest
 import org.siloserver.silo.common.player.backend.VideoPlaybackFormFactor
 import org.siloserver.silo.common.player.backend.isLikelyAdaptiveHlsStreamUrl
+import org.siloserver.silo.common.player.mpv.MpvVideoScaleController
+import org.siloserver.silo.common.player.mpv.MpvVideoScaleMode
 import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
 import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
 import org.siloserver.silo.common.player.video.isMpvPreferredOriginalPlaybackContainer
@@ -128,6 +133,7 @@ fun TvPlayerScreen(
     contentId: String,
     onExit: () -> Unit,
     preferredFileId: Int? = null,
+    preferredQuality: String? = null,
     // Watch Together room binding. When non-null, a [TvRoomSyncController]
     // binds this player to the synced room for the lifetime of the screen.
     roomId: String? = null,
@@ -141,17 +147,18 @@ fun TvPlayerScreen(
     autoAdvanceCount: Int = 0,
     // Navigate to the next episode (auto-advance / "Continue"), carrying the
     // updated streak count.
-    onPlayNext: (contentId: String, autoAdvanceCount: Int) -> Unit = { _, _ -> },
+    onPlayNext: (contentId: String, autoAdvanceCount: Int, preferredQuality: String?) -> Unit = { _, _, _ -> },
     // Scope the ViewModel key by fileId too so switching 4K <-> 1080p on
     // the detail screen and replaying actually spins up a fresh player
     // session instead of reusing the cached one bound to the first fileId.
     viewModel: TvPlayerViewModel = koinViewModel(
-        key = "tv-player-$contentId-${preferredFileId ?: "auto"}-${roomId ?: "solo"}-${resumePositionOverride ?: "server"}-${initialAudioTrackIndex ?: "a"}-${initialSubtitleTrackIndex ?: "s"}",
+        key = "tv-player-$contentId-${preferredFileId ?: "auto"}-${preferredQuality ?: "quality-auto"}-${roomId ?: "solo"}-${resumePositionOverride ?: "server"}-${initialAudioTrackIndex ?: "a"}-${initialSubtitleTrackIndex ?: "s"}",
         parameters = {
             parametersOf(
                 TvPlayerLaunchArgs(
                     contentId = contentId,
                     preferredFileId = preferredFileId,
+                    preferredQuality = preferredQuality,
                     roomId = roomId,
                     resumePositionOverride = resumePositionOverride,
                     initialAudioTrackIndex = initialAudioTrackIndex,
@@ -203,6 +210,7 @@ fun TvPlayerScreen(
     val exitScope = rememberCoroutineScope()
     var exitRequested by remember { mutableStateOf(false) }
     var requestedHudTab by remember { mutableStateOf(HudTab.Info) }
+    var showQuickSubtitlePicker by remember { mutableStateOf(false) }
     // Mirrors the HUD's internal active-picker slot so the screen-level
     // BackHandler can defer to an open picker (Back closes only the picker).
     var hudPickerOpen by remember { mutableStateOf(false) }
@@ -331,7 +339,7 @@ fun TvPlayerScreen(
             // singleton, so a late stop() could clobber the next episode's freshly
             // adopted session, and popUpTo would otherwise cancel it mid-flight.
             viewModel.stopSessionForExit()
-            onPlayNext(req.contentId, req.autoAdvanceCount)
+            onPlayNext(req.contentId, req.autoAdvanceCount, req.preferredQuality)
         }
     }
     val applyTvSubtitleSelection: (Int, Boolean) -> Unit = { idx, dismiss ->
@@ -384,6 +392,7 @@ fun TvPlayerScreen(
     // BackHandler must defer (disabled) rather than tearing down the whole HUD.
     BackHandler(enabled = !(state.hudOpen && hudPickerOpen)) {
         when {
+            showQuickSubtitlePicker -> showQuickSubtitlePicker = false
             state.showSubtitleStyleDialog -> viewModel.closeSubtitleStyleDialog()
             state.showSubtitleMenu -> viewModel.closeSubtitleMenu()
             // On the Up-Next overlay, Back exits the player (matches tvOS, where
@@ -409,6 +418,7 @@ fun TvPlayerScreen(
     val latestPlayerState by rememberUpdatedState(state)
     val latestRoomSnapshot by rememberUpdatedState(roomSnapshot)
     val latestShowLeaveDialog by rememberUpdatedState(showLeaveDialog)
+    val latestShowQuickSubtitlePicker by rememberUpdatedState(showQuickSubtitlePicker)
     DisposableEffect(viewModel, roomController) {
         val handler: (KeyEvent) -> Boolean = handler@{ event ->
             val playerState = latestPlayerState
@@ -420,7 +430,8 @@ fun TvPlayerScreen(
                 action = event.action,
                 repeatCount = event.repeatCount,
             )
-            if (playerState.hudOpen || playerState.showSubtitleMenu ||
+            if (latestShowQuickSubtitlePicker ||
+                playerState.hudOpen || playerState.showSubtitleMenu ||
                 playerState.showSubtitleStyleDialog || latestShowLeaveDialog ||
                 // The Up-Next overlay is a focus-trapping Compose surface that
                 // owns its own remote input (Play Now / Keep Watching / Back) —
@@ -881,6 +892,10 @@ fun TvPlayerScreen(
         subtitleManager.applyAppearance(pv, subtitleAppearance)
     }
 
+    LaunchedEffect(sessionPlayer, state.videoFillMode) {
+        applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)
+    }
+
     // Ensure the outer Box owns focus when the overlay is hidden so the first
     // remote key press can reach onPreviewKeyEvent.
     LaunchedEffect(state.showControls) {
@@ -954,11 +969,8 @@ fun TvPlayerScreen(
                             // when sessionPlayer changes on engine swap); transport
                             // still flows through the MediaController.
                             view.player = sessionPlayer
-                            view.resizeMode = when (state.videoFillMode) {
-                                VideoFillMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                VideoFillMode.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                VideoFillMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            }
+                            applyPlayerViewVideoFillMode(view, state.videoFillMode)
+                            applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)
                         },
                     )
                 }
@@ -1048,6 +1060,10 @@ fun TvPlayerScreen(
                             requestedHudTab = HudTab.Info
                             viewModel.openHUD()
                         },
+                        onOpenQuickSubtitles = {
+                            showQuickSubtitlePicker = true
+                            viewModel.setControlsVisible(true)
+                        },
                         onClose = {
                             when {
                                 roomController != null && roomSnapshot?.isHost == true ->
@@ -1095,7 +1111,14 @@ fun TvPlayerScreen(
                                 // Real Media3 video track override: clears the
                                 // override for Auto, otherwise pins the chosen
                                 // resolution/bitrate variant within the video group.
-                                mediaController?.let { selectVideoQuality(it, id) }
+                                mediaController?.let {
+                                    if (selectVideoQuality(it, id)) {
+                                        val resolution = state.videoQualities
+                                            .firstOrNull { option -> option.id == id }
+                                            ?.resolution
+                                        viewModel.onVideoQualitySelectionApplied(resolution)
+                                    }
+                                }
                             },
                             onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, false) },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
@@ -1147,6 +1170,18 @@ fun TvPlayerScreen(
                             onPickerOpenChanged = { hudPickerOpen = it },
                         )
                     }
+                }
+
+                if (showQuickSubtitlePicker) {
+                    TvQuickSubtitlePicker(
+                        tracks = state.subtitleTracks,
+                        onSelect = { idx ->
+                            applyTvSubtitleSelection(idx, false)
+                            showQuickSubtitlePicker = false
+                            viewModel.setControlsVisible(true)
+                        },
+                        onDismiss = { showQuickSubtitlePicker = false },
+                    )
                 }
 
                 if (state.showSubtitleSearchDialog) {
@@ -1353,6 +1388,7 @@ private fun TvPlayerIdleOverlay(
     onCancelScrub: () -> Unit,
     transportFocusRequest: Int,
     onOpenHUD: () -> Unit,
+    onOpenQuickSubtitles: () -> Unit,
     onClose: () -> Unit,
     // Watch Together transport authority. Solo playback leaves both true.
     // A guest who can't seek gets a no-op scrubber/skip; a guest who can't
@@ -1455,6 +1491,7 @@ private fun TvPlayerIdleOverlay(
                 onSkipBack = onSkipBack,
                 onPlayPause = onPlayPause,
                 onSkipForward = onSkipForward,
+                onOpenQuickSubtitles = onOpenQuickSubtitles,
                 onOpenHUD = onOpenHUD,
                 onClose = onClose,
                 playPauseFocus = playPauseFocus,
@@ -1579,6 +1616,48 @@ private fun formatSleepCountdown(seconds: Int): String {
     val m = s / 60
     val sec = s % 60
     return if (m > 0) "${m}m ${sec}s" else "${sec}s"
+}
+
+@Composable
+private fun TvQuickSubtitlePicker(
+    tracks: List<PlayerTrackEntry>,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selectedTrack = tracks.firstOrNull { it.isSelected }
+    val options = buildList {
+        add(HudPickerOption(id = "-1", label = "Off"))
+        tracks.forEachIndexed { idx, track ->
+            add(
+                HudPickerOption(
+                    id = track.index.toString(),
+                    label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                ),
+            )
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            HudPickerDialog(
+                presentation = HudPickerPresentation(
+                    title = "Subtitles",
+                    options = options,
+                    selectedId = (selectedTrack?.index ?: -1).toString(),
+                    onSelect = { id -> onSelect(id.toIntOrNull() ?: -1) },
+                ),
+                onClose = onDismiss,
+            )
+        }
+    }
 }
 
 /**
@@ -1950,6 +2029,8 @@ internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEnt
                 flatTextIndex++
                 val label = format.label.orEmpty().ifBlank { format.language?.uppercase() ?: "" }
                 val codecOrMime = format.subtitleCodecOrMime()
+                val forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0
+                val hearingImpaired = label.isHearingImpairedSubtitleLabel()
                 result.add(
                     PlayerTrackEntry(
                         index = media3FlatTextIndex,
@@ -1957,11 +2038,13 @@ internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEnt
                         language = format.language,
                         isSelected = group.isTrackSelected(trackIndex),
                         codecOrMime = codecOrMime,
+                        isForced = forced,
+                        isHearingImpaired = hearingImpaired,
                         displayLabel = formatSubtitleTrackDisplayLabel(
                             rawLabel = label,
                             language = format.language,
                             codecOrMime = codecOrMime,
-                            isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                            isForced = forced,
                             index = flatTextIndex,
                         ),
                     ),
@@ -1994,6 +2077,15 @@ private fun Format.subtitleCodecOrMime(): String? =
         sampleMimeType ?: codecs
     }
 
+private fun String.isHearingImpairedSubtitleLabel(): Boolean {
+    val lower = lowercase()
+    return lower.contains("sdh") ||
+        lower.contains("hearing") ||
+        lower.contains("hearing impaired") ||
+        lower.contains("(hi)") ||
+        lower == "hi"
+}
+
 /**
  * A selectable video quality variant. Unlike [extractTrackEntries] (which
  * collapses every video group to a single group-level entry), this flattens the
@@ -2006,6 +2098,7 @@ data class VideoQualityOption(
     val id: String,
     val label: String,
     val isSelected: Boolean,
+    val resolution: String? = null,
 )
 
 internal const val VIDEO_QUALITY_AUTO_ID = "-1"
@@ -2030,6 +2123,7 @@ internal fun extractVideoQualityOptions(tracks: Tracks): List<VideoQualityOption
                     id = "$videoGroupOrdinal:$trackIndex",
                     label = formatVideoQualityLabel(format, trackIndex),
                     isSelected = false,
+                    resolution = format.height.takeIf { it > 0 }?.let { "${it}p" },
                 ),
             )
         }
@@ -2077,6 +2171,46 @@ private fun formatVideoQualityLabel(format: Format, trackIndex: Int): String {
     return if (parts.isEmpty()) "Variant ${trackIndex + 1}" else parts.joinToString(" · ")
 }
 
+internal fun resizeModeForVideoFillMode(mode: VideoFillMode): Int = when (mode) {
+    VideoFillMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+    VideoFillMode.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    VideoFillMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+}
+
+private const val FitSurfaceScale = 1.0f
+
+internal fun applyPlayerViewVideoFillMode(view: PlayerView, mode: VideoFillMode) {
+    view.resizeMode = resizeModeForVideoFillMode(mode)
+    val surface = view.getVideoSurfaceView()
+    surface?.let { videoSurface ->
+        fun applyScale() {
+            videoSurface.pivotX = videoSurface.width / 2f
+            videoSurface.pivotY = videoSurface.height / 2f
+            videoSurface.scaleX = FitSurfaceScale
+            videoSurface.scaleY = FitSurfaceScale
+        }
+        applyScale()
+        if (videoSurface.width == 0 || videoSurface.height == 0) {
+            videoSurface.post { applyScale() }
+        }
+    }
+    Log.i(
+        TAG,
+        "TV aspect mode=$mode resize=${view.resizeMode} surfaceScale=$FitSurfaceScale " +
+            "surface=${surface?.javaClass?.simpleName ?: "none"}",
+    )
+}
+
+internal fun applyMpvVideoScaleMode(player: Player?, mode: VideoFillMode) {
+    val mpvPlayer = player as? MpvVideoScaleController ?: return
+    val mpvMode = when (mode) {
+        VideoFillMode.Fit -> MpvVideoScaleMode.Fit
+        VideoFillMode.Zoom -> MpvVideoScaleMode.Zoom
+        VideoFillMode.Stretch -> MpvVideoScaleMode.Stretch
+    }
+    mpvPlayer.setVideoScaleMode(mpvMode)
+}
+
 private data class EngineSwitchResult(
     val success: Boolean,
     val swapped: Boolean,
@@ -2113,31 +2247,32 @@ private suspend fun MediaController.awaitEngineSwitch(request: VideoPlaybackBack
  * player. Mirrors [AudioTrackManager]'s override approach but targets a specific
  * format *within* the video group. This is a real Media3 track switch.
  */
-internal fun selectVideoQuality(player: Player, id: String) {
+internal fun selectVideoQuality(player: Player, id: String): Boolean {
     if (id == VIDEO_QUALITY_AUTO_ID) {
         player.trackSelectionParameters = player.trackSelectionParameters
             .buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
             .build()
-        return
+        return true
     }
     val parts = id.split(":")
-    val groupOrdinal = parts.getOrNull(0)?.toIntOrNull() ?: return
-    val trackIndex = parts.getOrNull(1)?.toIntOrNull() ?: return
+    val groupOrdinal = parts.getOrNull(0)?.toIntOrNull() ?: return false
+    val trackIndex = parts.getOrNull(1)?.toIntOrNull() ?: return false
     var ordinal = 0
     for (group in player.currentTracks.groups) {
         if (group.type != C.TRACK_TYPE_VIDEO) continue
         if (ordinal == groupOrdinal) {
             val mediaGroup = group.mediaTrackGroup
-            if (trackIndex !in 0 until mediaGroup.length) return
+            if (trackIndex !in 0 until mediaGroup.length) return false
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .setOverrideForType(
                     androidx.media3.common.TrackSelectionOverride(mediaGroup, trackIndex),
                 )
                 .build()
-            return
+            return true
         }
         ordinal++
     }
+    return false
 }

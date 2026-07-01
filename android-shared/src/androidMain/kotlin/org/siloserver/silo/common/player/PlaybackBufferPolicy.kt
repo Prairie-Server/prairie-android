@@ -21,13 +21,16 @@ data class PlaybackBufferPolicy(
     val prioritizeTimeOverSizeThresholds: Boolean,
 ) {
     companion object {
-        fun forMode(mode: PlaybackBufferMode): PlaybackBufferPolicy = when (mode) {
+        fun forMode(
+            mode: PlaybackBufferMode,
+            deviceProfile: PlaybackBufferDeviceProfile = PlaybackBufferDeviceProfile.Unknown,
+        ): PlaybackBufferPolicy = when (mode) {
             PlaybackBufferMode.QuickStart -> PlaybackBufferPolicy(
                 minBufferMs = 30_000,
                 maxBufferMs = 60_000,
                 bufferForPlaybackMs = 3_000,
                 bufferForPlaybackAfterRebufferMs = 6_000,
-                targetBufferBytes = 32 * MIB,
+                targetBufferBytes = targetBufferBytes(deviceProfile, low = 48, medium = 96, roomy = 160),
                 prioritizeTimeOverSizeThresholds = false,
             )
             PlaybackBufferMode.Balanced -> PlaybackBufferPolicy(
@@ -35,7 +38,7 @@ data class PlaybackBufferPolicy(
                 maxBufferMs = 120_000,
                 bufferForPlaybackMs = 7_000,
                 bufferForPlaybackAfterRebufferMs = 12_000,
-                targetBufferBytes = 64 * MIB,
+                targetBufferBytes = targetBufferBytes(deviceProfile, low = 64, medium = 128, roomy = 192),
                 prioritizeTimeOverSizeThresholds = false,
             )
             PlaybackBufferMode.SmoothPlayback -> PlaybackBufferPolicy(
@@ -43,11 +46,32 @@ data class PlaybackBufferPolicy(
                 maxBufferMs = 90_000,
                 bufferForPlaybackMs = 5_000,
                 bufferForPlaybackAfterRebufferMs = 15_000,
-                targetBufferBytes = 96 * MIB,
+                targetBufferBytes = targetBufferBytes(deviceProfile, low = 96, medium = 160, roomy = 256),
                 prioritizeTimeOverSizeThresholds = false,
             )
         }
 
+        private fun targetBufferBytes(
+            deviceProfile: PlaybackBufferDeviceProfile,
+            low: Int,
+            medium: Int,
+            roomy: Int,
+        ): Int = when {
+            deviceProfile.isLowRamDevice || deviceProfile.memoryClassMb in 1 until 192 -> low * MIB
+            deviceProfile.memoryClassMb <= 0 -> low * MIB
+            deviceProfile.memoryClassMb in 192 until 384 -> medium * MIB
+            else -> roomy * MIB
+        }
+
         private const val MIB = 1024 * 1024
+    }
+}
+
+data class PlaybackBufferDeviceProfile(
+    val memoryClassMb: Int,
+    val isLowRamDevice: Boolean,
+) {
+    companion object {
+        val Unknown = PlaybackBufferDeviceProfile(memoryClassMb = 0, isLowRamDevice = false)
     }
 }

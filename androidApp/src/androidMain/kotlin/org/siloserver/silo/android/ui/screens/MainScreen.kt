@@ -41,6 +41,7 @@ import org.siloserver.silo.android.ui.screens.recommendations.RecommendationsScr
 import org.siloserver.silo.model.navigation.MediaMode
 import org.siloserver.silo.model.navigation.MediaModeCapabilities
 import org.siloserver.silo.model.navigation.mobileMediaModeCapabilities
+import org.siloserver.silo.model.feature.CLIENT_REQUESTS_SURFACE_ENABLED
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.repository.PersonalDataRepository
@@ -295,7 +296,11 @@ fun MainScreen(
                     } else {
                         { navController.navigate(Route.Calendar.route) }
                     },
-                    onRequestsClick = { navController.navigate(Route.Requests.route) },
+                    onRequestsClick = if (CLIENT_REQUESTS_SURFACE_ENABLED) {
+                        { navController.navigate(Route.Requests.route) }
+                    } else {
+                        null
+                    },
                     onSettingsClick = { navController.navigate(Route.Settings.route) },
                     onSwitchProfileClick = {
                         navController.navigate(Route.ProfileSelection.route)

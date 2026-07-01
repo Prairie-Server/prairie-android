@@ -3,6 +3,7 @@ package org.siloserver.silo.android.ui.screens.profiles
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.model.profile.CreateProfileRequest
+import org.siloserver.silo.model.profile.canonicalProfileQualityPreference
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,7 +78,7 @@ class CreateProfileViewModel(
 
     fun onQualitySelected(quality: String) {
         _uiState.update {
-            it.copy(qualityPreference = if (quality == "Auto") null else quality)
+            it.copy(qualityPreference = canonicalProfileQualityPreference(quality))
         }
     }
 

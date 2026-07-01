@@ -48,6 +48,7 @@ import org.siloserver.silo.android.ui.screens.auth.AuthColors
 import org.siloserver.silo.android.ui.screens.auth.AuthErrorBanner
 import org.siloserver.silo.android.ui.screens.auth.SiloButton
 import org.siloserver.silo.android.ui.screens.auth.SiloTextField
+import org.siloserver.silo.model.profile.displayProfileQualityPreference
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -190,7 +191,7 @@ fun CreateProfileScreen(
             // -- Quality preference --
             DropdownField(
                 label = "Quality Preference",
-                selected = state.qualityPreference ?: "Auto",
+                selected = displayProfileQualityPreference(state.qualityPreference),
                 options = QUALITY_OPTIONS,
                 onSelected = viewModel::onQualitySelected,
             )

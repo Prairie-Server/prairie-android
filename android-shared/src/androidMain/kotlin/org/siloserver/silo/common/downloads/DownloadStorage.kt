@@ -65,12 +65,13 @@ class DownloadStorage(
         container: String? = null,
         mediaType: String? = null,
     ): DownloadTarget {
+        val displayName = localMediaFileName(fileId, fileName, container)
         publicStore.delete(serverId, profileId, fileId, uriString = null)
         return publicStore.create(
             serverId = serverId,
             profileId = profileId,
             fileId = fileId,
-            displayName = localMediaFileName(fileId, fileName, container),
+            displayName = displayName,
             container = container,
             mediaType = mediaType,
         )
@@ -143,7 +144,7 @@ class DownloadStorage(
             ?.removePrefix(".")
             ?.replace(Regex("[^a-z0-9]"), "")
             ?.takeIf { it.isNotBlank() }
-            ?: "download"
+            ?: throw IllegalArgumentException("Original download filename or container is required")
         return "$fileId.$extension"
     }
 

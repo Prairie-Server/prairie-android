@@ -63,12 +63,12 @@ class PersonDetailViewModel(
 ) : ViewModel() {
 
     private val personId: Long =
-        when (val value = savedStateHandle.get<Any?>("personId")) {
-            is Long -> value
-            is Int -> value.toLong()
-            is String -> value.toLongOrNull()
-            else -> null
-        } ?: 0L
+        when (val raw = savedStateHandle.get<Any?>("personId")) {
+            is Long -> raw
+            is Int -> raw.toLong()
+            is String -> raw.toLongOrNull() ?: 0L
+            else -> 0L
+        }
 
     private val _uiState = MutableStateFlow(PersonDetailUiState())
     val uiState: StateFlow<PersonDetailUiState> = _uiState.asStateFlow()

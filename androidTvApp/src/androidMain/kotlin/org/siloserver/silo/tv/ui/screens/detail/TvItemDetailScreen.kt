@@ -240,7 +240,7 @@ private fun TvDetailContent(
                             ratingChip = TvDetailMetadata.ratingChip(detail),
                             overview = detail.overview,
                             tagline = detail.tagline,
-                            factsLine = TvDetailMetadata.factsLine(detail),
+                            factsLine = TvDetailMetadata.factsLine(detail, state.preferredQuality),
                             starringText = TvDetailMetadata.starringText(detail),
                             actions = {
                                 HeroActionRow(
@@ -497,11 +497,28 @@ private fun HeroActionRow(
     val selectorAudioIndex = if (isSeriesOrSeason) state.selectedNextUpAudioIndex else state.selectedAudioIndex
     val selectorSubtitleIndex =
         if (isSeriesOrSeason) state.selectedNextUpSubtitleIndex else state.selectedSubtitleIndex
-    val selectedFileId = selectorSelectedFileId ?: selectorVersions.firstOrNull()?.fileId
-    // The effective playable version drives the inline playback selector row.
-    val selectedVersion = remember(selectorVersions, selectedFileId) {
-        selectorVersions.firstOrNull { it.fileId == selectedFileId } ?: selectorVersions.firstOrNull()
+    val selectorLastFileId = if (isSeriesOrSeason) {
+        nextUpDetail?.userData?.lastFileId
+    } else {
+        detail.userData?.lastFileId
     }
+    val selectedVersion = remember(
+        selectorVersions,
+        selectorSelectedFileId,
+        selectorLastFileId,
+        state.preferredQuality,
+    ) {
+        selectTvDetailDisplayVersion(
+            versions = selectorVersions,
+            selectedFileId = selectorSelectedFileId,
+            lastFileId = selectorLastFileId,
+            preferredQuality = state.preferredQuality,
+        )
+    }
+    val selectedFileId = selectedVersion?.fileId
+    val hasTrackOverride = selectorAudioIndex != null || selectorSubtitleIndex != null
+    val playFileId = selectorSelectedFileId ?: selectedFileId.takeIf { hasTrackOverride }
+    // The effective playable version drives the inline playback selector row.
     val isAudiobook = isAudiobookItemType(detail.type)
     // Down from the action cluster lands on the selector row (when shown) rather
     // than skipping into the body. Mirrors Apple's full-width `.focusSection()`.
@@ -550,7 +567,7 @@ private fun HeroActionRow(
                 onClick = {
                     if (playReady) {
                         onPlay(
-                            playContentId, selectedFileId,
+                            playContentId, playFileId,
                             selectorAudioIndex, selectorSubtitleIndex,
                             playType, resumePosition,
                         )
@@ -566,7 +583,7 @@ private fun HeroActionRow(
                     onClick = {
                         if (playReady) {
                             onPlay(
-                                playContentId, selectedFileId,
+                                playContentId, playFileId,
                                 selectorAudioIndex, selectorSubtitleIndex,
                                 playType, 0.0,
                             )

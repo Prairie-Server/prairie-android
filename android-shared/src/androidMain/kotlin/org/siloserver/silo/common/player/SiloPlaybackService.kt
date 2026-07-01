@@ -40,6 +40,7 @@ import org.siloserver.silo.common.player.backend.VideoPlaybackBackendKind
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendRequest
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendSelector
 import org.siloserver.silo.common.player.audio.DelayAudioProcessor
+import org.siloserver.silo.common.player.mpv.MpvPlayer
 import org.siloserver.silo.common.player.subtitle.SubtitleOffsetHolder
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.koin.android.ext.android.inject
@@ -165,7 +166,8 @@ class SiloPlaybackService : MediaSessionService() {
                     val previous = delayProcessor.getActiveDelayMs()
                     delayProcessor.setDelayMs(delayMs)
                     val p = activePlayer
-                    if (previous != delayMs && p != null && p.isPlaying) {
+                    (p as? MpvPlayer)?.setAudioDelayMs(delayMs)
+                    if (previous != delayMs && p != null && p !is MpvPlayer && p.isPlaying) {
                         p.seekTo(p.currentPosition)
                     }
                 }
@@ -184,7 +186,8 @@ class SiloPlaybackService : MediaSessionService() {
                     val previous = subtitleOffsetHolder.getOffsetMs()
                     subtitleOffsetHolder.setOffsetMs(offsetMs)
                     val p = activePlayer
-                    if (previous != offsetMs && p != null) {
+                    (p as? MpvPlayer)?.setSubtitleDelayMs(offsetMs)
+                    if (previous != offsetMs && p != null && p !is MpvPlayer) {
                         reparseCurrentMediaItemAtCurrentPosition(p, offsetMs)
                     }
                 }
@@ -401,6 +404,7 @@ class SiloPlaybackService : MediaSessionService() {
             session.player = newPlayer
             activePlayer = newPlayer
             currentEngineKind = actual
+            applyCurrentSyncOffsetsToMpv(newPlayer)
             // Publish so the UI re-binds its PlayerView surface to the new engine.
             activePlayerHolder.set(newPlayer)
         } catch (t: Throwable) {
@@ -424,6 +428,12 @@ class SiloPlaybackService : MediaSessionService() {
         previousPlayer = old
         logDecision(request, selected, actual)
         return true
+    }
+
+    private fun applyCurrentSyncOffsetsToMpv(player: Player) {
+        val mpvPlayer = player as? MpvPlayer ?: return
+        mpvPlayer.setAudioDelayMs(delayProcessor.getActiveDelayMs())
+        mpvPlayer.setSubtitleDelayMs(subtitleOffsetHolder.getOffsetMs())
     }
 
     /** Carry full playback state across a swap (Codex req #4). */

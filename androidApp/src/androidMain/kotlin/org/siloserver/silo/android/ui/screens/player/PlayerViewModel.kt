@@ -49,11 +49,13 @@ import org.siloserver.silo.common.player.AutoPlayGuard
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.errorMessage
 import org.siloserver.silo.playback.nextEpisodeAfter
+import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.SubtitlesRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
@@ -406,6 +408,13 @@ class PlayerViewModel(
                     return@launch
                 }
 
+                try {
+                    playerSettingsStore.refreshFromServer()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not refresh player settings before playback", e)
+                }
                 when (val playbackState = videoPlaybackCoordinator.start(
                     VideoPlaybackStartRequest(
                         contentId = contentId,
@@ -429,6 +438,8 @@ class PlayerViewModel(
                     }
                     is VideoPlayerUiState.Loading -> Unit
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading content", e)
                 _uiState.update {
@@ -1505,42 +1516,17 @@ class PlayerViewModel(
         preferredFileId: Int?,
         preferredQuality: String?,
     ): Int {
+        if (watchDetail.versions.isEmpty()) return 0
         if (preferredFileId != null) {
             val index = watchDetail.versions.indexOfFirst { it.fileId == preferredFileId }
             if (index >= 0) return index
         }
-        // If the user has a last-used file ID, prefer that version
-        val lastFileId = watchDetail.userData?.lastFileId
-        if (lastFileId != null) {
-            val index = watchDetail.versions.indexOfFirst { it.fileId == lastFileId }
-            if (index >= 0) return index
-        }
-        val qualityIndex = preferredVersionIndex(watchDetail.versions, preferredQuality)
-        if (qualityIndex >= 0) return qualityIndex
-        return 0
-    }
-
-    private fun preferredVersionIndex(versions: List<FileVersion>, preferredQuality: String?): Int {
-        val target = preferredQuality?.lowercase().orEmpty()
-        if (target.isBlank() || target == "auto") return -1
-        val preferredRank = resolutionRank(target)
-        return versions.withIndex()
-            .sortedByDescending { (_, version) -> resolutionRank(version.resolution) }
-            .firstOrNull { (_, version) ->
-                target == "original" || resolutionRank(version.resolution) <= preferredRank
-            }
-            ?.index ?: -1
-    }
-
-    private fun resolutionRank(value: String?): Int {
-        val normalized = value?.lowercase().orEmpty()
-        return when {
-            normalized.contains("2160") || normalized.contains("4k") -> 2160
-            normalized.contains("1080") -> 1080
-            normalized.contains("720") -> 720
-            normalized.contains("480") -> 480
-            else -> 0
-        }
+        val selected = selectPlaybackVersion(
+            versions = watchDetail.versions,
+            lastFileId = watchDetail.userData?.lastFileId,
+            preferredQuality = preferredQuality,
+        )
+        return watchDetail.versions.indexOfFirst { it.fileId == selected.fileId }.takeIf { it >= 0 } ?: 0
     }
 
 

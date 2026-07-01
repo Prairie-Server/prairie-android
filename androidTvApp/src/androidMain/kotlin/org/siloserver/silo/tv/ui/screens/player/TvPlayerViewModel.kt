@@ -80,6 +80,8 @@ data class PlayerTrackEntry(
     val isSelected: Boolean,
     val displayLabel: String = label,
     val codecOrMime: String? = null,
+    val isForced: Boolean = false,
+    val isHearingImpaired: Boolean = false,
 )
 
 internal fun subtitleTracksWithSelection(
@@ -90,22 +92,138 @@ internal fun subtitleTracksWithSelection(
         track.copy(isSelected = selectedIndex >= 0 && track.index == selectedIndex)
     }
 
+internal sealed class SubtitleAutoSelection {
+    data object NoChange : SubtitleAutoSelection()
+    data object Disable : SubtitleAutoSelection()
+    data class Select(val index: Int) : SubtitleAutoSelection()
+}
+
+internal fun resolveAutoSubtitleSelection(
+    audioTracks: List<PlayerTrackEntry>,
+    subtitleTracks: List<PlayerTrackEntry>,
+    preferredLanguage: String?,
+    subtitleMode: String?,
+    showForced: Boolean,
+): SubtitleAutoSelection {
+    if (subtitleTracks.isEmpty()) return SubtitleAutoSelection.NoChange
+
+    val mode = subtitleMode?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "auto"
+    if (mode == "off") return SubtitleAutoSelection.Disable
+
+    if (preferredLanguage != null && preferredLanguage.isBlank()) {
+        return SubtitleAutoSelection.Disable
+    }
+    val targetLanguage = normalizedSubtitleLanguage(preferredLanguage)
+    if (targetLanguage == null) {
+        if (mode == "always") {
+            return bestAutoSubtitleTrack(
+                subtitleTracks = subtitleTracks,
+                targetLanguage = null,
+                preferForced = showForced,
+            )?.let { SubtitleAutoSelection.Select(it.index) }
+                ?: SubtitleAutoSelection.NoChange
+        }
+        return SubtitleAutoSelection.NoChange
+    }
+
+    val selectedAudioLanguage = audioTracks
+        .firstOrNull { it.isSelected }
+        ?.language
+        ?.let(::normalizedSubtitleLanguage)
+    if (mode == "auto" && selectedAudioLanguage != null && selectedAudioLanguage == targetLanguage) {
+        if (showForced) {
+            val forcedTarget = bestForcedAutoSubtitleTrack(
+                subtitleTracks = subtitleTracks,
+                targetLanguage = targetLanguage,
+            )
+            if (forcedTarget != null) {
+                return if (forcedTarget.isSelected) {
+                    SubtitleAutoSelection.NoChange
+                } else {
+                    SubtitleAutoSelection.Select(forcedTarget.index)
+                }
+            }
+        }
+        return SubtitleAutoSelection.Disable
+    }
+
+    val target = bestAutoSubtitleTrack(
+        subtitleTracks = subtitleTracks,
+        targetLanguage = targetLanguage,
+        preferForced = showForced,
+    ) ?: if (showForced) {
+        subtitleTracks.firstOrNull { it.isForced }
+    } else {
+        null
+    }
+
+    return when {
+        target == null -> SubtitleAutoSelection.NoChange
+        target.isSelected -> SubtitleAutoSelection.NoChange
+        else -> SubtitleAutoSelection.Select(target.index)
+    }
+}
+
 internal fun preferredAutoTextSubtitleIndex(
     tracks: List<PlayerTrackEntry>,
     preferredLanguage: String?,
 ): Int? {
-    val selected = tracks.firstOrNull { it.isSelected } ?: return null
-    if (!isBitmapSubtitleCodecOrMime(selected.codecOrMime)) return null
+    return when (
+        val selection = resolveAutoSubtitleSelection(
+            audioTracks = emptyList(),
+            subtitleTracks = tracks,
+            preferredLanguage = preferredLanguage,
+            subtitleMode = "auto",
+            showForced = true,
+        )
+    ) {
+        is SubtitleAutoSelection.Select -> selection.index
+        SubtitleAutoSelection.Disable,
+        SubtitleAutoSelection.NoChange -> null
+    }
+}
 
-    val targetLanguage = normalizedSubtitleLanguage(selected.language)
-        ?: normalizedSubtitleLanguage(preferredLanguage)
-        ?: return null
+private fun bestAutoSubtitleTrack(
+    subtitleTracks: List<PlayerTrackEntry>,
+    targetLanguage: String?,
+    preferForced: Boolean,
+): PlayerTrackEntry? {
+    val pool = if (targetLanguage == null) {
+        subtitleTracks
+    } else {
+        subtitleTracks.filter { normalizedSubtitleLanguage(it.language) == targetLanguage }
+    }
+    if (pool.isEmpty()) return null
 
-    return tracks.firstOrNull { track ->
-        track.index != selected.index &&
-            !isBitmapSubtitleCodecOrMime(track.codecOrMime) &&
-            normalizedSubtitleLanguage(track.language) == targetLanguage
-    }?.index
+    if (preferForced) {
+        pool.firstOrNull { it.isForced && !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+            ?.let { return it }
+    }
+    pool.firstOrNull { !it.isForced && !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+        ?.let { return it }
+    pool.firstOrNull { !it.isForced && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+        ?.let { return it }
+    pool.firstOrNull { !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+        ?.let { return it }
+    return pool.first()
+}
+
+private fun bestForcedAutoSubtitleTrack(
+    subtitleTracks: List<PlayerTrackEntry>,
+    targetLanguage: String?,
+): PlayerTrackEntry? {
+    val pool = if (targetLanguage == null) {
+        subtitleTracks
+    } else {
+        subtitleTracks.filter { normalizedSubtitleLanguage(it.language) == targetLanguage }
+    }.filter { it.isForced }
+    if (pool.isEmpty()) return null
+
+    pool.firstOrNull { !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+        ?.let { return it }
+    pool.firstOrNull { !it.isHearingImpaired }
+        ?.let { return it }
+    return pool.first()
 }
 
 internal fun resolveInitialSubtitleTrackIndex(
@@ -214,6 +332,7 @@ data class NextEpisodeState(
 data class TvPlayerLaunchArgs(
     val contentId: String,
     val preferredFileId: Int? = null,
+    val preferredQuality: String? = null,
     val roomId: String? = null,
     val resumePositionOverride: Double? = null,
     /** Pre-selected audio track index from the detail screen (null = auto). */
@@ -231,7 +350,7 @@ data class TvPlayerLaunchArgs(
 )
 
 /** Emitted to ask the screen to navigate to the next episode (auto-advance / Continue). */
-data class PlayNextRequest(val contentId: String, val autoAdvanceCount: Int)
+data class PlayNextRequest(val contentId: String, val autoAdvanceCount: Int, val preferredQuality: String?)
 
 /**
  * Snapshot of player statistics surfaced in the HUD's Stats pane.
@@ -444,6 +563,7 @@ class TvPlayerViewModel(
      * resolution file because of the server's version sort order.
      */
     private val preferredFileId: Int? = launchArgs.preferredFileId
+    private val preferredQuality: String? = launchArgs.preferredQuality
     private val roomId: String? = launchArgs.roomId
     private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
 
@@ -489,6 +609,7 @@ class TvPlayerViewModel(
         val serverUrl: String = "",
         val accessToken: String = "",
         val selectedFileId: Int? = null,
+        val selectedFileResolution: String? = null,
         val startPosition: Double = 0.0,
         val position: Double = 0.0,
         val duration: Double = 0.0,
@@ -546,6 +667,8 @@ class TvPlayerViewModel(
         val showSubtitleMenu: Boolean = false,
         val preferredAudioLanguage: String? = null,
         val preferredTextLanguage: String? = null,
+        val preferredSubtitleMode: String? = null,
+        val showForcedSubtitles: Boolean = true,
         // Intro / credits ranges — populated from `WatchDetail`. Used by the
         // intro auto-skip observer and (eventually) the next-up promote.
         val intro: TimeRange? = null,
@@ -771,6 +894,7 @@ class TvPlayerViewModel(
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             try {
+                runCatching { playerSettingsStore.refreshFromServer() }
                 when (val result = videoPlaybackCoordinator.start(
                     VideoPlaybackStartRequest(
                         contentId = contentId,
@@ -779,6 +903,7 @@ class TvPlayerViewModel(
                         resumePositionOverride = startPositionOverride,
                         audioTrackIndex = initialAudioTrackIndex,
                         subtitleTrackIndex = pendingInitialSubtitleIndex,
+                        preferredQualityOverride = preferredQuality,
                         suppressResumeRewind = suppressResumeRewind,
                     ),
                 )) {
@@ -798,6 +923,7 @@ class TvPlayerViewModel(
                                 serverUrl = result.serverUrl,
                                 accessToken = result.accessToken,
                                 selectedFileId = result.fileId,
+                                selectedFileResolution = result.fileResolution,
                                 mediaFileId = result.mediaFileId,
                                 startPosition = result.startPositionSeconds,
                                 position = result.startPositionSeconds,
@@ -806,6 +932,8 @@ class TvPlayerViewModel(
                                 subtitleUrls = result.subtitleUrls,
                                 preferredAudioLanguage = result.preferredAudioLanguage,
                                 preferredTextLanguage = result.preferredTextLanguage,
+                                preferredSubtitleMode = result.preferredSubtitleMode,
+                                showForcedSubtitles = result.showForcedSubtitles,
                                 intro = result.intro,
                                 credits = result.credits,
                                 chapters = result.chapters,
@@ -959,7 +1087,7 @@ class TvPlayerViewModel(
             when (val r = playbackSessionManager.startTranscodeFallback(
                 session = sessionResponse,
                 seekSeconds = state.position,
-                resolution = "",
+                resolution = state.selectedFileResolution.orEmpty(),
                 mode = fallbackMode,
                 audioTrackIndex = selectedAudioIndex,
                 subtitleTrackIndex = selectedSubtitleIndex,
@@ -1338,9 +1466,11 @@ class TvPlayerViewModel(
     private fun advanceToNextEpisode(nextAutoAdvanceCount: Int) {
         nextUpCountdownJob?.cancel()
         nextUpCountdownJob = null
-        val next = _uiState.value.nextEpisode ?: return
+        val state = _uiState.value
+        val next = state.nextEpisode ?: return
+        val selectedQuality = state.selectedFileResolution
         _uiState.update { it.copy(showNextUp = false, nextUpCountdownSeconds = null) }
-        _playNextRequests.tryEmit(PlayNextRequest(next.contentId, nextAutoAdvanceCount))
+        _playNextRequests.tryEmit(PlayNextRequest(next.contentId, nextAutoAdvanceCount, selectedQuality))
     }
 
     /** Up-Next "Keep Watching" — dismiss the overlay and stay on the current episode. */
@@ -1359,7 +1489,7 @@ class TvPlayerViewModel(
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
-        resolveAutoPreferredTextSubtitle(subtitle)
+        resolveAutoPreferredTextSubtitle(audio, subtitle)
     }
 
     fun onTracksChanged(
@@ -1378,22 +1508,31 @@ class TvPlayerViewModel(
         }
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
-        resolveAutoPreferredTextSubtitle(subtitle)
+        resolveAutoPreferredTextSubtitle(audio, subtitle)
     }
 
-    private fun resolveAutoPreferredTextSubtitle(subtitle: List<PlayerTrackEntry>) {
+    private fun resolveAutoPreferredTextSubtitle(
+        audio: List<PlayerTrackEntry>,
+        subtitle: List<PlayerTrackEntry>,
+    ) {
         if (autoTextSubtitleSelectionAttempted) return
         if (launchArgs.initialSubtitleTrackIndex != null) return
         if (subtitle.isEmpty()) return
-        if (subtitle.none { it.isSelected }) return
 
-        val targetIndex = preferredAutoTextSubtitleIndex(
-            tracks = subtitle,
-            preferredLanguage = _uiState.value.preferredTextLanguage,
+        val state = _uiState.value
+        val selection = resolveAutoSubtitleSelection(
+            audioTracks = audio,
+            subtitleTracks = subtitle,
+            preferredLanguage = state.preferredTextLanguage,
+            subtitleMode = state.preferredSubtitleMode,
+            showForced = state.showForcedSubtitles,
         )
         autoTextSubtitleSelectionAttempted = true
-        targetIndex ?: return
-        _subtitleSelectRequests.tryEmit(targetIndex)
+        when (selection) {
+            SubtitleAutoSelection.Disable -> _subtitleSelectRequests.tryEmit(-1)
+            is SubtitleAutoSelection.Select -> _subtitleSelectRequests.tryEmit(selection.index)
+            SubtitleAutoSelection.NoChange -> Unit
+        }
     }
 
     /**
@@ -1499,6 +1638,10 @@ class TvPlayerViewModel(
 
     fun onVideoFillModeChanged(mode: VideoFillMode) {
         _uiState.update { it.copy(videoFillMode = mode) }
+    }
+
+    fun onVideoQualitySelectionApplied(resolution: String?) {
+        _uiState.update { it.copy(selectedFileResolution = resolution) }
     }
 
     /**

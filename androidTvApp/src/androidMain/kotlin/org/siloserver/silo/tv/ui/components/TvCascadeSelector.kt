@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,27 +71,27 @@ internal val CascadeFlyoutPadding = 5.dp
 internal val CascadeFlyoutCornerRadius = 9.dp
 internal val CascadeMaxListHeight = 180.dp
 internal val TvCascadeSelectorMaxPanelWidth = 389.dp
-internal val CascadePanelHeaderSize = 7.sp
-internal val CascadeFlyoutHeaderSize = 6.5.sp
-internal val CascadeFooterTextSize = 9.5.sp
-internal val CascadeRowTextSize = 11.sp
+internal val CascadePanelHeaderSize = 13.sp
+internal val CascadeFlyoutHeaderSize = 13.sp
+internal val CascadeFooterTextSize = 13.sp
+internal val CascadeRowTextSize = 13.sp
 internal val CascadeRowIconSize = 15.dp
 internal val CascadeRowPaddingHorizontal = 9.dp
 internal val CascadeRowPaddingVertical = 8.dp
 internal val CascadeRowCornerRadius = 7.dp
-internal val CascadeFlyoutRowTextSize = 10.sp
+internal val CascadeFlyoutRowTextSize = 13.sp
 internal val CascadeFlyoutRowIconSize = 9.dp
 internal val CascadeFlyoutRowPaddingHorizontal = 8.dp
 internal val CascadeFlyoutRowPaddingVertical = 6.5.dp
 internal val CascadeFlyoutRowCornerRadius = 6.dp
 
 private val CascadeRowSpacing = 7.dp
-private val CascadeRowTrailingIconSize = 8.5.dp
+private val CascadeRowTrailingIconSize = 9.5.dp
 private val CascadeFlyoutRowSpacing = 6.dp
-private val CascadePanelHeaderTracking = 1.8.sp
-private val CascadeFlyoutHeaderTracking = 1.7.sp
+private val CascadePanelHeaderTracking = 1.5.sp
+private val CascadeFlyoutHeaderTracking = 1.45.sp
 private val CascadeFooterTracking = 0.6.sp
-private val CascadeFooterLineHeight = 12.sp
+private val CascadeFooterLineHeight = 16.sp
 private const val CascadeFlyoutFollowDelayMillis = 80L
 
 /**
@@ -167,7 +168,9 @@ fun TvCascadeSelector(
     var focusFirstPillToken by remember { mutableIntStateOf(0) }
     LaunchedEffect(focusFirstPillToken) {
         if (focusFirstPillToken > 0) {
-            pills.firstOrNull()?.let { pillRequesters[it]?.requestFocus() }
+            pills.firstOrNull()?.let { pill ->
+                pillRequesters[pill]?.let { runCatching { it.requestFocus() } }
+            }
         }
     }
 
@@ -188,7 +191,9 @@ fun TvCascadeSelector(
     LaunchedEffect(focusEntryToken) {
         if (entersPanel && focusEntryToken > 0) {
             if (isSingleLibrary) {
-                pills.firstOrNull()?.let { pillRequesters[it]?.requestFocus() }
+                pills.firstOrNull()?.let { pill ->
+                    pillRequesters[pill]?.let { runCatching { it.requestFocus() } }
+                }
             } else {
                 flyoutVisible = true
                 val target = currentScopeId ?: libraries.firstOrNull()?.id
@@ -200,6 +205,7 @@ fun TvCascadeSelector(
                     if (libraries.size > 6) {
                         val index = libraries.indexOfFirst { it.id == id }
                         lazyListState.scrollToItem(index.coerceAtLeast(0))
+                        withFrameNanos { }
                     }
                     libraryRequesters[id]?.requestFocus()
                 }
@@ -374,7 +380,7 @@ fun TvCascadeSelector(
                             } else {
                                 val target = anchorId ?: libraries.firstOrNull()?.id
                                 if (target != null) {
-                                    libraryRequesters[target]?.requestFocus()
+                                    libraryRequesters[target]?.let { runCatching { it.requestFocus() } }
                                     true
                                 } else {
                                     false

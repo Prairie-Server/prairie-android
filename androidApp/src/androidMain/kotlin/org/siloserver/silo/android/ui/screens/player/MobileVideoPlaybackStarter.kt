@@ -14,7 +14,6 @@ import org.siloserver.silo.common.player.video.requestedOriginalPlaybackMethod
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.android.BuildConfig
-import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.WatchDetail
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackSessionResponse
@@ -22,6 +21,7 @@ import org.siloserver.silo.model.playback.applyResumeRewind
 import org.siloserver.silo.model.playback.resolvePlaybackStartPosition
 import org.siloserver.silo.model.playback.resolvePlaybackStartRequestPosition
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.flow.first
@@ -51,12 +51,13 @@ class MobileVideoPlaybackStarter(
             }
 
             val serverUrl = playbackSessionManager.getServerUrl()
-            val preferredQuality = playerSettingsStore.preferredQualityFlow.first()
+            val preferredQuality = request.preferredQualityOverride
+                ?: playerSettingsStore.preferredQualityFlow.first()
             val preferredAudioLanguage = playerSettingsStore.audioLanguageFlow
                 .first().ifBlank { null }
             val version = request.preferredFileId
                 ?.let { id -> watchDetail.versions.firstOrNull { it.fileId == id } }
-                ?: pickPreferredVersion(
+                ?: selectPlaybackVersion(
                     watchDetail.versions,
                     watchDetail.userData?.lastFileId,
                     preferredQuality,
@@ -256,38 +257,6 @@ class MobileVideoPlaybackStarter(
             contentId = contentId,
             message = message,
         )
-    }
-
-    private fun pickPreferredVersion(
-        versions: List<FileVersion>,
-        lastFileId: Int?,
-        preferredQuality: String?,
-    ): FileVersion {
-        if (lastFileId != null) {
-            versions.firstOrNull { it.fileId == lastFileId }?.let { return it }
-        }
-        val target = preferredQuality?.lowercase().orEmpty()
-        if (target.isBlank() || target == "auto") {
-            return versions.first()
-        }
-        val preferredRank = resolutionRank(target)
-        return versions
-            .sortedByDescending { resolutionRank(it.resolution) }
-            .firstOrNull { version ->
-                target == "original" || resolutionRank(version.resolution) <= preferredRank
-            }
-            ?: versions.first()
-    }
-
-    private fun resolutionRank(value: String?): Int {
-        val normalized = value?.lowercase().orEmpty()
-        return when {
-            normalized.contains("2160") || normalized.contains("4k") -> 2160
-            normalized.contains("1080") -> 1080
-            normalized.contains("720") -> 720
-            normalized.contains("480") -> 480
-            else -> 0
-        }
     }
 
     private fun buildSubtitle(watchDetail: WatchDetail): String {

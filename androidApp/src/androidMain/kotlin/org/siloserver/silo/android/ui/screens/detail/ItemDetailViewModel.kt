@@ -7,6 +7,7 @@ import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
+import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.sortedForDisplay
 import org.siloserver.silo.model.download.DownloadRecord
@@ -90,6 +91,8 @@ class ItemDetailViewModel(
      *  derive per-version download state (isDownloaded / progress). */
     val downloads: StateFlow<List<DownloadRecord>> = downloadsRepository.records
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private var watchedMutationGeneration = 0
 
     init {
         // Refresh once so server-side records are visible when the user
@@ -519,6 +522,28 @@ class ItemDetailViewModel(
                     _uiState.update { it.copy(isInWatchlist = current) }
                 }
             }
+        }
+    }
+
+    fun toggleWatched() {
+        val currentDetail = _uiState.value.detail ?: return
+        val current = currentDetail.userData?.played == true
+        val target = !current
+        val generation = ++watchedMutationGeneration
+        updatePlayedState(target)
+        viewModelScope.launch {
+            when (personalDataRepository.setWatched(contentId, target)) {
+                is ApiResult.Success -> { /* already updated */ }
+                else -> if (generation == watchedMutationGeneration) updatePlayedState(current)
+            }
+        }
+    }
+
+    private fun updatePlayedState(played: Boolean) {
+        _uiState.update { state ->
+            val detail = state.detail ?: return@update state
+            val userData = detail.userData ?: LeafItemUserData()
+            state.copy(detail = detail.copy(userData = userData.copy(played = played)))
         }
     }
 }
