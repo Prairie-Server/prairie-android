@@ -129,6 +129,9 @@ fun ReflowableReader(
     var pendingPageProgression by remember(source) {
         mutableStateOf(initialReflowLocator?.pageProgression ?: 0.0)
     }
+    var latestPageProgression by remember(source) {
+        mutableStateOf(pendingPageProgression)
+    }
     var relocationGate by remember(source) {
         mutableStateOf(ReflowInitialRelocationGate(pendingPageProgression))
     }
@@ -159,6 +162,7 @@ fun ReflowableReader(
             ReflowLocatorCodec.decode(jumpToLocation)?.coerceForSectionCount(source.sections.size)?.let {
                 sectionIndex = it.sectionIndex
                 pendingPageProgression = it.pageProgression
+                latestPageProgression = it.pageProgression
                 relocationGate = ReflowInitialRelocationGate(it.pageProgression)
             }
             onJumpConsumed()
@@ -175,6 +179,7 @@ fun ReflowableReader(
             controller?.goToPage(page + 1)
         } else if (sectionIndex < source.sections.lastIndex) {
             pendingPageProgression = 0.0
+            latestPageProgression = 0.0
             relocationGate = ReflowInitialRelocationGate(0.0)
             sectionIndex++
         }
@@ -184,6 +189,7 @@ fun ReflowableReader(
             controller?.goToPage(page - 1)
         } else if (sectionIndex > 0) {
             pendingPageProgression = 1.0
+            latestPageProgression = 1.0
             relocationGate = ReflowInitialRelocationGate(1.0)
             sectionIndex--
         }
@@ -206,6 +212,8 @@ fun ReflowableReader(
                 onReady = { c -> controller = c },
                 onCrash = {
                     controller = null
+                    pendingPageProgression = latestPageProgression
+                    relocationGate = ReflowInitialRelocationGate(latestPageProgression)
                     webViewResetKey += 1
                 },
                 onEvent = { ev ->
@@ -219,6 +227,7 @@ fun ReflowableReader(
                         }
                         is ReflowEvent.Relocated -> {
                             page = ev.page
+                            latestPageProgression = ev.pageProgression
                             if (!relocationGate.shouldPersistRelocation(ev.page)) return@ReflowWebView
                             val bp = weights.bookProgression(sectionIndex, ev.pageProgression)
                             onLocatorChanged(

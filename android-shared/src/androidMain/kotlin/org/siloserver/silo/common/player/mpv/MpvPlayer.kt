@@ -1196,6 +1196,7 @@ class MpvPlayer(
     }
 
     override fun setVideoSurface(surface: Surface?) {
+        resetVideoSurfaceSize()
         attachVideoSurface(surface)
     }
 
@@ -1443,6 +1444,12 @@ class MpvPlayer(
 
         mpv.detachSurface()
         currentSurface = null
+        resetVideoSurfaceSize()
+    }
+
+    private fun resetVideoSurfaceSize() {
+        currentSurfaceWidth = 0
+        currentSurfaceHeight = 0
     }
 
     private fun updateVideoSurfaceSize(width: Int, height: Int) {

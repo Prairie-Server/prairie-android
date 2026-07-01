@@ -30,8 +30,14 @@ fun selectPlaybackVersion(
 }
 
 fun playbackResolutionRank(value: String?): Int {
-    val normalized = value?.lowercase().orEmpty()
+    val normalized = value?.trim()?.lowercase().orEmpty()
+    val numericHeight = RESOLUTION_HEIGHT_REGEX
+        .find(normalized)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
     return when {
+        numericHeight != null -> numericHeight
         normalized.contains("4320") || normalized.contains("8k") -> 4320
         normalized.contains("2160") || normalized.contains("4k") || normalized.contains("uhd") -> 2160
         normalized.contains("1440") || normalized.contains("qhd") -> 1440
@@ -50,3 +56,5 @@ private fun List<FileVersion>.bestAvailable(): FileVersion {
             .thenBy { it.fileSize },
     ) ?: first()
 }
+
+private val RESOLUTION_HEIGHT_REGEX = Regex("""\b(\d{3,4})(?:p|i)?\b""")

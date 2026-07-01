@@ -93,16 +93,31 @@ class MpvPlayerSourceTest {
     @Test
     fun mpvPlayerAttachesEveryMedia3VideoSurfacePath() {
         val text = source.readText()
+        val setSurfaceBody = text.substringAfter("override fun setVideoSurface(surface: Surface?)")
+            .substringBefore("override fun setVideoSurfaceHolder")
 
         assertTrue(text.contains("private fun attachVideoSurface(surface: Surface?)"))
         assertTrue(text.contains("private fun detachVideoSurface(surface: Surface?)"))
         assertTrue(text.contains("mpv.attachSurface(surface)"))
         assertTrue(text.contains("mpv.detachSurface()"))
         assertTrue(text.contains("setPropertyString(\"android-surface-size\""))
-        assertTrue(text.contains("override fun setVideoSurface(surface: Surface?) {\n        attachVideoSurface(surface)"))
+        assertTrue(setSurfaceBody.contains("attachVideoSurface(surface)"))
         assertTrue(text.contains("override fun setVideoSurfaceHolder(surfaceHolder: SurfaceHolder?)"))
         assertTrue(text.contains("surfaceHolder?.addCallback(surfaceCallback)"))
         assertTrue(text.contains("setVideoSurfaceHolder(surfaceView?.holder)"))
+    }
+
+    @Test
+    fun rawSurfacePathDoesNotReuseStaleStretchDimensions() {
+        val text = source.readText()
+        val setSurfaceBody = text.substringAfter("override fun setVideoSurface(surface: Surface?)")
+            .substringBefore("override fun setVideoSurfaceHolder")
+        val detachBody = text.substringAfter("private fun detachVideoSurface(surface: Surface?)")
+            .substringBefore("private fun updateVideoSurfaceSize")
+
+        assertTrue(setSurfaceBody.contains("resetVideoSurfaceSize()"))
+        assertTrue(detachBody.contains("resetVideoSurfaceSize()"))
+        assertTrue(text.contains("private fun resetVideoSurfaceSize()"))
     }
 
     @Test

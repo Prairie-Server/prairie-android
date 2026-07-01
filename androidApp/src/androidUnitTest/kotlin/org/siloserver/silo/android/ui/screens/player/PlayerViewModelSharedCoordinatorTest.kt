@@ -96,6 +96,18 @@ class PlayerViewModelSharedCoordinatorTest {
     }
 
     @Test
+    fun loadContentRethrowsCoroutineCancellation() {
+        val loadContentBody = viewModelSource
+            .substringAfter("fun loadContent(")
+            .substringBefore("private fun startIntroAutoSkipObserver")
+
+        assertTrue(viewModelSource.contains("import kotlinx.coroutines.CancellationException"))
+        assertTrue(loadContentBody.contains("catch (e: CancellationException)"))
+        assertTrue(loadContentBody.contains("throw e"))
+        assertTrue(loadContentBody.contains("playerSettingsStore.refreshFromServer()"))
+    }
+
+    @Test
     fun mobileVersionSwitchStopsLifecycleBeforeReplacingSession() {
         val onSelectVersionBody = viewModelSource
             .substringAfter("fun onSelectVersion(")
