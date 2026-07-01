@@ -404,6 +404,7 @@ class SiloPlaybackService : MediaSessionService() {
             session.player = newPlayer
             activePlayer = newPlayer
             currentEngineKind = actual
+            applyCurrentSyncOffsetsToMpv(newPlayer)
             // Publish so the UI re-binds its PlayerView surface to the new engine.
             activePlayerHolder.set(newPlayer)
         } catch (t: Throwable) {
@@ -427,6 +428,12 @@ class SiloPlaybackService : MediaSessionService() {
         previousPlayer = old
         logDecision(request, selected, actual)
         return true
+    }
+
+    private fun applyCurrentSyncOffsetsToMpv(player: Player) {
+        val mpvPlayer = player as? MpvPlayer ?: return
+        mpvPlayer.setAudioDelayMs(delayProcessor.getActiveDelayMs())
+        mpvPlayer.setSubtitleDelayMs(subtitleOffsetHolder.getOffsetMs())
     }
 
     /** Carry full playback state across a swap (Codex req #4). */

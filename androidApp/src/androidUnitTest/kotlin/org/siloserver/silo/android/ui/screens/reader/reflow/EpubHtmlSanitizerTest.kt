@@ -49,4 +49,25 @@ class EpubHtmlSanitizerTest {
         assertFalse(sanitized.contains("&sol;&sol;example.invalid", ignoreCase = true))
         assertTrue(sanitized.contains("chapter&#x2d;1.xhtml"))
     }
+
+    @Test
+    fun sanitizerRemovesAnyAbsoluteResourceUrlScheme() {
+        val html = """
+            <html><body>
+              <img src="https:example.invalid/pixel.png" />
+              <img src="file:/sdcard/Download/private.png" />
+              <img src="content://media/external/images/1" />
+              <img src="ftp://example.invalid/cover.jpg" />
+              <img src="images/local-cover.jpg" />
+            </body></html>
+        """.trimIndent()
+
+        val sanitized = sanitizeEpubChapterHtml(html)
+
+        assertFalse(sanitized.contains("https:example.invalid", ignoreCase = true))
+        assertFalse(sanitized.contains("file:/sdcard", ignoreCase = true))
+        assertFalse(sanitized.contains("content://media", ignoreCase = true))
+        assertFalse(sanitized.contains("ftp://example.invalid", ignoreCase = true))
+        assertTrue(sanitized.contains("images/local-cover.jpg"))
+    }
 }
