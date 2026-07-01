@@ -225,20 +225,7 @@ fun TvLoginScreen(
                     passwordVisible = passwordVisible,
                     enabled = !state.isLoading,
                     firstKeyFocusRequester = credentialKeyboardFirstKeyFocus,
-                    onAction = { action ->
-                        when (field) {
-                            TvCredentialField.Username -> {
-                                viewModel.onUsernameChanged(
-                                    applyTvCredentialKeyboardAction(state.username, action),
-                                )
-                            }
-                            TvCredentialField.Password -> {
-                                viewModel.onPasswordChanged(
-                                    applyTvCredentialKeyboardAction(state.password, action),
-                                )
-                            }
-                        }
-                    },
+                    onAction = { action -> viewModel.onCredentialKeyboardAction(field, action) },
                     onPrimary = {
                         when (field) {
                             TvCredentialField.Username -> {
