@@ -167,6 +167,10 @@ class TvPlayerViewModelSharedCoordinatorTest {
             "TV player state must retain the selected source resolution from startup",
         )
         assertTrue(
+            viewModelSource.contains("fun onVideoQualitySelectionApplied(resolution: String?)"),
+            "runtime quality switches must update the selected source resolution",
+        )
+        assertTrue(
             unsupportedBody.contains("resolution = state.selectedFileResolution.orEmpty()"),
             "runtime fallback must pass the selected source resolution instead of an empty target hint",
         )
@@ -177,6 +181,18 @@ class TvPlayerViewModelSharedCoordinatorTest {
         assertTrue(
             viewModelSource.contains("private val capabilityDetector: PlaybackCapabilityDetector"),
             "TV fallback lifecycle adoption needs real device capabilities for recovery restarts",
+        )
+    }
+
+    @Test
+    fun tvPlayNextUsesLatestQualitySelection() {
+        assertTrue(
+            viewModelSource.contains("val selectedQuality = state.selectedFileResolution"),
+            "play-next must keep using selectedFileResolution as its quality hint",
+        )
+        assertTrue(
+            viewModelSource.contains("selectedFileResolution = resolution"),
+            "selectedFileResolution must be refreshed when the HUD quality picker succeeds",
         )
     }
 

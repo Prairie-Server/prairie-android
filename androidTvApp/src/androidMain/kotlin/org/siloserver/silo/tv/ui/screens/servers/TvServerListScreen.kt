@@ -47,6 +47,7 @@ import org.siloserver.silo.tv.ui.components.TvDialogOption
 import org.siloserver.silo.tv.ui.components.TvOptionDialog
 import org.siloserver.silo.tv.ui.components.TvTextInputDialog
 import org.siloserver.silo.tv.ui.theme.Spacing
+import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -81,7 +82,12 @@ fun TvServerListScreen(
     LaunchedEffect(state.servers.size) {
         // Anchor focus on the first row whenever the list materializes so
         // d-pad navigation has somewhere to land.
-        if (state.servers.isNotEmpty()) runCatching { firstFocus.requestFocus() }
+        if (state.servers.isNotEmpty()) {
+            repeat(TvInitialFocusRetryCount) {
+                if (runCatching { firstFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+                delay(TvInitialFocusRetryDelayMs)
+            }
+        }
     }
 
     Box(
@@ -172,6 +178,9 @@ fun TvServerListScreen(
         )
     }
 }
+
+private const val TvInitialFocusRetryCount = 4
+private const val TvInitialFocusRetryDelayMs = 50L
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

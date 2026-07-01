@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -204,8 +205,9 @@ fun TvCascadeSelector(
                     if (libraries.size > 6) {
                         val index = libraries.indexOfFirst { it.id == id }
                         lazyListState.scrollToItem(index.coerceAtLeast(0))
+                        withFrameNanos { }
                     }
-                    libraryRequesters[id]?.let { runCatching { it.requestFocus() } }
+                    libraryRequesters[id]?.requestFocus()
                 }
             }
         }

@@ -66,6 +66,7 @@ fun TvSearchScreen(
     val activeSearchFieldFocusRequester = searchFieldFocusRequester ?: internalSearchFieldFocusRequester
     val searchKeyboardFirstKeyFocusRequester = remember { FocusRequester() }
     var isSearchKeyboardVisible by remember { mutableStateOf(false) }
+    var pendingSearchFocus by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeSearchFieldFocusRequester) {
         runCatching { activeSearchFieldFocusRequester.requestFocus() }
@@ -74,6 +75,17 @@ fun TvSearchScreen(
         if (isSearchKeyboardVisible) {
             delay(120)
             runCatching { searchKeyboardFirstKeyFocusRequester.requestFocus() }
+        }
+    }
+    LaunchedEffect(pendingSearchFocus, state.isLoading, state.items) {
+        if (!pendingSearchFocus || state.isLoading) return@LaunchedEffect
+        pendingSearchFocus = false
+        runCatching {
+            if (state.items.isNotEmpty()) {
+                firstResultFocusRequester.requestFocus()
+            } else {
+                firstFilterChipFocusRequester.requestFocus()
+            }
         }
     }
     // Note: we deliberately do NOT auto-jump focus to the first result when
@@ -167,12 +179,8 @@ fun TvSearchScreen(
                 },
                 onSearch = {
                     isSearchKeyboardVisible = false
+                    pendingSearchFocus = true
                     viewModel.submitSearch()
-                    if (state.items.isNotEmpty()) {
-                        runCatching { firstResultFocusRequester.requestFocus() }
-                    } else {
-                        runCatching { firstFilterChipFocusRequester.requestFocus() }
-                    }
                 },
                 onDismiss = {
                     isSearchKeyboardVisible = false

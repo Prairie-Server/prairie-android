@@ -1045,6 +1045,7 @@ private fun HudSubtitlesPane(
     val subtitleTrackFocus = remember { FocusRequester() }
     val subtitleTextColorFocus = remember { FocusRequester() }
     val subtitleBackgroundColorFocus = remember { FocusRequester() }
+    val subtitleOutlineColorFocus = remember { FocusRequester() }
 
     Row(
         modifier = modifier.fillMaxSize(),
@@ -1198,7 +1199,7 @@ private fun HudSubtitlesPane(
                     label = "Outline",
                     value = onOffLabel(appearance.textOutline),
                     enabled = enabled,
-                    rightFocusRequester = subtitleTextColorFocus,
+                    rightFocusRequester = subtitleOutlineColorFocus,
                     onActivate = {
                         onPresentPicker(
                             boolPicker(
@@ -1288,7 +1289,7 @@ private fun HudSubtitlesPane(
                             hex = hex,
                             selected = appearance.textOutlineColor.equals(hex, ignoreCase = true),
                             enabled = enabled,
-                            focusRequester = if (index == 0) subtitleBackgroundColorFocus else null,
+                            focusRequester = if (index == 0) subtitleOutlineColorFocus else null,
                             leftFocusRequester = subtitleTrackFocus,
                         ) {
                             onAppearanceChanged(appearance.copy(textOutlineColor = hex))

@@ -57,8 +57,13 @@ class TvServerSetupReadabilityTest {
 
     @Test
     fun serverUrlFieldOpensKeyboardOnlyFromActivationKeys() {
+        val helper = keyboardSource
+            .substringAfter("private fun shouldOpenServerUrlKeyboard")
+            .substringBefore("private val tvServerUrlActivationKeyCodes")
+
         assertTrue(keyboardSource.contains("shouldOpenServerUrlKeyboard(event)"))
-        assertTrue(keyboardSource.contains("event.type == KeyEventType.KeyDown || event.type == KeyEventType.KeyUp"))
+        assertTrue(helper.contains("if (event.type != KeyEventType.KeyDown) return false"))
+        assertFalse(helper.contains("KeyEventType.KeyUp"))
         assertTrue(keyboardSource.contains("AndroidKeyEvent.KEYCODE_DPAD_CENTER"))
         assertTrue(keyboardSource.contains("AndroidKeyEvent.KEYCODE_ENTER"))
     }
@@ -72,8 +77,11 @@ class TvServerSetupReadabilityTest {
 
     @Test
     fun serverUrlFieldInspectsRemoteKeysBeforeFocusableCanConsumeCenter() {
-        val keyHandlerIndex = keyboardSource.indexOf(".onPreviewKeyEvent { event ->")
-        val focusableIndex = keyboardSource.indexOf(
+        val urlFieldBlock = keyboardSource
+            .substringAfter("fun ServerUrlDisplayField(")
+            .substringBefore("private fun shouldOpenServerUrlKeyboard")
+        val keyHandlerIndex = urlFieldBlock.indexOf(".onPreviewKeyEvent { event ->")
+        val focusableIndex = urlFieldBlock.indexOf(
             ".focusable(enabled = enabled, interactionSource = interactionSource)",
         )
 

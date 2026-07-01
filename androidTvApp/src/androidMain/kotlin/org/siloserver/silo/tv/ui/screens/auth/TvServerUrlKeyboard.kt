@@ -115,18 +115,17 @@ internal fun ServerUrlDisplayField(
 }
 
 private fun shouldOpenServerUrlKeyboard(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-    val isActivationPress = event.type == KeyEventType.KeyDown || event.type == KeyEventType.KeyUp
-    if (!isActivationPress) return false
+    if (event.type != KeyEventType.KeyDown) return false
     return when (event.key) {
         Key.DirectionCenter,
         Key.Enter,
         Key.NumPadEnter,
         -> true
-        else -> event.key.nativeKeyCode in TvServerUrlActivationKeyCodes
+        else -> event.key.nativeKeyCode in tvServerUrlActivationKeyCodes
     }
 }
 
-private val TvServerUrlActivationKeyCodes = setOf(
+private val tvServerUrlActivationKeyCodes = setOf(
     AndroidKeyEvent.KEYCODE_DPAD_CENTER,
     AndroidKeyEvent.KEYCODE_ENTER,
     AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,

@@ -454,18 +454,53 @@ private fun findTvAnsiVerticalTarget(
     keyIndex: Int,
     step: Int,
 ): Pair<Int, Int>? {
+    val sourceCenter = keyCenter(rows.getOrNull(rowIndex) ?: return null, keyIndex) ?: return null
     var candidateRow = rowIndex + step
     while (candidateRow in rows.indices) {
-        nearestFocusableKeyIndex(rows[candidateRow], keyIndex)?.let { return candidateRow to it }
+        nearestFocusableKeyIndex(rows[candidateRow], sourceCenter)?.let { return candidateRow to it }
         candidateRow += step
     }
     return rowIndex to keyIndex
 }
 
-private fun nearestFocusableKeyIndex(row: List<TvAnsiKeySpec>, keyIndex: Int): Int? =
-    row.indices
-        .filter { row[it].type != TvAnsiKeyType.Spacer }
-        .minByOrNull { kotlin.math.abs(it - keyIndex) }
+private fun keyCenter(row: List<TvAnsiKeySpec>, keyIndex: Int): Float? {
+    if (keyIndex !in row.indices) return null
+    return row.take(keyIndex).sumOf { it.weight.toDouble() }.toFloat() + row[keyIndex].weight / 2f
+}
+
+private fun nearestFocusableKeyIndex(row: List<TvAnsiKeySpec>, sourceCenter: Float): Int? =
+    tvAnsiNearestFocusableKeyIndex(
+        targetRowWeights = row.map { it.weight },
+        sourceCenter = sourceCenter,
+        spacerIndexes = row.indices.filterTo(mutableSetOf()) { row[it].type == TvAnsiKeyType.Spacer },
+    )
+
+private fun tvAnsiNearestFocusableKeyIndex(
+    targetRowWeights: List<Float>,
+    sourceCenter: Float,
+    spacerIndexes: Set<Int>,
+): Int? {
+    var left = 0f
+    var nearestIndex: Int? = null
+    var nearestDistance = Float.MAX_VALUE
+    targetRowWeights.forEachIndexed { index, weight ->
+        val center = left + weight / 2f
+        left += weight
+        if (index in spacerIndexes) return@forEachIndexed
+        val distance = kotlin.math.abs(center - sourceCenter)
+        if (distance < nearestDistance) {
+            nearestDistance = distance
+            nearestIndex = index
+        }
+    }
+    return nearestIndex
+}
+
+internal fun tvAnsiNearestFocusableKeyIndexForTest(
+    targetRowWeights: List<Float>,
+    sourceCenter: Float,
+    spacerIndexes: Set<Int>,
+): Int? = tvAnsiNearestFocusableKeyIndex(targetRowWeights, sourceCenter, spacerIndexes)
 
 private val TvAnsiNumberRow = listOf(
     insertKey("1", shifted = "!"),

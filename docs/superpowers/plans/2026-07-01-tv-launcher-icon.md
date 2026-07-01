@@ -10,10 +10,10 @@
 
 ## Global Constraints
 
-- Work in `/Users/jimcole/projects/personal/silo/core/silo-android`.
+- Work from the repository root.
 - Do not change mobile launcher icons.
 - Do not remove legacy `ic_launcher.png` fallback assets; regenerate them as circle-friendly TV icons.
-- Verify on Google TV Streamer `61071HFAG1FWQX`.
+- Verify on a Google TV Streamer or Android TV device selected via `$ANDROID_SERIAL`.
 
 ---
 

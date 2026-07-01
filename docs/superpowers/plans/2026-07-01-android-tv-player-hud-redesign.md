@@ -17,6 +17,7 @@
 - Do not introduce request, watch-together, or admin entry points into the player HUD.
 - Do not change playback engine routing, subtitle rendering behavior, or stream selection logic.
 - Keep changes localized to `TvPlayerHud.kt` plus focused tests.
+- Add explicit adaptive coverage for Audio and Subtitles panes, including scroll-safe rows, swatch focus anchors, subtitle search, AI translation, and picker behavior.
 
 ---
 

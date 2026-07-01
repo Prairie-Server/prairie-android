@@ -24,6 +24,9 @@ class TvSearchLayoutReadabilityTest {
         assertTrue(source.contains("Modifier.focusProperties { down = firstResultFocusRequester }"))
         assertTrue(source.contains("up = firstFilterChipFocusRequester"))
         assertTrue(source.contains("firstResultFocusRequester.requestFocus()"))
+        assertTrue(source.contains("var pendingSearchFocus by remember { mutableStateOf(false) }"))
+        assertTrue(source.contains("LaunchedEffect(pendingSearchFocus, state.isLoading, state.items)"))
+        assertTrue(source.contains("pendingSearchFocus = true"))
     }
 
     @Test
@@ -43,8 +46,13 @@ class TvSearchLayoutReadabilityTest {
 
     @Test
     fun searchFieldOpensKeyboardOnlyFromActivationKeys() {
+        val helper = keyboardSource
+            .substringAfter("private fun shouldOpenSearchKeyboard")
+            .substringBefore("private val tvSearchActivationKeyCodes")
+
         assertTrue(keyboardSource.contains("shouldOpenSearchKeyboard(event)"))
-        assertTrue(keyboardSource.contains("event.type == KeyEventType.KeyDown || event.type == KeyEventType.KeyUp"))
+        assertTrue(helper.contains("if (event.type != KeyEventType.KeyDown) return false"))
+        assertFalse(helper.contains("KeyEventType.KeyUp"))
         assertTrue(keyboardSource.contains("AndroidKeyEvent.KEYCODE_DPAD_CENTER"))
         assertTrue(keyboardSource.contains("AndroidKeyEvent.KEYCODE_ENTER"))
     }

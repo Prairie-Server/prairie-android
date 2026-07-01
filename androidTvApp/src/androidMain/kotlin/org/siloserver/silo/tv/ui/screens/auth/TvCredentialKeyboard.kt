@@ -126,18 +126,17 @@ internal fun CredentialDisplayField(
 }
 
 private fun shouldOpenCredentialKeyboard(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-    val isActivationPress = event.type == KeyEventType.KeyDown || event.type == KeyEventType.KeyUp
-    if (!isActivationPress) return false
+    if (event.type != KeyEventType.KeyDown) return false
     return when (event.key) {
         Key.DirectionCenter,
         Key.Enter,
         Key.NumPadEnter,
         -> true
-        else -> event.key.nativeKeyCode in TvCredentialActivationKeyCodes
+        else -> event.key.nativeKeyCode in tvCredentialActivationKeyCodes
     }
 }
 
-private val TvCredentialActivationKeyCodes = setOf(
+private val tvCredentialActivationKeyCodes = setOf(
     AndroidKeyEvent.KEYCODE_DPAD_CENTER,
     AndroidKeyEvent.KEYCODE_ENTER,
     AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,

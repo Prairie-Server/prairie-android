@@ -2,6 +2,7 @@ package org.siloserver.silo.tv.ui.components
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -39,5 +40,17 @@ class TvAnsiKeyboardSourceTest {
     @Test
     fun ansiKeyboardUsesOneShotShiftForRemoteTyping() {
         assertTrue(source.contains("if (shifted && key.type == TvAnsiKeyType.Insert) shifted = false"))
+    }
+
+    @Test
+    fun ansiKeyboardVerticalNavigationUsesPhysicalKeyCenters() {
+        assertEquals(
+            2,
+            tvAnsiNearestFocusableKeyIndexForTest(
+                targetRowWeights = listOf(1f, 1f, 3.6f, 1f),
+                sourceCenter = 4.2f,
+                spacerIndexes = emptySet(),
+            ),
+        )
     }
 }

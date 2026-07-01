@@ -1640,6 +1640,10 @@ class TvPlayerViewModel(
         _uiState.update { it.copy(videoFillMode = mode) }
     }
 
+    fun onVideoQualitySelectionApplied(resolution: String?) {
+        _uiState.update { it.copy(selectedFileResolution = resolution) }
+    }
+
     /**
      * Skip the intro now: returns the seek target in seconds so the screen
      * can call MediaController.seekTo. Returns null if there is no active

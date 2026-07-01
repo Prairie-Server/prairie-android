@@ -11,6 +11,8 @@ class TvServerListFocusSourceTest {
 
     @Test
     fun serverRowsAnchorFocusSafelyWhenListMaterializes() {
-        assertTrue(source.contains("if (state.servers.isNotEmpty()) runCatching { firstFocus.requestFocus() }"))
+        assertTrue(source.contains("repeat(TvInitialFocusRetryCount)"))
+        assertTrue(source.contains("if (runCatching { firstFocus.requestFocus() }.isSuccess) return@LaunchedEffect"))
+        assertTrue(source.contains("delay(TvInitialFocusRetryDelayMs)"))
     }
 }

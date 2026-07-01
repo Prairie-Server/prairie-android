@@ -58,6 +58,7 @@ data class PlaybackBufferPolicy(
             roomy: Int,
         ): Int = when {
             deviceProfile.isLowRamDevice || deviceProfile.memoryClassMb in 1 until 192 -> low * MIB
+            deviceProfile.memoryClassMb <= 0 -> low * MIB
             deviceProfile.memoryClassMb in 192 until 384 -> medium * MIB
             else -> roomy * MIB
         }

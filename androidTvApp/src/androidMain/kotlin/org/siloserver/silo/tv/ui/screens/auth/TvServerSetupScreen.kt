@@ -120,8 +120,11 @@ fun TvServerSetupScreen(
         pairingAdvertiser.start()
         onDispose { pairingAdvertiser.stop() }
     }
-    LaunchedEffect(isActivePairing) {
-        if (!isActivePairing) runCatching { focusRequester.requestFocus() }
+    LaunchedEffect(isActivePairing, isUrlKeyboardVisible) {
+        if (isActivePairing) isUrlKeyboardVisible = false
+        if (!isActivePairing && !isUrlKeyboardVisible) {
+            runCatching { focusRequester.requestFocus() }
+        }
     }
     LaunchedEffect(isUrlKeyboardVisible) {
         if (isUrlKeyboardVisible) {
@@ -259,7 +262,7 @@ fun TvServerSetupScreen(
                 },
                 onDismiss = {
                     isUrlKeyboardVisible = false
-                    runCatching { focusRequester.requestFocus() }
+                    if (!isActivePairing) runCatching { focusRequester.requestFocus() }
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

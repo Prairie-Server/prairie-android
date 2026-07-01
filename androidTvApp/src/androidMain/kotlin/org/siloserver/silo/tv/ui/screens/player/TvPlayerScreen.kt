@@ -418,6 +418,7 @@ fun TvPlayerScreen(
     val latestPlayerState by rememberUpdatedState(state)
     val latestRoomSnapshot by rememberUpdatedState(roomSnapshot)
     val latestShowLeaveDialog by rememberUpdatedState(showLeaveDialog)
+    val latestShowQuickSubtitlePicker by rememberUpdatedState(showQuickSubtitlePicker)
     DisposableEffect(viewModel, roomController) {
         val handler: (KeyEvent) -> Boolean = handler@{ event ->
             val playerState = latestPlayerState
@@ -429,7 +430,8 @@ fun TvPlayerScreen(
                 action = event.action,
                 repeatCount = event.repeatCount,
             )
-            if (playerState.hudOpen || playerState.showSubtitleMenu ||
+            if (latestShowQuickSubtitlePicker ||
+                playerState.hudOpen || playerState.showSubtitleMenu ||
                 playerState.showSubtitleStyleDialog || latestShowLeaveDialog ||
                 // The Up-Next overlay is a focus-trapping Compose surface that
                 // owns its own remote input (Play Now / Keep Watching / Back) —
@@ -1109,7 +1111,14 @@ fun TvPlayerScreen(
                                 // Real Media3 video track override: clears the
                                 // override for Auto, otherwise pins the chosen
                                 // resolution/bitrate variant within the video group.
-                                mediaController?.let { selectVideoQuality(it, id) }
+                                mediaController?.let {
+                                    if (selectVideoQuality(it, id)) {
+                                        val resolution = state.videoQualities
+                                            .firstOrNull { option -> option.id == id }
+                                            ?.resolution
+                                        viewModel.onVideoQualitySelectionApplied(resolution)
+                                    }
+                                }
                             },
                             onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, false) },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
@@ -2089,6 +2098,7 @@ data class VideoQualityOption(
     val id: String,
     val label: String,
     val isSelected: Boolean,
+    val resolution: String? = null,
 )
 
 internal const val VIDEO_QUALITY_AUTO_ID = "-1"
@@ -2113,6 +2123,7 @@ internal fun extractVideoQualityOptions(tracks: Tracks): List<VideoQualityOption
                     id = "$videoGroupOrdinal:$trackIndex",
                     label = formatVideoQualityLabel(format, trackIndex),
                     isSelected = false,
+                    resolution = format.height.takeIf { it > 0 }?.let { "${it}p" },
                 ),
             )
         }
@@ -2167,22 +2178,16 @@ internal fun resizeModeForVideoFillMode(mode: VideoFillMode): Int = when (mode) 
 }
 
 private const val FitSurfaceScale = 1.0f
-private const val CropLetterboxSurfaceScale = 1.34f
 
 internal fun applyPlayerViewVideoFillMode(view: PlayerView, mode: VideoFillMode) {
     view.resizeMode = resizeModeForVideoFillMode(mode)
-    val surfaceScale = when (mode) {
-        VideoFillMode.Fit,
-        VideoFillMode.Stretch -> FitSurfaceScale
-        VideoFillMode.Zoom -> CropLetterboxSurfaceScale
-    }
     val surface = view.getVideoSurfaceView()
     surface?.let { videoSurface ->
         fun applyScale() {
             videoSurface.pivotX = videoSurface.width / 2f
             videoSurface.pivotY = videoSurface.height / 2f
-            videoSurface.scaleX = surfaceScale
-            videoSurface.scaleY = surfaceScale
+            videoSurface.scaleX = FitSurfaceScale
+            videoSurface.scaleY = FitSurfaceScale
         }
         applyScale()
         if (videoSurface.width == 0 || videoSurface.height == 0) {
@@ -2191,7 +2196,7 @@ internal fun applyPlayerViewVideoFillMode(view: PlayerView, mode: VideoFillMode)
     }
     Log.i(
         TAG,
-        "TV aspect mode=$mode resize=${view.resizeMode} surfaceScale=$surfaceScale " +
+        "TV aspect mode=$mode resize=${view.resizeMode} surfaceScale=$FitSurfaceScale " +
             "surface=${surface?.javaClass?.simpleName ?: "none"}",
     )
 }
@@ -2242,31 +2247,32 @@ private suspend fun MediaController.awaitEngineSwitch(request: VideoPlaybackBack
  * player. Mirrors [AudioTrackManager]'s override approach but targets a specific
  * format *within* the video group. This is a real Media3 track switch.
  */
-internal fun selectVideoQuality(player: Player, id: String) {
+internal fun selectVideoQuality(player: Player, id: String): Boolean {
     if (id == VIDEO_QUALITY_AUTO_ID) {
         player.trackSelectionParameters = player.trackSelectionParameters
             .buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
             .build()
-        return
+        return true
     }
     val parts = id.split(":")
-    val groupOrdinal = parts.getOrNull(0)?.toIntOrNull() ?: return
-    val trackIndex = parts.getOrNull(1)?.toIntOrNull() ?: return
+    val groupOrdinal = parts.getOrNull(0)?.toIntOrNull() ?: return false
+    val trackIndex = parts.getOrNull(1)?.toIntOrNull() ?: return false
     var ordinal = 0
     for (group in player.currentTracks.groups) {
         if (group.type != C.TRACK_TYPE_VIDEO) continue
         if (ordinal == groupOrdinal) {
             val mediaGroup = group.mediaTrackGroup
-            if (trackIndex !in 0 until mediaGroup.length) return
+            if (trackIndex !in 0 until mediaGroup.length) return false
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .setOverrideForType(
                     androidx.media3.common.TrackSelectionOverride(mediaGroup, trackIndex),
                 )
                 .build()
-            return
+            return true
         }
         ordinal++
     }
+    return false
 }

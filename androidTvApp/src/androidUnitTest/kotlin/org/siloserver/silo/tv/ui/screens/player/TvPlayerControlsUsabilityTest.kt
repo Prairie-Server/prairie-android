@@ -226,11 +226,14 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(hudSource.contains("val subtitleTrackFocus = remember { FocusRequester() }"))
         assertTrue(hudSource.contains("val subtitleTextColorFocus = remember { FocusRequester() }"))
         assertTrue(hudSource.contains("val subtitleBackgroundColorFocus = remember { FocusRequester() }"))
+        assertTrue(hudSource.contains("val subtitleOutlineColorFocus = remember { FocusRequester() }"))
         assertTrue(hudSource.contains("rightFocusRequester = subtitleTextColorFocus"))
         assertTrue(hudSource.contains("rightFocusRequester = subtitleBackgroundColorFocus"))
+        assertTrue(hudSource.contains("rightFocusRequester = subtitleOutlineColorFocus"))
         assertTrue(hudSource.contains("leftFocusRequester = subtitleTrackFocus"))
         assertTrue(hudSource.contains("focusRequester = if (index == 0) subtitleTextColorFocus else null"))
         assertTrue(hudSource.contains("focusRequester = if (index == 0) subtitleBackgroundColorFocus else null"))
+        assertTrue(hudSource.contains("focusRequester = if (index == 0) subtitleOutlineColorFocus else null"))
     }
 
     @Test
@@ -260,12 +263,13 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(screenSource.contains("applyPlayerViewVideoFillMode(view, state.videoFillMode)"))
         assertTrue(screenSource.contains("applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)"))
         assertTrue(screenSource.contains("view.getVideoSurfaceView()"))
-        assertTrue(screenSource.contains("CropLetterboxSurfaceScale"))
         assertTrue(screenSource.contains("fun resizeModeForVideoFillMode(mode: VideoFillMode): Int"))
         assertTrue(screenSource.contains("fun applyPlayerViewVideoFillMode(view: PlayerView, mode: VideoFillMode)"))
         assertTrue(screenSource.contains("fun applyMpvVideoScaleMode(player: Player?, mode: VideoFillMode)"))
         assertTrue(screenSource.contains("MpvVideoScaleMode.Zoom"))
         assertTrue(screenSource.contains("MpvVideoScaleMode.Stretch"))
+        assertFalse(screenSource.contains("CropLetterboxSurfaceScale"))
+        assertFalse(screenSource.contains("videoSurface.scaleX = surfaceScale"))
     }
 
     @Test
@@ -274,6 +278,7 @@ class TvPlayerControlsUsabilityTest {
         // no-op that just closes the dialog. The screen wires onSelectVideoQuality
         // to selectVideoQuality on the live player, which sets/clears an override.
         assertTrue(screenSource.contains("selectVideoQuality(it, id)"))
+        assertTrue(screenSource.contains("viewModel.onVideoQualitySelectionApplied("))
         assertTrue(screenSource.contains("setOverrideForType("))
         assertTrue(screenSource.contains("clearOverridesOfType(C.TRACK_TYPE_VIDEO)"))
         // The old no-op onSelectVideo wiring is gone.
@@ -355,6 +360,8 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(activitySource.contains("TvPlayerRemoteKeyBridge.dispatch(event)"))
         assertTrue(remoteKeyBridgeSource.contains("fun install(handler: (KeyEvent) -> Boolean)"))
         assertTrue(remoteKeyBridgeSource.contains("fun dispatch(event: KeyEvent): Boolean"))
+        assertTrue(screenSource.contains("latestShowQuickSubtitlePicker"))
+        assertTrue(screenSource.contains("latestShowQuickSubtitlePicker ||"))
     }
 
     @Test

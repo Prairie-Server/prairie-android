@@ -27,8 +27,9 @@ class TvAuthFocusSourceTest {
 
     @Test
     fun serverSetupAnchorsInitialFocusSafelyOnManualEntry() {
-        assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing)"))
-        assertTrue(serverSetupSource.contains("if (!isActivePairing) runCatching { focusRequester.requestFocus() }"))
+        assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing, isUrlKeyboardVisible)"))
+        assertTrue(serverSetupSource.contains("if (!isActivePairing && !isUrlKeyboardVisible)"))
+        assertTrue(serverSetupSource.contains("runCatching { focusRequester.requestFocus() }"))
     }
 
     @Test
@@ -45,8 +46,13 @@ class TvAuthFocusSourceTest {
     }
 
     @Test
-    fun credentialFieldsOpenKeyboardOnRemoteKeyDownOrUp() {
-        assertTrue(credentialKeyboardSource.contains("event.type == KeyEventType.KeyDown || event.type == KeyEventType.KeyUp"))
+    fun credentialFieldsOpenKeyboardOnRemoteKeyDownOnly() {
+        val helper = credentialKeyboardSource
+            .substringAfter("private fun shouldOpenCredentialKeyboard")
+            .substringBefore("private val tvCredentialActivationKeyCodes")
+
+        assertTrue(helper.contains("if (event.type != KeyEventType.KeyDown) return false"))
+        assertFalse(helper.contains("KeyEventType.KeyUp"))
     }
 
     @Test
@@ -100,5 +106,12 @@ class TvAuthFocusSourceTest {
     fun setupAndSignupInitialFieldFocusRequestsAreCrashGuarded() {
         assertTrue(setupSource.contains("LaunchedEffect(Unit) { runCatching { usernameFocus.requestFocus() } }"))
         assertTrue(signupSource.contains("LaunchedEffect(Unit) { runCatching { usernameFocus.requestFocus() } }"))
+    }
+
+    @Test
+    fun serverSetupDoesNotRestoreManualFocusWhilePairingOverlayIsActive() {
+        assertTrue(serverSetupSource.contains("if (isActivePairing) isUrlKeyboardVisible = false"))
+        assertTrue(serverSetupSource.contains("if (!isActivePairing && !isUrlKeyboardVisible)"))
+        assertTrue(serverSetupSource.contains("if (!isActivePairing) runCatching { focusRequester.requestFocus() }"))
     }
 }
