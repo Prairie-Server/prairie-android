@@ -45,12 +45,14 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
     val refreshMutex = Mutex()
 
     onRequest { request, _ ->
+        val skipAuth = request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true
+
         // Pinned (Track B outbox replay): bind this request to a captured scope
         // regardless of the globally-active server/profile, so a mid-drain switch
         // can't send it to the wrong account. Uses the snapshot's URL/profile and
         // the *live* per-server access token (handles rotation).
         val pinned = request.attributes.getOrNull(AuthScopeAttributeKey)
-        if (pinned != null) {
+        if (pinned != null && !skipAuth) {
             if (request.url.encodedPath.startsWith("/api/") && pinned.serverUrl.isNotBlank()) {
                 val originalPath = request.url.encodedPath
                 val originalParameters = request.url.parameters.build()
@@ -92,6 +94,14 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             }
         }
 
+        if (skipAuth) {
+            request.headers.remove(HttpHeaders.Authorization)
+            request.headers.remove("X-Profile-Id")
+            request.headers.remove("X-Profile-Token")
+            request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
+            return@onRequest
+        }
+
         // Skip auth headers for the refresh endpoint itself to avoid recursion
         val isRefreshRequest = request.url.encodedPath.endsWith("/auth/refresh")
         if (isRefreshRequest) return@onRequest
@@ -114,6 +124,10 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
     }
 
     on(Send) { request ->
+        if (request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true) {
+            return@on proceed(request)
+        }
+
         // Pinned scope (Track B): refresh against the *captured* scope, never the
         // active one, and never invalidate the active UI session — a failed
         // pinned refresh just surfaces the 401 so the outbox keeps the op.
