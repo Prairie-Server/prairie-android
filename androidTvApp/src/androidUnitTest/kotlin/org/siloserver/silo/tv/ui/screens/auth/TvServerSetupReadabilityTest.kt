@@ -49,4 +49,12 @@ class TvServerSetupReadabilityTest {
         assertTrue(source.contains("\".com\""))
     }
 
+    @Test
+    fun serverSetupKeepsManualEntryScrollableAbovePlatformIme() {
+        assertTrue(source.contains(".verticalScroll(rememberScrollState())"))
+        assertTrue(source.contains(".align(Alignment.TopCenter)"))
+        assertTrue(source.contains("height(SERVER_SETUP_CHOOSER_HEIGHT)"))
+        assertFalse(source.contains(".weight(1f)\n                        .padding(top = Spacing.lg)"))
+    }
+
 }

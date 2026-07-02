@@ -20,8 +20,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
@@ -183,7 +185,9 @@ fun TvServerSetupScreen(
         } else {
             Column(
                 modifier = Modifier
+                    .align(Alignment.TopCenter)
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 48.dp, vertical = 32.dp),
             ) {
                 BrandHeader()
@@ -203,15 +207,14 @@ fun TvServerSetupScreen(
                     )
                 }
 
-                // The chooser is centered in the remaining vertical space. The
-                // cards share one height (capped so they read as cards, not
-                // full-height panels) and shrink with the box when the IME
-                // opens — no fixed row height, no offsets. Widths mirror tvOS
-                // (600 / 84 / 600 pt → 300 / 42 / 300 dp at the Shield's 0.5x).
+                // Keep the chooser at a real card height even while the
+                // platform IME resizes the activity. Without the scrollable,
+                // top-anchored container, Android TV can squeeze the field's
+                // editable text line to a few pixels and make typed input
+                // appear blank.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
                         .padding(top = Spacing.lg),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -220,8 +223,7 @@ fun TvServerSetupScreen(
                         modifier = Modifier
                             .widthIn(max = 642.dp)
                             .fillMaxWidth()
-                            .heightIn(max = 300.dp)
-                            .fillMaxHeight(),
+                            .height(SERVER_SETUP_CHOOSER_HEIGHT),
                     ) {
                         PhoneSetupCard(
                             modifier = Modifier
@@ -314,6 +316,7 @@ private fun PhoneSetupBody(modifier: Modifier = Modifier) {
 }
 
 private val PHONE_SETUP_BEACON_SIZE = 96.dp
+private val SERVER_SETUP_CHOOSER_HEIGHT = 300.dp
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
