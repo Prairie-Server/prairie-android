@@ -288,4 +288,44 @@ open class PlaybackSessionManager(
             is ApiResult.NetworkError -> r
         }
     }
+
+    suspend fun startTranscodeFallbackRecoveringMissingSession(
+        session: PlaybackSessionResponse,
+        seekSeconds: Double,
+        resolution: String,
+        mode: TranscodeMode,
+        audioTrackIndex: Int? = null,
+        subtitleTrackIndex: Int? = null,
+        renewSession: suspend () -> ApiResult<PlaybackSessionResponse>,
+    ): ApiResult<PlaybackSessionResponse> {
+        val first = startTranscodeFallback(
+            session = session,
+            seekSeconds = seekSeconds,
+            resolution = resolution,
+            mode = mode,
+            audioTrackIndex = audioTrackIndex,
+            subtitleTrackIndex = subtitleTrackIndex,
+        )
+        if (!first.isPlaybackSessionMissingError()) return first
+
+        Log.w(TAG, "Fallback session missing; renewing playback session before retry")
+        return when (val renewed = renewSession()) {
+            is ApiResult.Success -> startTranscodeFallback(
+                session = renewed.data,
+                seekSeconds = seekSeconds,
+                resolution = resolution,
+                mode = mode,
+                audioTrackIndex = audioTrackIndex,
+                subtitleTrackIndex = subtitleTrackIndex,
+            )
+            is ApiResult.Error -> renewed
+            is ApiResult.NetworkError -> renewed
+        }
+    }
+}
+
+internal fun ApiResult<*>.isPlaybackSessionMissingError(): Boolean {
+    val error = this as? ApiResult.Error ?: return false
+    return error.code == 404 &&
+        (error.error == "playback_session_not_found" || error.message == "Playback session not found")
 }

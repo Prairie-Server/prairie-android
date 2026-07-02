@@ -150,8 +150,8 @@ class PlayerViewModelSharedCoordinatorTest {
             .substringBefore("/** Called by the player when the current position changes. */")
 
         assertTrue(
-            unsupportedBody.contains("startTranscodeFallback("),
-            "unsupported direct play must request a fallback stream",
+            unsupportedBody.contains("startTranscodeFallbackRecoveringMissingSession("),
+            "unsupported direct play fallback must renew stale playback sessions before surfacing an error",
         )
         assertTrue(
             unsupportedBody.contains("sessionLifecycle.adoptActiveSession("),
