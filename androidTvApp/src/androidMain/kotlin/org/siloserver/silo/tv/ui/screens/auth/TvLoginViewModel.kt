@@ -58,6 +58,8 @@ class TvLoginViewModel(
     val deviceLoginState: StateFlow<DeviceLoginRepository.DeviceLoginState> = deviceLogin.state
 
     private var deviceLoginJob: Job? = null
+    private var credentialLoginJob: Job? = null
+    private var authCompleted = false
 
     init {
         startDeviceLogin()
@@ -66,25 +68,8 @@ class TvLoginViewModel(
     fun onUsernameChanged(v: String) = _uiState.update { it.copy(username = v, error = null) }
     fun onPasswordChanged(v: String) = _uiState.update { it.copy(password = v, error = null) }
 
-    internal fun onCredentialKeyboardAction(
-        field: TvCredentialField,
-        action: TvCredentialKeyboardAction,
-    ) {
-        _uiState.update { state ->
-            when (field) {
-                TvCredentialField.Username -> state.copy(
-                    username = applyTvCredentialKeyboardAction(state.username, action),
-                    error = null,
-                )
-                TvCredentialField.Password -> state.copy(
-                    password = applyTvCredentialKeyboardAction(state.password, action),
-                    error = null,
-                )
-            }
-        }
-    }
-
     fun onLoginClick() {
+        if (_uiState.value.isLoading) return
         val s = _uiState.value
         if (s.username.isBlank()) {
             _uiState.update { it.copy(error = "Username is required") }
@@ -95,16 +80,28 @@ class TvLoginViewModel(
             return
         }
 
-        viewModelScope.launch {
+        credentialLoginJob?.cancel()
+        credentialLoginJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            when (val result = authRepository.login(s.username, s.password)) {
+            when (val result = authRepository.loginForTokens(s.username, s.password)) {
                 is ApiResult.Success -> {
-                    // Cancel the parallel device-login poller so a late-arriving
-                    // Approved can't overwrite the credential tokens we just saved.
+                    if (!tryCompleteAuth()) {
+                        _uiState.update { it.copy(isLoading = false) }
+                        return@launch
+                    }
                     deviceLoginJob?.cancel()
+                    tokenManager.saveTokens(
+                        accessToken = result.data.accessToken,
+                        refreshToken = result.data.refreshToken,
+                        expiresIn = result.data.expiresIn,
+                    )
                     _uiState.update { it.copy(isLoading = false, loginSuccess = true) }
                 }
                 is ApiResult.Error -> {
+                    if (authCompleted) {
+                        _uiState.update { it.copy(isLoading = false) }
+                        return@launch
+                    }
                     val msg = when (result.code) {
                         401 -> "Invalid username or password"
                         403 -> "Account is disabled"
@@ -113,6 +110,10 @@ class TvLoginViewModel(
                     _uiState.update { it.copy(isLoading = false, error = msg) }
                 }
                 is ApiResult.NetworkError -> {
+                    if (authCompleted) {
+                        _uiState.update { it.copy(isLoading = false) }
+                        return@launch
+                    }
                     _uiState.update {
                         it.copy(isLoading = false, error = "Network error. Check your connection.")
                     }
@@ -161,13 +162,27 @@ class TvLoginViewModel(
         // Repository already guards against null tokens (Failed.MissingTokens),
         // but be defensive — we should never silently flip loginSuccess without
         // tokens actually landing in storage.
-        if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) return
+        if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+            _uiState.update { it.copy(isLoading = false) }
+            return
+        }
+        if (!tryCompleteAuth()) {
+            _uiState.update { it.copy(isLoading = false) }
+            return
+        }
+        credentialLoginJob?.cancel()
         tokenManager.saveTokens(
             accessToken = accessToken,
             refreshToken = refreshToken,
             expiresIn = response.expiresIn ?: 0L,
         )
         _uiState.update { it.copy(isLoading = false, loginSuccess = true) }
+    }
+
+    private fun tryCompleteAuth(): Boolean {
+        if (authCompleted) return false
+        authCompleted = true
+        return true
     }
 
     /** Called by the screen from `LaunchedEffect(loginSuccess)` after routing. */
@@ -177,6 +192,7 @@ class TvLoginViewModel(
 
     override fun onCleared() {
         deviceLoginJob?.cancel()
+        credentialLoginJob?.cancel()
         super.onCleared()
     }
 }

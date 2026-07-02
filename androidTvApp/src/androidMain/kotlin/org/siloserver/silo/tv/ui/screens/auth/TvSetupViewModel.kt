@@ -42,6 +42,7 @@ class TvSetupViewModel(
         _uiState.update { it.copy(password = value, error = null) }
 
     fun onCreateAccountClick() {
+        if (_uiState.value.isLoading) return
         val current = _uiState.value
 
         val validationError = validateFields(current)

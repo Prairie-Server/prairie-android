@@ -599,13 +599,38 @@ class PlayerViewModel(
                 playbackInfo = null,
                 playbackPlan = state.playbackPlan,
             )
-            when (val r = playbackSessionManager.startTranscodeFallback(
+            val renewStartParams = StartParams(
+                contentId = state.contentId,
+                fileId = version.fileId,
+                capabilities = capabilities,
+                audioTrackIndex = selectedAudioIndex,
+                subtitleTrackIndex = selectedSubtitleIndex,
+                qualityPreference = null,
+                startPosition = state.position,
+                preserveDirectAudioSelection = true,
+            )
+            when (val r = playbackSessionManager.startTranscodeFallbackRecoveringMissingSession(
                 session = sessionResponse,
                 seekSeconds = state.position,
                 resolution = version.resolution.orEmpty(),
                 mode = org.siloserver.silo.common.player.PlaybackSessionManager.TranscodeMode.FULL,
                 audioTrackIndex = selectedAudioIndex,
                 subtitleTrackIndex = selectedSubtitleIndex,
+                renewSession = {
+                    when (val renewed = sessionLifecycle.start(renewStartParams)) {
+                        is SessionState.Active -> ApiResult.Success(renewed.session)
+                        is SessionState.Failed -> ApiResult.Error(
+                            code = 0,
+                            error = "playback_session_renewal_failed",
+                            message = renewed.message,
+                        )
+                        else -> ApiResult.Error(
+                            code = 0,
+                            error = "playback_session_renewal_failed",
+                            message = "Failed to renew playback session.",
+                        )
+                    }
+                },
             )) {
                 is ApiResult.Success -> {
                     val fallback = r.data

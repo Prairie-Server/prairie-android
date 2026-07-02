@@ -150,8 +150,8 @@ class PlayerViewModelSharedCoordinatorTest {
             .substringBefore("/** Called by the player when the current position changes. */")
 
         assertTrue(
-            unsupportedBody.contains("startTranscodeFallback("),
-            "unsupported direct play must request a fallback stream",
+            unsupportedBody.contains("startTranscodeFallbackRecoveringMissingSession("),
+            "unsupported direct play fallback must renew stale playback sessions before surfacing an error",
         )
         assertTrue(
             unsupportedBody.contains("sessionLifecycle.adoptActiveSession("),
@@ -160,6 +160,13 @@ class PlayerViewModelSharedCoordinatorTest {
         assertTrue(
             unsupportedBody.contains("StartParams("),
             "fallback lifecycle adoption must preserve restart parameters for 404 recovery",
+        )
+        assertTrue(
+            unsupportedBody
+                .substringAfter("val renewStartParams = StartParams(")
+                .substringBefore("when (val r = playbackSessionManager.startTranscodeFallbackRecoveringMissingSession")
+                .contains("preserveDirectAudioSelection = true"),
+            "fallback session renewal must preserve the selected direct audio track like TV does",
         )
     }
 

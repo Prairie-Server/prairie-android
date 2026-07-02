@@ -45,6 +45,7 @@ class TvSignupViewModel(
         _uiState.update { it.copy(inviteCode = value, error = null) }
 
     fun onSignupClick() {
+        if (_uiState.value.isLoading) return
         val current = _uiState.value
 
         val validationError = validateFields(current)

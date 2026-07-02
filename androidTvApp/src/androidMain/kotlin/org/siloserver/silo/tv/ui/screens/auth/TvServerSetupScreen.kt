@@ -13,12 +13,17 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
@@ -39,26 +44,33 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.OutlinedTextField
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -75,6 +87,7 @@ import org.siloserver.silo.tv.ui.components.AuroraGhostButton
 import org.siloserver.silo.tv.ui.components.AuroraPrimaryButton
 import org.siloserver.silo.tv.ui.components.TvAuroraBackdrop
 import org.siloserver.silo.tv.ui.components.TvAuroraVariant
+import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
 import org.siloserver.silo.tv.ui.theme.Spacing
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -105,12 +118,10 @@ fun TvServerSetupScreen(
     val state by viewModel.uiState.collectAsState()
     val pairingStatus by pairingReceiver.status.collectAsState()
     val focusRequester = remember { FocusRequester() }
-    val keyboardFirstKeyFocusRequester = remember { FocusRequester() }
     val urlBringIntoView = remember { BringIntoViewRequester() }
     val connectBringIntoView = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
     val isActivePairing = pairingStatus.isActivePairing
-    var isUrlKeyboardVisible by remember { mutableStateOf(false) }
 
     // Companion LAN pairing: advertise `_silopair._tcp` while this screen is on
     // so a phone running Silo can push the server URL + drive device-login,
@@ -120,16 +131,9 @@ fun TvServerSetupScreen(
         pairingAdvertiser.start()
         onDispose { pairingAdvertiser.stop() }
     }
-    LaunchedEffect(isActivePairing, isUrlKeyboardVisible) {
-        if (isActivePairing) isUrlKeyboardVisible = false
-        if (!isActivePairing && !isUrlKeyboardVisible) {
+    LaunchedEffect(isActivePairing) {
+        if (!isActivePairing) {
             runCatching { focusRequester.requestFocus() }
-        }
-    }
-    LaunchedEffect(isUrlKeyboardVisible) {
-        if (isUrlKeyboardVisible) {
-            delay(120)
-            runCatching { keyboardFirstKeyFocusRequester.requestFocus() }
         }
     }
     LaunchedEffect(pairingStatus) {
@@ -155,7 +159,9 @@ fun TvServerSetupScreen(
     }
 
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
     ) {
         TvAuroraBackdrop(variant = TvAuroraVariant.Server)
 
@@ -179,7 +185,9 @@ fun TvServerSetupScreen(
         } else {
             Column(
                 modifier = Modifier
+                    .align(Alignment.TopCenter)
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 48.dp, vertical = 32.dp),
             ) {
                 BrandHeader()
@@ -199,15 +207,14 @@ fun TvServerSetupScreen(
                     )
                 }
 
-                // The chooser is centered in the remaining vertical space. The
-                // cards share one height (capped so they read as cards, not
-                // full-height panels) and shrink with the box when the IME
-                // opens — no fixed row height, no offsets. Widths mirror tvOS
-                // (600 / 84 / 600 pt → 300 / 42 / 300 dp at the Shield's 0.5x).
+                // Keep the chooser at a real card height even while the
+                // platform IME resizes the activity. Without the scrollable,
+                // top-anchored container, Android TV can squeeze the field's
+                // editable text line to a few pixels and make typed input
+                // appear blank.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
                         .padding(top = Spacing.lg),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -216,8 +223,7 @@ fun TvServerSetupScreen(
                         modifier = Modifier
                             .widthIn(max = 642.dp)
                             .fillMaxWidth()
-                            .heightIn(max = 300.dp)
-                            .fillMaxHeight(),
+                            .height(SERVER_SETUP_CHOOSER_HEIGHT),
                     ) {
                         PhoneSetupCard(
                             modifier = Modifier
@@ -237,7 +243,6 @@ fun TvServerSetupScreen(
                             urlBringIntoView = urlBringIntoView,
                             connectBringIntoView = connectBringIntoView,
                             scope = scope,
-                            onKeyboardVisibilityChange = { isUrlKeyboardVisible = it },
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -245,29 +250,6 @@ fun TvServerSetupScreen(
                     }
                 }
             }
-        }
-
-        if (!isActivePairing && isUrlKeyboardVisible) {
-            SiloServerUrlKeyboard(
-                value = state.serverUrl,
-                enabled = !state.isLoading,
-                firstKeyFocusRequester = keyboardFirstKeyFocusRequester,
-                onAction = { action ->
-                    viewModel.onServerUrlChanged(applyTvServerUrlKeyboardAction(state.serverUrl, action))
-                },
-                onConnect = {
-                    if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
-                        viewModel.onConnectClick()
-                    }
-                },
-                onDismiss = {
-                    isUrlKeyboardVisible = false
-                    if (!isActivePairing) runCatching { focusRequester.requestFocus() }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 48.dp, end = 48.dp, bottom = 8.dp),
-            )
         }
     }
 }
@@ -334,6 +316,7 @@ private fun PhoneSetupBody(modifier: Modifier = Modifier) {
 }
 
 private val PHONE_SETUP_BEACON_SIZE = 96.dp
+private val SERVER_SETUP_CHOOSER_HEIGHT = 300.dp
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -345,13 +328,14 @@ private fun ManualEntryCard(
     urlBringIntoView: BringIntoViewRequester,
     connectBringIntoView: BringIntoViewRequester,
     scope: CoroutineScope,
-    onKeyboardVisibilityChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val keyboardController = LocalSoftwareKeyboardController.current
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         modifier = modifier
             .auroraGlass(16.dp, emphasized = true)
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
     ) {
         Text(
@@ -366,19 +350,56 @@ private fun ManualEntryCard(
             color = Color.White.copy(alpha = 0.52f),
         )
 
-        ServerUrlDisplayField(
+        OutlinedTextField(
             value = state.serverUrl,
-            hint = "media.example.com",
-            enabled = !state.isLoading,
-            focusRequester = focusRequester,
-            onFocused = {
-                scope.launch { urlBringIntoView.bringIntoView() }
+            onValueChange = onServerUrlChanged,
+            placeholder = {
+                Text(
+                    text = "media.example.com",
+                    style = TvServerSetupTextStyles.FieldText,
+                )
             },
-            onOpenKeyboard = { onKeyboardVisibilityChange(true) },
+            singleLine = true,
+            textStyle = TvServerSetupTextStyles.FieldText,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Go,
+                showKeyboardOnFocus = false,
+            ),
+            keyboardActions = KeyboardActions(
+                onGo = {
+                    if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
+                        onConnectClick()
+                    }
+                },
+            ),
+            enabled = !state.isLoading,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(60.dp)
-                .bringIntoViewRequester(urlBringIntoView),
+                .bringIntoViewRequester(urlBringIntoView)
+                .onFocusEvent { fs ->
+                    if (fs.isFocused) scope.launch { urlBringIntoView.bringIntoView() }
+                }
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyUp &&
+                        (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+                    ) {
+                        keyboardController?.show()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                .focusRequester(focusRequester),
+            colors = tvOutlinedTextFieldColors(),
+        )
+
+        UrlShortcutRow(
+            enabled = !state.isLoading,
+            onShortcut = { shortcut ->
+                onServerUrlChanged(applyServerUrlShortcut(state.serverUrl, shortcut))
+            },
         )
 
         if (state.error != null) {
@@ -388,8 +409,6 @@ private fun ManualEntryCard(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-
-        Spacer(modifier = Modifier.weight(1f))
 
         Box(
             modifier = Modifier
@@ -401,6 +420,7 @@ private fun ManualEntryCard(
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Connecting…" else "Connect",
                 icon = null,
+                enabled = canSubmitTvServerUrl(state.serverUrl, state.isLoading),
                 onClick = {
                     if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
                         onConnectClick()
@@ -413,6 +433,38 @@ private fun ManualEntryCard(
         }
     }
 }
+
+@Composable
+private fun UrlShortcutRow(
+    enabled: Boolean,
+    onShortcut: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        ServerUrlShortcuts.forEach { shortcut ->
+            AuroraGhostButton(
+                label = shortcut,
+                onClick = { if (enabled) onShortcut(shortcut) },
+                fontSize = 16.sp,
+                horizontalPadding = 12.dp,
+                verticalPadding = 6.dp,
+            )
+        }
+    }
+}
+
+private val ServerUrlShortcuts = listOf("https://", "http://", ".com")
+
+private fun applyServerUrlShortcut(value: String, shortcut: String): String =
+    when {
+        shortcut.endsWith("://") &&
+            (value.startsWith("http://", ignoreCase = true) || value.startsWith("https://", ignoreCase = true)) -> value
+        shortcut.endsWith("://") -> shortcut + value.trimStart()
+        else -> value + shortcut
+    }
 
 @Composable
 private fun OrDivider(modifier: Modifier = Modifier) {

@@ -574,6 +574,7 @@ class TvPlayerViewModel(
     private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
     private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
     private var autoTextSubtitleSelectionAttempted = false
+    private var manualSubtitleSelectionApplied = false
     private val recoveryPlanner = PlaybackRecoveryPlanner()
 
     /**
@@ -888,6 +889,7 @@ class TvPlayerViewModel(
         suppressResumeRewind: Boolean = false,
     ) {
         introAutoSkipController.reset()
+        manualSubtitleSelectionApplied = false
         // Fresh content: forget engines attempted for the previous item.
         attemptedEngines.clear()
 
@@ -1084,13 +1086,38 @@ class TvPlayerViewModel(
                     blockers = state.playbackPlan?.capabilities?.blockers.orEmpty(),
                 ),
             )
-            when (val r = playbackSessionManager.startTranscodeFallback(
+            val renewStartParams = StartParams(
+                contentId = contentId,
+                fileId = activeFileId,
+                capabilities = capabilities,
+                audioTrackIndex = selectedAudioIndex,
+                subtitleTrackIndex = selectedSubtitleIndex,
+                qualityPreference = null,
+                startPosition = state.position,
+                preserveDirectAudioSelection = true,
+            )
+            when (val r = playbackSessionManager.startTranscodeFallbackRecoveringMissingSession(
                 session = sessionResponse,
                 seekSeconds = state.position,
                 resolution = state.selectedFileResolution.orEmpty(),
                 mode = fallbackMode,
                 audioTrackIndex = selectedAudioIndex,
                 subtitleTrackIndex = selectedSubtitleIndex,
+                renewSession = {
+                    when (val renewed = sessionLifecycle.start(renewStartParams)) {
+                        is SessionState.Active -> ApiResult.Success(renewed.session)
+                        is SessionState.Failed -> ApiResult.Error(
+                            code = 0,
+                            error = "playback_session_renewal_failed",
+                            message = renewed.message,
+                        )
+                        else -> ApiResult.Error(
+                            code = 0,
+                            error = "playback_session_renewal_failed",
+                            message = "Failed to renew playback session.",
+                        )
+                    }
+                },
             )) {
                 is ApiResult.Success -> {
                     val fallback = r.data
@@ -1515,6 +1542,7 @@ class TvPlayerViewModel(
         audio: List<PlayerTrackEntry>,
         subtitle: List<PlayerTrackEntry>,
     ) {
+        if (manualSubtitleSelectionApplied) return
         if (autoTextSubtitleSelectionAttempted) return
         if (launchArgs.initialSubtitleTrackIndex != null) return
         if (subtitle.isEmpty()) return
@@ -1569,6 +1597,10 @@ class TvPlayerViewModel(
         _uiState.update {
             it.copy(subtitleTracks = subtitleTracksWithSelection(it.subtitleTracks, index))
         }
+    }
+
+    fun onManualSubtitleSelectionIntent() {
+        manualSubtitleSelectionApplied = true
     }
 
     /**

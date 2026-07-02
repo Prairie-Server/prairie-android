@@ -2,6 +2,8 @@ package org.siloserver.silo.tv.ui.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.model.auth.SetupStatusResponse
+import org.siloserver.silo.model.auth.SignupStatusResponse
 import org.siloserver.silo.network.AndroidServerRegistry
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.AuthRepository
@@ -30,6 +32,18 @@ data class TvServerSetupUiState(
 sealed class TvServerSetupDestination {
     data object Setup : TvServerSetupDestination()
     data class Login(val signupEnabled: Boolean) : TvServerSetupDestination()
+}
+
+internal sealed class TvServerSetupProbeResult {
+    data class Success(
+        val serverUrl: String,
+        val destination: TvServerSetupDestination,
+    ) : TvServerSetupProbeResult()
+
+    data class Failure(
+        val message: String,
+        val serverUrl: String? = null,
+    ) : TvServerSetupProbeResult()
 }
 
 /**
@@ -73,70 +87,108 @@ class TvServerSetupViewModel(
     }
 
     fun onConnectClick() {
+        if (_uiState.value.isLoading) return
         val raw = _uiState.value.serverUrl.trim()
         if (raw.isBlank()) {
             _uiState.update { it.copy(error = "Enter a server URL") }
             return
         }
-        val withScheme = if (raw.startsWith("http://") || raw.startsWith("https://")) {
-            raw
-        } else "https://$raw"
-        val normalized = AndroidServerRegistry.normalizeUrl(withScheme)
+        val candidates = serverSetupUrlProbeCandidates(raw)
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            // Save the URL so all subsequent API calls target this server.
-            authRepository.setServerUrl(normalized)
 
-            // Step 1: does the server need first-time setup (no admin yet)?
-            when (val result = authRepository.getSetupStatus()) {
-                is ApiResult.Success -> {
-                    if (result.data.needsSetup) {
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                navigateTo = TvServerSetupDestination.Setup,
-                            )
-                        }
-                        return@launch
-                    }
-                }
-                is ApiResult.Error -> {
+            when (val result = probeTvServerSetupCandidates(
+                candidates = candidates,
+                getSetupStatus = { candidate -> authRepository.getSetupStatus(candidate) },
+                getSignupStatus = { candidate -> authRepository.getSignupStatus(candidate) },
+            )) {
+                is TvServerSetupProbeResult.Success -> {
+                    authRepository.setServerUrl(result.serverUrl)
                     _uiState.update {
                         it.copy(
+                            serverUrl = result.serverUrl,
                             isLoading = false,
-                            error = "Could not reach server: ${result.message}",
+                            navigateTo = result.destination,
                         )
                     }
-                    return@launch
                 }
-                is ApiResult.NetworkError -> {
+                is TvServerSetupProbeResult.Failure -> {
                     _uiState.update {
                         it.copy(
+                            serverUrl = result.serverUrl ?: it.serverUrl,
                             isLoading = false,
-                            error = "Network error. Check the URL and try again.",
+                            error = result.message,
                         )
                     }
-                    return@launch
                 }
-            }
-
-            // Step 2: server is set up — check whether public signup is enabled.
-            val signupEnabled = when (val signupResult = authRepository.getSignupStatus()) {
-                is ApiResult.Success -> signupResult.data.enabled
-                else -> false // If we can't determine, default to no signup.
-            }
-
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    navigateTo = TvServerSetupDestination.Login(signupEnabled = signupEnabled),
-                )
             }
         }
     }
 
     fun onNavigationConsumed() {
         _uiState.update { it.copy(navigateTo = null) }
+    }
+}
+
+internal suspend fun probeTvServerSetupCandidates(
+    candidates: List<String>,
+    getSetupStatus: suspend (String) -> ApiResult<SetupStatusResponse>,
+    getSignupStatus: suspend (String) -> ApiResult<SignupStatusResponse>,
+): TvServerSetupProbeResult {
+    for ((index, candidate) in candidates.withIndex()) {
+        val isLastCandidate = index == candidates.lastIndex
+
+        when (val result = getSetupStatus(candidate)) {
+            is ApiResult.Success -> {
+                if (result.data.needsSetup) {
+                    return TvServerSetupProbeResult.Success(
+                        serverUrl = candidate,
+                        destination = TvServerSetupDestination.Setup,
+                    )
+                }
+            }
+            is ApiResult.Error -> {
+                if (!isLastCandidate) continue
+                return TvServerSetupProbeResult.Failure(
+                    serverUrl = candidate,
+                    message = "Could not reach server: ${result.message}",
+                )
+            }
+            is ApiResult.NetworkError -> {
+                if (!isLastCandidate) continue
+                return TvServerSetupProbeResult.Failure(
+                    message = "Network error. Check the URL and try again.",
+                )
+            }
+        }
+
+        val signupEnabled = when (val signupResult = getSignupStatus(candidate)) {
+            is ApiResult.Success -> signupResult.data.enabled
+            else -> false
+        }
+        return TvServerSetupProbeResult.Success(
+            serverUrl = candidate,
+            destination = TvServerSetupDestination.Login(signupEnabled = signupEnabled),
+        )
+    }
+
+    return TvServerSetupProbeResult.Failure(
+        message = "Network error. Check the URL and try again.",
+    )
+}
+
+internal fun serverSetupUrlProbeCandidates(raw: String): List<String> {
+    val trimmed = raw.trim().trimEnd('/')
+    if (trimmed.isBlank()) return emptyList()
+    return if (trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true)
+    ) {
+        listOf(AndroidServerRegistry.normalizeUrl(trimmed))
+    } else {
+        listOf(
+            AndroidServerRegistry.normalizeUrl("https://$trimmed"),
+            AndroidServerRegistry.normalizeUrl("http://$trimmed"),
+        )
     }
 }

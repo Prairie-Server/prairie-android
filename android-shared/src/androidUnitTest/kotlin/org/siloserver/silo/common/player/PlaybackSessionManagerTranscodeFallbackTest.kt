@@ -72,16 +72,114 @@ class PlaybackSessionManagerTranscodeFallbackTest {
         assertEquals(PlayMethod.TRANSCODE, result.data.playMethod)
     }
 
+    @Test
+    fun fallbackRenewsPlaybackSessionWhenServerReportsSessionMissing() = runTest {
+        val captured = CapturedRequest()
+        val manager = manager(
+            captured = captured,
+            responses = ArrayDeque(
+                listOf(
+                    MockHttpResponse(
+                        status = HttpStatusCode.NotFound,
+                        body = """{"error":"playback_session_not_found","message":"Playback session not found"}""",
+                    ),
+                    MockHttpResponse(
+                        status = HttpStatusCode.OK,
+                        body = """{"session_id":"fresh-session","status":"ready","manifest_url":"/stream/transcode/fresh","duration_seconds":120.0,"player_start_seconds":33.0}""",
+                    ),
+                ),
+            ),
+        )
+
+        val result = manager.startTranscodeFallbackRecoveringMissingSession(
+            session = session(sessionId = "stale-session", playMethod = PlayMethod.DIRECT),
+            seekSeconds = 33.0,
+            resolution = "2160p",
+            mode = PlaybackSessionManager.TranscodeMode.FULL,
+            renewSession = {
+                ApiResult.Success<PlaybackSessionResponse>(
+                    session(sessionId = "fresh-session", playMethod = PlayMethod.DIRECT),
+                )
+            },
+        )
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals("fresh-session", result.data.sessionId)
+        assertEquals("/stream/transcode/fresh", result.data.streamUrl)
+        assertEquals(
+            listOf("stale-session", "fresh-session"),
+            captured.bodies.map { body ->
+                SiloJson.parseToJsonElement(body).jsonObject["session_id"]!!.jsonPrimitive.content
+            },
+        )
+    }
+
+    @Test
+    fun fallbackStopsRenewedSessionWhenRetryFailsAfterRenewal() = runTest {
+        val captured = CapturedRequest()
+        val manager = manager(
+            captured = captured,
+            responses = ArrayDeque(
+                listOf(
+                    MockHttpResponse(
+                        status = HttpStatusCode.NotFound,
+                        body = """{"error":"playback_session_not_found","message":"Playback session not found"}""",
+                    ),
+                    MockHttpResponse(
+                        status = HttpStatusCode.InternalServerError,
+                        body = """{"error":"transcode_failed","message":"Transcode retry failed"}""",
+                    ),
+                    MockHttpResponse(status = HttpStatusCode.OK, body = ""),
+                ),
+            ),
+        )
+
+        val result = manager.startTranscodeFallbackRecoveringMissingSession(
+            session = session(sessionId = "stale-session", playMethod = PlayMethod.DIRECT),
+            seekSeconds = 33.0,
+            resolution = "2160p",
+            mode = PlaybackSessionManager.TranscodeMode.FULL,
+            renewSession = {
+                ApiResult.Success<PlaybackSessionResponse>(
+                    session(sessionId = "fresh-session", playMethod = PlayMethod.DIRECT),
+                )
+            },
+        )
+
+        assertTrue(result is ApiResult.Error)
+        assertEquals(
+            listOf(
+                "POST /api/v1/playback/transcode/start",
+                "POST /api/v1/playback/transcode/start",
+                "DELETE /api/v1/playback/fresh-session",
+            ),
+            captured.calls,
+        )
+    }
+
     private fun manager(
         captured: CapturedRequest,
         responseBody: String,
+    ): PlaybackSessionManager =
+        manager(
+            captured = captured,
+            responses = ArrayDeque(listOf(MockHttpResponse(HttpStatusCode.OK, responseBody))),
+        )
+
+    private fun manager(
+        captured: CapturedRequest,
+        responses: ArrayDeque<MockHttpResponse>,
     ): PlaybackSessionManager {
         val client = HttpClient(
             MockEngine { request ->
-                captured.body = request.body.toByteArray().decodeToString()
+                val body = request.body.toByteArray().decodeToString()
+                captured.calls += "${request.method.value} ${request.url.encodedPath}"
+                captured.body = body
+                captured.bodies += body
+                val response = responses.removeFirst()
                 respond(
-                    content = responseBody,
-                    status = HttpStatusCode.OK,
+                    content = response.body,
+                    status = response.status,
                     headers = headersOf(HttpHeaders.ContentType, "application/json"),
                 )
             },
@@ -94,9 +192,12 @@ class PlaybackSessionManagerTranscodeFallbackTest {
         )
     }
 
-    private fun session(playMethod: PlayMethod): PlaybackSessionResponse =
+    private fun session(
+        sessionId: String = "session-1",
+        playMethod: PlayMethod,
+    ): PlaybackSessionResponse =
         PlaybackSessionResponse(
-            sessionId = "session-1",
+            sessionId = sessionId,
             userId = 1,
             profileId = "profile-1",
             mediaFileId = 42,
@@ -107,7 +208,14 @@ class PlaybackSessionManagerTranscodeFallbackTest {
 
     private class CapturedRequest {
         var body: String = ""
+        val bodies = mutableListOf<String>()
+        val calls = mutableListOf<String>()
     }
+
+    private data class MockHttpResponse(
+        val status: HttpStatusCode,
+        val body: String,
+    )
 }
 
 private object NoOpTokenManager : TokenManager {

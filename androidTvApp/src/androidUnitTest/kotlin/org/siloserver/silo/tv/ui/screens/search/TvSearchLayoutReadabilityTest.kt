@@ -9,9 +9,6 @@ class TvSearchLayoutReadabilityTest {
     private val source = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt",
     ).readText()
-    private val keyboardSource = File(
-        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchKeyboard.kt",
-    ).takeIf { it.exists() }?.readText().orEmpty()
 
     @Test
     fun searchHeaderStartsBelowTopMenuChrome() {
@@ -30,30 +27,14 @@ class TvSearchLayoutReadabilityTest {
     }
 
     @Test
-    fun searchUsesSiloOwnedKeyboardInsteadOfPlatformIme() {
-        assertTrue(source.contains("SearchDisplayField("))
-        assertTrue(source.contains("SiloSearchKeyboard("))
-        assertFalse(source.contains("OutlinedTextField("))
-        assertFalse(source.contains("KeyboardOptions("))
-        assertFalse(source.contains("KeyboardActions("))
-        assertFalse(source.contains("LocalSoftwareKeyboardController"))
+    fun searchUsesPlatformImeTextFieldInsteadOfSiloOwnedKeyboard() {
+        assertTrue(source.contains("OutlinedTextField("))
+        assertTrue(source.contains("KeyboardOptions("))
+        assertTrue(source.contains("KeyboardActions("))
+        assertTrue(source.contains("KeyboardType.Text"))
+        assertTrue(source.contains("ImeAction.Search"))
+        assertFalse(source.contains("SearchDisplayField("))
+        assertFalse(source.contains("SiloSearchKeyboard("))
     }
 
-    @Test
-    fun searchFieldKeepsDownForFocusNavigation() {
-        assertFalse(keyboardSource.contains("Key.DirectionDown"))
-    }
-
-    @Test
-    fun searchFieldOpensKeyboardOnlyFromActivationKeys() {
-        val helper = keyboardSource
-            .substringAfter("private fun shouldOpenSearchKeyboard")
-            .substringBefore("private val tvSearchActivationKeyCodes")
-
-        assertTrue(keyboardSource.contains("shouldOpenSearchKeyboard(event)"))
-        assertTrue(helper.contains("if (event.type != KeyEventType.KeyDown) return false"))
-        assertFalse(helper.contains("KeyEventType.KeyUp"))
-        assertTrue(keyboardSource.contains("AndroidKeyEvent.KEYCODE_DPAD_CENTER"))
-        assertTrue(keyboardSource.contains("AndroidKeyEvent.KEYCODE_ENTER"))
-    }
 }

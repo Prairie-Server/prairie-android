@@ -1,6 +1,7 @@
 package org.siloserver.silo.common.network
 
 import android.content.Context
+import android.content.pm.PackageInfo
 import android.os.Build
 import org.siloserver.silo.network.SiloDeviceMetadata
 import org.siloserver.silo.network.DeviceMetadataProvider
@@ -11,6 +12,8 @@ class AndroidDeviceMetadataProvider(
     private val platform: String,
 ) : DeviceMetadataProvider {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val cachedClientName: String by lazy { clientNameFor(platform) }
+    private val cachedClientVersion: String? by lazy { appVersionName() }
 
     override suspend fun current(): SiloDeviceMetadata {
         val deviceId = prefs.getString(KEY_DEVICE_ID, null) ?: UUID.randomUUID().toString().also { generated ->
@@ -25,8 +28,26 @@ class AndroidDeviceMetadataProvider(
             id = deviceId,
             name = model,
             platform = platform,
+            clientName = cachedClientName,
+            clientVersion = cachedClientVersion,
         )
     }
+
+    private fun clientNameFor(platform: String): String =
+        when (platform) {
+            "android-tv" -> "Silo Android TV"
+            "android" -> "Silo Android"
+            else -> "Silo Android"
+        }
+
+    @Suppress("DEPRECATION")
+    private fun appVersionName(): String? =
+        runCatching<PackageInfo> {
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        }.getOrNull()
+            ?.versionName
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
 
     private companion object {
         const val PREFS_NAME = "silo_device_metadata"

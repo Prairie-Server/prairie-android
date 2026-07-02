@@ -151,8 +151,8 @@ class TvPlayerViewModelSharedCoordinatorTest {
             .substringBefore("fun onPositionChanged(positionMs: Long, durationMs: Long)")
 
         assertTrue(
-            unsupportedBody.contains("startTranscodeFallback("),
-            "unsupported direct play must request a fallback stream",
+            unsupportedBody.contains("startTranscodeFallbackRecoveringMissingSession("),
+            "unsupported direct play fallback must renew stale playback sessions before surfacing an error",
         )
         assertTrue(
             unsupportedBody.contains("sessionLifecycle.adoptActiveSession("),

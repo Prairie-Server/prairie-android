@@ -76,6 +76,7 @@ fun TvHeroActionPill(
     heightOverride: androidx.compose.ui.unit.Dp? = null,
     horizontalPaddingOverride: androidx.compose.ui.unit.Dp? = null,
     labelStyle: TextStyle = navRailLabel,
+    enabled: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -112,6 +113,7 @@ fun TvHeroActionPill(
 
     Surface(
         onClick = onClick,
+        enabled = enabled,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = pillShape),
         colors = ClickableSurfaceDefaults.colors(
@@ -200,7 +202,7 @@ fun TvHeroActionPill(
                 Text(
                     text = label,
                     style = labelStyle,
-                    color = if (isFocused) FocusedContent else restFg,
+                    color = (if (isFocused) FocusedContent else restFg).copy(alpha = if (enabled) 1f else 0.48f),
                     maxLines = 1,
                 )
             }

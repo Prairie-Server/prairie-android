@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon as M3Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,14 +37,16 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.catalog.BrowseItem
-import org.siloserver.silo.tv.ui.components.applyTvAnsiKeyboardAction
 import org.siloserver.silo.tv.ui.components.TvCatalogGrid
 import org.siloserver.silo.tv.ui.components.TvFilterChip
+import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.tv.ui.theme.SiloBlue
 import org.siloserver.silo.tv.ui.theme.ElevatedSurface
@@ -49,7 +54,6 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.theme.sectionEyebrow
 import org.siloserver.silo.tv.ui.theme.tvPageContentPadding
 import org.siloserver.silo.tv.ui.theme.tvPageStartPadding
-import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -64,18 +68,10 @@ fun TvSearchScreen(
     val firstFilterChipFocusRequester = remember { FocusRequester() }
     val internalSearchFieldFocusRequester = remember { FocusRequester() }
     val activeSearchFieldFocusRequester = searchFieldFocusRequester ?: internalSearchFieldFocusRequester
-    val searchKeyboardFirstKeyFocusRequester = remember { FocusRequester() }
-    var isSearchKeyboardVisible by remember { mutableStateOf(false) }
     var pendingSearchFocus by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeSearchFieldFocusRequester) {
         runCatching { activeSearchFieldFocusRequester.requestFocus() }
-    }
-    LaunchedEffect(isSearchKeyboardVisible) {
-        if (isSearchKeyboardVisible) {
-            delay(120)
-            runCatching { searchKeyboardFirstKeyFocusRequester.requestFocus() }
-        }
     }
     LaunchedEffect(pendingSearchFocus, state.isLoading, state.items) {
         if (!pendingSearchFocus || state.isLoading) return@LaunchedEffect
@@ -95,7 +91,7 @@ fun TvSearchScreen(
     //   • search field —DOWN→ first chip
     //   • first chip   —DOWN→ first card (when results exist)
     //   • first card   —UP→   first chip
-    // and the custom keyboard's Search action still snaps focus into the grid.
+    // The IME Search action submits the query without stealing focus.
 
     Box(
         modifier = Modifier
@@ -141,7 +137,11 @@ fun TvSearchScreen(
                     searchFieldFocusRequester = activeSearchFieldFocusRequester,
                     firstFilterChipFocusRequester = firstFilterChipFocusRequester,
                     firstResultFocusRequester = firstResultFocusRequester,
-                    onOpenKeyboard = { isSearchKeyboardVisible = true },
+                    onQueryChanged = viewModel::onQueryChanged,
+                    onSearch = {
+                        pendingSearchFocus = true
+                        viewModel.submitSearch()
+                    },
                     onMediaTypeChanged = viewModel::onMediaTypeChanged,
                 )
             },
@@ -163,34 +163,6 @@ fun TvSearchScreen(
             },
         )
 
-        if (isSearchKeyboardVisible) {
-            SiloSearchKeyboard(
-                value = state.query,
-                enabled = !state.isLoading,
-                firstKeyFocusRequester = searchKeyboardFirstKeyFocusRequester,
-                onAction = { action ->
-                    viewModel.onQueryChanged(
-                        applyTvAnsiKeyboardAction(
-                            value = state.query,
-                            action = action,
-                            maxLength = TV_SEARCH_QUERY_MAX_LENGTH,
-                        ),
-                    )
-                },
-                onSearch = {
-                    isSearchKeyboardVisible = false
-                    pendingSearchFocus = true
-                    viewModel.submitSearch()
-                },
-                onDismiss = {
-                    isSearchKeyboardVisible = false
-                    runCatching { activeSearchFieldFocusRequester.requestFocus() }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 48.dp, end = 48.dp, bottom = 8.dp),
-            )
-        }
     }
 }
 
@@ -205,7 +177,8 @@ private fun SearchStage(
     searchFieldFocusRequester: FocusRequester,
     firstFilterChipFocusRequester: FocusRequester,
     firstResultFocusRequester: FocusRequester,
-    onOpenKeyboard: () -> Unit,
+    onQueryChanged: (String) -> Unit,
+    onSearch: () -> Unit,
     onMediaTypeChanged: (TvSearchMediaType) -> Unit,
 ) {
     val startPadding = tvPageStartPadding(expandedGap = Spacing.md)
@@ -239,19 +212,40 @@ private fun SearchStage(
             }
         }
 
-        SearchDisplayField(
+        OutlinedTextField(
             value = query,
-            hint = "Search titles, movies, series, and audiobooks",
-            enabled = true,
-            focusRequester = searchFieldFocusRequester,
-            onOpenKeyboard = onOpenKeyboard,
+            onValueChange = { onQueryChanged(it.take(TV_SEARCH_QUERY_MAX_LENGTH)) },
+            singleLine = true,
+            placeholder = {
+                Text(
+                    text = "Search titles, movies, series, and audiobooks",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.56f),
+                )
+            },
+            leadingIcon = {
+                M3Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.72f),
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.Search,
+            ),
+            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(34.dp)
+                .height(48.dp)
                 // Pin DOWN to the chip rail so the user can always step from
                 // the search field onto the All/Movies/Series filters,
                 // regardless of whether result cards are also rendered below.
+                .focusRequester(searchFieldFocusRequester)
                 .focusProperties { down = firstFilterChipFocusRequester },
+            colors = tvOutlinedTextFieldColors(),
         )
 
         LazyRow(

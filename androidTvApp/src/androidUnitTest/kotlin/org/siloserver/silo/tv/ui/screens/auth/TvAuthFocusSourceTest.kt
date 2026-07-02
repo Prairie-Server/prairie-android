@@ -12,12 +12,6 @@ class TvAuthFocusSourceTest {
     private val loginSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/auth/TvLoginScreen.kt",
     ).readText()
-    private val credentialKeyboardSource = File(
-        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/auth/TvCredentialKeyboard.kt",
-    ).readText()
-    private val ansiKeyboardSource = File(
-        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvAnsiKeyboard.kt",
-    ).readText()
     private val setupSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/auth/TvSetupScreen.kt",
     ).readText()
@@ -27,8 +21,9 @@ class TvAuthFocusSourceTest {
 
     @Test
     fun serverSetupAnchorsInitialFocusSafelyOnManualEntry() {
-        assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing, isUrlKeyboardVisible)"))
-        assertTrue(serverSetupSource.contains("if (!isActivePairing && !isUrlKeyboardVisible)"))
+        assertTrue(serverSetupSource.contains(".imePadding()"))
+        assertTrue(serverSetupSource.contains("keyboardController?.show()"))
+        assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing)"))
         assertTrue(serverSetupSource.contains("runCatching { focusRequester.requestFocus() }"))
     }
 
@@ -39,67 +34,27 @@ class TvAuthFocusSourceTest {
     }
 
     @Test
-    fun loginUsesSiloOwnedCredentialKeyboardInsteadOfPlatformIme() {
-        assertTrue(loginSource.contains("CredentialDisplayField("))
-        assertTrue(loginSource.contains("SiloCredentialKeyboard("))
-        assertFalse(loginSource.contains("OutlinedTextField("))
+    fun loginUsesPlatformImeTextFieldsForCredentialEntry() {
+        assertTrue(loginSource.contains("OutlinedTextField("))
+        assertTrue(loginSource.contains("KeyboardType.Text"))
+        assertTrue(loginSource.contains("KeyboardType.Password"))
+        assertTrue(loginSource.contains("KeyboardActions("))
+        assertFalse(loginSource.contains("CredentialDisplayField("))
+        assertFalse(loginSource.contains("SiloCredentialKeyboard("))
     }
 
     @Test
-    fun credentialFieldsOpenKeyboardOnRemoteKeyDownOnly() {
-        val helper = credentialKeyboardSource
-            .substringAfter("private fun shouldOpenCredentialKeyboard")
-            .substringBefore("private val tvCredentialActivationKeyCodes")
-
-        assertTrue(helper.contains("if (event.type != KeyEventType.KeyDown) return false"))
-        assertFalse(helper.contains("KeyEventType.KeyUp"))
+    fun loginUsesImeAwareStockKeyboardLayout() {
+        assertTrue(loginSource.contains(".imePadding()"))
+        assertTrue(loginSource.contains(".verticalScroll(rememberScrollState())"))
+        assertFalse(loginSource.contains("loginScrollState.animateScrollTo(0)"))
     }
 
     @Test
-    fun credentialFieldsDoNotTreatDownAsActivation() {
-        assertFalse(credentialKeyboardSource.contains("Key.DirectionDown"))
-    }
-
-    @Test
-    fun credentialFieldsInspectRemoteKeysBeforeFocusableCanConsumeCenter() {
-        val keyHandlerIndex = credentialKeyboardSource.indexOf(".onPreviewKeyEvent { event ->")
-        val focusableIndex = credentialKeyboardSource.indexOf(
-            ".focusable(enabled = enabled, interactionSource = interactionSource)",
-        )
-
-        assertTrue(keyHandlerIndex in 0 until focusableIndex)
-    }
-
-    @Test
-    fun credentialFieldsAlsoHandleFocusedKeyEventsForCenterPresses() {
-        assertTrue(credentialKeyboardSource.contains(".onKeyEvent { event ->"))
-        assertTrue(credentialKeyboardSource.contains("AndroidKeyEvent.KEYCODE_DPAD_CENTER"))
-    }
-
-    @Test
-    fun loginResetsScrollWhenCredentialKeyboardOpens() {
-        assertTrue(loginSource.contains("loginScrollState.animateScrollTo(0)"))
-    }
-
-    @Test
-    fun credentialKeyboardUsesSharedAnsiKeyboard() {
-        assertTrue(credentialKeyboardSource.contains("TvAnsiKeyboard("))
-        assertTrue(credentialKeyboardSource.contains("primaryLabel = if (field == TvCredentialField.Username) \"Next\" else \"Sign In\""))
-        assertTrue(credentialKeyboardSource.contains("showPasswordVisibilityKey = field == TvCredentialField.Password"))
-        assertTrue(ansiKeyboardSource.contains("private val TvAnsiKeyboardKeyHeight = 28.dp"))
-        assertTrue(ansiKeyboardSource.contains("private val TvAnsiKeyboardVerticalPadding = 8.dp"))
-        assertTrue(ansiKeyboardSource.contains(".height(TvAnsiKeyboardKeyHeight)"))
-    }
-
-    @Test
-    fun credentialKeyboardGetsSymbolsFromAnsiShiftedPairs() {
-        assertTrue(ansiKeyboardSource.contains("insertKey(\"1\", shifted = \"!\")"))
-        assertTrue(ansiKeyboardSource.contains("insertKey(\",\", shifted = \"<\")"))
-        assertTrue(ansiKeyboardSource.contains("insertKey(\".\", shifted = \">\")"))
-        assertTrue(ansiKeyboardSource.contains("insertKey(\"/\", shifted = \"?\")"))
-        assertTrue(ansiKeyboardSource.contains("if (shifted && key.type == TvAnsiKeyType.Insert) shifted = false"))
-        assertFalse(credentialKeyboardSource.contains("TvCredentialSpecialKey.Symbols"))
-        assertFalse(credentialKeyboardSource.contains("#+="))
+    fun credentialKeyboardIsNotMountedByLoginScreen() {
+        assertFalse(loginSource.contains("credentialKeyboardVisible"))
+        assertFalse(loginSource.contains("activeCredentialField"))
+        assertFalse(loginSource.contains("credentialKeyboardFirstKeyFocus"))
     }
 
     @Test
@@ -109,9 +64,24 @@ class TvAuthFocusSourceTest {
     }
 
     @Test
+    fun setupAndSignupUsePlatformImeTextFieldsForAuthEntry() {
+        assertTrue(setupSource.contains("OutlinedTextField("))
+        assertTrue(setupSource.contains("KeyboardType.Email"))
+        assertTrue(setupSource.contains("KeyboardType.Password"))
+        assertFalse(setupSource.contains("CredentialDisplayField("))
+        assertFalse(setupSource.contains("TvSetupAnsiKeyboard("))
+
+        assertTrue(signupSource.contains("OutlinedTextField("))
+        assertTrue(signupSource.contains("KeyboardType.Email"))
+        assertTrue(signupSource.contains("KeyboardType.Password"))
+        assertFalse(signupSource.contains("CredentialDisplayField("))
+        assertFalse(signupSource.contains("TvSignupAnsiKeyboard("))
+    }
+
+    @Test
     fun serverSetupDoesNotRestoreManualFocusWhilePairingOverlayIsActive() {
-        assertTrue(serverSetupSource.contains("if (isActivePairing) isUrlKeyboardVisible = false"))
-        assertTrue(serverSetupSource.contains("if (!isActivePairing && !isUrlKeyboardVisible)"))
-        assertTrue(serverSetupSource.contains("if (!isActivePairing) runCatching { focusRequester.requestFocus() }"))
+        assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing)"))
+        assertTrue(serverSetupSource.contains("if (!isActivePairing) {"))
+        assertTrue(serverSetupSource.contains("runCatching { focusRequester.requestFocus() }"))
     }
 }

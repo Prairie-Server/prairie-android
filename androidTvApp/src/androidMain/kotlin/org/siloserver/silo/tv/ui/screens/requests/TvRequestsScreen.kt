@@ -19,11 +19,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon as M3Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -38,6 +42,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -53,9 +59,7 @@ import org.siloserver.silo.repository.RequestsRepository
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
-import org.siloserver.silo.tv.ui.components.applyTvAnsiKeyboardAction
-import org.siloserver.silo.tv.ui.screens.search.SearchDisplayField
-import org.siloserver.silo.tv.ui.screens.search.SiloSearchKeyboard
+import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
 import org.siloserver.silo.tv.ui.screens.search.TV_SEARCH_QUERY_MAX_LENGTH
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.tv.ui.theme.SiloBlue
@@ -63,7 +67,6 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.theme.sectionEyebrow
 import org.siloserver.silo.viewmodel.RequestSearchViewModel
 import org.siloserver.silo.viewmodel.RequestsViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -92,7 +95,6 @@ fun TvRequestsScreen(
     val searchFieldFocusRequester = remember { FocusRequester() }
     val firstFilterChipFocusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
-    val requestKeyboardFirstKeyFocusRequester = remember { FocusRequester() }
     val hasSubmittedQuery = searchState.hasSubmittedQuery
     val hasSearchResults = visibleSearchResults.isNotEmpty()
     val firstDiscoverSectionKey = visibleDiscoverSections.firstOrNull { it.results.isNotEmpty() }?.key
@@ -105,7 +107,6 @@ fun TvRequestsScreen(
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
     var submittingKey by remember { mutableStateOf<String?>(null) }
-    var isRequestKeyboardVisible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun refreshRequests() {
@@ -141,12 +142,6 @@ fun TvRequestsScreen(
                 runCatching { firstFilterChipFocusRequester.requestFocus() }
             }
             focusResultsAfterSearch = false
-        }
-    }
-    LaunchedEffect(isRequestKeyboardVisible) {
-        if (isRequestKeyboardVisible) {
-            delay(120)
-            runCatching { requestKeyboardFirstKeyFocusRequester.requestFocus() }
         }
     }
 
@@ -213,7 +208,11 @@ fun TvRequestsScreen(
                 firstFilterChipFocusRequester = firstFilterChipFocusRequester,
                 firstResultFocusRequester = firstResultFocusRequester,
                 hasFocusableResult = hasFocusableResult,
-                onOpenKeyboard = { isRequestKeyboardVisible = true },
+                onQueryChanged = { query -> searchViewModel.onQueryChanged(query) },
+                onSearch = {
+                    focusResultsAfterSearch = searchState.query.isNotBlank()
+                    searchViewModel.search()
+                },
                 onMediaTypeChanged = { type ->
                     searchViewModel.onMediaTypeChanged(type)
                     if (searchState.query.isNotBlank()) {
@@ -296,34 +295,6 @@ fun TvRequestsScreen(
             }
         }
 
-        if (isRequestKeyboardVisible) {
-            SiloSearchKeyboard(
-                value = searchState.query,
-                enabled = !searchState.isLoading,
-                firstKeyFocusRequester = requestKeyboardFirstKeyFocusRequester,
-                onAction = { action ->
-                    searchViewModel.onQueryChanged(
-                        applyTvAnsiKeyboardAction(
-                            value = searchState.query,
-                            action = action,
-                            maxLength = TV_SEARCH_QUERY_MAX_LENGTH,
-                        ),
-                    )
-                },
-                onSearch = {
-                    isRequestKeyboardVisible = false
-                    focusResultsAfterSearch = searchState.query.isNotBlank()
-                    searchViewModel.search()
-                },
-                onDismiss = {
-                    isRequestKeyboardVisible = false
-                    runCatching { searchFieldFocusRequester.requestFocus() }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 48.dp, end = 48.dp, bottom = 8.dp),
-            )
-        }
     }
 }
 
@@ -412,7 +383,8 @@ private fun RequestsHeader(
     firstFilterChipFocusRequester: FocusRequester,
     firstResultFocusRequester: FocusRequester,
     hasFocusableResult: Boolean,
-    onOpenKeyboard: () -> Unit,
+    onQueryChanged: (String) -> Unit,
+    onSearch: () -> Unit,
     onMediaTypeChanged: (String?) -> Unit,
     onRefresh: () -> Unit,
     onOpenMyRequests: () -> Unit,
@@ -444,16 +416,36 @@ private fun RequestsHeader(
             modifier = Modifier.widthIn(max = 410.dp),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            SearchDisplayField(
+            OutlinedTextField(
                 value = query,
-                hint = "Search movies and series to request",
-                enabled = true,
-                focusRequester = searchFieldFocusRequester,
-                onOpenKeyboard = onOpenKeyboard,
+                onValueChange = { onQueryChanged(it.take(TV_SEARCH_QUERY_MAX_LENGTH)) },
+                singleLine = true,
+                placeholder = {
+                    Text(
+                        text = "Search movies and series to request",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.56f),
+                    )
+                },
+                leadingIcon = {
+                    M3Icon(
+                        imageVector = Icons.Filled.Movie,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.72f),
+                    )
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Search,
+                ),
+                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(34.dp)
+                    .height(48.dp)
+                    .focusRequester(searchFieldFocusRequester)
                     .focusProperties { down = firstFilterChipFocusRequester },
+                colors = tvOutlinedTextFieldColors(),
             )
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),

@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -100,6 +101,7 @@ import org.siloserver.silo.common.player.mpv.MpvVideoScaleMode
 import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
 import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
 import org.siloserver.silo.common.player.video.isMpvPreferredOriginalPlaybackContainer
+import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
 import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
@@ -346,11 +348,26 @@ fun TvPlayerScreen(
         val selectedTrack = state.subtitleTracks
             .firstOrNull { it.index == idx }
             ?.toVideoTrackEntry()
+        viewModel.onManualSubtitleSelectionIntent()
         viewModel.onSubtitleSelectionApplied(idx)
         if (dismiss) viewModel.closeSubtitleMenu()
         if (videoBackend?.selectSubtitle(selectedTrack) != true) {
             Log.w(TAG, "Subtitle selection deferred or failed for index=$idx")
         }
+    }
+    fun handleSkipIntroNow(): Boolean {
+        val target = state.intro?.end ?: return false
+        if (roomController != null) {
+            if (tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek) != TransportGate.Send) {
+                return true
+            }
+            viewModel.onSkipIntroNow() ?: return false
+            roomController.onUserSeek(target)
+        } else {
+            val soloTarget = viewModel.onSkipIntroNow() ?: return false
+            mediaController?.seekTo((soloTarget * 1000).toLong())
+        }
+        return true
     }
 
     DisposableEffect(context) {
@@ -416,6 +433,7 @@ fun TvPlayerScreen(
     }
 
     val latestPlayerState by rememberUpdatedState(state)
+    val latestIntroSkipState by rememberUpdatedState(introSkipState)
     val latestRoomSnapshot by rememberUpdatedState(roomSnapshot)
     val latestShowLeaveDialog by rememberUpdatedState(showLeaveDialog)
     val latestShowQuickSubtitlePicker by rememberUpdatedState(showQuickSubtitlePicker)
@@ -451,6 +469,18 @@ fun TvPlayerScreen(
                     return@handler true
                 }
                 return@handler false
+            }
+
+            if (event.action == KeyEvent.ACTION_DOWN &&
+                event.repeatCount == 0 &&
+                latestIntroSkipState is IntroAutoSkipState.ShowingButton &&
+                event.keyCode in setOf(
+                    KeyEvent.KEYCODE_DPAD_CENTER,
+                    KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER,
+                )
+            ) {
+                return@handler handleSkipIntroNow()
             }
 
             when (action) {
@@ -552,6 +582,18 @@ fun TvPlayerScreen(
     DisposableEffect(context) {
         (context as? Activity)?.let { hdrDisplayController.attach(it) }
         onDispose { hdrDisplayController.restore() }
+    }
+
+    DisposableEffect(context) {
+        val window = (context as? Activity)?.window
+        if (window != null) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (window != null) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
     }
 
     // Lifecycle pausing — send pause to the service when we're backgrounded.
@@ -1310,13 +1352,11 @@ fun TvPlayerScreen(
         }
 
         // Intro auto-skip banner (bottom-end, above the transport cluster).
-        // Only shown when the idle overlay is up — otherwise the banner would
-        // float on top of unrelated chrome (HUD, menus). The banner itself
-        // owns its visibility (Hidden = empty Spacer), but gating it on the
-        // overlay means the banner won't steal focus while the user is
-        // navigating menus. Bottom inset (200dp) clears the transport
-        // cluster + scrubber column.
-        if (state.showControls && !state.hudOpen) {
+        // It must remain visible even when transport controls auto-hide; D-pad
+        // Center routes directly to [handleSkipIntroNow] while the manual prompt
+        // is active, so the viewer does not need a first click just to reveal UI.
+        // Bottom inset (200dp) clears the transport cluster + scrubber column.
+        if (!state.hudOpen && !state.showNextUp) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1325,12 +1365,7 @@ fun TvPlayerScreen(
             ) {
                 TvIntroAutoSkipBanner(
                     state = introSkipState,
-                    onSkipNow = {
-                        val target = viewModel.onSkipIntroNow()
-                        if (target != null) {
-                            mediaController?.seekTo((target * 1000).toLong())
-                        }
-                    },
+                    onSkipNow = { handleSkipIntroNow() },
                     onCancelCountdown = viewModel::onCancelIntroAutoSkip,
                 )
             }

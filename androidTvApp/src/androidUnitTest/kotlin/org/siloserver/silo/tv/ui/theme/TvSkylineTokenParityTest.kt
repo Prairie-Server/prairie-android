@@ -437,10 +437,10 @@ class TvSkylineTokenParityTest {
 
     @Test
     fun loginScreenUsesHalfScaleTvOsPhoneFirstLayout() {
-        assertTrue(loginScreen.contains("credentialKeyboardVisible -> 18.dp"))
-        assertTrue(loginScreen.contains("showPasswordForm -> 20.dp"))
-        assertTrue(loginScreen.contains("else -> 32.dp"))
-        assertTrue(loginScreen.contains("bottom = if (credentialKeyboardVisible) 210.dp else 32.dp"))
+        assertFalse(loginScreen.contains("credentialKeyboardVisible"))
+        assertTrue(loginScreen.contains(".imePadding()"))
+        assertTrue(loginScreen.contains("top = if (showPasswordForm) 20.dp else 32.dp"))
+        assertTrue(loginScreen.contains("bottom = 32.dp"))
         assertTrue(loginScreen.contains("start = 54.dp"))
         assertTrue(loginScreen.contains("end = 54.dp"))
         assertTrue(loginScreen.contains("horizontalArrangement = Arrangement.spacedBy(44.dp)"))

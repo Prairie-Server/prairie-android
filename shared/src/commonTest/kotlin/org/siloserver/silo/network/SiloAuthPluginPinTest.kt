@@ -24,19 +24,30 @@ class SiloAuthPluginPinTest {
         var authorization: String? = null
         var profileId: String? = null
         var profileToken: String? = null
+        var siloClient: String? = null
+        var siloClientVersion: String? = null
     }
 
-    private fun client(tokenManager: TokenManager, captured: Captured): HttpClient =
+    private fun client(
+        tokenManager: TokenManager,
+        captured: Captured,
+        deviceMetadataProvider: DeviceMetadataProvider? = null,
+    ): HttpClient =
         HttpClient(
             MockEngine { request ->
                 captured.url = request.url.toString()
                 captured.authorization = request.headers[HttpHeaders.Authorization]
                 captured.profileId = request.headers["X-Profile-Id"]
                 captured.profileToken = request.headers["X-Profile-Token"]
+                captured.siloClient = request.headers["X-Silo-Client"]
+                captured.siloClientVersion = request.headers["X-Silo-Client-Version"]
                 respond("{}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
             },
         ) {
-            install(SiloAuthPlugin) { this.tokenManager = tokenManager }
+            install(SiloAuthPlugin) {
+                this.tokenManager = tokenManager
+                this.deviceMetadataProvider = deviceMetadataProvider
+            }
         }
 
     @Test
@@ -78,5 +89,29 @@ class SiloAuthPluginPinTest {
         assertEquals(null, captured.profileToken)
         assertEquals(null, captured.profileId)
         assertEquals("Bearer ACCESS-A", captured.authorization)
+    }
+
+    @Test
+    fun requestsIncludePlaybackClientHeadersWhenDeviceMetadataProvidesThem() = runTest {
+        val tokenManager = TokenManagerImpl().apply {
+            setServerUrl("https://silo.example")
+            saveTokens(accessToken = "ACCESS-A", refreshToken = "REFRESH-A", expiresIn = 3600)
+        }
+        val captured = Captured()
+        val provider = object : DeviceMetadataProvider {
+            override suspend fun current(): SiloDeviceMetadata =
+                SiloDeviceMetadata(
+                    id = "device-1",
+                    name = "Amazon AFTKA",
+                    platform = "android-tv",
+                    clientName = "Silo Android TV",
+                    clientVersion = "0.2.3",
+                )
+        }
+
+        client(tokenManager, captured, provider).post("/api/v1/playback/start")
+
+        assertEquals("Silo Android TV", captured.siloClient)
+        assertEquals("0.2.3", captured.siloClientVersion)
     }
 }

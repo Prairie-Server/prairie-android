@@ -133,6 +133,7 @@ fun AuroraPrimaryButton(
     focusHalo: Boolean = true,
     filledAtRest: Boolean = true,
     neutralFocusFill: Boolean = false,
+    enabled: Boolean = true,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(14.dp)
@@ -144,6 +145,7 @@ fun AuroraPrimaryButton(
         if (!focusHalo) 0.dp else if (isFocused) 26.dp else 14.dp,
         label = "auroraPrimaryGlow",
     )
+    val enabledAlpha = if (enabled) 1f else 0.48f
     val fillBrush = if (isFocused && neutralFocusFill) {
         Brush.verticalGradient(listOf(Color.White, Color.White))
     } else if (isFocused || filledAtRest) {
@@ -178,15 +180,30 @@ fun AuroraPrimaryButton(
             )
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = true,
+                onClick = { if (enabled) onClick() },
+            )
             .padding(horizontal = 30.dp, vertical = 18.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (icon != null) {
-                Icon(imageVector = icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(24.dp))
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor.copy(alpha = enabledAlpha),
+                    modifier = Modifier.size(24.dp),
+                )
             }
-            Text(text = label, color = contentColor, fontWeight = FontWeight.SemiBold, fontSize = 24.sp)
+            Text(
+                text = label,
+                color = contentColor.copy(alpha = enabledAlpha),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+            )
         }
     }
 }
