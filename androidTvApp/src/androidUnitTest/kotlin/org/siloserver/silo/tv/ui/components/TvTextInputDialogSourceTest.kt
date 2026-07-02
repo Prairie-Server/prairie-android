@@ -9,36 +9,26 @@ class TvTextInputDialogSourceTest {
     ).readText()
 
     @Test
-    fun textEntryDialogUsesSiloAnsiKeyboardInsteadOfPlatformIme() {
+    fun textEntryDialogUsesPlatformImeInsteadOfSiloAnsiKeyboard() {
         assertTrue(
-            source.contains("TvAnsiKeyboard("),
-            "TV text-entry dialogs should use Silo's own remote keyboard instead of launching the platform IME.",
+            source.contains("OutlinedTextField("),
+            "TV text-entry dialogs should use stock Compose text fields so the platform IME can provide Fire TV phone/QR input.",
         )
         assertTrue(
-            source.contains("shouldOpenTvDialogKeyboard(event)"),
-            "The display field should reopen the custom keyboard from center/enter.",
+            source.contains("KeyboardOptions("),
+            "Dialogs should configure the platform keyboard type/IME action.",
         )
         assertTrue(
-            source.contains("event.type == KeyEventType.KeyDown || event.type == KeyEventType.KeyUp"),
-            "Remote center presses can arrive on key down or key up depending on TV hardware.",
+            source.contains("KeyboardActions("),
+            "The IME Done action should confirm when the dialog is valid.",
         )
         assertTrue(
-            source.contains("keyboardType == KeyboardType.Number || keyboardType == KeyboardType.NumberPassword") &&
-                source.contains("action.text.filter { it.isDigit() }"),
-            "PIN dialogs should keep the shared keyboard but only accept numeric input.",
-        )
-        assertTrue(
-            source.contains("primaryLabel = confirmLabel") &&
-                source.contains("onPrimary = submit"),
-            "The keyboard primary key should perform the dialog's confirm action.",
+            !source.contains("TvAnsiKeyboard(") && !source.contains("shouldOpenTvDialogKeyboard(event)"),
+            "The dialog should not mount or reopen the Silo-owned keyboard.",
         )
         assertTrue(
             !source.contains("AndroidView(") && !source.contains("EditText(context)") && !source.contains("InputMethodManager"),
-            "The platform IME path should stay out of TV dialogs.",
-        )
-        assertTrue(
-            !source.contains("OutlinedTextField"),
-            "TV text-entry dialogs should not fall back to Compose text fields.",
+            "Use Compose stock fields rather than manually bridging Android views.",
         )
         assertTrue(
             !source.contains("Card(\n                onClick = {}"),

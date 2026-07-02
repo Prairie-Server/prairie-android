@@ -66,24 +66,6 @@ class TvLoginViewModel(
     fun onUsernameChanged(v: String) = _uiState.update { it.copy(username = v, error = null) }
     fun onPasswordChanged(v: String) = _uiState.update { it.copy(password = v, error = null) }
 
-    internal fun onCredentialKeyboardAction(
-        field: TvCredentialField,
-        action: TvCredentialKeyboardAction,
-    ) {
-        _uiState.update { state ->
-            when (field) {
-                TvCredentialField.Username -> state.copy(
-                    username = applyTvCredentialKeyboardAction(state.username, action),
-                    error = null,
-                )
-                TvCredentialField.Password -> state.copy(
-                    password = applyTvCredentialKeyboardAction(state.password, action),
-                    error = null,
-                )
-            }
-        }
-    }
-
     fun onLoginClick() {
         val s = _uiState.value
         if (s.username.isBlank()) {

@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,9 +25,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -34,10 +41,8 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import org.siloserver.silo.tv.ui.components.TvAnsiKeyboard
 import org.siloserver.silo.tv.ui.components.TvFilterChip
-import org.siloserver.silo.tv.ui.components.applyTvAnsiKeyboardAction
-import org.siloserver.silo.tv.ui.screens.auth.CredentialDisplayField
+import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
 import kotlinx.coroutines.delay
 
 /**
@@ -57,15 +62,13 @@ fun TvCreateCollectionDialog(
     onCreate: (name: String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
-    var isKeyboardVisible by remember { mutableStateOf(false) }
     val nameFocusRequester = remember { FocusRequester() }
-    val keyboardFirstKeyFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
-    LaunchedEffect(isKeyboardVisible) {
-        if (isKeyboardVisible) {
-            delay(120)
-            runCatching { keyboardFirstKeyFocusRequester.requestFocus() }
-        }
+    LaunchedEffect(Unit) {
+        delay(120)
+        runCatching { nameFocusRequester.requestFocus() }
+        keyboardController?.show()
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -90,19 +93,25 @@ fun TvCreateCollectionDialog(
                         style = TvCreateCollectionTextStyles.Title,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
-                    CredentialDisplayField(
+                    OutlinedTextField(
                         value = name,
-                        hint = "Name",
+                        onValueChange = { name = it.take(TV_COLLECTION_NAME_MAX_LENGTH) },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        textStyle = TvCreateCollectionTextStyles.Field,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { if (!isCreating && name.isNotBlank()) onCreate(name) },
+                        ),
                         enabled = !isCreating,
-                        isActive = isKeyboardVisible,
-                        isPassword = false,
-                        passwordVisible = true,
-                        focusRequester = nameFocusRequester,
-                        onFocused = {},
-                        onOpenKeyboard = { isKeyboardVisible = true },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(41.dp),
+                            .height(56.dp)
+                            .focusRequester(nameFocusRequester),
+                        colors = tvOutlinedTextFieldColors(),
                     )
                     Text(
                         text = "Type",
@@ -168,29 +177,6 @@ fun TvCreateCollectionDialog(
                 }
             }
 
-            if (isKeyboardVisible) {
-                TvAnsiKeyboard(
-                    primaryLabel = "Create",
-                    primaryEnabled = !isCreating && name.isNotBlank(),
-                    enabled = !isCreating,
-                    firstKeyFocusRequester = keyboardFirstKeyFocusRequester,
-                    onAction = { action ->
-                        name = applyTvAnsiKeyboardAction(
-                            value = name,
-                            action = action,
-                            maxLength = TV_COLLECTION_NAME_MAX_LENGTH,
-                        )
-                    },
-                    onPrimary = { if (!isCreating && name.isNotBlank()) onCreate(name) },
-                    onDismiss = {
-                        isKeyboardVisible = false
-                        runCatching { nameFocusRequester.requestFocus() }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 48.dp, end = 48.dp, bottom = 28.dp),
-                )
-            }
         }
     }
 }

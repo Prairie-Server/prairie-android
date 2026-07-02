@@ -19,6 +19,7 @@ class TvRequestsUsabilityTest {
         assertTrue(source.contains(".focusProperties { down = firstFilterChipFocusRequester }"))
         assertTrue(source.contains("if (index == 0 && hasFocusableResult)"))
         assertTrue(source.contains("Modifier.focusProperties { down = firstResultFocusRequester }"))
-        assertTrue(source.contains("isRequestKeyboardVisible = false"))
+        assertTrue(source.contains("keyboardActions = KeyboardActions(onSearch = { onSearch() })"))
+        assertTrue(source.contains("imeAction = ImeAction.Search"))
     }
 }

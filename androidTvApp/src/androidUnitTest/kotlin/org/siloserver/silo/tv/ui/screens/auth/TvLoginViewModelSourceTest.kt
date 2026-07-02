@@ -22,11 +22,16 @@ class TvLoginViewModelSourceTest {
     }
 
     @Test
-    fun credentialKeyboardActionsAreAppliedInsideViewModelStateUpdate() {
+    fun loginUsesStockTextFieldsInsteadOfCredentialKeyboardActions() {
         kotlin.test.assertTrue(
-            screenSource.contains("viewModel.onCredentialKeyboardAction(field, action)"),
-            "Credential keyboard actions must be forwarded to the ViewModel so rapid key repeats do not use stale Compose text snapshots.",
+            screenSource.contains("onUsernameChanged = viewModel::onUsernameChanged"),
+            "Username entry should use the platform text field callback.",
         )
+        kotlin.test.assertTrue(
+            screenSource.contains("onPasswordChanged = viewModel::onPasswordChanged"),
+            "Password entry should use the platform text field callback.",
+        )
+        assertFalse(screenSource.contains("viewModel.onCredentialKeyboardAction(field, action)"))
         assertFalse(screenSource.contains("applyTvCredentialKeyboardAction(state.username, action)"))
         assertFalse(screenSource.contains("applyTvCredentialKeyboardAction(state.password, action)"))
     }
