@@ -71,11 +71,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             pinned.profileId?.let { request.header("X-Profile-Id", it) }
             request.headers.remove("X-Profile-Token")
             pinned.profileToken?.let { request.header("X-Profile-Token", it) }
-            deviceMetadataProvider?.current()?.let { device ->
-                request.header("X-Silo-Device-Id", device.id)
-                request.header("X-Silo-Device-Name", device.name)
-                request.header("X-Silo-Device-Platform", device.platform)
-            }
+            request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
             return@onRequest
         }
 
@@ -114,11 +110,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             request.header("X-Profile-Token", profileToken)
         }
 
-        deviceMetadataProvider?.current()?.let { device ->
-            request.header("X-Silo-Device-Id", device.id)
-            request.header("X-Silo-Device-Name", device.name)
-            request.header("X-Silo-Device-Platform", device.platform)
-        }
+        request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
     }
 
     on(Send) { request ->
@@ -288,4 +280,15 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             originalCall
         }
     }
+}
+
+private suspend fun HttpRequestBuilder.attachSiloDeviceMetadataHeaders(
+    deviceMetadataProvider: DeviceMetadataProvider?,
+) {
+    val device = deviceMetadataProvider?.current() ?: return
+    header("X-Silo-Device-Id", device.id)
+    header("X-Silo-Device-Name", device.name)
+    header("X-Silo-Device-Platform", device.platform)
+    device.clientName?.takeIf { it.isNotBlank() }?.let { header("X-Silo-Client", it) }
+    device.clientVersion?.takeIf { it.isNotBlank() }?.let { header("X-Silo-Client-Version", it) }
 }

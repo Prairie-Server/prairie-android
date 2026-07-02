@@ -354,6 +354,43 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
+    fun manualSubtitleSelectionSuppressesAutoLanguageReselection() {
+        assertTrue(viewModelSource.contains("manualSubtitleSelectionApplied"))
+        assertTrue(viewModelSource.contains("manualSubtitleSelectionApplied = true"))
+        assertTrue(
+            viewModelSource.contains("if (manualSubtitleSelectionApplied) return"),
+            "Once the viewer explicitly selects a subtitle track, the auto preferred-language resolver " +
+                "must not switch it back during the same playback session.",
+        )
+    }
+
+    @Test
+    fun skipIntroPromptIsVisibleOutsideHiddenTransportControlsAndCenterSelectSkips() {
+        assertTrue(
+            screenSource.contains("if (!state.hudOpen && !state.showNextUp)"),
+            "Skip Intro must not be gated by showControls; otherwise the user has to press OK just to reveal it.",
+        )
+        assertFalse(
+            screenSource.contains("if (state.showControls && !state.hudOpen)"),
+            "The old showControls gate hid Skip Intro whenever transport chrome was hidden.",
+        )
+        assertTrue(screenSource.contains("latestIntroSkipState"))
+        assertTrue(screenSource.contains("handleSkipIntroNow()"))
+        assertTrue(
+            screenSource.contains("KeyEvent.KEYCODE_DPAD_CENTER") &&
+                screenSource.contains("IntroAutoSkipState.ShowingButton"),
+            "D-pad center should activate a visible Skip Intro prompt directly instead of only revealing controls.",
+        )
+    }
+
+    @Test
+    fun playerKeepsTvScreenAwakeDuringPlayback() {
+        assertTrue(screenSource.contains("WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON"))
+        assertTrue(screenSource.contains("window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)"))
+        assertTrue(screenSource.contains("window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)"))
+    }
+
+    @Test
     fun activityDispatchesRemoteKeysToMountedPlayerWhenComposeFocusIsLost() {
         assertTrue(activitySource.contains("@SuppressLint(\"RestrictedApi\")"))
         assertTrue(activitySource.contains("override fun dispatchKeyEvent(event: KeyEvent): Boolean"))

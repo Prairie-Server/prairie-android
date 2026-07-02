@@ -1,6 +1,7 @@
 package org.siloserver.silo.common.network
 
 import android.content.Context
+import android.content.pm.PackageInfo
 import android.os.Build
 import org.siloserver.silo.network.SiloDeviceMetadata
 import org.siloserver.silo.network.DeviceMetadataProvider
@@ -25,8 +26,26 @@ class AndroidDeviceMetadataProvider(
             id = deviceId,
             name = model,
             platform = platform,
+            clientName = clientNameFor(platform),
+            clientVersion = appVersionName(),
         )
     }
+
+    private fun clientNameFor(platform: String): String =
+        when (platform) {
+            "android-tv" -> "Silo Android TV"
+            "android" -> "Silo Android"
+            else -> "Silo Android"
+        }
+
+    @Suppress("DEPRECATION")
+    private fun appVersionName(): String? =
+        runCatching<PackageInfo> {
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        }.getOrNull()
+            ?.versionName
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
 
     private companion object {
         const val PREFS_NAME = "silo_device_metadata"

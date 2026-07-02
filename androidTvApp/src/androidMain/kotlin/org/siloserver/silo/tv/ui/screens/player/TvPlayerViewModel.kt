@@ -574,6 +574,7 @@ class TvPlayerViewModel(
     private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
     private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
     private var autoTextSubtitleSelectionAttempted = false
+    private var manualSubtitleSelectionApplied = false
     private val recoveryPlanner = PlaybackRecoveryPlanner()
 
     /**
@@ -888,6 +889,7 @@ class TvPlayerViewModel(
         suppressResumeRewind: Boolean = false,
     ) {
         introAutoSkipController.reset()
+        manualSubtitleSelectionApplied = false
         // Fresh content: forget engines attempted for the previous item.
         attemptedEngines.clear()
 
@@ -1515,6 +1517,7 @@ class TvPlayerViewModel(
         audio: List<PlayerTrackEntry>,
         subtitle: List<PlayerTrackEntry>,
     ) {
+        if (manualSubtitleSelectionApplied) return
         if (autoTextSubtitleSelectionAttempted) return
         if (launchArgs.initialSubtitleTrackIndex != null) return
         if (subtitle.isEmpty()) return
@@ -1569,6 +1572,10 @@ class TvPlayerViewModel(
         _uiState.update {
             it.copy(subtitleTracks = subtitleTracksWithSelection(it.subtitleTracks, index))
         }
+    }
+
+    fun onManualSubtitleSelectionIntent() {
+        manualSubtitleSelectionApplied = true
     }
 
     /**
