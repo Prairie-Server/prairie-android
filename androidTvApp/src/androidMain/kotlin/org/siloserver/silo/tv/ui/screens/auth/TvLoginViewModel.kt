@@ -58,6 +58,8 @@ class TvLoginViewModel(
     val deviceLoginState: StateFlow<DeviceLoginRepository.DeviceLoginState> = deviceLogin.state
 
     private var deviceLoginJob: Job? = null
+    private var credentialLoginJob: Job? = null
+    private var authCompleted = false
 
     init {
         startDeviceLogin()
@@ -67,6 +69,7 @@ class TvLoginViewModel(
     fun onPasswordChanged(v: String) = _uiState.update { it.copy(password = v, error = null) }
 
     fun onLoginClick() {
+        if (_uiState.value.isLoading) return
         val s = _uiState.value
         if (s.username.isBlank()) {
             _uiState.update { it.copy(error = "Username is required") }
@@ -77,16 +80,22 @@ class TvLoginViewModel(
             return
         }
 
-        viewModelScope.launch {
+        credentialLoginJob?.cancel()
+        credentialLoginJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            when (val result = authRepository.login(s.username, s.password)) {
+            when (val result = authRepository.loginForTokens(s.username, s.password)) {
                 is ApiResult.Success -> {
-                    // Cancel the parallel device-login poller so a late-arriving
-                    // Approved can't overwrite the credential tokens we just saved.
+                    if (!tryCompleteAuth()) return@launch
                     deviceLoginJob?.cancel()
+                    tokenManager.saveTokens(
+                        accessToken = result.data.accessToken,
+                        refreshToken = result.data.refreshToken,
+                        expiresIn = result.data.expiresIn,
+                    )
                     _uiState.update { it.copy(isLoading = false, loginSuccess = true) }
                 }
                 is ApiResult.Error -> {
+                    if (authCompleted) return@launch
                     val msg = when (result.code) {
                         401 -> "Invalid username or password"
                         403 -> "Account is disabled"
@@ -95,6 +104,7 @@ class TvLoginViewModel(
                     _uiState.update { it.copy(isLoading = false, error = msg) }
                 }
                 is ApiResult.NetworkError -> {
+                    if (authCompleted) return@launch
                     _uiState.update {
                         it.copy(isLoading = false, error = "Network error. Check your connection.")
                     }
@@ -144,12 +154,20 @@ class TvLoginViewModel(
         // but be defensive — we should never silently flip loginSuccess without
         // tokens actually landing in storage.
         if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) return
+        if (!tryCompleteAuth()) return
+        credentialLoginJob?.cancel()
         tokenManager.saveTokens(
             accessToken = accessToken,
             refreshToken = refreshToken,
             expiresIn = response.expiresIn ?: 0L,
         )
         _uiState.update { it.copy(isLoading = false, loginSuccess = true) }
+    }
+
+    private fun tryCompleteAuth(): Boolean {
+        if (authCompleted) return false
+        authCompleted = true
+        return true
     }
 
     /** Called by the screen from `LaunchedEffect(loginSuccess)` after routing. */
@@ -159,6 +177,7 @@ class TvLoginViewModel(
 
     override fun onCleared() {
         deviceLoginJob?.cancel()
+        credentialLoginJob?.cancel()
         super.onCleared()
     }
 }

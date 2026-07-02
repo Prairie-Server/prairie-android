@@ -1,6 +1,7 @@
 package org.siloserver.silo.repository
 
 import org.siloserver.silo.model.auth.AuthSession
+import org.siloserver.silo.model.auth.LoginResponse
 import org.siloserver.silo.model.auth.LoginRequest
 import org.siloserver.silo.model.auth.SetupStatusResponse
 import org.siloserver.silo.model.auth.SignupRequest
@@ -39,6 +40,14 @@ class AuthRepository(
             is ApiResult.NetworkError -> result
         }
     }
+
+    /**
+     * Credential login without persistence. TV keeps QR and password sign-in
+     * alive together, so it must choose the winning auth path before writing
+     * tokens into the active server slot.
+     */
+    suspend fun loginForTokens(username: String, password: String): ApiResult<LoginResponse> =
+        authApi.login(LoginRequest(username = username, password = password))
 
     /**
      * Registers a new account with an invite code.
@@ -102,9 +111,15 @@ class AuthRepository(
     suspend fun getSetupStatus(): ApiResult<SetupStatusResponse> =
         authApi.getSetupStatus()
 
+    suspend fun getSetupStatus(serverUrl: String): ApiResult<SetupStatusResponse> =
+        authApi.getSetupStatus(serverUrl)
+
     /** Checks whether public signups are enabled. */
     suspend fun getSignupStatus(): ApiResult<SignupStatusResponse> =
         authApi.getSignupStatus()
+
+    suspend fun getSignupStatus(serverUrl: String): ApiResult<SignupStatusResponse> =
+        authApi.getSignupStatus(serverUrl)
 
     /** Fetches the currently authenticated user. */
     suspend fun getCurrentUser(): ApiResult<User> =

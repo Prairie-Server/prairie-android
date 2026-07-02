@@ -416,6 +416,7 @@ private fun CredentialFormCard(
                 focusHalo = false,
                 filledAtRest = false,
                 neutralFocusFill = true,
+                enabled = !state.isLoading,
                 modifier = Modifier
                     .focusProperties {
                         down = backToPhoneFocus

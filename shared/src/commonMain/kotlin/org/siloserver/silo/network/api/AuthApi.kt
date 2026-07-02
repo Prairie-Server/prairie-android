@@ -47,8 +47,16 @@ class AuthApi(private val client: HttpClient) {
         client.get("/api/v1/auth/setup")
     }
 
+    suspend fun getSetupStatus(serverUrl: String): ApiResult<SetupStatusResponse> = safeApiCall {
+        client.get("${serverUrl.trimEnd('/')}/api/v1/auth/setup")
+    }
+
     suspend fun getSignupStatus(): ApiResult<SignupStatusResponse> = safeApiCall {
         client.get("/api/v1/auth/signup")
+    }
+
+    suspend fun getSignupStatus(serverUrl: String): ApiResult<SignupStatusResponse> = safeApiCall {
+        client.get("${serverUrl.trimEnd('/')}/api/v1/auth/signup")
     }
 
     suspend fun getMe(): ApiResult<User> = safeApiCall {

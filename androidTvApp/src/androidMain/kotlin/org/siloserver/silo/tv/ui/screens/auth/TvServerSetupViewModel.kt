@@ -73,6 +73,7 @@ class TvServerSetupViewModel(
     }
 
     fun onConnectClick() {
+        if (_uiState.value.isLoading) return
         val raw = _uiState.value.serverUrl.trim()
         if (raw.isBlank()) {
             _uiState.update { it.copy(error = "Enter a server URL") }
@@ -84,14 +85,11 @@ class TvServerSetupViewModel(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             for (candidate in candidates) {
-                // Save the URL before probing so the shared HttpClient resolves
-                // relative API paths against the candidate server.
-                authRepository.setServerUrl(candidate)
-
                 // Step 1: does the server need first-time setup (no admin yet)?
-                when (val result = authRepository.getSetupStatus()) {
+                when (val result = authRepository.getSetupStatus(candidate)) {
                     is ApiResult.Success -> {
                         if (result.data.needsSetup) {
+                            authRepository.setServerUrl(candidate)
                             _uiState.update {
                                 it.copy(
                                     serverUrl = candidate,
@@ -125,11 +123,12 @@ class TvServerSetupViewModel(
                 }
 
                 // Step 2: server is set up — check whether public signup is enabled.
-                val signupEnabled = when (val signupResult = authRepository.getSignupStatus()) {
+                val signupEnabled = when (val signupResult = authRepository.getSignupStatus(candidate)) {
                     is ApiResult.Success -> signupResult.data.enabled
                     else -> false // If we can't determine, default to no signup.
                 }
 
+                authRepository.setServerUrl(candidate)
                 _uiState.update {
                     it.copy(
                         serverUrl = candidate,

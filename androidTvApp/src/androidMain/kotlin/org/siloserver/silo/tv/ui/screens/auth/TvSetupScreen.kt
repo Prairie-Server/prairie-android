@@ -203,6 +203,7 @@ fun TvSetupScreen(
                     heightOverride = 32.dp,
                     horizontalPaddingOverride = 19.dp,
                     labelStyle = TvAuthFormTextStyles.Button,
+                    enabled = !state.isLoading,
                     onClick = viewModel::onCreateAccountClick,
                 )
             }

@@ -74,6 +74,7 @@ class ServerSetupViewModel(
      * 3. Otherwise check signup status and navigate to login.
      */
     fun onConnectClick() {
+        if (_uiState.value.isLoading) return
         val current = _uiState.value
         val candidates = try {
             buildServerSetupCandidateUrls(
@@ -91,11 +92,10 @@ class ServerSetupViewModel(
 
             var lastError: String? = null
             for (candidate in candidates) {
-                authRepository.setServerUrl(candidate)
-
-                when (val setupResult = authRepository.getSetupStatus()) {
+                when (val setupResult = authRepository.getSetupStatus(candidate)) {
                     is ApiResult.Success -> {
                         if (setupResult.data.needsSetup) {
+                            authRepository.setServerUrl(candidate)
                             _uiState.update {
                                 it.copy(
                                     isLoading = false,
@@ -117,11 +117,12 @@ class ServerSetupViewModel(
                     }
                 }
 
-                val signupEnabled = when (val signupResult = authRepository.getSignupStatus()) {
+                val signupEnabled = when (val signupResult = authRepository.getSignupStatus(candidate)) {
                     is ApiResult.Success -> signupResult.data.enabled
                     else -> false // If we can't determine, default to no signup.
                 }
 
+                authRepository.setServerUrl(candidate)
                 _uiState.update {
                     it.copy(
                         isLoading = false,

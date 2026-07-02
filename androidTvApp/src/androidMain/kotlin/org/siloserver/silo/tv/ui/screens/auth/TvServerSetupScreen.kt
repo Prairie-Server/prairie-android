@@ -418,6 +418,7 @@ private fun ManualEntryCard(
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Connecting…" else "Connect",
                 icon = null,
+                enabled = canSubmitTvServerUrl(state.serverUrl, state.isLoading),
                 onClick = {
                     if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
                         onConnectClick()
