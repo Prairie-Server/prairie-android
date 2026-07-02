@@ -161,6 +161,13 @@ class PlayerViewModelSharedCoordinatorTest {
             unsupportedBody.contains("StartParams("),
             "fallback lifecycle adoption must preserve restart parameters for 404 recovery",
         )
+        assertTrue(
+            unsupportedBody
+                .substringAfter("val renewStartParams = StartParams(")
+                .substringBefore("when (val r = playbackSessionManager.startTranscodeFallbackRecoveringMissingSession")
+                .contains("preserveDirectAudioSelection = true"),
+            "fallback session renewal must preserve the selected direct audio track like TV does",
+        )
     }
 
     @Test

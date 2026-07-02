@@ -183,8 +183,8 @@ fun AuroraPrimaryButton(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                enabled = enabled,
-                onClick = onClick,
+                enabled = true,
+                onClick = { if (enabled) onClick() },
             )
             .padding(horizontal = 30.dp, vertical = 18.dp),
         contentAlignment = Alignment.Center,

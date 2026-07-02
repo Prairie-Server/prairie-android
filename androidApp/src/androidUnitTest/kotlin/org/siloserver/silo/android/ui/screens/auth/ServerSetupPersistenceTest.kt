@@ -5,22 +5,40 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.siloserver.silo.network.SiloAuthPlugin
 import org.siloserver.silo.network.SiloJson
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.api.AuthApi
 import org.siloserver.silo.repository.AuthRepository
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ServerSetupPersistenceTest {
+    private val dispatcher = StandardTestDispatcher()
+
+    @BeforeTest
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @AfterTest
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
     @Test
-    fun failedProbeDoesNotReplacePreviouslyActiveServerUrl() = runTest(UnconfinedTestDispatcher()) {
+    fun failedProbeDoesNotReplacePreviouslyActiveServerUrl() = runTest(dispatcher) {
         val tokenManager = RecordingTokenManager(serverUrl = "https://old.silo")
         val repository = AuthRepository(
             authApi = AuthApi(
@@ -40,6 +58,7 @@ class ServerSetupPersistenceTest {
 
         viewModel.onServerUrlChanged("bad.silo")
         viewModel.onConnectClick()
+        advanceUntilIdle()
 
         assertEquals("https://old.silo", tokenManager.getServerUrl())
         assertEquals(

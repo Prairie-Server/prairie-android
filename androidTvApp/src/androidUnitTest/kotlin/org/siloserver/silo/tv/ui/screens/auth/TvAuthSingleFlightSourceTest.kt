@@ -31,7 +31,9 @@ class TvAuthSingleFlightSourceTest {
     @Test
     fun tvAuthButtonsExposeDisabledState() {
         assertTrue(auroraChrome.contains("enabled: Boolean = true"))
-        assertTrue(auroraChrome.contains(".clickable(") && auroraChrome.contains("enabled = enabled"))
+        assertTrue(auroraChrome.contains(".clickable(") && auroraChrome.contains("enabled = true"))
+        assertTrue(auroraChrome.contains("if (enabled) onClick()"))
+        assertTrue(auroraChrome.contains("val enabledAlpha = if (enabled) 1f else 0.48f"))
         assertTrue(heroActionPill.contains("enabled: Boolean = true"))
         assertTrue(heroActionPill.contains("Surface(") && heroActionPill.contains("enabled = enabled"))
     }

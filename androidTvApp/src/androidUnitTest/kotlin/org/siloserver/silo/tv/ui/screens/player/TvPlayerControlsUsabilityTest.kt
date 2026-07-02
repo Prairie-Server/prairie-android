@@ -355,6 +355,11 @@ class TvPlayerControlsUsabilityTest {
 
     @Test
     fun manualSubtitleSelectionSuppressesAutoLanguageReselection() {
+        val selectionBlock = screenSource
+            .substringAfter("val applyTvSubtitleSelection")
+            .substringBefore("fun handleSkipIntroNow")
+
+        assertTrue(selectionBlock.contains("viewModel.onManualSubtitleSelectionIntent()"))
         assertTrue(viewModelSource.contains("manualSubtitleSelectionApplied"))
         assertTrue(viewModelSource.contains("manualSubtitleSelectionApplied = true"))
         assertTrue(
@@ -381,6 +386,17 @@ class TvPlayerControlsUsabilityTest {
                 screenSource.contains("IntroAutoSkipState.ShowingButton"),
             "D-pad center should activate a visible Skip Intro prompt directly instead of only revealing controls.",
         )
+    }
+
+    @Test
+    fun skipIntroRoutesSeekThroughWatchTogetherTransportGate() {
+        val skipBlock = screenSource
+            .substringAfter("fun handleSkipIntroNow(): Boolean")
+            .substringBefore("DisposableEffect(context)")
+
+        assertTrue(skipBlock.contains("tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek)"))
+        assertTrue(skipBlock.contains("roomController.onUserSeek(target)"))
+        assertTrue(skipBlock.contains("mediaController?.seekTo((soloTarget * 1000).toLong())"))
     }
 
     @Test

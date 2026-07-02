@@ -114,6 +114,49 @@ class PlaybackSessionManagerTranscodeFallbackTest {
         )
     }
 
+    @Test
+    fun fallbackStopsRenewedSessionWhenRetryFailsAfterRenewal() = runTest {
+        val captured = CapturedRequest()
+        val manager = manager(
+            captured = captured,
+            responses = ArrayDeque(
+                listOf(
+                    MockHttpResponse(
+                        status = HttpStatusCode.NotFound,
+                        body = """{"error":"playback_session_not_found","message":"Playback session not found"}""",
+                    ),
+                    MockHttpResponse(
+                        status = HttpStatusCode.InternalServerError,
+                        body = """{"error":"transcode_failed","message":"Transcode retry failed"}""",
+                    ),
+                    MockHttpResponse(status = HttpStatusCode.OK, body = ""),
+                ),
+            ),
+        )
+
+        val result = manager.startTranscodeFallbackRecoveringMissingSession(
+            session = session(sessionId = "stale-session", playMethod = PlayMethod.DIRECT),
+            seekSeconds = 33.0,
+            resolution = "2160p",
+            mode = PlaybackSessionManager.TranscodeMode.FULL,
+            renewSession = {
+                ApiResult.Success<PlaybackSessionResponse>(
+                    session(sessionId = "fresh-session", playMethod = PlayMethod.DIRECT),
+                )
+            },
+        )
+
+        assertTrue(result is ApiResult.Error)
+        assertEquals(
+            listOf(
+                "POST /api/v1/playback/transcode/start",
+                "POST /api/v1/playback/transcode/start",
+                "DELETE /api/v1/playback/fresh-session",
+            ),
+            captured.calls,
+        )
+    }
+
     private fun manager(
         captured: CapturedRequest,
         responseBody: String,
@@ -130,6 +173,7 @@ class PlaybackSessionManagerTranscodeFallbackTest {
         val client = HttpClient(
             MockEngine { request ->
                 val body = request.body.toByteArray().decodeToString()
+                captured.calls += "${request.method.value} ${request.url.encodedPath}"
                 captured.body = body
                 captured.bodies += body
                 val response = responses.removeFirst()
@@ -165,6 +209,7 @@ class PlaybackSessionManagerTranscodeFallbackTest {
     private class CapturedRequest {
         var body: String = ""
         val bodies = mutableListOf<String>()
+        val calls = mutableListOf<String>()
     }
 
     private data class MockHttpResponse(

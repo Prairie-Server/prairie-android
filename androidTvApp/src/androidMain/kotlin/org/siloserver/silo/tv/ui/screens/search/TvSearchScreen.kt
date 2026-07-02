@@ -91,7 +91,7 @@ fun TvSearchScreen(
     //   • search field —DOWN→ first chip
     //   • first chip   —DOWN→ first card (when results exist)
     //   • first card   —UP→   first chip
-    // and the custom keyboard's Search action still snaps focus into the grid.
+    // The IME Search action submits the query without stealing focus.
 
     Box(
         modifier = Modifier

@@ -607,6 +607,7 @@ class PlayerViewModel(
                 subtitleTrackIndex = selectedSubtitleIndex,
                 qualityPreference = null,
                 startPosition = state.position,
+                preserveDirectAudioSelection = true,
             )
             when (val r = playbackSessionManager.startTranscodeFallbackRecoveringMissingSession(
                 session = sessionResponse,

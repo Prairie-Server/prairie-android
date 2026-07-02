@@ -57,4 +57,14 @@ class TvServerSetupReadabilityTest {
         assertFalse(source.contains(".weight(1f)\n                        .padding(top = Spacing.lg)"))
     }
 
+    @Test
+    fun manualEntryCardScrollsInsteadOfClippingErrorTextInsideChooser() {
+        val manualEntryBlock = source
+            .substringAfter("private fun ManualEntryCard(")
+            .substringBefore("@Composable\nprivate fun UrlShortcutRow")
+
+        assertTrue(manualEntryBlock.contains(".verticalScroll(rememberScrollState())"))
+        assertFalse(manualEntryBlock.contains("Spacer(modifier = Modifier.weight(1f))"))
+    }
+
 }

@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -43,7 +44,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
-import kotlinx.coroutines.delay
 
 /**
  * Dialog for creating a new user collection. Contains a Silo-owned text field
@@ -62,13 +62,14 @@ fun TvCreateCollectionDialog(
     onCreate: (name: String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
+    var nameFieldReady by remember { mutableStateOf(false) }
     val nameFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    LaunchedEffect(Unit) {
-        delay(120)
-        runCatching { nameFocusRequester.requestFocus() }
-        keyboardController?.show()
+    LaunchedEffect(nameFieldReady, isCreating) {
+        if (nameFieldReady && !isCreating && nameFocusRequester.requestFocus()) {
+            keyboardController?.show()
+        }
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -110,6 +111,7 @@ fun TvCreateCollectionDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
+                            .onGloballyPositioned { nameFieldReady = true }
                             .focusRequester(nameFocusRequester),
                         colors = tvOutlinedTextFieldColors(),
                     )

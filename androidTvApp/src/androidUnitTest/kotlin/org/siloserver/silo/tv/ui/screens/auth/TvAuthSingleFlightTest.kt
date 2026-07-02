@@ -110,7 +110,7 @@ class TvAuthSingleFlightTest {
 }
 
 private class AuthRequestRecorder(
-    @Suppress("UNUSED_PARAMETER") matchingPath: String,
+    private val matchingPath: String,
     private val release: CompletableDeferred<Unit>,
 ) {
     var matchingRequestCount = 0
@@ -120,6 +120,13 @@ private class AuthRequestRecorder(
     fun client(tokenManager: TokenManager) = HttpClient(MockEngine) {
         engine {
             addHandler { request ->
+                if (request.url.encodedPath != matchingPath) {
+                    return@addHandler respond(
+                        content = """{"error":"unexpected_request","message":"Unexpected request"}""",
+                        status = HttpStatusCode.NotFound,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
                 matchingRequestCount += 1
                 firstRequestStarted.complete(Unit)
                 release.await()

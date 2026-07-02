@@ -310,14 +310,20 @@ open class PlaybackSessionManager(
 
         Log.w(TAG, "Fallback session missing; renewing playback session before retry")
         return when (val renewed = renewSession()) {
-            is ApiResult.Success -> startTranscodeFallback(
-                session = renewed.data,
-                seekSeconds = seekSeconds,
-                resolution = resolution,
-                mode = mode,
-                audioTrackIndex = audioTrackIndex,
-                subtitleTrackIndex = subtitleTrackIndex,
-            )
+            is ApiResult.Success -> {
+                val retry = startTranscodeFallback(
+                    session = renewed.data,
+                    seekSeconds = seekSeconds,
+                    resolution = resolution,
+                    mode = mode,
+                    audioTrackIndex = audioTrackIndex,
+                    subtitleTrackIndex = subtitleTrackIndex,
+                )
+                if (retry !is ApiResult.Success) {
+                    stopSession(renewed.data.sessionId)
+                }
+                retry
+            }
             is ApiResult.Error -> renewed
             is ApiResult.NetworkError -> renewed
         }

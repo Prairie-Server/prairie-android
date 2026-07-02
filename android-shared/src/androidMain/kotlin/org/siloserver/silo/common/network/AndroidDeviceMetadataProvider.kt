@@ -12,6 +12,8 @@ class AndroidDeviceMetadataProvider(
     private val platform: String,
 ) : DeviceMetadataProvider {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val cachedClientName: String by lazy { clientNameFor(platform) }
+    private val cachedClientVersion: String? by lazy { appVersionName() }
 
     override suspend fun current(): SiloDeviceMetadata {
         val deviceId = prefs.getString(KEY_DEVICE_ID, null) ?: UUID.randomUUID().toString().also { generated ->
@@ -26,8 +28,8 @@ class AndroidDeviceMetadataProvider(
             id = deviceId,
             name = model,
             platform = platform,
-            clientName = clientNameFor(platform),
-            clientVersion = appVersionName(),
+            clientName = cachedClientName,
+            clientVersion = cachedClientVersion,
         )
     }
 

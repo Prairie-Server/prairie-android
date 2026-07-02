@@ -335,6 +335,7 @@ private fun ManualEntryCard(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         modifier = modifier
             .auroraGlass(16.dp, emphasized = true)
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
     ) {
         Text(
@@ -408,8 +409,6 @@ private fun ManualEntryCard(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-
-        Spacer(modifier = Modifier.weight(1f))
 
         Box(
             modifier = Modifier

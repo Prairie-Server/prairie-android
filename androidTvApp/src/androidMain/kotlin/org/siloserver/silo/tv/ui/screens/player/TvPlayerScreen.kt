@@ -356,8 +356,17 @@ fun TvPlayerScreen(
         }
     }
     fun handleSkipIntroNow(): Boolean {
-        val target = viewModel.onSkipIntroNow() ?: return false
-        mediaController?.seekTo((target * 1000).toLong())
+        val target = state.intro?.end ?: return false
+        if (roomController != null) {
+            if (tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek) != TransportGate.Send) {
+                return true
+            }
+            viewModel.onSkipIntroNow() ?: return false
+            roomController.onUserSeek(target)
+        } else {
+            val soloTarget = viewModel.onSkipIntroNow() ?: return false
+            mediaController?.seekTo((soloTarget * 1000).toLong())
+        }
         return true
     }
 

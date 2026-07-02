@@ -85,7 +85,10 @@ class TvLoginViewModel(
             _uiState.update { it.copy(isLoading = true, error = null) }
             when (val result = authRepository.loginForTokens(s.username, s.password)) {
                 is ApiResult.Success -> {
-                    if (!tryCompleteAuth()) return@launch
+                    if (!tryCompleteAuth()) {
+                        _uiState.update { it.copy(isLoading = false) }
+                        return@launch
+                    }
                     deviceLoginJob?.cancel()
                     tokenManager.saveTokens(
                         accessToken = result.data.accessToken,
@@ -95,7 +98,10 @@ class TvLoginViewModel(
                     _uiState.update { it.copy(isLoading = false, loginSuccess = true) }
                 }
                 is ApiResult.Error -> {
-                    if (authCompleted) return@launch
+                    if (authCompleted) {
+                        _uiState.update { it.copy(isLoading = false) }
+                        return@launch
+                    }
                     val msg = when (result.code) {
                         401 -> "Invalid username or password"
                         403 -> "Account is disabled"
@@ -104,7 +110,10 @@ class TvLoginViewModel(
                     _uiState.update { it.copy(isLoading = false, error = msg) }
                 }
                 is ApiResult.NetworkError -> {
-                    if (authCompleted) return@launch
+                    if (authCompleted) {
+                        _uiState.update { it.copy(isLoading = false) }
+                        return@launch
+                    }
                     _uiState.update {
                         it.copy(isLoading = false, error = "Network error. Check your connection.")
                     }
@@ -153,8 +162,14 @@ class TvLoginViewModel(
         // Repository already guards against null tokens (Failed.MissingTokens),
         // but be defensive — we should never silently flip loginSuccess without
         // tokens actually landing in storage.
-        if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) return
-        if (!tryCompleteAuth()) return
+        if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+            _uiState.update { it.copy(isLoading = false) }
+            return
+        }
+        if (!tryCompleteAuth()) {
+            _uiState.update { it.copy(isLoading = false) }
+            return
+        }
         credentialLoginJob?.cancel()
         tokenManager.saveTokens(
             accessToken = accessToken,
