@@ -117,6 +117,26 @@ class PlayerViewModel(
         // Record a durable position roughly every 10s of content time (matches the
         // server reporter cadence) to bound DB/outbox churn.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
+        // Up-next auto-play countdown length (matches TV's NEXT_UP_COUNTDOWN_SECONDS).
+        const val UP_NEXT_COUNTDOWN_SECONDS = 10
+    }
+
+    /**
+     * Resolved next episode for the Up Next card (mirrors TV's NextEpisodeState).
+     * Populated by [resolveNextEpisode]; null for movies / last episodes.
+     */
+    data class NextEpisodeInfo(
+        val contentId: String,
+        val seasonNumber: Int,
+        val episodeNumber: Int,
+        val title: String?,
+        val overview: String?,
+        val stillUrl: String?,
+        val stillThumbhash: String?,
+        val runtimeMinutes: Int,
+    ) {
+        val label: String
+            get() = "S$seasonNumber·E$episodeNumber" + (title?.let { " — $it" } ?: "")
     }
 
     data class PlayerUiState(
@@ -159,7 +179,6 @@ class PlayerViewModel(
          * the player to `startSeconds` on tap. Mirrors iOS phone behavior.
          */
         val chapters: List<VersionChapter> = emptyList(),
-        val showNextEpisode: Boolean = false,
         val showControls: Boolean = true,
         val isBuffering: Boolean = false,
         val versions: List<FileVersion> = emptyList(),
@@ -168,10 +187,14 @@ class PlayerViewModel(
         val seriesId: String? = null,
         val seasonNumber: Int? = null,
         val episodeNumber: Int? = null,
-        // F2 next-episode auto-advance: resolved next episode + pass-out prompt.
-        val nextEpisodeContentId: String? = null,
-        val nextEpisodeLabel: String? = null,
-        val stillWatchingPrompt: Boolean = false,
+        // F2 next-episode auto-advance: resolved next episode + Up Next card.
+        val nextEpisode: NextEpisodeInfo? = null,
+        val showUpNext: Boolean = false,
+        /** True once the stream has actually ended (STATE_ENDED) while the card shows. */
+        val upNextVideoEnded: Boolean = false,
+        /** Remaining auto-play countdown seconds; null = no countdown (gated / auto-play off). */
+        val upNextCountdownSeconds: Int? = null,
+        val upNextCountdownTotalSeconds: Int = UP_NEXT_COUNTDOWN_SECONDS,
         val preferredAudioLanguage: String? = null,
         val preferredTextLanguage: String? = null,
         /**
@@ -263,6 +286,10 @@ class PlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val autoPlayNextEnabled: StateFlow<Boolean> = playerSettingsStore.autoPlayNextFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    // Seconds before end to surface the Up Next card when no credits marker
+    // exists (0 = only at end). Credits marker wins when present.
+    val nextUpPromptSeconds: StateFlow<Int> = playerSettingsStore.nextUpPromptSecondsFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 30)
 
     // ---- F2 pass-out protection ----
     // Per-profile "Still watching?" threshold (default 3; 0 = off).
@@ -274,6 +301,10 @@ class PlayerViewModel(
     private val autoPlayGuard = AutoPlayGuard(threshold = { passOutThreshold.value })
     // Once-per-episode guard for the credits/ended trigger; reset on each load.
     private var autoAdvanceHandled = false
+    // End point fired before the next episode resolved — remember it (and the
+    // strongest videoEnded flag seen) so resolveNextEpisode can commit the card.
+    private var pendingApproachingEndVideoEnded: Boolean? = null
+    private var upNextCountdownJob: Job? = null
     private var engineSwitchFallbackAttempted = false
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -378,22 +409,25 @@ class PlayerViewModel(
         // New item: re-arm the once-per-episode auto-advance trigger. (The
         // AutoPlayGuard streak intentionally PERSISTS across episodes.)
         autoAdvanceHandled = false
+        pendingApproachingEndVideoEnded = null
         engineSwitchFallbackAttempted = false
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
         // Cancel any in-flight resolve from the previous episode so its result
         // can't land on this one and overwrite the fresh next-episode pointer.
         resolveNextEpisodeJob?.cancel()
 
-        // Clear episode-scoped UI carried over from the previous item so the
-        // stale "Next episode"/prompt overlays can't flash during the reload.
+        // Clear episode-scoped UI carried over from the previous item so a
+        // stale Up Next card can't flash during the reload.
         _uiState.update {
             it.copy(
                 isLoading = true,
                 error = null,
                 contentId = contentId,
-                showNextEpisode = false,
-                stillWatchingPrompt = false,
-                nextEpisodeContentId = null,
-                nextEpisodeLabel = null,
+                nextEpisode = null,
+                showUpNext = false,
+                upNextVideoEnded = false,
+                upNextCountdownSeconds = null,
             )
         }
 
@@ -514,9 +548,10 @@ class PlayerViewModel(
                 seriesId = watchDetail?.seriesId,
                 seasonNumber = watchDetail?.seasonNumber,
                 episodeNumber = watchDetail?.episodeNumber,
-                nextEpisodeContentId = null,
-                nextEpisodeLabel = null,
-                stillWatchingPrompt = false,
+                nextEpisode = null,
+                showUpNext = false,
+                upNextVideoEnded = false,
+                upNextCountdownSeconds = null,
                 preferredAudioLanguage = playbackState.preferredAudioLanguage,
                 preferredTextLanguage = playbackState.preferredTextLanguage,
             )
@@ -702,17 +737,23 @@ class PlayerViewModel(
                 position = positionSec,
                 duration = if (durationSec > 0) durationSec else state.duration,
                 bufferedPosition = bufferedSec,
-                // synthesize from the credits range — server doesn't tell us when to
-                // surface the next-episode prompt, so we infer it from the credits start.
-                showNextEpisode = state.credits?.let { positionSec >= it.start && state.nextEpisodeContentId != null } ?: false,
             )
         }
 
-        // F2: auto-advance / prompt when playback CROSSES the credits point (only
-        // on the before->after transition, so resuming inside the credits doesn't
-        // instantly skip).
-        _uiState.value.credits?.start?.let { creditsStart ->
+        // F2: surface the Up Next card when playback CROSSES the credits point
+        // (only on the before->after transition, so resuming inside the credits
+        // doesn't instantly trigger it). Without a credits marker, fall back to
+        // crossing (duration - nextUpPromptSeconds); 0 = only at end (iOS parity).
+        val creditsStart = _uiState.value.credits?.start
+        if (creditsStart != null) {
             if (previousPosition < creditsStart && positionSec >= creditsStart) onApproachingEnd()
+        } else {
+            val promptSeconds = nextUpPromptSeconds.value
+            val duration = _uiState.value.duration
+            if (promptSeconds > 0 && duration > 0) {
+                val promptStart = duration - promptSeconds
+                if (previousPosition < promptStart && positionSec >= promptStart) onApproachingEnd()
+            }
         }
 
         // Forward to the lifecycle so its 10s reporter has a fresh sample.
@@ -1126,15 +1167,6 @@ class PlayerViewModel(
         introAutoSkipController.cancelCountdown()
     }
 
-    /** Manual "Next episode" — a deliberate action, so it resets the pass-out streak. */
-    fun onNextEpisode() {
-        // Watch Together is authoritative — a room member can't drive transport
-        // locally (matches the auto-advance guard), so ignore the tap in a room.
-        if (remoteTransportSuppressed) return
-        autoPlayGuard.recordUserAction()
-        advanceToNextEpisode()
-    }
-
     // ---- F2 next-episode auto-advance + pass-out protection ----
 
     /**
@@ -1166,36 +1198,119 @@ class PlayerViewModel(
                     ?.data?.episodes?.let { pool += it }
             }
             val next = nextEpisodeAfter(pool, curSeason, curEpisode) ?: return@launch
+            val info = NextEpisodeInfo(
+                contentId = next.contentId,
+                seasonNumber = next.seasonNumber,
+                episodeNumber = next.episodeNumber,
+                title = next.title,
+                overview = next.overview,
+                stillUrl = next.stillUrl,
+                stillThumbhash = next.stillThumbhash,
+                runtimeMinutes = next.runtime,
+            )
             _uiState.update {
                 // Drop the result if the player has since moved to another item.
                 if (it.contentId != forContentId) return@update it
-                it.copy(
-                    nextEpisodeContentId = next.contentId,
-                    nextEpisodeLabel = "S${next.seasonNumber}·E${next.episodeNumber}" +
-                        (next.title?.let { t -> " — $t" } ?: ""),
-                )
+                it.copy(nextEpisode = info)
+            }
+            if (_uiState.value.contentId != forContentId) return@launch
+            // If the credits/end point already fired while we were still
+            // resolving, the card couldn't arm — commit it now with the
+            // strongest video-ended flag observed.
+            if (!autoAdvanceHandled) {
+                pendingApproachingEndVideoEnded?.let { videoEnded ->
+                    commitApproachingEnd(info, videoEnded)
+                }
             }
         }
     }
 
     /**
-     * Credits reached (or stream ended) — auto-advance to the next episode, or
-     * once the consecutive-auto-advance streak hits the guard's threshold show
-     * the "Still watching?" prompt instead. Once-per-episode.
+     * Credits reached (primary) or stream ended (fallback) — surface the Up Next
+     * card. When auto-play is on and the consecutive-auto-advance streak is
+     * below the pass-out threshold, the card runs a countdown that plays the
+     * next episode at zero. Once the streak hits the threshold (or auto-play is
+     * off), the card shows WITHOUT a countdown so the user must explicitly
+     * choose (the pass-out gate). Once-per-episode.
+     *
+     * [videoEnded] is true on STATE_ENDED — the card reads "Playing Next"; a
+     * repeat call while the card is showing only upgrades that flag.
      */
-    fun onApproachingEnd() {
-        if (autoAdvanceHandled) return
+    fun onApproachingEnd(videoEnded: Boolean = false) {
         // Watch Together is authoritative — never auto-advance a room member.
         if (remoteTransportSuppressed) return
-        if (_uiState.value.nextEpisodeContentId == null) return
-        if (!autoPlayNextEnabled.value) return
+        if (autoAdvanceHandled) {
+            if (videoEnded && _uiState.value.showUpNext) {
+                _uiState.update { it.copy(upNextVideoEnded = true) }
+            }
+            return
+        }
+        val next = _uiState.value.nextEpisode
+        if (next == null) {
+            // Next episode hasn't resolved yet (or never will — last episode /
+            // movie). Record that the end point fired so resolveNextEpisode can
+            // commit the card if a next episode lands moments later. Unlike TV
+            // there is no full-screen "finished" panel on the phone, so nothing
+            // shows here even on videoEnded.
+            pendingApproachingEndVideoEnded = videoEnded || (pendingApproachingEndVideoEnded == true)
+            return
+        }
+        commitApproachingEnd(next, videoEnded)
+    }
+
+    private fun commitApproachingEnd(next: NextEpisodeInfo, videoEnded: Boolean) {
         autoAdvanceHandled = true
-        if (autoPlayGuard.shouldGate()) {
-            _uiState.update { it.copy(stillWatchingPrompt = true) }
-        } else {
+        pendingApproachingEndVideoEnded = null
+        // Gate check happens at commit; recordAutoAdvance only on the unattended
+        // countdown-expiry path (AutoPlayGuard's documented call sequence) — so
+        // after N unattended advances the (N+1)th card appears without a countdown.
+        val gated = autoPlayGuard.shouldGate()
+        val autoCountdown = autoPlayNextEnabled.value && !gated
+        _uiState.update {
+            it.copy(
+                showUpNext = true,
+                upNextVideoEnded = videoEnded,
+                upNextCountdownSeconds = if (autoCountdown) UP_NEXT_COUNTDOWN_SECONDS else null,
+            )
+        }
+        if (autoCountdown) startUpNextCountdown()
+    }
+
+    private fun startUpNextCountdown() {
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = viewModelScope.launch {
+            var remaining = UP_NEXT_COUNTDOWN_SECONDS
+            while (remaining > 0) {
+                delay(1_000)
+                remaining -= 1
+                _uiState.update {
+                    // Bail if something dismissed the card underneath us.
+                    if (!it.showUpNext) it else it.copy(upNextCountdownSeconds = remaining)
+                }
+                if (!_uiState.value.showUpNext) return@launch
+            }
+            // Unattended countdown-expiry advance: increment the pass-out streak
+            // so a long unattended binge eventually trips the gate. An explicit
+            // Play Now (below) resets the streak instead.
             autoPlayGuard.recordAutoAdvance()
             advanceToNextEpisode()
         }
+    }
+
+    /** Up Next "Play Now" — an explicit choice, so it resets the pass-out streak. */
+    fun playUpNextNow() {
+        autoPlayGuard.recordUserAction()
+        advanceToNextEpisode()
+    }
+
+    /**
+     * Up Next dismiss — cancel the countdown and stay on the current playback.
+     * Does NOT re-arm [autoAdvanceHandled]: the card is once-per-episode.
+     */
+    fun dismissUpNext() {
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
+        _uiState.update { it.copy(showUpNext = false, upNextCountdownSeconds = null) }
     }
 
     /**
@@ -1210,8 +1325,10 @@ class PlayerViewModel(
      * than inheriting the next episode's saved resume position.
      */
     private fun advanceToNextEpisode() {
-        val nextContentId = _uiState.value.nextEpisodeContentId ?: return
-        _uiState.update { it.copy(stillWatchingPrompt = false, showNextEpisode = false) }
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
+        val nextContentId = _uiState.value.nextEpisode?.contentId ?: return
+        _uiState.update { it.copy(showUpNext = false, upNextCountdownSeconds = null) }
         viewModelScope.launch {
             sessionLifecycle.stop()
             loadContent(
@@ -1220,17 +1337,6 @@ class PlayerViewModel(
                 suppressResumeRewind = true,
             )
         }
-    }
-
-    /** User tapped "Continue" on the prompt — reset the streak and play next. */
-    fun onStillWatchingContinue() {
-        autoPlayGuard.recordUserAction()
-        advanceToNextEpisode()
-    }
-
-    /** User tapped "Stop" (or dismissed) — stay on the finished episode. */
-    fun onStillWatchingStop() {
-        _uiState.update { it.copy(stillWatchingPrompt = false) }
     }
 
     // ---- Settings setters (forward to per-profile DataStore) -------------------
@@ -1677,6 +1783,7 @@ class PlayerViewModel(
         lifecycleObserverJob?.cancel()
         searchJob?.cancel()
         aiJobHandle?.cancel()
+        upNextCountdownJob?.cancel()
         introAutoSkipController.reset()
         // Best-effort session stop. Lifecycle.stop() is suspend-based and may not
         // complete after onCleared (viewModelScope is cancelling) — fire & forget,

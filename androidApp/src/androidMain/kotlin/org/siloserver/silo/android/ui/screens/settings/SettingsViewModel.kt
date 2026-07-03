@@ -50,6 +50,10 @@ data class SettingsUiState(
     val audioLanguage: String = "Default",
     val autoSkipIntro: Boolean = false,
     val autoSkipCredits: Boolean = false,
+    // Up Next card: auto-play the next episode at countdown expiry, and how
+    // many seconds before the end to surface the card (0 = only at end).
+    val autoPlayNext: Boolean = true,
+    val nextUpPromptSeconds: Int = 30,
     // Seconds to skip back on resume (0 = off); consecutive auto-advances
     // before the "Still watching?" prompt (0 = off).
     val resumeRewindSeconds: Int = 7,
@@ -166,20 +170,35 @@ class SettingsViewModel(
     }
 
     // Separate from observePlayerSettings() because combine() has no typed
-    // overload past 5 flows — these two local-only Int settings get their own.
+    // overload past 5 flows — these behavior settings get their own.
     private fun observePlaybackBehaviorSettings() {
         combine(
             playerSettingsStore.resumeRewindSecondsFlow,
             playerSettingsStore.passOutThresholdFlow,
-        ) { rewind, threshold -> rewind to threshold }
-            .onEach { (rewind, threshold) ->
-                _uiState.update { it.copy(resumeRewindSeconds = rewind, passOutThreshold = threshold) }
+            playerSettingsStore.autoPlayNextFlow,
+            playerSettingsStore.nextUpPromptSecondsFlow,
+        ) { rewind, threshold, autoPlayNext, nextUpPrompt ->
+            _uiState.update {
+                it.copy(
+                    resumeRewindSeconds = rewind,
+                    passOutThreshold = threshold,
+                    autoPlayNext = autoPlayNext,
+                    nextUpPromptSeconds = nextUpPrompt,
+                )
             }
-            .launchIn(viewModelScope)
+        }.launchIn(viewModelScope)
     }
 
     fun setResumeRewindSeconds(value: Int) {
         viewModelScope.launch { playerSettingsStore.setResumeRewindSeconds(value) }
+    }
+
+    fun setAutoPlayNext(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setAutoPlayNext(value) }
+    }
+
+    fun setNextUpPromptSeconds(value: Int) {
+        viewModelScope.launch { playerSettingsStore.setNextUpPromptSeconds(value) }
     }
 
     fun setPassOutThreshold(value: Int) {

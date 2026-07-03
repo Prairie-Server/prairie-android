@@ -23,8 +23,16 @@ private val languageOptions = listOf("Default", "English", "Spanish", "French", 
 // matches the rest of this section; the label↔value maps below convert.
 private val resumeRewindOptions = listOf(0, 3, 5, 7, 10, 15, 20, 30)
 private val passOutThresholdOptions = listOf(0, 2, 3, 4, 5)
+// Up-Next prompt timing (seconds before end; 0 = at end). Mirrors TV/tvOS.
+private val nextUpPromptOptions = listOf(0, 10, 30, 60, 120)
 private fun resumeRewindLabel(seconds: Int) = if (seconds <= 0) "Off" else "${seconds}s"
 private fun passOutThresholdLabel(count: Int) = if (count <= 0) "Off" else count.toString()
+private fun nextUpPromptLabel(seconds: Int): String = when {
+    seconds <= 0 -> "At end"
+    seconds < 60 -> "$seconds seconds before end"
+    seconds == 60 -> "1 minute before end"
+    else -> "${seconds / 60} minutes before end"
+}
 
 /**
  * Playback settings section with quality preference, audio language,
@@ -36,12 +44,16 @@ fun PlaybackSettings(
     audioLanguage: String,
     autoSkipIntro: Boolean,
     autoSkipCredits: Boolean,
+    autoPlayNext: Boolean,
+    nextUpPromptSeconds: Int,
     resumeRewindSeconds: Int,
     passOutThreshold: Int,
     onQualityChanged: (String) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
+    onNextUpPromptSecondsChanged: (Int) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
     onResetPlaybackOverrides: () -> Unit,
@@ -74,6 +86,21 @@ fun PlaybackSettings(
             label = "Auto-Skip Credits",
             checked = autoSkipCredits,
             onCheckedChange = onAutoSkipCreditsChanged,
+        )
+
+        SettingsSwitchRow(
+            label = "Auto-Play Next Episode",
+            checked = autoPlayNext,
+            onCheckedChange = onAutoPlayNextChanged,
+        )
+
+        SettingsDropdownRow(
+            label = "Show Next Up",
+            value = nextUpPromptLabel(nextUpPromptSeconds),
+            options = nextUpPromptOptions.map(::nextUpPromptLabel),
+            onOptionSelected = { label ->
+                onNextUpPromptSecondsChanged(nextUpPromptOptions.first { nextUpPromptLabel(it) == label })
+            },
         )
 
         SettingsDropdownRow(
