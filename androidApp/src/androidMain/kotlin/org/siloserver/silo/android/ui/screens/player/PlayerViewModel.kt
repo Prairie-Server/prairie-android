@@ -827,6 +827,11 @@ class PlayerViewModel(
     /** Toggle play/pause — tracks user intent; PlayerScreen mirrors this to playWhenReady. */
     fun onPlayPause() {
         autoPlayGuard.recordUserAction() // deliberate interaction resets the pass-out streak
+        // A deliberate pause while the Up Next countdown is running opts out of
+        // auto-advance: stop the countdown but keep the card so Play Now /
+        // dismiss remain available (the card is non-modal, so transport input
+        // reaches the player underneath it).
+        if (!_uiState.value.isPaused) cancelUpNextCountdown()
         _uiState.update { it.copy(isPaused = !it.isPaused) }
         // Re-arm the auto-hide timer so controls don't linger after resuming playback.
         if (_uiState.value.showControls) {
@@ -844,6 +849,12 @@ class PlayerViewModel(
 
     fun onSeek(position: Double) {
         autoPlayGuard.recordUserAction() // deliberate interaction resets the pass-out streak
+        // A deliberate scrub while the Up Next card is showing is the user
+        // taking back control (e.g. rewinding to rewatch) — dismiss the card
+        // and its countdown, same once-per-episode semantics as an explicit
+        // dismiss. Room-driven corrective seeks go through seekImmediate and
+        // are unaffected.
+        if (_uiState.value.showUpNext) dismissUpNext()
         _uiState.update { it.copy(position = position) }
         _seekRequests.tryEmit(position)
     }
@@ -1266,11 +1277,19 @@ class PlayerViewModel(
         // after N unattended advances the (N+1)th card appears without a countdown.
         val gated = autoPlayGuard.shouldGate()
         val autoCountdown = autoPlayNextEnabled.value && !gated
+        val current = _uiState.value
+        // Pre-end commits anchor the countdown to the remaining playback time
+        // (see startUpNextCountdown); only an at-end commit uses the wall clock.
+        val initialCountdown = when {
+            !autoCountdown -> null
+            videoEnded -> UP_NEXT_COUNTDOWN_SECONDS
+            else -> kotlin.math.ceil((current.duration - current.position).coerceAtLeast(0.0)).toInt()
+        }
         _uiState.update {
             it.copy(
                 showUpNext = true,
                 upNextVideoEnded = videoEnded,
-                upNextCountdownSeconds = if (autoCountdown) UP_NEXT_COUNTDOWN_SECONDS else null,
+                upNextCountdownSeconds = initialCountdown,
             )
         }
         if (autoCountdown) startUpNextCountdown()
@@ -1279,21 +1298,44 @@ class PlayerViewModel(
     private fun startUpNextCountdown() {
         upNextCountdownJob?.cancel()
         upNextCountdownJob = viewModelScope.launch {
-            var remaining = UP_NEXT_COUNTDOWN_SECONDS
-            while (remaining > 0) {
+            // Two anchors (iOS parity — silo-apple's PlayerViewModel derives the
+            // countdown from movieTime and only auto-plays once playback truly
+            // ends):
+            //  - Card committed BEFORE the end (credits / prompt crossing): the
+            //    countdown mirrors the remaining playback time, so it freezes on
+            //    pause, grows on a backward seek, and the advance fires only when
+            //    the player reports STATE_ENDED — never truncating the tail of an
+            //    episode that lacks a credits marker.
+            //  - Card committed AT the end (STATE_ENDED with no earlier crossing):
+            //    there is no playback left to anchor to, so a short wall-clock
+            //    countdown gives the user a window to cancel before auto-play.
+            val startedAtEnd = _uiState.value.upNextVideoEnded
+            var wallRemaining = UP_NEXT_COUNTDOWN_SECONDS
+            while (true) {
                 delay(1_000)
-                remaining -= 1
+                val state = _uiState.value
+                // Bail if something dismissed the card underneath us.
+                if (!state.showUpNext) return@launch
+                val remaining = if (startedAtEnd) {
+                    wallRemaining -= 1
+                    wallRemaining.coerceAtLeast(0)
+                } else {
+                    kotlin.math.ceil((state.duration - state.position).coerceAtLeast(0.0)).toInt()
+                }
                 _uiState.update {
-                    // Bail if something dismissed the card underneath us.
                     if (!it.showUpNext) it else it.copy(upNextCountdownSeconds = remaining)
                 }
                 if (!_uiState.value.showUpNext) return@launch
+                val playbackEnded =
+                    if (startedAtEnd) wallRemaining <= 0 else _uiState.value.upNextVideoEnded
+                if (!playbackEnded) continue
+                // Unattended countdown-expiry advance: increment the pass-out streak
+                // so a long unattended binge eventually trips the gate. An explicit
+                // Play Now (below) resets the streak instead.
+                autoPlayGuard.recordAutoAdvance()
+                advanceToNextEpisode()
+                return@launch
             }
-            // Unattended countdown-expiry advance: increment the pass-out streak
-            // so a long unattended binge eventually trips the gate. An explicit
-            // Play Now (below) resets the streak instead.
-            autoPlayGuard.recordAutoAdvance()
-            advanceToNextEpisode()
         }
     }
 
@@ -1311,6 +1353,18 @@ class PlayerViewModel(
         upNextCountdownJob?.cancel()
         upNextCountdownJob = null
         _uiState.update { it.copy(showUpNext = false, upNextCountdownSeconds = null) }
+    }
+
+    /**
+     * Stops the auto-advance countdown but keeps the card visible — used when a
+     * deliberate transport action (pause) signals the user doesn't want to be
+     * yanked to the next episode. The card degrades to the no-countdown form.
+     */
+    private fun cancelUpNextCountdown() {
+        if (upNextCountdownJob == null) return
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
+        _uiState.update { it.copy(upNextCountdownSeconds = null) }
     }
 
     /**
