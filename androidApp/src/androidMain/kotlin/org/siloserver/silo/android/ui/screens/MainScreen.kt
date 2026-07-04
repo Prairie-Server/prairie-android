@@ -1,15 +1,20 @@
 package org.siloserver.silo.android.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,10 +23,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import org.siloserver.silo.android.ui.components.MainAppHeaderBodyHeight
 import org.siloserver.silo.android.ui.components.MainAppTopBar
@@ -42,10 +51,13 @@ import org.siloserver.silo.model.navigation.MediaMode
 import org.siloserver.silo.model.navigation.MediaModeCapabilities
 import org.siloserver.silo.model.navigation.mobileMediaModeCapabilities
 import org.siloserver.silo.model.feature.CLIENT_REQUESTS_SURFACE_ENABLED
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.network.ServerReachabilityStatus
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.viewmodel.HomeViewModel
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -82,6 +94,9 @@ fun MainScreen(
     val downloadsRepository: org.siloserver.silo.repository.DownloadsRepository = koinInject()
     val downloadStorage: org.siloserver.silo.common.downloads.DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
+    val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
+    val reachabilityState by reachabilityMonitor.state.collectAsState()
+    val reachabilityScope = rememberCoroutineScope()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
     val mediaCapabilities by produceState(
         initialValue = MediaModeCapabilities(
@@ -323,6 +338,19 @@ fun MainScreen(
                 )
             }
 
+            if (reachabilityState.status == ServerReachabilityStatus.Unreachable) {
+                MobileServerOfflinePill(
+                    onRetry = { reachabilityScope.launch { reachabilityMonitor.retryNow() } },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(
+                            top = headerContentTop + 8.dp,
+                            start = 20.dp,
+                            end = 20.dp,
+                        ),
+                )
+            }
+
             if (currentTab == Tab.Libraries && librariesState != null && showLibrarySelector) {
                 LibrariesSelectorSheet(
                     libraries = librariesState.libraries,
@@ -335,5 +363,31 @@ fun MainScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MobileServerOfflinePill(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .widthIn(max = 360.dp)
+            .fillMaxWidth()
+            .clickable(onClick = onRetry),
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.94f),
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
+    ) {
+        Text(
+            text = "Offline mode - tap to retry",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+        )
     }
 }

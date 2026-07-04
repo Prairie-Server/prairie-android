@@ -26,7 +26,9 @@ import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
 import org.siloserver.silo.android.ui.theme.SiloTheme
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
 import org.siloserver.silo.common.startup.warmAuthenticatedStartup
 import org.siloserver.silo.common.ui.components.StartupSplashVideo
 import org.siloserver.silo.network.ServerRegistry
@@ -106,6 +108,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.startForeground()
+        lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -123,6 +133,8 @@ class MainActivity : ComponentActivity() {
      */
     override fun onStop() {
         super.onStop()
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.stopForeground()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
     }

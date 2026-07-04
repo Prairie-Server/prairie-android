@@ -96,6 +96,8 @@ import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.common.ui.components.isImageAvatar
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
 import org.siloserver.silo.tv.ui.theme.DarkBackground
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.network.ServerReachabilityStatus
 import org.siloserver.silo.common.ui.components.profileAvatarDisplayText
 import org.siloserver.silo.common.ui.components.rememberProfileServerUrl
 import org.siloserver.silo.common.ui.components.resolveAvatarUrl
@@ -170,6 +172,8 @@ fun TvMainShell(
     val authRepository: AuthRepository = koinInject()
     val personalDataRepository: PersonalDataRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
+    val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
+    val reachabilityState by reachabilityMonitor.state.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     val serverUrl = rememberProfileServerUrl()
 
@@ -864,6 +868,16 @@ fun TvMainShell(
                 .zIndex(1f),
         )
 
+        if (reachabilityState.status == ServerReachabilityStatus.Unreachable) {
+            TvServerOfflinePill(
+                onRetry = { panelScope.launch { reachabilityMonitor.retryNow() } },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 92.dp)
+                    .zIndex(1.5f),
+            )
+        }
+
         // Persistent cascade overlays (tvOS `persistentPanels`): one Box per
         // visible library-type tab, ALWAYS in the tree. Inactive panels are
         // alpha-0 and focus-blocked; the active one fades in and accepts focus.
@@ -1272,6 +1286,41 @@ private fun ProfileDropdownDivider() {
             .height(1.dp)
             .background(Color.White.copy(alpha = 0.10f)),
     )
+}
+
+@Composable
+private fun TvServerOfflinePill(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pillShape = RoundedCornerShape(999.dp)
+    Surface(
+        modifier = modifier.widthIn(max = 460.dp),
+        onClick = onRetry,
+        shape = ClickableSurfaceDefaults.shape(pillShape),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF3A1F22).copy(alpha = 0.94f),
+            contentColor = Color.White,
+            focusedContainerColor = SiloOnSurface,
+            focusedContentColor = DarkBackground,
+            pressedContainerColor = SiloOnSurface,
+            pressedContentColor = DarkBackground,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)), shape = pillShape),
+            focusedBorder = Border(border = BorderStroke(1.dp, SiloOnSurface), shape = pillShape),
+        ),
+    ) {
+        Text(
+            text = "Offline mode - select to retry",
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /**

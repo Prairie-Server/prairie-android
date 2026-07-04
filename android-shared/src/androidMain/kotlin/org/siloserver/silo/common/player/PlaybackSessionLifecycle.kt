@@ -256,10 +256,12 @@ class PlaybackSessionLifecycle(
                         Log.w(TAG, "reportProgress network error: ${result.exception}")
                         beginOutageRecovery(sess)
                     }
-                    result is ApiResult.Error -> Log.w(
-                        TAG,
-                        "reportProgress error: ${result.code} ${result.message}",
-                    )
+                    result is ApiResult.Error -> {
+                        Log.w(TAG, "reportProgress error: ${result.code} ${result.message}")
+                        if (result.code.isGatewayOrTunnelFailureStatus()) {
+                            beginOutageRecovery(sess)
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -319,16 +321,16 @@ class PlaybackSessionLifecycle(
                 elapsed += step
                 if (!isActive || elapsed >= OUTAGE_TIMEOUT_MS) break
                 val probe = healthApi.checkHealth()
-                if (probe is ApiResult.Success || probe is ApiResult.Error) {
-                    // Success or HTTP error (incl. 401/403) both mean the
-                    // server is reachable — match iOS comment "treating
-                    // server as ready". Resume normal reporting.
+                if (probe is ApiResult.Success) {
+                    // Only a decoded health payload is authoritative. Reverse
+                    // proxies/tunnels can still produce HTTP errors, or even
+                    // an HTML 200 page, while the Silo origin is down.
                     Log.i(TAG, "Health probe succeeded; resuming playback session")
                     _state.value = SessionState.Active(currentSession)
                     _notice.value = null
                     return@launch
                 }
-                // NetworkError — back off and try again.
+                // Error or NetworkError — back off and try again.
                 delayMs = (delayMs * 2).coerceAtMost(OUTAGE_MAX_DELAY_MS)
             }
             // Timed out before the server came back.
@@ -409,6 +411,9 @@ class PlaybackSessionLifecycle(
             "The server did not come back online in time."
     }
 }
+
+internal fun Int.isGatewayOrTunnelFailureStatus(): Boolean =
+    this == 502 || this == 503 || this == 504 || this in 520..527 || this == 530
 
 // ---- Public types ----------------------------------------------------------
 

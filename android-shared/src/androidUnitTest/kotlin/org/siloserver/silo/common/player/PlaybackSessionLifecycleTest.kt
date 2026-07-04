@@ -7,6 +7,7 @@ import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.api.HealthApi
+import org.siloserver.silo.network.api.HealthStatus
 import org.siloserver.silo.network.api.PersonalDataApi
 import org.siloserver.silo.network.api.PlaybackApi
 import org.siloserver.silo.network.api.ProfileApi
@@ -232,7 +233,7 @@ class PlaybackSessionLifecycleTest {
             // First probe still down, second comes back.
             results = ArrayDeque(listOf(
                 ApiResult.NetworkError(RuntimeException("still down")),
-                ApiResult.Success(Unit),
+                ApiResult.Success(healthOk()),
             ))
         }
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
@@ -278,7 +279,7 @@ class PlaybackSessionLifecycleTest {
             ))
         }
         val healthApi = FakeHealthApi().apply {
-            results = ArrayDeque(listOf(ApiResult.Success(Unit)))
+            results = ArrayDeque(listOf(ApiResult.Success(healthOk())))
         }
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
         val active = lifecycle.start(defaultStartParams())
@@ -316,7 +317,7 @@ class PlaybackSessionLifecycleTest {
                 ApiResult.NetworkError(RuntimeException("d2")),
                 ApiResult.NetworkError(RuntimeException("d3")),
                 ApiResult.NetworkError(RuntimeException("d4")),
-                ApiResult.Success(Unit),
+                ApiResult.Success(healthOk()),
             ))
         }
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
@@ -385,6 +386,77 @@ class PlaybackSessionLifecycleTest {
         val notice = lifecycle.notice.value
         assertNotNull(notice)
         assertEquals(PlaybackSessionLifecycle.OUTAGE_TIMEOUT_MESSAGE, notice.message)
+    }
+
+    @Test
+    fun `health gateway error does not mark outage recovery reachable`() = runTest {
+        val sessionMgr = FakeSessionManager().apply {
+            startResult = ApiResult.Success(makeSession("sess-proxy-down"))
+            progressResults = ArrayDeque(
+                listOf(ApiResult.NetworkError(RuntimeException("offline"))),
+            )
+        }
+        val healthApi = FakeHealthApi().apply {
+            results = ArrayDeque(
+                listOf(
+                    ApiResult.Error(503, "unavailable", "origin down"),
+                    ApiResult.Success(healthOk()),
+                ),
+            )
+        }
+        val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
+        lifecycle.start(defaultStartParams())
+        lifecycle.reportPosition(0.0, 100.0, isPaused = false)
+
+        advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
+        advanceUntilIdle()
+        assertTrue(lifecycle.state.value is SessionState.Reconnecting)
+
+        advanceTimeBy(PlaybackSessionLifecycle.OUTAGE_INITIAL_DELAY_MS + 100)
+        advanceUntilIdle()
+        assertEquals(1, healthApi.callCount)
+        assertTrue(
+            lifecycle.state.value is SessionState.Reconnecting,
+            "gateway failures should keep outage recovery active",
+        )
+
+        advanceTimeBy(2 * PlaybackSessionLifecycle.OUTAGE_INITIAL_DELAY_MS + 100)
+        advanceUntilIdle()
+        assertEquals(2, healthApi.callCount)
+        assertTrue(lifecycle.state.value is SessionState.Active)
+
+        lifecycle.stop()
+    }
+
+    @Test
+    fun `gateway progress error starts outage recovery`() = runTest {
+        val sessionMgr = FakeSessionManager().apply {
+            startResult = ApiResult.Success(makeSession("sess-progress-503"))
+            progressResults = ArrayDeque(
+                listOf(ApiResult.Error(503, "unavailable", "origin down")),
+            )
+        }
+        val healthApi = FakeHealthApi().apply {
+            results = ArrayDeque(listOf(ApiResult.Success(healthOk())))
+        }
+        val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
+        lifecycle.start(defaultStartParams())
+        lifecycle.reportPosition(12.0, 100.0, isPaused = false)
+
+        advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
+        advanceUntilIdle()
+
+        assertTrue(
+            lifecycle.state.value is SessionState.Reconnecting,
+            "transient gateway progress failures should start outage recovery",
+        )
+
+        advanceTimeBy(PlaybackSessionLifecycle.OUTAGE_INITIAL_DELAY_MS + 100)
+        advanceUntilIdle()
+        assertEquals(1, healthApi.callCount)
+        assertTrue(lifecycle.state.value is SessionState.Active)
+
+        lifecycle.stop()
     }
 
     @Test
@@ -567,17 +639,19 @@ private open class FakeSessionManager : PlaybackSessionManager(
 }
 
 private class FakeHealthApi : HealthApi(client = HttpClient()) {
-    var results: ArrayDeque<ApiResult<Unit>>? = null
-    var alwaysReturn: ApiResult<Unit>? = null
+    var results: ArrayDeque<ApiResult<HealthStatus>>? = null
+    var alwaysReturn: ApiResult<HealthStatus>? = null
     var callCount = 0
 
-    override suspend fun checkHealth(): ApiResult<Unit> {
+    override suspend fun checkHealth(): ApiResult<HealthStatus> {
         callCount++
         alwaysReturn?.let { return it }
         return results?.takeIf { it.isNotEmpty() }?.removeFirst()
-            ?: ApiResult.Success(Unit)
+            ?: ApiResult.Success(healthOk())
     }
 }
+
+private fun healthOk(): HealthStatus = HealthStatus(status = "ok")
 
 private class FakeProfileRepository(
     private val activeProfileId: String?,

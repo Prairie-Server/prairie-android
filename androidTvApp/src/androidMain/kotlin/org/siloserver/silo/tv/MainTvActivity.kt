@@ -23,7 +23,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.lifecycle.lifecycleScope
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
 import org.siloserver.silo.common.startup.warmAuthenticatedStartup
 import org.siloserver.silo.common.ui.components.StartupSplashVideo
 import org.siloserver.silo.common.ui.components.StartupSplashResizeMode
@@ -121,6 +123,14 @@ class MainTvActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.startForeground()
+        lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
+    }
+
     /**
      * Warm-launch deep links arrive here while the Activity is already alive
      * (singleTop / singleTask). Forward to [handleIntent] and update the
@@ -161,6 +171,8 @@ class MainTvActivity : ComponentActivity() {
      */
     override fun onStop() {
         super.onStop()
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.stopForeground()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
     }

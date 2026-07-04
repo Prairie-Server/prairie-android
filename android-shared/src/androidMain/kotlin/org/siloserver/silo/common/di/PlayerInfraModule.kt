@@ -1,5 +1,6 @@
 package org.siloserver.silo.common.di
 
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.ActivePlayerHolder
 import org.siloserver.silo.common.player.AudiobookSettingsStore
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
@@ -11,6 +12,7 @@ import org.siloserver.silo.common.settings.DefaultServerSettingsFlusher
 import org.siloserver.silo.common.settings.LibraryPlaybackPrefsStore
 import org.siloserver.silo.common.settings.OverlayPrefsStore
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
 import org.siloserver.silo.common.settings.ServerSettingsFlusher
 import org.siloserver.silo.domain.player.IntroAutoSkipController
 import org.siloserver.silo.network.DeviceMetadataProvider
@@ -95,6 +97,27 @@ val playerInfraModule = module {
         DefaultOverlayPrefsStore(
             repository = get<SettingsRepository>(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+        )
+    }
+
+    single {
+        ServerDrivenConfigRefresher(
+            overlayPrefsStore = get(),
+            libraryPlaybackPrefsStore = get(),
+            playerSettingsStore = get(),
+            hasAuthenticatedProfile = {
+                !get<ProfileRepository>().getActiveProfileId().isNullOrBlank()
+            },
+        )
+    }
+
+    single {
+        ServerReachabilityMonitor(
+            healthApi = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            onServerReconnected = {
+                get<ServerDrivenConfigRefresher>().forceRefresh()
+            },
         )
     }
 
