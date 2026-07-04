@@ -129,6 +129,7 @@ class SiloPlayerFactory(
         val mediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
             .setDataSourceFactory(dataSourceFactory)
             .setSubtitleParserFactory(subtitleParserFactory)
+            .setLoadErrorHandlingPolicy(SiloMediaLoadErrorHandlingPolicy())
 
         // Staged buffer: start once a modest cushion is ready, wait longer
         // after an actual stall, and let playback grow a deeper forward
