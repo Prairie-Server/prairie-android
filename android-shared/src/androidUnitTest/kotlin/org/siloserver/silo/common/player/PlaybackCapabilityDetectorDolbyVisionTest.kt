@@ -19,13 +19,35 @@ class PlaybackCapabilityDetectorDolbyVisionTest {
     }
 
     @Test
-    fun profile7DirectPlayStaysBlockedByLaunchPolicy() {
+    fun profile7DirectPlayRequiresNativeDualLayerSupport() {
         assertFalse(
             isDirectPlayableDolbyVisionProfile(
                 profile = 7,
-                supportedHdr = HdrCapabilities(dolbyVisionProfiles = listOf(7)),
+                supportedHdr = HdrCapabilities(dolbyVisionProfiles = listOf(5, 8)),
             ),
-            "Profile 7 remains blocked until we validate that direct route separately.",
+            "Without a native dual-layer DV decoder, Media3 cannot direct-play P7 — recovery must route to mpv or transcode instead.",
+        )
+    }
+
+    @Test
+    fun profile7DirectPlayIsAllowedWithNativeDualLayerSupport() {
+        assertTrue(
+            isDirectPlayableDolbyVisionProfile(
+                profile = 7,
+                supportedHdr = HdrCapabilities(dolbyVisionProfiles = listOf(5, 7, 8)),
+            ),
+            "Devices whose DV decoder claims dual-layer profiles with multi-instance HEVC (Shield-class) can direct-play P7.",
+        )
+    }
+
+    @Test
+    fun profile5DirectPlayRequiresNativeDolbyVisionDecoder() {
+        assertFalse(
+            isDirectPlayableDolbyVisionProfile(
+                profile = 5,
+                supportedHdr = HdrCapabilities(),
+            ),
+            "P5 has no backward-compatible base layer; without a DV decoder the Media3 route cannot render it.",
         )
     }
 }

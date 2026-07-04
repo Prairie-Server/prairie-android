@@ -17,6 +17,8 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import androidx.media3.extractor.ts.TsExtractor
 import org.siloserver.silo.common.BuildConfig
 import org.siloserver.silo.common.player.audio.DelayAudioProcessor
 import org.siloserver.silo.common.player.mpv.MpvPlayer
@@ -71,6 +73,15 @@ class SiloPlayerFactory(
         // delegates to DefaultSubtitleParserFactory and shifts cue start times
         // by the per-profile subtitle-sync value (A.3f).
         .setSubtitleParserFactory(subtitleParserFactory)
+        // HDMV DTS streams (Blu-ray-sourced M2TS) use a stream type the TS
+        // payload reader skips by default, so DTS tracks vanish from
+        // Blu-ray-remux transport streams without this flag.
+        .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
+        // The default PCR search window is too small for high-bitrate 4K
+        // remux/transcode TS segments with sparse PTS — startup then fails
+        // with "timestamp not found" (androidx/media #8571-class failures).
+        // 1500 packets matches what battle-tested players ship.
+        .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
 
     fun createPlayer(
         preferFfmpegAudio: Boolean = BuildConfig.FFMPEG_AUDIO_ENABLED,

@@ -329,14 +329,19 @@ internal fun isDirectPlayableDolbyVisionProfile(
     profile: Int,
     supportedHdr: org.siloserver.silo.model.playback.HdrCapabilities,
 ): Boolean = when (profile) {
-    // Launch policy: do not claim Profile 7 direct playback until that route is
-    // validated separately. It commonly needs dual-layer handling that the
-    // current Media3 path has not proven.
-    7 -> false
     // Profile 8 carries a renderable base layer. Do not force a server fallback
     // merely because the display probe lacks native Dolby Vision/HDR; let the
     // player-error path recover if the actual decoder route fails.
     8 -> true
+    // Profile 7 (dual-layer BL+EL) and Profile 5 (no compatible base layer)
+    // need a native Dolby Vision decoder on the Media3 route.
+    // MediaCodecCapabilitiesProbe already gates the P7 claim on multi-instance
+    // HEVC (the enhancement layer needs a second concurrent decode), so
+    // membership in the intersected profile list is the whole test — the same
+    // model jellyfin-androidtv ships (DvheDtb + maxSupportedInstances >= 2).
+    // When this returns false, PlaybackRecoveryPlanner now prefers an
+    // alternate direct engine (mpv decodes the P7/P8 HDR10 base layer and
+    // tone-maps P5) before conceding a server transcode.
     else -> supportedHdr.dolbyVisionProfiles.contains(profile)
 }
 

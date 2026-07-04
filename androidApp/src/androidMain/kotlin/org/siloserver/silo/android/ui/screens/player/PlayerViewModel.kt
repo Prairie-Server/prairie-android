@@ -8,6 +8,8 @@ import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.Playability
+import org.siloserver.silo.common.player.PlaybackRecoveryAction
+import org.siloserver.silo.common.player.PlaybackRecoveryPlanner
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.PlayerNotice
@@ -32,7 +34,10 @@ import org.siloserver.silo.model.catalog.TimeRange
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackDelivery
+import org.siloserver.silo.model.playback.PlaybackEngineKind
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.playback.PlaybackRouteEventRequest
+import org.siloserver.silo.model.playback.PlaybackRouteFamily
 import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.mergeDownloadedSubtitles
@@ -117,6 +122,7 @@ class PlayerViewModel(
         // Record a durable position roughly every 10s of content time (matches the
         // server reporter cadence) to bound DB/outbox churn.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
+        private const val MAX_TRANSIENT_NETWORK_RETRIES = 1
     }
 
     data class PlayerUiState(
@@ -275,6 +281,16 @@ class PlayerViewModel(
     // Once-per-episode guard for the credits/ended trigger; reset on each load.
     private var autoAdvanceHandled = false
     private var engineSwitchFallbackAttempted = false
+
+    // Recovery ladder state — mirrors TvPlayerViewModel. The planner picks the
+    // cheapest viable fallback (alternate direct engine → server remux →
+    // transcode); attemptedEngines prevents Media3↔mpv ping-pong; the
+    // transient-network budget lets a single blip retry the SAME route instead
+    // of demoting a healthy direct stream for the rest of playback.
+    private val recoveryPlanner = PlaybackRecoveryPlanner()
+    private val attemptedEngines = mutableSetOf<PlaybackEngineKind>()
+    private var transientNetworkRetries = 0
+    private var recoveryJob: Job? = null
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
@@ -379,6 +395,8 @@ class PlayerViewModel(
         // AutoPlayGuard streak intentionally PERSISTS across episodes.)
         autoAdvanceHandled = false
         engineSwitchFallbackAttempted = false
+        attemptedEngines.clear()
+        transientNetworkRetries = 0
         // Cancel any in-flight resolve from the previous episode so its result
         // can't land on this one and overwrite the fresh next-episode pointer.
         resolveNextEpisodeJob?.cancel()
@@ -562,12 +580,7 @@ class PlayerViewModel(
      */
     fun onUnsupportedPlayback(reason: Playability) {
         val state = _uiState.value
-        val sessionId = state.sessionId ?: return
-        val versions = state.versions
-        val versionIndex = state.selectedVersionIndex
-        val selectedAudioIndex = state.selectedAudioIndex
-        val selectedSubtitleIndex = state.selectedSubtitleIndex
-        val version = versions.getOrNull(versionIndex) ?: return
+        state.sessionId ?: return
 
         val notice = when (reason) {
             is Playability.UnsupportedDvProfile ->
@@ -582,7 +595,149 @@ class PlayerViewModel(
         }
         Log.i(TAG, "Preflight fallback: $notice")
 
+        val recoveryAction = recoveryPlanner.planForPlayability(state.playbackPlan, reason, attemptedEngines)
+        if (applyAlternateDirectFallback(state, recoveryAction)) return
+        startServerRecoveryFallback(notice, recoveryAction, state)
+    }
+
+    /**
+     * Player runtime error (decoder init, source, network after prepare).
+     * Mirrors TvPlayerViewModel.onPlayerError: a transient network blip retries
+     * the SAME route a bounded number of times (budget restored once playback
+     * progresses), everything else walks the recovery ladder — alternate
+     * direct engine first, then the plan's server remux/transcode candidates.
+     * Previously the mobile player had no error handling at all: a decoder or
+     * IO failure left the screen on a stale frame/spinner forever.
+     */
+    fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        val state = _uiState.value
+        val message = error.localizedMessage?.takeIf { msg -> msg.isNotBlank() }
+            ?: "Playback failed. Please try again."
+        val isTransientNetwork =
+            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        val plan = state.playbackPlan
+        if (isTransientNetwork &&
+            state.sessionId != null &&
+            plan != null &&
+            transientNetworkRetries < MAX_TRANSIENT_NETWORK_RETRIES
+        ) {
+            transientNetworkRetries++
+            Log.i(TAG, "Transient network error; retrying same route ($transientNetworkRetries/$MAX_TRANSIENT_NETWORK_RETRIES)")
+            // Appending to the decision trace produces a new plan object, which
+            // re-runs the screen's mount effect — a same-route remount at the
+            // current position, without a server round-trip.
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = null,
+                    playbackPlan = plan.copy(
+                        timeline = plan.timeline.copy(playerStartSeconds = state.position),
+                        decisionTrace = plan.decisionTrace +
+                            "client_retry=transient_network:$transientNetworkRetries",
+                    ),
+                    startPosition = state.position,
+                )
+            }
+            return
+        }
+        val recoveryAction = recoveryPlanner.planForPlayerError(state.playbackPlan, error, attemptedEngines)
+        if (applyAlternateDirectFallback(state, recoveryAction)) return
+        if (state.sessionId != null && recoveryAction != PlaybackRecoveryAction.None) {
+            startServerRecoveryFallback(message, recoveryAction, state)
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = message,
+                isPlaying = false,
+                isBuffering = false,
+            )
+        }
+    }
+
+    /**
+     * Client-side engine switch (Media3 ↔ mpv) without a server fallback.
+     * Updating the plan's engine + startPosition re-runs the screen's mount
+     * effect, which sends SET_ENGINE to the playback service and remounts.
+     * Returns false when the action isn't an engine switch so the caller
+     * proceeds to the server ladder.
+     */
+    private fun applyAlternateDirectFallback(
+        state: PlayerUiState,
+        recoveryAction: PlaybackRecoveryAction,
+    ): Boolean {
+        val action = recoveryAction as? PlaybackRecoveryAction.AlternateDirectEngine ?: return false
+        val plan = state.playbackPlan ?: return false
+        val sessionId = state.sessionId ?: return false
+        // Record the engine we're leaving (and the one we're moving to) so a later
+        // failure can't bounce back to an engine that already failed.
+        attemptedEngines.add(plan.engine)
+        attemptedEngines.add(action.engine)
+        val nextRouteFamily = when (action.engine) {
+            PlaybackEngineKind.MPV_DIRECT -> PlaybackRouteFamily.COMPATIBILITY_DIRECT
+            PlaybackEngineKind.MEDIA3_DIRECT -> PlaybackRouteFamily.PLATFORM_NATIVE
+            else -> plan.routeFamily
+        }
         viewModelScope.launch {
+            playbackSessionManager.reportRouteEvent(
+                sessionId = sessionId,
+                request = PlaybackRouteEventRequest(
+                    planId = plan.planId,
+                    fromEngine = plan.engine,
+                    toEngine = action.engine,
+                    delivery = plan.delivery,
+                    routeFamily = nextRouteFamily,
+                    fallbackReason = "alternate_direct_engine",
+                    errorClass = action.errorClass,
+                    claims = plan.claims,
+                    blockers = plan.capabilities.blockers,
+                ),
+            )
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = null,
+                playbackPlan = plan.copy(
+                    engine = action.engine,
+                    routeFamily = nextRouteFamily,
+                    timeline = plan.timeline.copy(playerStartSeconds = state.position),
+                    decisionTrace = plan.decisionTrace +
+                        "client_fallback=alternate_direct_engine:${plan.engine}->${action.engine}",
+                ),
+                startPosition = state.position,
+            )
+        }
+        return true
+    }
+
+    private fun startServerRecoveryFallback(
+        notice: String,
+        recoveryAction: PlaybackRecoveryAction,
+        state: PlayerUiState,
+    ) {
+        val sessionId = state.sessionId ?: return
+        val selectedAudioIndex = state.selectedAudioIndex
+        val selectedSubtitleIndex = state.selectedSubtitleIndex
+        val version = state.versions.getOrNull(state.selectedVersionIndex) ?: return
+        val fallbackMode = when (recoveryAction) {
+            is PlaybackRecoveryAction.ServerRemux -> PlaybackSessionManager.TranscodeMode.REMUX
+            is PlaybackRecoveryAction.AlternateDirectEngine -> PlaybackSessionManager.TranscodeMode.REMUX
+            is PlaybackRecoveryAction.ServerTranscode,
+            PlaybackRecoveryAction.None,
+            -> PlaybackSessionManager.TranscodeMode.FULL
+        }
+
+        // Single-flight: a second player/preflight error arriving before the
+        // first fallback finishes must not launch a competing transcode session
+        // (which would orphan one server session and race _uiState).
+        if (recoveryJob?.isActive == true) {
+            Log.i(TAG, "Server recovery already in flight; ignoring duplicate fallback request")
+            return
+        }
+        recoveryJob = viewModelScope.launch {
             val capabilities = capabilityDetector.detect()
             val sessionResponse = PlaybackSessionResponse(
                 sessionId = sessionId,
@@ -613,7 +768,7 @@ class PlayerViewModel(
                 session = sessionResponse,
                 seekSeconds = state.position,
                 resolution = version.resolution.orEmpty(),
-                mode = org.siloserver.silo.common.player.PlaybackSessionManager.TranscodeMode.FULL,
+                mode = fallbackMode,
                 audioTrackIndex = selectedAudioIndex,
                 subtitleTrackIndex = selectedSubtitleIndex,
                 renewSession = {
@@ -675,7 +830,15 @@ class PlayerViewModel(
             state.versions.getOrNull(state.selectedVersionIndex) != null
         ) {
             engineSwitchFallbackAttempted = true
-            onUnsupportedPlayback(Playability.StartupStalled(bufferedAheadMs = 0L, stalledForMs = 0L))
+            // Don't blindly transcode: prefer another direct engine, then fall
+            // through the plan's remux/transcode ladder. A transcode-only source
+            // can't be rescued by a remux that copies the same streams.
+            val recoveryAction = recoveryPlanner.planForEngineSwitchFailure(
+                state.playbackPlan,
+                attemptedEngines,
+            )
+            if (applyAlternateDirectFallback(state, recoveryAction)) return
+            startServerRecoveryFallback(message, recoveryAction, state)
             return
         }
         _uiState.update {
@@ -696,6 +859,12 @@ class PlayerViewModel(
         val durationSec = durationMs / 1000.0
         val bufferedSec = bufferedPositionMs / 1000.0
         val previousPosition = _uiState.value.position
+
+        // Playback is progressing — restore the transient-network retry budget so
+        // a later, unrelated blip gets a fresh retry instead of demoting at once.
+        if (positionSec > 0 && transientNetworkRetries > 0) {
+            transientNetworkRetries = 0
+        }
 
         _uiState.update { state ->
             state.copy(

@@ -560,6 +560,11 @@ fun PlayerScreen(
             val preflight = PlaybackPreflightListener(
                 detector = capabilityDetector,
                 onUnsupported = { verdict -> viewModel.onUnsupportedPlayback(verdict) },
+                // Runtime errors (decoder init, source, mid-stream IO) walk the
+                // same recovery ladder as preflight failures — previously the
+                // mobile player dropped these on the floor and the screen sat
+                // on a stale frame.
+                onError = { error -> viewModel.onPlayerError(error) },
             )
             controller.addListener(preflight)
             onDispose { controller.removeListener(preflight) }
