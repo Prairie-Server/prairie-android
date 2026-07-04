@@ -929,7 +929,7 @@ fun TvPlayerScreen(
 
     // Apply user subtitle styling whenever the PlayerView mounts or the
     // appearance flow emits a new value. Mirrors the phone PlayerScreen.
-    LaunchedEffect(playerViewRef, subtitleAppearance) {
+    LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, state.videoFillMode) {
         val pv = playerViewRef ?: return@LaunchedEffect
         subtitleManager.applyAppearance(pv, subtitleAppearance)
     }
@@ -1013,6 +1013,7 @@ fun TvPlayerScreen(
                             view.player = sessionPlayer
                             applyPlayerViewVideoFillMode(view, state.videoFillMode)
                             applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)
+                            subtitleManager.syncSubtitleVideoBounds(view)
                         },
                     )
                 }

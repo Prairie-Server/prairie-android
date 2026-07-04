@@ -743,7 +743,7 @@ fun PlayerScreen(
             // appearance flow emits a new value. The PlayerView's `subtitleView`
             // is a child added on first inflation, so the apply must happen at
             // least once after the AndroidView factory runs.
-            LaunchedEffect(playerViewRef, subtitleAppearance) {
+            LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, resizeMode) {
                 val pv = playerViewRef ?: return@LaunchedEffect
                 subtitleManager.applyAppearance(pv, subtitleAppearance)
             }
@@ -768,6 +768,7 @@ fun PlayerScreen(
                         // callbacks; re-binds automatically when the engine swaps.
                         view.player = sessionPlayer
                         view.resizeMode = resizeMode
+                        subtitleManager.syncSubtitleVideoBounds(view)
                     },
                     modifier = Modifier.fillMaxSize(),
                 )

@@ -4,6 +4,9 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -12,7 +15,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
@@ -20,6 +25,10 @@ import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
+import java.lang.ref.WeakReference
+import java.util.WeakHashMap
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Manages subtitle track configuration for the ExoPlayer instance.
@@ -29,6 +38,8 @@ import org.siloserver.silo.model.settings.SubtitlePositionPreset
  */
 @UnstableApi
 class SubtitleManager {
+
+    private val videoRectSyncs = WeakHashMap<PlayerView, SubtitleVideoRectSync>()
 
     /**
      * Builds MediaItem.SubtitleConfiguration entries for external subtitle tracks.
@@ -165,14 +176,30 @@ class SubtitleManager {
             /* fractionalRelativeToTextSize = */ false,
         )
         subtitleView.setBottomPaddingFraction(bottomPaddingFor(safe.position))
+        syncSubtitleVideoBounds(playerView)
+    }
+
+    /**
+     * Recomputes the subtitle layer's displayed-video bounds. Callers invoke
+     * this after PlayerView/player/resize-mode changes; the installed sync also
+     * reacts to later layout and video-size callbacks.
+     */
+    fun syncSubtitleVideoBounds(playerView: PlayerView) {
+        val existing = videoRectSyncs[playerView]
+        val sync = if (existing?.isDisposed == true || existing == null) {
+            SubtitleVideoRectSync(playerView).also { videoRectSyncs[playerView] = it }
+        } else {
+            existing
+        }
+        sync.update()
     }
 
     private fun buildCaptionStyle(appearance: SubtitleAppearance): CaptionStyleCompat {
         val foreground = parseHexColor(appearance.fontColor)
-        val backgroundAlpha = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.None) {
-            0
-        } else {
+        val backgroundAlpha = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.Box) {
             (appearance.backgroundOpacity.coerceIn(0, 100) * 255 / 100)
+        } else {
+            0
         }
         val background = parseHexColor(appearance.backgroundColor, backgroundAlpha)
         val edgeType = when {
@@ -289,6 +316,159 @@ class SubtitleManager {
             .build()
     }
 
+}
+
+internal data class SubtitleVideoRect(
+    val left: Int,
+    val top: Int,
+    val width: Int,
+    val height: Int,
+)
+
+internal fun displayedSubtitleVideoRect(
+    viewWidth: Int,
+    viewHeight: Int,
+    videoWidth: Int,
+    videoHeight: Int,
+    resizeMode: Int,
+): SubtitleVideoRect {
+    val full = SubtitleVideoRect(
+        left = 0,
+        top = 0,
+        width = viewWidth.coerceAtLeast(0),
+        height = viewHeight.coerceAtLeast(0),
+    )
+    if (viewWidth <= 0 || viewHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) {
+        return full
+    }
+
+    val aspect = videoWidth.toFloat() / videoHeight.toFloat()
+    val (targetWidth, targetHeight) = when (resizeMode) {
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH -> {
+            val width = viewWidth
+            width to (width / aspect).roundToInt()
+        }
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT -> {
+            val height = viewHeight
+            (height * aspect).roundToInt() to height
+        }
+        AspectRatioFrameLayout.RESIZE_MODE_FIT -> {
+            val scale = min(
+                viewWidth.toFloat() / videoWidth.toFloat(),
+                viewHeight.toFloat() / videoHeight.toFloat(),
+            )
+            (videoWidth * scale).roundToInt() to (videoHeight * scale).roundToInt()
+        }
+        // Zoom intentionally crops outside the view, and Fill intentionally
+        // distorts to the view. In both cases the visible video occupies the
+        // full PlayerView bounds, so the subtitle layer should too.
+        else -> return full
+    }
+
+    val safeWidth = targetWidth.coerceAtLeast(1).coerceAtMost(viewWidth)
+    val safeHeight = targetHeight.coerceAtLeast(1).coerceAtMost(viewHeight)
+    return SubtitleVideoRect(
+        left = ((viewWidth - safeWidth) / 2f).roundToInt(),
+        top = ((viewHeight - safeHeight) / 2f).roundToInt(),
+        width = safeWidth,
+        height = safeHeight,
+    )
+}
+
+@UnstableApi
+private class SubtitleVideoRectSync(playerView: PlayerView) :
+    View.OnLayoutChangeListener,
+    View.OnAttachStateChangeListener,
+    Player.Listener {
+
+    private val playerViewRef = WeakReference(playerView)
+    private var observedPlayer: Player? = null
+
+    var isDisposed: Boolean = false
+        private set
+
+    init {
+        playerView.addOnLayoutChangeListener(this)
+        playerView.addOnAttachStateChangeListener(this)
+    }
+
+    fun update() {
+        val playerView = playerViewRef.get() ?: return dispose(null)
+        if (playerView.width <= 0 || playerView.height <= 0) return
+        val currentPlayer = playerView.player
+        if (observedPlayer !== currentPlayer) {
+            observedPlayer?.removeListener(this)
+            observedPlayer = currentPlayer
+            currentPlayer?.addListener(this)
+        }
+        applyRect(playerView)
+    }
+
+    override fun onVideoSizeChanged(videoSize: VideoSize) {
+        update()
+    }
+
+    override fun onLayoutChange(
+        v: View,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        oldLeft: Int,
+        oldTop: Int,
+        oldRight: Int,
+        oldBottom: Int,
+    ) {
+        update()
+    }
+
+    override fun onViewAttachedToWindow(v: View) {
+        update()
+    }
+
+    override fun onViewDetachedFromWindow(v: View) {
+        dispose(v)
+    }
+
+    private fun applyRect(playerView: PlayerView) {
+        val subtitleView = playerView.subtitleView ?: return
+        val rect = displayedSubtitleVideoRect(
+            viewWidth = playerView.width,
+            viewHeight = playerView.height,
+            videoWidth = playerView.player?.videoSize?.width ?: 0,
+            videoHeight = playerView.player?.videoSize?.height ?: 0,
+            resizeMode = playerView.resizeMode,
+        )
+        val current = subtitleView.layoutParams as? FrameLayout.LayoutParams
+        val params = current ?: FrameLayout.LayoutParams(rect.width, rect.height)
+        val gravity = Gravity.TOP or Gravity.START
+        if (
+            current == null ||
+            params.width != rect.width ||
+            params.height != rect.height ||
+            params.leftMargin != rect.left ||
+            params.topMargin != rect.top ||
+            params.gravity != gravity
+        ) {
+            params.width = rect.width
+            params.height = rect.height
+            params.leftMargin = rect.left
+            params.topMargin = rect.top
+            params.gravity = gravity
+            subtitleView.layoutParams = params
+            subtitleView.requestLayout()
+        }
+    }
+
+    private fun dispose(view: View?) {
+        if (isDisposed) return
+        observedPlayer?.removeListener(this)
+        observedPlayer = null
+        val playerView = (view as? PlayerView) ?: playerViewRef.get()
+        playerView?.removeOnLayoutChangeListener(this)
+        playerView?.removeOnAttachStateChangeListener(this)
+        isDisposed = true
+    }
 }
 
 internal fun resolveSubtitleUrl(serverUrl: String, url: String): String =
