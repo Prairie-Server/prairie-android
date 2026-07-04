@@ -12,10 +12,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.siloserver.silo.model.auth.DeviceLoginDecisionResponse
 import org.siloserver.silo.model.auth.DeviceLoginLookupResponse
@@ -36,7 +38,7 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TvAuthSingleFlightTest {
-    private val dispatcher = UnconfinedTestDispatcher()
+    private val dispatcher = StandardTestDispatcher()
 
     @BeforeTest
     fun setUp() {
@@ -58,13 +60,15 @@ class TvAuthSingleFlightTest {
             tokenManager = tokenManager,
             deviceLogin = DeviceLoginRepository(NeverCompletingDeviceLoginApi),
         )
+        advanceUntilIdle()
 
         viewModel.onUsernameChanged("jim")
         viewModel.onPasswordChanged("Amsterdam123!")
         viewModel.onLoginClick()
         viewModel.onLoginClick()
+        advanceUntilIdle()
 
-        withTimeout(1_000) { recorder.firstRequestStarted.await() }
+        recorder.awaitFirstRequestStarted()
         assertEquals(1, recorder.matchingRequestCount)
         release.complete(Unit)
     }
@@ -82,8 +86,9 @@ class TvAuthSingleFlightTest {
         viewModel.onPasswordChanged("Amsterdam123!")
         viewModel.onCreateAccountClick()
         viewModel.onCreateAccountClick()
+        advanceUntilIdle()
 
-        withTimeout(1_000) { recorder.firstRequestStarted.await() }
+        recorder.awaitFirstRequestStarted()
         assertEquals(1, recorder.matchingRequestCount)
         release.complete(Unit)
     }
@@ -102,8 +107,9 @@ class TvAuthSingleFlightTest {
         viewModel.onInviteCodeChanged("invite")
         viewModel.onSignupClick()
         viewModel.onSignupClick()
+        advanceUntilIdle()
 
-        withTimeout(1_000) { recorder.firstRequestStarted.await() }
+        recorder.awaitFirstRequestStarted()
         assertEquals(1, recorder.matchingRequestCount)
         release.complete(Unit)
     }
@@ -139,6 +145,12 @@ private class AuthRequestRecorder(
         }
         install(ContentNegotiation) { json(SiloJson) }
         install(SiloAuthPlugin) { this.tokenManager = tokenManager }
+    }
+}
+
+private suspend fun AuthRequestRecorder.awaitFirstRequestStarted() {
+    withContext(Dispatchers.Default) {
+        withTimeout(1_000) { firstRequestStarted.await() }
     }
 }
 
