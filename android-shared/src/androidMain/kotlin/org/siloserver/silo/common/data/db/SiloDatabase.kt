@@ -10,6 +10,7 @@ import org.siloserver.silo.common.data.db.dao.ContentItemStateDao
 import org.siloserver.silo.common.data.db.dao.DirtyOperationDao
 import org.siloserver.silo.common.data.db.dao.DownloadDao
 import org.siloserver.silo.common.data.db.dao.DownloadDeletionDao
+import org.siloserver.silo.common.data.db.dao.DownloadSubscriptionDao
 import org.siloserver.silo.common.data.db.dao.HomeCacheDao
 import org.siloserver.silo.common.data.db.dao.LegacyImportDao
 import org.siloserver.silo.common.data.db.dao.UserItemStateDao
@@ -18,6 +19,7 @@ import org.siloserver.silo.common.data.db.entity.ContentItemStateEntity
 import org.siloserver.silo.common.data.db.entity.DirtyOperationEntity
 import org.siloserver.silo.common.data.db.entity.DownloadEntity
 import org.siloserver.silo.common.data.db.entity.DownloadDeletionEntity
+import org.siloserver.silo.common.data.db.entity.DownloadSubscriptionEntity
 import org.siloserver.silo.common.data.db.entity.HomeCacheEntity
 import org.siloserver.silo.common.data.db.entity.LegacyImportEntity
 import org.siloserver.silo.common.data.db.entity.UserItemStateEntity
@@ -44,8 +46,9 @@ import org.siloserver.silo.common.data.db.entity.UserItemStateEntity
         HomeCacheEntity::class,
         CatalogCacheEntity::class,
         DownloadDeletionEntity::class,
+        DownloadSubscriptionEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
@@ -53,6 +56,7 @@ import org.siloserver.silo.common.data.db.entity.UserItemStateEntity
         AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6),
+        AutoMigration(from = 6, to = 7),
     ],
 )
 abstract class SiloDatabase : RoomDatabase() {
@@ -64,6 +68,7 @@ abstract class SiloDatabase : RoomDatabase() {
     abstract fun legacyImportDao(): LegacyImportDao
     abstract fun homeCacheDao(): HomeCacheDao
     abstract fun catalogCacheDao(): CatalogCacheDao
+    abstract fun downloadSubscriptionDao(): DownloadSubscriptionDao
 
     companion object {
         const val NAME = "silo.db"
