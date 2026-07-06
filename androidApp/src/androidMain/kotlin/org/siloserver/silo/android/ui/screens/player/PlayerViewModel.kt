@@ -586,11 +586,28 @@ class PlayerViewModel(
         } else {
             null
         }
+        val autoSubtitleSelection = if (initialSubtitleTrackIndex == null && persistedSubtitleIndex == null) {
+            resolveMobileAutoSubtitleSelection(
+                audioTracks = version?.audioTracks ?: emptyList(),
+                selectedAudioIndex = playbackState.audioTrackIndex,
+                subtitles = playbackState.subtitleUrls,
+                preferredLanguage = playbackState.preferredTextLanguage,
+                subtitleMode = playbackState.preferredSubtitleMode,
+                showForcedSubtitles = playbackState.showForcedSubtitles,
+            )
+        } else {
+            MobileSubtitleAutoSelection.NoChange
+        }
         val resolvedSubtitleIndex = initialSubtitleTrackIndex
             ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
             ?: persistedSubtitleIndex
                 ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
-            ?: -1
+            ?: when (autoSubtitleSelection) {
+                is MobileSubtitleAutoSelection.Select ->
+                    autoSubtitleSelection.ordinal.takeIf { it in playbackState.subtitleUrls.indices } ?: -1
+                MobileSubtitleAutoSelection.Disable -> -1
+                MobileSubtitleAutoSelection.NoChange -> -1
+            }
         persistNextSubtitleSelection = initialSubtitleTrackIndex != null || persistedSubtitleIndex != null
 
         _uiState.update {
