@@ -100,13 +100,10 @@ private fun EpisodeRow(
     val isPlayed = userData?.played == true
     var isStillRevealed by rememberSaveable(episode.contentId) { mutableStateOf(false) }
     val shouldHideStill = blurUnwatchedEpisodeStills && !isPlayed && !isStillRevealed
-    val pos = userData?.positionSeconds
-    val dur = userData?.durationSeconds
-    val progress = if (pos != null && dur != null && dur > 0 && !isPlayed) {
-        (pos / dur).toFloat().coerceIn(0f, 1f)
-    } else {
-        null
-    }
+    val progress = episodeProgressFraction(
+        positionSeconds = userData?.positionSeconds,
+        durationSeconds = userData?.durationSeconds,
+    )
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -295,6 +292,13 @@ private fun EpisodeRow(
             }
         }
     }
+}
+
+internal fun episodeProgressFraction(positionSeconds: Double?, durationSeconds: Double?): Float? {
+    val position = positionSeconds?.takeIf { it.isFinite() && it > 0 } ?: return null
+    val duration = durationSeconds?.takeIf { it.isFinite() && it > 0 } ?: return null
+    if (position >= duration) return null
+    return (position / duration).toFloat().coerceIn(0f, 1f)
 }
 
 private fun episodeNumberText(episode: EpisodeListItem): String {
