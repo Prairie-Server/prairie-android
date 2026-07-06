@@ -270,6 +270,12 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(videoBackend) {
+        videoBackend?.let { backend ->
+            viewModel.onBackendCapabilities(backend.capabilities)
+        }
+    }
+
     DisposableEffect(context) {
         val sessionToken = SessionToken(
             context,

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.android.BuildConfig
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
+import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.Playability
 import org.siloserver.silo.common.player.PlaybackRecoveryAction
@@ -13,10 +14,13 @@ import org.siloserver.silo.common.player.PlaybackRecoveryPlanner
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.PlayerNotice
+import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SessionState
 import org.siloserver.silo.common.player.SleepTimerController
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.common.player.StartParams
+import org.siloserver.silo.common.player.backend.VideoBackendCapabilities
+import org.siloserver.silo.common.player.reducePlayerStats
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
@@ -103,6 +107,7 @@ class PlayerViewModel(
     private val videoPlaybackCoordinator: VideoPlaybackSessionCoordinator,
     private val catalogRepository: CatalogRepository,
     private val playbackSessionManager: PlaybackSessionManager,
+    private val playbackAnalytics: PlaybackAnalyticsListener,
     private val profileRepository: ProfileRepository,
     private val personalDataRepository: PersonalDataRepository,
     private val capabilityDetector: PlaybackCapabilityDetector,
@@ -213,6 +218,10 @@ class PlayerViewModel(
          * current position.
          */
         val subtitleRefreshNonce: Int = 0,
+        // Live player statistics for phone diagnostics. Populates field-by-field
+        // as PlaybackAnalyticsListener emits decoder, format, bandwidth, and
+        // dropped-frame events.
+        val stats: PlayerStatsSnapshot = PlayerStatsSnapshot(),
     ) {
         /**
          * Media file id of the active version — the id the subtitle
@@ -414,6 +423,26 @@ class PlayerViewModel(
         sleepTimer.configure {
             _uiState.update { it.copy(isPaused = true) }
         }
+
+        viewModelScope.launch {
+            playbackAnalytics.events.collect { event ->
+                _uiState.update { it.copy(stats = reducePlayerStats(it.stats, event)) }
+            }
+        }
+    }
+
+    fun onBackendCapabilities(capabilities: VideoBackendCapabilities) {
+        _uiState.update { state ->
+            state.copy(
+                stats = state.stats.copy(
+                    backendKind = capabilities.backendKind.name,
+                    backendDisplayName = capabilities.displayName,
+                    backendRoute = capabilities.route.displayName,
+                    subtitleRendering = capabilities.subtitleRendering.name,
+                    hardContainers = if (capabilities.supportsHardContainers) "Yes" else "No",
+                ),
+            )
+        }
     }
 
     /**
@@ -457,6 +486,7 @@ class PlayerViewModel(
                 showUpNext = false,
                 upNextVideoEnded = false,
                 upNextCountdownSeconds = null,
+                stats = PlayerStatsSnapshot(),
             )
         }
 

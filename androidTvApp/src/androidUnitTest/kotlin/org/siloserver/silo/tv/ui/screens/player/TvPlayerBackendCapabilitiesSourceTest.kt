@@ -13,15 +13,19 @@ class TvPlayerBackendCapabilitiesSourceTest {
     private val screenSource = java.io.File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt",
     ).readText()
+    private val sharedStatsSource = java.io.File(
+        "../android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/PlayerStatsSnapshot.kt",
+    ).readText()
 
     @Test
     fun backendCapabilitiesReachStatsHud() {
         assertTrue(viewModelSource.contains("import org.siloserver.silo.common.player.backend.VideoBackendCapabilities"))
-        assertTrue(viewModelSource.contains("val backendKind: String? = null"))
-        assertTrue(viewModelSource.contains("val backendDisplayName: String? = null"))
-        assertTrue(viewModelSource.contains("val backendRoute: String? = null"))
-        assertTrue(viewModelSource.contains("val subtitleRendering: String? = null"))
-        assertTrue(viewModelSource.contains("val hardContainers: String? = null"))
+        assertTrue(viewModelSource.contains("import org.siloserver.silo.common.player.PlayerStatsSnapshot"))
+        assertTrue(sharedStatsSource.contains("val backendKind: String? = null"))
+        assertTrue(sharedStatsSource.contains("val backendDisplayName: String? = null"))
+        assertTrue(sharedStatsSource.contains("val backendRoute: String? = null"))
+        assertTrue(sharedStatsSource.contains("val subtitleRendering: String? = null"))
+        assertTrue(sharedStatsSource.contains("val hardContainers: String? = null"))
         assertTrue(viewModelSource.contains("fun onBackendCapabilities(capabilities: VideoBackendCapabilities)"))
         assertTrue(hudSource.contains("backendDisplayName?.let { add(\"Backend\" to it) }"))
         assertTrue(hudSource.contains("backendRoute?.let { add(\"Route\" to it) }"))

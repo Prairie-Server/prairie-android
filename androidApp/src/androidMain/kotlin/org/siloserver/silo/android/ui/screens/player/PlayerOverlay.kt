@@ -80,6 +80,7 @@ fun PlayerOverlay(
     var subtitleStyleVisible by remember { mutableStateOf(false) }
     var sleepTimerVisible by remember { mutableStateOf(false) }
     var chaptersSheetVisible by remember { mutableStateOf(false) }
+    var statsSheetVisible by remember { mutableStateOf(false) }
     var subtitleSearchVisible by remember { mutableStateOf(false) }
     var aiTranslateVisible by remember { mutableStateOf(false) }
     // Host close-room confirm dialog (Watch Together): the host backing out of
@@ -502,11 +503,22 @@ fun PlayerOverlay(
             showQualitySelector = true
         },
         hasMultipleVersions = state.versions.size > 1,
+        stats = state.stats,
+        onOpenPlaybackStats = {
+            settingsSheetVisible = false
+            statsSheetVisible = true
+        },
         audioDelayMs = viewModel.audioDelayMs.collectAsState().value,
         onSetAudioDelay = viewModel::onSetAudioDelay,
         subtitleDelayMs = viewModel.subtitleDelayMs.collectAsState().value,
         onSetSubtitleDelay = viewModel::onSetSubtitleDelay,
         sleepTimerState = sleepTimerState,
+    )
+
+    PlaybackStatsSheet(
+        isVisible = statsSheetVisible,
+        stats = state.stats,
+        onDismiss = { statsSheetVisible = false },
     )
 
     // Chapters picker — opened from the "Chapters" row in PlayerSettingsSheet.

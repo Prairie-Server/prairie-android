@@ -222,6 +222,7 @@ val androidModule = module {
             videoPlaybackCoordinator = get(),
             catalogRepository = get(),
             playbackSessionManager = get(),
+            playbackAnalytics = get(),
             profileRepository = get(),
             personalDataRepository = get(),
             capabilityDetector = get(),
