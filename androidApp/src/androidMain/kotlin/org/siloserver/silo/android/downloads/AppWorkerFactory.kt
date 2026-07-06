@@ -8,7 +8,10 @@ import androidx.work.WorkerParameters
 import org.siloserver.silo.common.data.sync.SyncEngine
 import org.siloserver.silo.common.data.sync.SyncWorker
 import org.siloserver.silo.common.downloads.DownloadStorage
+import org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorFactory
+import org.siloserver.silo.common.downloads.DownloadSubscriptionWorker
 import org.siloserver.silo.common.downloads.DownloadWorker
+import org.siloserver.silo.repository.DownloadSubscriptionRepository
 import org.siloserver.silo.repository.DownloadsRepository
 import io.ktor.client.HttpClient
 import org.koin.core.context.GlobalContext
@@ -47,6 +50,15 @@ class AppWorkerFactory : WorkerFactory() {
                     storage = koin.get<DownloadStorage>(),
                     metadataStore = koin.get<org.siloserver.silo.common.downloads.DownloadMetadataStore>(),
                     httpClient = koin.get<HttpClient>(),
+                )
+            }
+            DownloadSubscriptionWorker::class.java.name -> {
+                Log.i(TAG, "Building DownloadSubscriptionWorker via Koin")
+                DownloadSubscriptionWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    repository = koin.get<DownloadSubscriptionRepository>(),
+                    evaluatorFactory = koin.get<DownloadSubscriptionEvaluatorFactory>(),
                 )
             }
             SyncWorker::class.java.name -> {

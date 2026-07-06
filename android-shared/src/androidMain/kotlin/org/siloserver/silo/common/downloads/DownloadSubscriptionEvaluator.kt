@@ -9,6 +9,11 @@ data class DownloadSubscriptionCandidate(
     val mediaFileId: Int,
     val title: String,
     val completed: Boolean,
+    val seriesContentId: String? = null,
+    val seriesTitle: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val posterUrl: String? = null,
 )
 
 interface DownloadSubscriptionCandidateProvider {

@@ -3,6 +3,8 @@
 package org.siloserver.silo.android.di
 
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
+import org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorFactory
+import org.siloserver.silo.common.downloads.DownloadSubscriptionWorker
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
 import org.siloserver.silo.common.downloads.DownloadStorage
 import org.siloserver.silo.common.downloads.DownloadWorker
@@ -128,6 +130,9 @@ val androidModule = module {
     single<org.siloserver.silo.repository.port.DownloadDeletionPort> {
         org.siloserver.silo.common.data.repository.RoomDownloadDeletionStore(db = get())
     }
+    single<org.siloserver.silo.repository.DownloadSubscriptionRepository> {
+        org.siloserver.silo.common.data.repository.RoomDownloadSubscriptionRepository(db = get())
+    }
     single {
         val tokenManager: TokenManager = get()
         org.siloserver.silo.common.data.sync.SyncEngine(
@@ -193,6 +198,7 @@ val androidModule = module {
     single { org.siloserver.silo.common.downloads.LegacyDownloadImporter(androidContext().filesDir, get()) }
     single { OfflineMediaResolver(get(), get(), get()) }
     single { DownloadEnqueuer(androidContext(), get(), get(), get(), get(), get(), get(), get()) }
+    single { DownloadSubscriptionEvaluatorFactory(get(), get(), get()) }
     // CoroutineWorker constructed by Koin's WorkerFactory — see
     // SiloApplication.onCreate `workManagerFactory()` call.
     worker {
@@ -203,6 +209,14 @@ val androidModule = module {
             storage = get(),
             metadataStore = get(),
             httpClient = get(),
+        )
+    }
+    worker {
+        DownloadSubscriptionWorker(
+            appContext = androidContext(),
+            params = get(),
+            repository = get(),
+            evaluatorFactory = get(),
         )
     }
     // Kept for consistency, but DEAD AT RUNTIME: Koin's WorkManager factory
@@ -296,7 +310,7 @@ val androidModule = module {
     viewModel { AdminSessionsViewModel(get()) }
     viewModel { AdminLogsViewModel(get()) }
     viewModel { AdminScansViewModel(get(), get()) }
-    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { ServerSetupViewModel(get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }
