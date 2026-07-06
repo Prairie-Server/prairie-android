@@ -86,6 +86,7 @@ import org.siloserver.silo.android.ui.components.MediaRowsSkeleton
 import org.siloserver.silo.android.ui.components.PosterGridSkeleton
 import org.siloserver.silo.android.ui.components.rememberShimmerProgress
 import org.siloserver.silo.android.ui.screens.browse.CatalogGrid
+import org.siloserver.silo.android.ui.screens.browse.normalizeCatalogNamePrefix
 import org.siloserver.silo.android.ui.screens.home.FeaturedCarousel
 import org.siloserver.silo.android.ui.screens.home.HomeSectionRow
 import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
@@ -140,6 +141,7 @@ data class LibrariesUiState(
     val catalogHasMore: Boolean = false,
     val browseGenres: List<String> = emptyList(),
     val selectedBrowseGenre: String? = null,
+    val selectedNamePrefix: String? = null,
     val browseSort: LibraryBrowseSort = LibraryBrowseSort.RecentlyAdded,
     val catalogError: String? = null,
     val isLoadingCollections: Boolean = false,
@@ -239,6 +241,7 @@ class LibrariesViewModel(
                 catalogHasMore = false,
                 browseGenres = emptyList(),
                 selectedBrowseGenre = null,
+                selectedNamePrefix = null,
                 catalogError = null,
                 collections = emptyList(),
                 collectionsError = null,
@@ -269,6 +272,20 @@ class LibrariesViewModel(
         _uiState.update {
             it.copy(
                 browseSort = sort,
+                catalogItems = emptyList(),
+                catalogTotal = 0,
+                catalogHasMore = false,
+            )
+        }
+        _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
+    }
+
+    fun selectNamePrefix(prefix: String?) {
+        val normalizedPrefix = normalizeCatalogNamePrefix(prefix)
+        if (_uiState.value.selectedNamePrefix == normalizedPrefix) return
+        _uiState.update {
+            it.copy(
+                selectedNamePrefix = normalizedPrefix,
                 catalogItems = emptyList(),
                 catalogTotal = 0,
                 catalogHasMore = false,
@@ -388,6 +405,7 @@ class LibrariesViewModel(
                     order = state.browseSort.sortOrder,
                     offset = offset,
                     limit = pageSize,
+                    namePrefix = state.selectedNamePrefix,
                 )
             ) {
                 is ApiResult.Success -> {
@@ -617,6 +635,7 @@ fun LibrariesScreen(
                         onLoadMore = viewModel::loadMoreCatalog,
                         onGenreChanged = viewModel::selectBrowseGenre,
                         onSortChanged = viewModel::selectBrowseSort,
+                        onNamePrefixChanged = viewModel::selectNamePrefix,
                     )
                     LibrariesSubtab.Collections -> CollectionsTabContent(
                         state = state,
@@ -752,6 +771,7 @@ private fun BrowseTabContent(
     onLoadMore: () -> Unit,
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
+    onNamePrefixChanged: (String?) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -836,6 +856,8 @@ private fun BrowseTabContent(
                     hasMore = state.catalogHasMore,
                     onItemClick = onItemClick,
                     onLoadMore = onLoadMore,
+                    selectedNamePrefix = state.selectedNamePrefix,
+                    onNamePrefixSelected = onNamePrefixChanged,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

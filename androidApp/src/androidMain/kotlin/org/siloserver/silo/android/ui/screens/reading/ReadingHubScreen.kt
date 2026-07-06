@@ -115,6 +115,7 @@ fun ReadingHubScreen(
             onLoadMore = viewModel::loadMoreCatalog,
             onGenreChanged = viewModel::selectBrowseGenre,
             onSortChanged = viewModel::selectBrowseSort,
+            onNamePrefixChanged = viewModel::selectNamePrefix,
         )
     }
 }
@@ -279,6 +280,7 @@ private fun ReadingHubContent(
     onLoadMore: () -> Unit,
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
+    onNamePrefixChanged: (String?) -> Unit,
 ) {
     when {
         state.isLoadingLibraries && state.libraries.isEmpty() -> {
@@ -334,6 +336,7 @@ private fun ReadingHubContent(
                         onLoadMore = onLoadMore,
                         onGenreChanged = onGenreChanged,
                         onSortChanged = onSortChanged,
+                        onNamePrefixChanged = onNamePrefixChanged,
                     )
                     LibrariesSubtab.Collections -> ReadingCollectionsTab(
                         state = state,
@@ -419,6 +422,7 @@ private fun ReadingBrowseTab(
     onLoadMore: () -> Unit,
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
+    onNamePrefixChanged: (String?) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (state.browseGenres.isNotEmpty()) {
@@ -499,6 +503,8 @@ private fun ReadingBrowseTab(
                     hasMore = state.catalogHasMore,
                     onItemClick = onItemClick,
                     onLoadMore = onLoadMore,
+                    selectedNamePrefix = state.selectedNamePrefix,
+                    onNamePrefixSelected = onNamePrefixChanged,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

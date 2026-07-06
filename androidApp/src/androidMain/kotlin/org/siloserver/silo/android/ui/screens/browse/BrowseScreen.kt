@@ -213,6 +213,8 @@ fun BrowseScreen(
                         hasMore = state.hasMore,
                         onItemClick = onItemClick,
                         onLoadMore = { viewModel.loadMore() },
+                        selectedNamePrefix = state.selectedNamePrefix,
+                        onNamePrefixSelected = viewModel::selectNamePrefix,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

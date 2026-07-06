@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.android.ui.screens.libraries.LibrariesSubtab
 import org.siloserver.silo.android.ui.screens.libraries.LibraryBrowseSort
+import org.siloserver.silo.android.ui.screens.browse.normalizeCatalogNamePrefix
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.navigation.ReadingFormatFilter
 import org.siloserver.silo.model.navigation.availableReadingFormatFilters
@@ -41,6 +42,7 @@ data class ReadingHubUiState(
     val catalogHasMore: Boolean = false,
     val browseGenres: List<String> = emptyList(),
     val selectedBrowseGenre: String? = null,
+    val selectedNamePrefix: String? = null,
     val browseSort: LibraryBrowseSort = LibraryBrowseSort.RecentlyAdded,
     val catalogError: String? = null,
     val isLoadingCollections: Boolean = false,
@@ -205,6 +207,20 @@ class ReadingHubViewModel(
         _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
     }
 
+    fun selectNamePrefix(prefix: String?) {
+        val normalizedPrefix = normalizeCatalogNamePrefix(prefix)
+        if (_uiState.value.selectedNamePrefix == normalizedPrefix) return
+        _uiState.update {
+            it.copy(
+                selectedNamePrefix = normalizedPrefix,
+                catalogItems = emptyList(),
+                catalogTotal = 0,
+                catalogHasMore = false,
+            )
+        }
+        _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
+    }
+
     fun loadMoreCatalog() {
         val state = _uiState.value
         val libraryId = state.selectedLibraryId ?: return
@@ -293,6 +309,7 @@ class ReadingHubViewModel(
             val offset = if (reset) 0 else state.catalogItems.size
             val requestedFormat = state.selectedFormat
             val requestedGenre = state.selectedBrowseGenre
+            val requestedNamePrefix = state.selectedNamePrefix
             val requestedSort = state.browseSort
 
             if (reset && state.browseGenres.isEmpty()) {
@@ -335,10 +352,11 @@ class ReadingHubViewModel(
                     order = requestedSort.sortOrder,
                     offset = offset,
                     limit = pageSize,
+                    namePrefix = requestedNamePrefix,
                 )
             ) {
                 is ApiResult.Success -> {
-                    if (!isCurrentCatalogRequest(libraryId, requestedFormat, requestedGenre, requestedSort)) return@launch
+                    if (!isCurrentCatalogRequest(libraryId, requestedFormat, requestedGenre, requestedNamePrefix, requestedSort)) return@launch
                     _uiState.update {
                         it.copy(
                             isLoadingCatalog = false,
@@ -351,7 +369,7 @@ class ReadingHubViewModel(
                     }
                 }
                 is ApiResult.Error -> {
-                    if (!isCurrentCatalogRequest(libraryId, requestedFormat, requestedGenre, requestedSort)) return@launch
+                    if (!isCurrentCatalogRequest(libraryId, requestedFormat, requestedGenre, requestedNamePrefix, requestedSort)) return@launch
                     _uiState.update {
                         it.copy(
                             isLoadingCatalog = false,
@@ -361,7 +379,7 @@ class ReadingHubViewModel(
                     }
                 }
                 is ApiResult.NetworkError -> {
-                    if (!isCurrentCatalogRequest(libraryId, requestedFormat, requestedGenre, requestedSort)) return@launch
+                    if (!isCurrentCatalogRequest(libraryId, requestedFormat, requestedGenre, requestedNamePrefix, requestedSort)) return@launch
                     _uiState.update {
                         it.copy(
                             isLoadingCatalog = false,
@@ -431,12 +449,14 @@ class ReadingHubViewModel(
         libraryId: Int,
         format: ReadingFormatFilter,
         genre: String?,
+        namePrefix: String?,
         sort: LibraryBrowseSort,
     ): Boolean {
         val state = _uiState.value
         return state.selectedLibraryId == libraryId &&
             state.selectedFormat == format &&
             state.selectedBrowseGenre == genre &&
+            state.selectedNamePrefix == namePrefix &&
             state.browseSort == sort
     }
 }
@@ -460,6 +480,7 @@ private fun ReadingHubUiState.clearingLibraryContent(): ReadingHubUiState = copy
     isLoadingMoreCatalog = false,
     browseGenres = emptyList(),
     selectedBrowseGenre = null,
+    selectedNamePrefix = null,
     collections = emptyList(),
     collectionsError = null,
     isLoadingCollections = false,
