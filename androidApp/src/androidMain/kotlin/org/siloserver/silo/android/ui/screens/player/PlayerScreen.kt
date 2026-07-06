@@ -600,9 +600,9 @@ fun PlayerScreen(
                     viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
                     if (playbackState == Player.STATE_ENDED) {
                         viewModel.onPlayingChanged(false)
-                        // F2 fallback: auto-advance / prompt if no credits marker
-                        // fired the trigger first.
-                        viewModel.onApproachingEnd()
+                        // F2 fallback: surface (or upgrade) the Up Next card if
+                        // no credits/prompt-seconds crossing fired first.
+                        viewModel.onApproachingEnd(videoEnded = true)
                     }
                 }
 
@@ -871,7 +871,6 @@ fun PlayerScreen(
                         }
                     },
                     onToggleControls = { viewModel.onToggleControls() },
-                    onNextEpisode = { viewModel.onNextEpisode() },
                     onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
                     onSelectAudio = { viewModel.onSelectAudio(it) },
                     onSelectVersion = { viewModel.onSelectVersion(it) },

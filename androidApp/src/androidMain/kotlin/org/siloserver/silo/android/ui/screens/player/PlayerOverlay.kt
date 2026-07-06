@@ -8,10 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,8 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -67,7 +62,6 @@ fun PlayerOverlay(
     onPlayPause: () -> Unit,
     onSeek: (Double) -> Unit,
     onToggleControls: () -> Unit,
-    onNextEpisode: () -> Unit,
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectVersion: (Int) -> Unit,
@@ -179,16 +173,6 @@ fun PlayerOverlay(
             PlayerNoticeOverlay(notice = notice)
         }
 
-        // F2: pass-out "Still watching?" prompt — shown instead of auto-advancing
-        // once the consecutive-auto-advance streak hits the threshold.
-        if (state.stillWatchingPrompt) {
-            StillWatchingPrompt(
-                nextEpisodeLabel = state.nextEpisodeLabel,
-                onContinue = viewModel::onStillWatchingContinue,
-                onStop = viewModel::onStillWatchingStop,
-            )
-        }
-
         // Remote-control "display_message" toast (top-center), shown for a few
         // seconds regardless of controls visibility. zIndex above the controls
         // layer + WT badge so it's never obscured.
@@ -298,39 +282,53 @@ fun PlayerOverlay(
             )
         }
 
-        // Intro auto-skip banner (Hidden / ShowingButton / CountingDown)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 120.dp, end = 24.dp)
-                .zIndex(2f),
-            contentAlignment = Alignment.BottomEnd,
-        ) {
-            IntroAutoSkipBanner(
-                state = introSkipState,
-                onSkipNow = viewModel::onSkipIntroNow,
-                onCancelCountdown = viewModel::onCancelIntroAutoSkip,
-            )
+        val bottomEndSlotModifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(bottom = 120.dp, end = 24.dp)
+            .zIndex(2f)
+
+        // Intro auto-skip banner (Hidden / ShowingButton / CountingDown).
+        // Shares the bottom-end slot with the Up Next card; intro and credits
+        // never overlap in practice, but the card wins the slot if both could show.
+        if (!state.showUpNext) {
+            Box(
+                modifier = bottomEndSlotModifier,
+                contentAlignment = Alignment.BottomEnd,
+            ) {
+                IntroAutoSkipBanner(
+                    state = introSkipState,
+                    onSkipNow = viewModel::onSkipIntroNow,
+                    onCancelCountdown = viewModel::onCancelIntroAutoSkip,
+                )
+            }
         }
 
-        // Next Episode overlay
+        var retainedUpNextInfo by remember { mutableStateOf<PlayerViewModel.NextEpisodeInfo?>(null) }
+        LaunchedEffect(state.showUpNext, state.nextEpisode) {
+            state.nextEpisode?.let { retainedUpNextInfo = it }
+            if (!state.showUpNext) {
+                kotlinx.coroutines.delay(220)
+                retainedUpNextInfo = null
+            }
+        }
+        val showUpNextCard = state.showUpNext && retainedUpNextInfo != null
+
+        // F2: Up Next card — next-episode thumbnail/title/runtime with an
+        // auto-play countdown (null countdown = pass-out gated / auto-play off).
         AnimatedVisibility(
-            visible = state.showNextEpisode,
+            visible = showUpNextCard,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 120.dp, end = 24.dp)
-                .zIndex(2f),
+            modifier = bottomEndSlotModifier,
         ) {
-            Button(
-                onClick = onNextEpisode,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                ),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text("Next Episode")
+            retainedUpNextInfo?.let { next ->
+                UpNextCard(
+                    info = next,
+                    videoEnded = state.upNextVideoEnded,
+                    countdownSeconds = state.upNextCountdownSeconds,
+                    onPlayNow = viewModel::playUpNextNow,
+                    onDismiss = viewModel::dismissUpNext,
+                )
             }
         }
 
@@ -540,46 +538,5 @@ private fun SleepTimerChip(remainingSeconds: Int) {
             color = Color.White,
             fontSize = 13.sp,
         )
-    }
-}
-
-@Composable
-private fun StillWatchingPrompt(
-    nextEpisodeLabel: String?,
-    onContinue: () -> Unit,
-    onStop: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
-            .zIndex(11f),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("Still watching?", style = MaterialTheme.typography.titleLarge)
-                nextEpisodeLabel?.let { label ->
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "Up next: $label",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = onStop) { Text("Stop") }
-                    Button(onClick = onContinue) { Text("Continue") }
-                }
-            }
-        }
     }
 }
