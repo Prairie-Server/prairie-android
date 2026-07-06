@@ -67,6 +67,14 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".push.SiloFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Disable WorkManager's androidx.startup auto-init so our explicit
              `WorkManager.initialize(this, workManagerConfiguration)` call in
              SiloApplication.onCreate wins with AppWorkerFactory wired

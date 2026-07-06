@@ -10,6 +10,14 @@ import org.siloserver.silo.common.downloads.DownloadStorage
 import org.siloserver.silo.common.downloads.DownloadWorker
 import org.siloserver.silo.common.cast.SiloCastNsdBrowser
 import org.siloserver.silo.common.pairing.PairingDeviceId
+import org.siloserver.silo.common.pairing.CompanionDeviceLoginApprover
+import org.siloserver.silo.common.pairing.CompanionPairingCoordinator
+import org.siloserver.silo.common.pairing.CompanionPairingNsdBrowser
+import org.siloserver.silo.common.pairing.CompanionPairingServerStore
+import org.siloserver.silo.common.pairing.CompanionPairingTransportFactory
+import org.siloserver.silo.common.pairing.RegistryCompanionPairingServerStore
+import org.siloserver.silo.common.pairing.RepositoryCompanionDeviceLoginApprover
+import org.siloserver.silo.common.pairing.TlsPskPairingClientTransport
 import org.siloserver.silo.common.player.AudioCapabilityManager
 import org.siloserver.silo.common.player.AudioTrackManager
 import org.siloserver.silo.common.player.SiloPlayerFactory
@@ -29,10 +37,9 @@ import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.createSecureSharedPrefs
 import org.siloserver.silo.android.push.AndroidPushRegistrar
 import org.siloserver.silo.android.push.AndroidPushTokenProvider
-import org.siloserver.silo.android.push.DisabledAndroidPushTokenProvider
+import org.siloserver.silo.android.push.FirebaseAndroidPushTokenProvider
 import org.siloserver.silo.android.push.PushMessageHandler
 import org.siloserver.silo.android.push.PushNotificationPresenter
-import org.siloserver.silo.android.push.SiloFirebaseMessagingService
 import org.siloserver.silo.android.ui.screens.admin.AdminEntryViewModel
 import org.siloserver.silo.android.ui.screens.admin.AdminLogsViewModel
 import org.siloserver.silo.android.ui.screens.admin.AdminScansViewModel
@@ -158,6 +165,15 @@ val androidModule = module {
         AndroidDeviceMetadataProvider(androidContext(), platform = "android")
     }
     single { SiloCastNsdBrowser(androidContext()) }
+    single { CompanionPairingNsdBrowser(androidContext()) }
+    single<CompanionPairingServerStore> { RegistryCompanionPairingServerStore(get()) }
+    single<CompanionDeviceLoginApprover> { RepositoryCompanionDeviceLoginApprover(get()) }
+    single<CompanionPairingTransportFactory> {
+        CompanionPairingTransportFactory { target ->
+            TlsPskPairingClientTransport.connect(target.host, target.port)
+        }
+    }
+    single { CompanionPairingCoordinator(get(), get(), get()) }
     single {
         SiloCastController(
             browser = get(),
@@ -167,7 +183,7 @@ val androidModule = module {
             deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
         )
     }
-    single<AndroidPushTokenProvider> { DisabledAndroidPushTokenProvider() }
+    single<AndroidPushTokenProvider> { FirebaseAndroidPushTokenProvider(androidContext()) }
     single {
         AndroidPushRegistrar(
             tokenProvider = get(),
@@ -182,7 +198,6 @@ val androidModule = module {
         )
     }
     single { PushMessageHandler(presenter = get()) }
-    single { SiloFirebaseMessagingService(handler = get()) }
 
     // Player infrastructure
     single { SubtitleManager() }
@@ -346,6 +361,7 @@ val androidModule = module {
     viewModel { AdminLogsViewModel(get()) }
     viewModel { AdminScansViewModel(get(), get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { org.siloserver.silo.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
     viewModel { ServerSetupViewModel(get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }

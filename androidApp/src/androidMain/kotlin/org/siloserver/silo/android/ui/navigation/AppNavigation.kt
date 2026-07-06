@@ -44,6 +44,7 @@ import org.siloserver.silo.android.ui.screens.watchtogether.WatchTogetherEntrySh
 import org.siloserver.silo.android.ui.screens.watchtogether.WatchTogetherLobbyScreen
 import org.siloserver.silo.android.ui.screens.people.PersonDetailScreen
 import org.siloserver.silo.android.ui.screens.people.PersonDetailViewModel
+import org.siloserver.silo.android.ui.screens.notifications.InboxScreen
 import org.siloserver.silo.android.ui.screens.personal.FavoritesScreen
 import org.siloserver.silo.android.ui.screens.personal.HistoryScreen
 import org.siloserver.silo.android.ui.screens.personal.PersonalListsScreen
@@ -307,14 +308,22 @@ fun AppNavigation(
         composable(Route.Downloads.route) {
             MainScreen(navController, Tab.Downloads)
         }
+        composable(Route.Inbox.route) {
+            InboxScreen(
+                onBackClick = { navController.popBackStack() },
+                onItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
+            )
+        }
         // ---- Legacy route aliases (defensive) ----
-        // Pre-consolidation builds had standalone Video/Audio/Reading/Inbox
+        // Pre-consolidation builds had standalone Video/Audio/Reading
         // destinations; they were folded into the Home shell. A NavController
         // back stack restored from such a build could still reference these route
         // strings — and navigating to a route with no registered destination
         // throws (crash on launch). Register no-op aliases that redirect to Home
         // so a restore can never hit an unregistered destination.
-        for (legacyRoute in listOf("video", "audio", "reading", "inbox")) {
+        for (legacyRoute in listOf("video", "audio", "reading")) {
             composable(legacyRoute) {
                 LaunchedEffect(Unit) {
                     navController.navigate(Route.Home.route) {

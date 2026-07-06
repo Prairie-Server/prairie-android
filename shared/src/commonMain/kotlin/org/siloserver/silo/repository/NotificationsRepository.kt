@@ -211,6 +211,10 @@ class NotificationsRepository(
         }
     }
 
+    /** Direct row lookup used by data-only push handling before rendering a system notification. */
+    suspend fun get(id: String): ApiResult<NotificationRow> =
+        api.get(id)
+
     /** Optimistic mark-read with revert on failure. */
     suspend fun markRead(id: String) {
         val before = _state.value

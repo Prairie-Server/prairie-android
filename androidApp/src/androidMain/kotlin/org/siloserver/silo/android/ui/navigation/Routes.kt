@@ -71,6 +71,7 @@ sealed class Route(val route: String) {
     data object Home : Route("home")
     data object Libraries : Route("libraries")
     data object Recommendations : Route("recommendations")
+    data object Inbox : Route("inbox")
 
     // --- Requests ---
     data object Requests : Route("requests")

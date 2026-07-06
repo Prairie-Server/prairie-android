@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import org.siloserver.silo.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import org.siloserver.silo.android.downloads.hasLegacyPublicDownloadPermission
+import org.siloserver.silo.android.push.PushNotificationPresenter
 import org.siloserver.silo.android.ui.navigation.AppNavigation
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
@@ -58,7 +59,7 @@ class MainActivity : ComponentActivity() {
         private var hasShownColdSplash = false
     }
 
-    private val incomingDeviceLoginRoutes = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    private val incomingExternalRoutes = MutableSharedFlow<String>(extraBufferCapacity = 1)
 
     // POST_NOTIFICATIONS is required on Android 13+ for any notification —
     // download progress / completion notifications silently never appear
@@ -82,10 +83,13 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 val route = resolveStartDestination()
                 startRoute = route
+                if (route.isAuthenticatedStartRoute()) {
+                    notificationRouteOrNull(intent)?.let { pendingExternalRoute = it }
+                }
                 launchAuthenticatedStartupWarmup(route)
             }
             LaunchedEffect(Unit) {
-                incomingDeviceLoginRoutes.collect { route ->
+                incomingExternalRoutes.collect { route ->
                     pendingExternalRoute = route
                 }
             }
@@ -123,9 +127,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        deviceLoginPairRouteOrNull(intent.dataString)?.let { route ->
-            incomingDeviceLoginRoutes.tryEmit(route)
-        }
+        val route = deviceLoginPairRouteOrNull(intent.dataString)
+            ?: notificationRouteOrNull(intent)
+        route?.let { incomingExternalRoutes.tryEmit(it) }
     }
 
     /**
@@ -169,6 +173,15 @@ class MainActivity : ComponentActivity() {
         if (hasLegacyPublicDownloadPermission(this)) return
         requestLegacyPublicDownloadPermission.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
     }
+
+    private fun notificationRouteOrNull(intent: Intent?): String? =
+        intent
+            ?.getStringExtra(PushNotificationPresenter.EXTRA_NAV_ROUTE)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+    private fun String.isAuthenticatedStartRoute(): Boolean =
+        this == Route.Home.route || this == Route.Downloads.route
 
     /**
      * Decides which auth-flow screen to land on.
