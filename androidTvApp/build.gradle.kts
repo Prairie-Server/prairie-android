@@ -71,6 +71,7 @@ kotlin {
             implementation(libs.media3.common.ktx)
             implementation(libs.media3.ui.compose)
             implementation(libs.kotlinx.coroutines.android)
+            implementation(libs.kotlinx.serialization.json)
 
             // Preferences persistence (playback quality, subtitle defaults, etc.).
             implementation(libs.datastore.preferences)

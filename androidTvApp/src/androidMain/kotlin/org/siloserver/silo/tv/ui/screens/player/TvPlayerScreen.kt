@@ -107,11 +107,19 @@ import org.siloserver.silo.common.player.mpv.MpvVideoScaleMode
 import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
 import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
 import org.siloserver.silo.common.player.video.isMpvPreferredOriginalPlaybackContainer
+import org.siloserver.silo.cast.SiloCastPlaybackState
+import org.siloserver.silo.cast.SiloCastQualityOption
+import org.siloserver.silo.cast.SiloCastTrack
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.settings.SubtitleAppearance
+import org.siloserver.silo.model.settings.SubtitlePositionPreset
+import org.siloserver.silo.model.settings.legacyPosition
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
 import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
 import org.siloserver.silo.tv.R
+import org.siloserver.silo.tv.cast.TvSiloCastPlayerAdapter
+import org.siloserver.silo.tv.cast.TvSiloCastReceiver
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import com.google.common.util.concurrent.MoreExecutors
@@ -184,6 +192,7 @@ fun TvPlayerScreen(
     activePlayerHolder: ActivePlayerHolder = koinInject(),
     pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject(),
     playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore = koinInject(),
+    siloCastReceiver: TvSiloCastReceiver = koinInject(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
@@ -215,6 +224,11 @@ fun TvPlayerScreen(
     val aiTranslate by viewModel.aiTranslate.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestOnExit by rememberUpdatedState(onExit)
+    val latestSiloCastState by rememberUpdatedState(state)
+    val latestSiloCastPlaybackSpeed by rememberUpdatedState(playbackSpeed)
+    val latestSiloCastSubtitleDelayMs by rememberUpdatedState(subtitleDelayMs)
+    val latestSiloCastHdrEnabled by rememberUpdatedState(hdrEnabled)
+    val latestSiloCastSubtitleAppearance by rememberUpdatedState(subtitleAppearance)
     val context = LocalContext.current
     val hdrDisplayController = remember { HdrDisplayController() }
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
@@ -321,6 +335,68 @@ fun TvPlayerScreen(
         videoBackend?.let { backend ->
             viewModel.onBackendCapabilities(backend.capabilities)
         }
+    }
+    val latestSiloCastMediaController by rememberUpdatedState(mediaController)
+    val latestSiloCastSessionPlayer by rememberUpdatedState(sessionPlayer)
+    DisposableEffect(siloCastReceiver, viewModel, contentId) {
+        val adapter = TvSiloCastPlayerAdapter(
+            play = {
+                viewModel.setPaused(false)
+                latestSiloCastMediaController?.play()
+            },
+            pause = {
+                viewModel.setPaused(true)
+                latestSiloCastMediaController?.pause()
+            },
+            playPause = viewModel::onPlayPause,
+            seek = { seconds ->
+                viewModel.seekImmediate(seconds)
+                latestSiloCastMediaController?.seekTo((seconds * 1_000).toLong())
+            },
+            stop = viewModel::remoteStop,
+            selectAudio = { index -> viewModel.remoteSelectAudio(index.toInt()) },
+            selectSubtitle = { index -> viewModel.remoteSelectSubtitle(index?.toInt() ?: -1) },
+            setPlaybackSpeed = { speed ->
+                viewModel.onSetPlaybackSpeed(speed)
+                latestSiloCastMediaController?.playbackParameters = PlaybackParameters(speed.toFloat())
+            },
+            setQuality = { qualityId ->
+                val player = latestSiloCastMediaController ?: latestSiloCastSessionPlayer
+                if (player != null && selectVideoQuality(player, qualityId)) {
+                    val resolution = latestSiloCastState.videoQualities
+                        .firstOrNull { it.id == qualityId }
+                        ?.resolution
+                    viewModel.onVideoQualitySelectionApplied(resolution)
+                }
+            },
+            setVideoGravity = { value ->
+                viewModel.onVideoFillModeChanged(value.toSiloCastVideoFillMode())
+            },
+            setHdrEnabled = viewModel::onSetHdrEnabled,
+            setSubtitleSyncMs = viewModel::onSubtitleDelayChanged,
+            setSubtitlePosition = { value ->
+                viewModel.onSetSubtitleAppearance(
+                    latestSiloCastSubtitleAppearance.copy(position = value.toSiloCastSubtitlePosition()),
+                )
+            },
+            setVolume = { volume ->
+                latestSiloCastMediaController?.volume = volume.toFloat().coerceIn(0f, 1f)
+            },
+            setMuted = { muted ->
+                latestSiloCastMediaController?.volume = if (muted) 0f else 1f
+            },
+            playNext = viewModel::playNextEpisodeNow,
+        )
+        val registration = siloCastReceiver.registerPlayer(adapter) {
+            latestSiloCastState.toSiloCastPlaybackState(
+                contentId = contentId,
+                playbackSpeed = latestSiloCastPlaybackSpeed,
+                hdrEnabled = latestSiloCastHdrEnabled,
+                subtitleDelayMs = latestSiloCastSubtitleDelayMs,
+                subtitleAppearance = latestSiloCastSubtitleAppearance,
+            )
+        }
+        onDispose { registration.close() }
     }
     val stopPlaybackAndExit = {
         if (!exitRequested) {
@@ -2306,6 +2382,96 @@ internal fun applyMpvVideoScaleMode(player: Player?, mode: VideoFillMode) {
         VideoFillMode.Stretch -> MpvVideoScaleMode.Stretch
     }
     mpvPlayer.setVideoScaleMode(mpvMode)
+}
+
+private fun TvPlayerViewModel.UiState.toSiloCastPlaybackState(
+    contentId: String,
+    playbackSpeed: Double,
+    hdrEnabled: Boolean,
+    subtitleDelayMs: Int,
+    subtitleAppearance: SubtitleAppearance,
+): SiloCastPlaybackState {
+    val activeQualityId = videoQualities.firstOrNull { it.isSelected }?.id ?: VIDEO_QUALITY_AUTO_ID
+    return SiloCastPlaybackState(
+        contentId = contentId,
+        sessionId = sessionId,
+        title = title,
+        subtitle = listOfNotNull(
+            seasonNumber?.let { "S$it" },
+            episodeNumber?.let { "E$it" },
+        ).joinToString(" ").ifBlank { null },
+        isPlaying = isPlaying && !isPaused,
+        isLoading = isLoading,
+        isBuffering = isBuffering,
+        currentTime = position,
+        duration = duration,
+        audioTracks = audioTracks.map { it.toSiloCastTrack() },
+        subtitleTracks = subtitleTracks.map { it.toSiloCastTrack() },
+        selectedAudioTrackId = audioTracks.firstOrNull { it.isSelected }?.index?.toString(),
+        selectedSubtitleTrackId = subtitleTracks.firstOrNull { it.isSelected }?.index?.toString(),
+        qualityOptions = videoQualities.map { it.toSiloCastQualityOption() },
+        activeQualityId = activeQualityId,
+        isQualitySwitching = false,
+        playbackSpeed = playbackSpeed,
+        videoGravity = videoFillMode.name.lowercase(),
+        hdrEnabled = hdrEnabled,
+        supportsVideoGravity = true,
+        supportsHDRToggle = true,
+        subtitleSyncMs = subtitleDelayMs,
+        subtitlePosition = subtitleAppearance.position.legacyPosition.toDouble(),
+        supportsSubtitleDelay = true,
+        supportsSubtitlePosition = true,
+        volume = 1.0,
+        isMuted = false,
+        hasNextEpisode = nextEpisode != null,
+        nextEpisodeTitle = nextEpisode?.title,
+        error = error,
+    )
+}
+
+private fun PlayerTrackEntry.toSiloCastTrack(): SiloCastTrack =
+    SiloCastTrack(
+        id = index.toString(),
+        label = displayLabel.ifBlank { label },
+        language = language,
+        isForced = isForced,
+    )
+
+private fun VideoQualityOption.toSiloCastQualityOption(): SiloCastQualityOption =
+    SiloCastQualityOption(
+        id = id,
+        label = label,
+        isAuto = id == VIDEO_QUALITY_AUTO_ID,
+        height = resolution?.removeSuffix("p")?.toIntOrNull(),
+    )
+
+private fun String.toSiloCastVideoFillMode(): VideoFillMode =
+    when (trim().lowercase()) {
+        "zoom", "crop", "fill" -> VideoFillMode.Zoom
+        "stretch" -> VideoFillMode.Stretch
+        else -> VideoFillMode.Fit
+    }
+
+private fun String.toSiloCastSubtitlePosition(): SubtitlePositionPreset {
+    when (trim().lowercase()) {
+        "top" -> return SubtitlePositionPreset.Top
+        "lower-third", "lower_third", "lowerthird" -> return SubtitlePositionPreset.LowerThird
+        "bottom" -> return SubtitlePositionPreset.Bottom
+    }
+    val numeric = toDoubleOrNull() ?: return SubtitlePositionPreset.Bottom
+    return if (numeric <= 1.0) {
+        when {
+            numeric <= 0.33 -> SubtitlePositionPreset.Top
+            numeric <= 0.75 -> SubtitlePositionPreset.LowerThird
+            else -> SubtitlePositionPreset.Bottom
+        }
+    } else {
+        when {
+            numeric <= 33.0 -> SubtitlePositionPreset.Top
+            numeric <= 80.0 -> SubtitlePositionPreset.LowerThird
+            else -> SubtitlePositionPreset.Bottom
+        }
+    }
 }
 
 private data class EngineSwitchResult(
