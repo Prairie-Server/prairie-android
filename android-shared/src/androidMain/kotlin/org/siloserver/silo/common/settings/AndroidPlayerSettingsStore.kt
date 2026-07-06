@@ -149,6 +149,9 @@ class AndroidPlayerSettingsStore(
     override val downloadsWifiOnlyFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DownloadsWifiOnly, true) }
 
+    override val keepWatchedDownloadsFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.KeepWatchedDownloads, false) }
+
     override val defaultDownloadQualityFlow: Flow<String> =
         profileScopedFlow(DownloadQuality.Original.wire) { p, s ->
             DownloadQuality.fromWire(
@@ -229,6 +232,9 @@ class AndroidPlayerSettingsStore(
 
     override suspend fun setDownloadsWifiOnly(value: Boolean) =
         writeBoolLocal(PlaybackSettingsKeys.DownloadsWifiOnly, value)
+
+    override suspend fun setKeepWatchedDownloads(value: Boolean) =
+        writeBoolLocal(PlaybackSettingsKeys.KeepWatchedDownloads, value)
 
     override suspend fun setDefaultDownloadQuality(value: String) =
         writeStringLocal(PlaybackSettingsKeys.DefaultDownloadQuality, DownloadQuality.fromWire(value).wire)

@@ -50,11 +50,12 @@ import org.siloserver.silo.android.ui.screens.recommendations.RecommendationsScr
 import org.siloserver.silo.model.navigation.MediaMode
 import org.siloserver.silo.model.navigation.MediaModeCapabilities
 import org.siloserver.silo.model.navigation.mobileMediaModeCapabilities
-import org.siloserver.silo.model.feature.CLIENT_REQUESTS_SURFACE_ENABLED
+import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.network.ServerReachabilityStatus
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
+import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.viewmodel.HomeViewModel
 import kotlinx.coroutines.launch
@@ -94,8 +95,11 @@ fun MainScreen(
     val downloadsRepository: org.siloserver.silo.repository.DownloadsRepository = koinInject()
     val downloadStorage: org.siloserver.silo.common.downloads.DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
+    val authRepository: AuthRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
+    val requestsFeatureStore: RequestsFeatureStore = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
+    val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
     val reachabilityScope = rememberCoroutineScope()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
     val mediaCapabilities by produceState(
@@ -157,6 +161,27 @@ fun MainScreen(
         }
     }
 
+    LaunchedEffect(activeEntry?.id, activeEntry?.profileId, headerState.activeProfile?.id) {
+        requestsFeatureStore.reset()
+        requestsFeatureStore.refresh()
+    }
+
+    fun signOutFromProfileMenu() {
+        reachabilityScope.launch {
+            authRepository.logout()
+            requestsFeatureStore.reset()
+            navController.navigate(Route.Login.route) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+    val requestsMenuAction: (() -> Unit)? = if (requestsEnabled) {
+        { navController.navigate(Route.Requests.route) }
+    } else {
+        null
+    }
+
     Scaffold(
         bottomBar = {
             SiloBottomNavBar(
@@ -205,8 +230,7 @@ fun MainScreen(
                             viewModel = homeViewModel,
                             activeProfile = headerState.activeProfile,
                             onSearchClick = { navController.navigate(Route.Search().route) },
-                            onPersonalListsClick = { navController.navigate(Route.PersonalLists.route) },
-                            onCalendarClick = { navController.navigate(Route.Calendar.route) },
+                            onRequestsClick = requestsMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = {
                                 navController.navigate(Route.ProfileSelection.route)
@@ -214,6 +238,7 @@ fun MainScreen(
                             onSwitchServerClick = {
                                 navController.navigate(Route.ServerList.route)
                             },
+                            onSignOutClick = ::signOutFromProfileMenu,
                         )
                     }
                     Tab.Libraries -> {
@@ -236,7 +261,7 @@ fun MainScreen(
                             activeProfile = headerState.activeProfile,
                             onLibrarySelectorClick = { showLibrarySelector = true },
                             onSearchClick = { navController.navigate(Route.Search().route) },
-                            onPersonalListsClick = { navController.navigate(Route.PersonalLists.route) },
+                            onRequestsClick = requestsMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = {
                                 navController.navigate(Route.ProfileSelection.route)
@@ -244,6 +269,7 @@ fun MainScreen(
                             onSwitchServerClick = {
                                 navController.navigate(Route.ServerList.route)
                             },
+                            onSignOutClick = ::signOutFromProfileMenu,
                         )
                     }
                     Tab.ForYou -> {
@@ -305,17 +331,7 @@ fun MainScreen(
                     activeProfile = headerState.activeProfile,
                     isProfileLoading = headerState.isLoading,
                     onSearchClick = { navController.navigate(Route.Search().route) },
-                    onPersonalListsClick = { navController.navigate(Route.PersonalLists.route) },
-                    onCalendarClick = if (currentTab == Tab.Calendar) {
-                        null
-                    } else {
-                        { navController.navigate(Route.Calendar.route) }
-                    },
-                    onRequestsClick = if (CLIENT_REQUESTS_SURFACE_ENABLED) {
-                        { navController.navigate(Route.Requests.route) }
-                    } else {
-                        null
-                    },
+                    onRequestsClick = requestsMenuAction,
                     onSettingsClick = { navController.navigate(Route.Settings.route) },
                     onSwitchProfileClick = {
                         navController.navigate(Route.ProfileSelection.route)
@@ -323,6 +339,7 @@ fun MainScreen(
                     onSwitchServerClick = {
                         navController.navigate(Route.ServerList.route)
                     },
+                    onSignOutClick = ::signOutFromProfileMenu,
                     leadingContent = {
                         if (title != null) {
                             Text(

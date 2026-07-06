@@ -63,6 +63,7 @@ data class SettingsUiState(
 
     // Downloads
     val downloadsWifiOnly: Boolean = true,
+    val keepWatchedDownloads: Boolean = false,
     val defaultDownloadQuality: String = DownloadQuality.Original.label,
 
     // Subtitles
@@ -166,6 +167,9 @@ class SettingsViewModel(
         playerSettingsStore.downloadsWifiOnlyFlow.onEach { wifiOnly ->
             _uiState.update { it.copy(downloadsWifiOnly = wifiOnly) }
         }.launchIn(viewModelScope)
+        playerSettingsStore.keepWatchedDownloadsFlow.onEach { keepWatched ->
+            _uiState.update { it.copy(keepWatchedDownloads = keepWatched) }
+        }.launchIn(viewModelScope)
         playerSettingsStore.defaultDownloadQualityFlow.onEach { quality ->
             _uiState.update { it.copy(defaultDownloadQuality = downloadQualityLabel(quality)) }
         }.launchIn(viewModelScope)
@@ -176,6 +180,10 @@ class SettingsViewModel(
 
     fun setDownloadsWifiOnly(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setDownloadsWifiOnly(value) }
+    }
+
+    fun setKeepWatchedDownloads(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setKeepWatchedDownloads(value) }
     }
 
     fun setDefaultDownloadQuality(value: String) {

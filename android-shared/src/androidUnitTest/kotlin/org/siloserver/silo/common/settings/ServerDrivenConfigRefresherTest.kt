@@ -153,6 +153,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> = flowOf(true)
     override val pictureInPictureEnabledFlow: Flow<Boolean> = flowOf(true)
     override val downloadsWifiOnlyFlow: Flow<Boolean> = flowOf(true)
+    override val keepWatchedDownloadsFlow: Flow<Boolean> = flowOf(false)
     override val defaultDownloadQualityFlow: Flow<String> = flowOf("original")
     override val playbackSpeedFlow: Flow<Double> = flowOf(1.0)
     override val audioSyncMsFlow: Flow<Int> = flowOf(0)
@@ -176,6 +177,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) = Unit
     override suspend fun setPictureInPictureEnabled(value: Boolean) = Unit
     override suspend fun setDownloadsWifiOnly(value: Boolean) = Unit
+    override suspend fun setKeepWatchedDownloads(value: Boolean) = Unit
     override suspend fun setDefaultDownloadQuality(value: String) = Unit
     override suspend fun setPlaybackSpeed(value: Double) = Unit
     override suspend fun setAudioSyncMs(value: Int) = Unit

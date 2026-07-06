@@ -9,6 +9,7 @@ import org.siloserver.silo.common.downloads.DownloadReclaimPlan
 import org.siloserver.silo.common.downloads.DownloadReclaimPlanner
 import org.siloserver.silo.common.downloads.DownloadStorage
 import org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorFactory
+import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.model.download.DownloadMediaType
 import org.siloserver.silo.model.download.DownloadRecord
 import org.siloserver.silo.model.download.DownloadSidecar
@@ -26,6 +27,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -220,9 +223,11 @@ data class DownloadsUiState(
     val subscriptions: List<DownloadSubscriptionUiItem> = emptyList(),
     val reclaimPlan: DownloadReclaimPlan? = null,
     val totalBytesUsed: Long = 0,
+    val keepWatchedDownloads: Boolean = false,
     val isLoading: Boolean = false,
     val isRunningMonitoredDownloads: Boolean = false,
     val isReclaiming: Boolean = false,
+    val isRemovingAllDownloads: Boolean = false,
     val error: String? = null,
 ) {
     /** "Is there anything?" — drives the Downloads-tab visibility in
@@ -258,6 +263,7 @@ class DownloadsViewModel(
     private val subscriptionRepository: DownloadSubscriptionRepository,
     private val subscriptionEvaluatorFactory: DownloadSubscriptionEvaluatorFactory,
     private val userItemStatePort: UserItemStatePort,
+    private val playerSettingsStore: PlayerSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DownloadsUiState(isLoading = true))
@@ -273,6 +279,10 @@ class DownloadsViewModel(
     @Volatile private var scopeByFileId: Map<Int, Pair<String, String>> = emptyMap()
 
     init {
+        playerSettingsStore.keepWatchedDownloadsFlow.onEach { keepWatched ->
+            _uiState.update { it.copy(keepWatchedDownloads = keepWatched) }
+        }.launchIn(viewModelScope)
+
         viewModelScope.launch {
             // Bootstrap: finish the one-time legacy sidecar→Room import before the
             // first metadata read, so pre-cutover downloads aren't briefly missing
@@ -461,6 +471,19 @@ class DownloadsViewModel(
      *  Movies", "Delete all TV"). */
     fun removeSection(section: DownloadTypeSection) {
         viewModelScope.launch { removeRecords(section.recordIds) }
+    }
+
+    fun removeAllDownloads() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRemovingAllDownloads = true) }
+            try {
+                reloadSidecarMetadata()
+                val ids = (repository.records.value.map { it.id } + metadataByRecordId.keys).distinct()
+                removeRecords(ids)
+            } finally {
+                _uiState.update { it.copy(isRemovingAllDownloads = false) }
+            }
+        }
     }
 
     private suspend fun removeRecords(ids: List<String>) {

@@ -42,6 +42,13 @@ object PlaybackSettingsKeys {
     const val DownloadsWifiOnly = "downloads.wifi_only"
 
     /**
+     * Local-only per-profile cleanup preference. When true, the client does not
+     * suggest reclaiming watched downloads. Mirrors Apple
+     * `downloads.keepWatchedDownloads`.
+     */
+    const val KeepWatchedDownloads = "downloads.keep_watched"
+
+    /**
      * Local-only per-profile default for queued downloads. Values are
      * [org.siloserver.silo.model.download.DownloadQuality.wire] presets.
      * This stays local until the server exposes a synced setting; the selected

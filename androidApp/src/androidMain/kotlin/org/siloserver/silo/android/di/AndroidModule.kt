@@ -360,7 +360,7 @@ val androidModule = module {
     viewModel { AdminSessionsViewModel(get()) }
     viewModel { AdminLogsViewModel(get()) }
     viewModel { AdminScansViewModel(get(), get()) }
-    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { org.siloserver.silo.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
     viewModel { ServerSetupViewModel(get()) }
     viewModel { LoginViewModel(get()) }

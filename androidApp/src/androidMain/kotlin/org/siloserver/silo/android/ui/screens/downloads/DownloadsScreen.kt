@@ -147,6 +147,7 @@ fun DownloadsScreen(
                             hasMonitoredDownloads = state.subscriptions.isNotEmpty(),
                             isRunningMonitoredDownloads = state.isRunningMonitoredDownloads,
                             isReclaiming = state.isReclaiming,
+                            showReclaimWatched = !state.keepWatchedDownloads,
                             onRunMonitoredDownloads = viewModel::runMonitoredDownloadsNow,
                             onReclaimWatched = viewModel::calculateReclaimWatched,
                         )
@@ -259,6 +260,7 @@ private fun DownloadsActionRow(
     hasMonitoredDownloads: Boolean,
     isRunningMonitoredDownloads: Boolean,
     isReclaiming: Boolean,
+    showReclaimWatched: Boolean,
     onRunMonitoredDownloads: () -> Unit,
     onReclaimWatched: () -> Unit,
 ) {
@@ -275,12 +277,14 @@ private fun DownloadsActionRow(
         ) {
             Text(if (isRunningMonitoredDownloads) "Checking..." else "Check Monitored")
         }
-        Button(
-            onClick = onReclaimWatched,
-            enabled = !isReclaiming,
-            modifier = Modifier.weight(1f),
-        ) {
-            Text("Reclaim Watched")
+        if (showReclaimWatched) {
+            Button(
+                onClick = onReclaimWatched,
+                enabled = !isReclaiming,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(if (isReclaiming) "Reclaiming..." else "Reclaim Watched")
+            }
         }
     }
 }

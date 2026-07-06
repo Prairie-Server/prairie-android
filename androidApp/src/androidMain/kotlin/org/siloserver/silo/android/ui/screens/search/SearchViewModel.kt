@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.navigation.MediaMode
-import org.siloserver.silo.model.navigation.isReadingLibraryType
+import org.siloserver.silo.model.navigation.mobileMediaModeForLibraryType
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
 import kotlinx.coroutines.FlowPreview
@@ -41,12 +41,20 @@ enum class MobileSearchMediaType(val label: String, val wire: String?) {
 
 internal fun MobileSearchMediaType.filterResults(items: List<BrowseItem>): List<BrowseItem> =
     when (this) {
-        MobileSearchMediaType.Reading -> items.filter { isReadingLibraryType(it.type) }
+        MobileSearchMediaType.Video -> items.filter {
+            mobileMediaModeForLibraryType(it.type) == MediaMode.Video
+        }
+        MobileSearchMediaType.Audio -> items.filter {
+            mobileMediaModeForLibraryType(it.type) == MediaMode.Audio
+        }
+        MobileSearchMediaType.Reading -> items.filter {
+            mobileMediaModeForLibraryType(it.type) == MediaMode.Reading
+        }
         else -> items
     }
 
 private val MobileSearchMediaType.isClientFiltered: Boolean
-    get() = this == MobileSearchMediaType.Reading
+    get() = this != MobileSearchMediaType.All
 
 internal const val MAX_FILTERED_SEARCH_PAGES = 5
 

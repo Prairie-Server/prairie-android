@@ -2,6 +2,7 @@ package org.siloserver.silo.tv.ui.screens.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon as M3Icon
 import androidx.compose.runtime.Composable
@@ -44,9 +46,15 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.catalog.BrowseItem
+import org.siloserver.silo.model.feature.RequestsFeatureStore
+import org.siloserver.silo.model.request.RequestMediaResult
+import org.siloserver.silo.model.request.RequestMediaType
 import org.siloserver.silo.tv.ui.components.TvCatalogGrid
 import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
+import org.siloserver.silo.tv.ui.screens.requests.TvRequestCard
+import org.siloserver.silo.tv.ui.screens.requests.canOpenLibraryDetail
+import org.siloserver.silo.tv.ui.screens.requests.filterTvRequestResults
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.tv.ui.theme.SiloBlue
 import org.siloserver.silo.tv.ui.theme.ElevatedSurface
@@ -54,31 +62,77 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.theme.sectionEyebrow
 import org.siloserver.silo.tv.ui.theme.tvPageContentPadding
 import org.siloserver.silo.tv.ui.theme.tvPageStartPadding
+import org.siloserver.silo.viewmodel.RequestSearchViewModel
+import kotlinx.coroutines.delay
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvSearchScreen(
     onResultClick: (BrowseItem) -> Unit,
+    onOpenRequestDetail: (mediaType: String, tmdbId: Int) -> Unit,
+    onOpenLibraryItem: (contentId: String) -> Unit,
     searchFieldFocusRequester: FocusRequester? = null,
     viewModel: TvSearchViewModel = koinViewModel(),
+    requestSearchViewModel: RequestSearchViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val requestState by requestSearchViewModel.uiState.collectAsState()
+    val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
     val firstResultFocusRequester = remember { FocusRequester() }
+    val firstRequestResultFocusRequester = remember { FocusRequester() }
     val firstFilterChipFocusRequester = remember { FocusRequester() }
     val internalSearchFieldFocusRequester = remember { FocusRequester() }
     val activeSearchFieldFocusRequester = searchFieldFocusRequester ?: internalSearchFieldFocusRequester
     var pendingSearchFocus by remember { mutableStateOf(false) }
+    val requestMediaType = state.mediaType.toRequestMediaType()
+    val visibleRequestResults = requestState.results
+        .filterTvRequestResults()
+        .filter { state.mediaType.allowsRequestResult(it) }
+    val canSearchRequests = requestsEnabled && state.query.trim().length >= 2
+    val shouldShowRequestSection = canSearchRequests &&
+        (visibleRequestResults.isNotEmpty() ||
+            requestState.isLoading ||
+            requestState.error != null ||
+            requestState.hasSubmittedQuery)
+    val requestSearchSettled = !canSearchRequests || !requestState.isLoading
+    val firstContentFocusRequester = when {
+        state.items.isNotEmpty() -> firstResultFocusRequester
+        visibleRequestResults.isNotEmpty() -> firstRequestResultFocusRequester
+        else -> firstFilterChipFocusRequester
+    }
+
+    LaunchedEffect(requestsEnabled, state.query, requestMediaType) {
+        val query = state.query.trim()
+        if (!requestsEnabled || query.length < 2) {
+            requestSearchViewModel.onQueryChanged("")
+            return@LaunchedEffect
+        }
+        delay(300)
+        requestSearchViewModel.onMediaTypeChanged(requestMediaType)
+        requestSearchViewModel.onQueryChanged(query)
+        requestSearchViewModel.search()
+    }
 
     LaunchedEffect(activeSearchFieldFocusRequester) {
         runCatching { activeSearchFieldFocusRequester.requestFocus() }
     }
-    LaunchedEffect(pendingSearchFocus, state.isLoading, state.items) {
-        if (!pendingSearchFocus || state.isLoading) return@LaunchedEffect
+    LaunchedEffect(
+        pendingSearchFocus,
+        state.isLoading,
+        requestSearchSettled,
+        state.items.size,
+        visibleRequestResults.size,
+    ) {
+        if (!pendingSearchFocus || state.isLoading || !requestSearchSettled) return@LaunchedEffect
         pendingSearchFocus = false
         runCatching {
             if (state.items.isNotEmpty()) {
                 firstResultFocusRequester.requestFocus()
+            } else if (visibleRequestResults.isNotEmpty()) {
+                firstRequestResultFocusRequester.requestFocus()
             } else {
                 firstFilterChipFocusRequester.requestFocus()
             }
@@ -133,16 +187,39 @@ fun TvSearchScreen(
                         isSearching = state.isLoading,
                         error = state.error,
                     ),
-                    hasResults = state.items.isNotEmpty(),
+                    hasResults = state.items.isNotEmpty() || visibleRequestResults.isNotEmpty(),
                     searchFieldFocusRequester = activeSearchFieldFocusRequester,
                     firstFilterChipFocusRequester = firstFilterChipFocusRequester,
-                    firstResultFocusRequester = firstResultFocusRequester,
+                    firstResultFocusRequester = firstContentFocusRequester,
                     onQueryChanged = viewModel::onQueryChanged,
                     onSearch = {
                         pendingSearchFocus = true
+                        val query = state.query.trim()
+                        if (requestsEnabled && query.length >= 2) {
+                            requestSearchViewModel.onMediaTypeChanged(requestMediaType)
+                            requestSearchViewModel.onQueryChanged(query)
+                            requestSearchViewModel.search()
+                        }
                         viewModel.submitSearch()
                     },
                     onMediaTypeChanged = viewModel::onMediaTypeChanged,
+                )
+            },
+            footer = {
+                TvRequestSearchSection(
+                    query = state.query,
+                    requestsEnabled = requestsEnabled,
+                    isLoading = requestState.isLoading,
+                    error = requestState.error,
+                    hasSubmittedQuery = requestState.hasSubmittedQuery,
+                    results = visibleRequestResults,
+                    shouldShow = shouldShowRequestSection,
+                    firstItemFocusRequester = firstRequestResultFocusRequester,
+                    firstItemCardModifier = Modifier.focusProperties {
+                        up = if (state.items.isNotEmpty()) firstResultFocusRequester else firstFilterChipFocusRequester
+                    },
+                    onOpenRequestDetail = onOpenRequestDetail,
+                    onOpenLibraryItem = onOpenLibraryItem,
                 )
             },
             emptyState = {
@@ -163,6 +240,95 @@ fun TvSearchScreen(
             },
         )
 
+    }
+}
+
+@Composable
+private fun TvRequestSearchSection(
+    query: String,
+    requestsEnabled: Boolean,
+    isLoading: Boolean,
+    error: String?,
+    hasSubmittedQuery: Boolean,
+    results: List<RequestMediaResult>,
+    shouldShow: Boolean,
+    firstItemFocusRequester: FocusRequester,
+    firstItemCardModifier: Modifier,
+    onOpenRequestDetail: (mediaType: String, tmdbId: Int) -> Unit,
+    onOpenLibraryItem: (contentId: String) -> Unit,
+) {
+    if (!requestsEnabled || query.trim().length < 2 || !shouldShow) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = tvPageStartPadding(expandedGap = Spacing.md),
+                end = 24.dp,
+                top = 4.dp,
+                bottom = 12.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "Available to request",
+            style = MaterialTheme.typography.titleLarge,
+            color = Color.White,
+        )
+        when {
+            results.isNotEmpty() -> {
+                LazyRow(
+                    modifier = Modifier.focusGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    contentPadding = PaddingValues(end = Spacing.safeArea),
+                ) {
+                    itemsIndexed(
+                        results,
+                        key = { _, item -> "${item.mediaType}-${item.tmdbId}" },
+                        contentType = { _, _ -> "request-search-result" },
+                    ) { index, item ->
+                        TvRequestCard(
+                            result = item,
+                            onClick = {
+                                if (item.canOpenLibraryDetail()) {
+                                    onOpenLibraryItem(item.libraryContentId.orEmpty())
+                                } else {
+                                    onOpenRequestDetail(item.mediaType, item.tmdbId)
+                                }
+                            },
+                            focusRequester = firstItemFocusRequester.takeIf { index == 0 },
+                            cardModifier = if (index == 0) firstItemCardModifier else Modifier,
+                        )
+                    }
+                }
+            }
+            isLoading -> RequestSearchFeedbackRow("Checking requestable titles...", showProgress = true)
+            error != null -> RequestSearchFeedbackRow(error)
+            hasSubmittedQuery -> RequestSearchFeedbackRow("No requestable matches found.")
+        }
+    }
+}
+
+@Composable
+private fun RequestSearchFeedbackRow(
+    message: String,
+    showProgress: Boolean = false,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (showProgress) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp))
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.68f),
+        )
     }
 }
 
@@ -367,3 +533,18 @@ private fun searchStatusText(
     total == 1 -> "1 result"
     else -> "$total results"
 }
+
+private fun TvSearchMediaType.toRequestMediaType(): String = when (this) {
+    TvSearchMediaType.All -> RequestMediaType.All
+    TvSearchMediaType.Movies -> RequestMediaType.Movie
+    TvSearchMediaType.Series -> RequestMediaType.Series
+    TvSearchMediaType.Audiobooks -> RequestMediaType.Audiobook
+}
+
+private fun TvSearchMediaType.allowsRequestResult(item: RequestMediaResult): Boolean =
+    when (this) {
+        TvSearchMediaType.All -> true
+        TvSearchMediaType.Movies -> item.mediaType == RequestMediaType.Movie
+        TvSearchMediaType.Series -> item.mediaType == RequestMediaType.Series
+        TvSearchMediaType.Audiobooks -> item.mediaType == RequestMediaType.Audiobook
+    }

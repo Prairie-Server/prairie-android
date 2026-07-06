@@ -17,10 +17,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
@@ -145,27 +143,6 @@ fun AccountSection(
                 onClick = onPairDevice,
                 showChevron = true,
             )
-
-            if (isRequestsVisible) {
-                SettingsRowLabel(
-                    title = "Requests",
-                    icon = Icons.Default.Movie,
-                    badgeColor = SettingsBadgeOrange,
-                    onClick = onRequests,
-                    showChevron = true,
-                )
-            }
-
-            if (isAdminVisible) {
-                // iOS "Admin Dashboard": indigo badge, wrench icon.
-                SettingsRowLabel(
-                    title = "Admin Dashboard",
-                    icon = Icons.Default.Build,
-                    badgeColor = SettingsBadgeIndigo,
-                    onClick = onAdmin,
-                    showChevron = true,
-                )
-            }
 
             // iOS "Sign Out": its own section, centered destructive text.
             Box(

@@ -16,11 +16,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,12 +53,11 @@ fun MainAppTopBar(
     activeProfile: Profile?,
     isProfileLoading: Boolean,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
-    onCalendarClick: (() -> Unit)? = null,
     onRequestsClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
     leadingContent: @Composable () -> Unit = {
         SiloWordmark()
     },
@@ -140,28 +139,6 @@ fun MainAppTopBar(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Favorites & Watchlist") },
-                            onClick = {
-                                menuExpanded = false
-                                onPersonalListsClick()
-                            },
-                        )
-                        if (onCalendarClick != null) {
-                            DropdownMenuItem(
-                                text = { Text("Calendar") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.CalendarMonth,
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onCalendarClick()
-                                },
-                            )
-                        }
                         if (onRequestsClick != null) {
                             DropdownMenuItem(
                                 text = { Text("Requests") },
@@ -170,6 +147,7 @@ fun MainAppTopBar(
                                     onRequestsClick()
                                 },
                             )
+                            HorizontalDivider()
                         }
                         DropdownMenuItem(
                             text = { Text("Settings") },
@@ -190,6 +168,18 @@ fun MainAppTopBar(
                             onClick = {
                                 menuExpanded = false
                                 onSwitchServerClick()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Sign Out",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onSignOutClick()
                             },
                         )
                     }

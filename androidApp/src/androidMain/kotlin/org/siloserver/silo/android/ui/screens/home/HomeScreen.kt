@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Smartphone
@@ -31,6 +30,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -89,11 +89,11 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
-    onCalendarClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -205,11 +205,11 @@ fun HomeScreen(
             scrollProgress = scrollProgress,
             activeProfile = activeProfile,
             onSearchClick = onSearchClick,
-            onPersonalListsClick = onPersonalListsClick,
-            onCalendarClick = onCalendarClick,
+            onRequestsClick = onRequestsClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
+            onSignOutClick = onSignOutClick,
         )
 
         CompanionPairingApprovalDialog(
@@ -340,11 +340,11 @@ private fun HomeFloatingChrome(
     scrollProgress: Float,
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
-    onCalendarClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
     // iOS chrome: translucent glass fill plus a bottom hairline that strengthens
@@ -387,11 +387,11 @@ private fun HomeFloatingChrome(
 
                 HomeProfileMenu(
                     activeProfile = activeProfile,
-                    onPersonalListsClick = onPersonalListsClick,
-                    onCalendarClick = onCalendarClick,
+                    onRequestsClick = onRequestsClick,
                     onSettingsClick = onSettingsClick,
                     onSwitchProfileClick = onSwitchProfileClick,
                     onSwitchServerClick = onSwitchServerClick,
+                    onSignOutClick = onSignOutClick,
                 )
             }
         }
@@ -431,11 +431,11 @@ private fun HomeChromeButton(
 @Composable
 private fun HomeProfileMenu(
     activeProfile: Profile?,
-    onPersonalListsClick: () -> Unit,
-    onCalendarClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     Box {
@@ -467,26 +467,16 @@ private fun HomeProfileMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
-            DropdownMenuItem(
-                text = { Text("Favorites & Watchlist") },
-                onClick = {
-                    menuExpanded = false
-                    onPersonalListsClick()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Calendar") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.CalendarMonth,
-                        contentDescription = null,
-                    )
-                },
-                onClick = {
-                    menuExpanded = false
-                    onCalendarClick()
-                },
-            )
+            if (onRequestsClick != null) {
+                DropdownMenuItem(
+                    text = { Text("Requests") },
+                    onClick = {
+                        menuExpanded = false
+                        onRequestsClick()
+                    },
+                )
+                HorizontalDivider()
+            }
             DropdownMenuItem(
                 text = { Text("Settings") },
                 onClick = {
@@ -506,6 +496,18 @@ private fun HomeProfileMenu(
                 onClick = {
                     menuExpanded = false
                     onSwitchServerClick()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Sign Out",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onSignOutClick()
                 },
             )
         }

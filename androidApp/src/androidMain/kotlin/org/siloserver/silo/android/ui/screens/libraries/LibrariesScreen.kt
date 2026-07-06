@@ -48,6 +48,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -533,10 +534,11 @@ fun LibrariesScreen(
     activeProfile: Profile?,
     onLibrarySelectorClick: () -> Unit,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -667,10 +669,11 @@ fun LibrariesScreen(
             onLibrarySelectorClick = onLibrarySelectorClick,
             onTabSelected = viewModel::selectTab,
             onSearchClick = onSearchClick,
-            onPersonalListsClick = onPersonalListsClick,
+            onRequestsClick = onRequestsClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
+            onSignOutClick = onSignOutClick,
         )
     }
 }
@@ -1015,10 +1018,11 @@ private fun LibrariesFloatingChrome(
     onLibrarySelectorClick: () -> Unit,
     onTabSelected: (LibrariesSubtab) -> Unit,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
     val animatedFill by animateFloatAsState(
@@ -1070,10 +1074,11 @@ private fun LibrariesFloatingChrome(
                 }
                 ChromeProfileMenu(
                     activeProfile = activeProfile,
-                    onPersonalListsClick = onPersonalListsClick,
+                    onRequestsClick = onRequestsClick,
                     onSettingsClick = onSettingsClick,
                     onSwitchProfileClick = onSwitchProfileClick,
                     onSwitchServerClick = onSwitchServerClick,
+                    onSignOutClick = onSignOutClick,
                 )
             }
         }
@@ -1166,10 +1171,11 @@ private fun ChromeIconButton(
 @Composable
 private fun ChromeProfileMenu(
     activeProfile: Profile?,
-    onPersonalListsClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     Box {
@@ -1200,13 +1206,16 @@ private fun ChromeProfileMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
-            DropdownMenuItem(
-                text = { Text("Favorites & Watchlist") },
-                onClick = {
-                    menuExpanded = false
-                    onPersonalListsClick()
-                },
-            )
+            if (onRequestsClick != null) {
+                DropdownMenuItem(
+                    text = { Text("Requests") },
+                    onClick = {
+                        menuExpanded = false
+                        onRequestsClick()
+                    },
+                )
+                HorizontalDivider()
+            }
             DropdownMenuItem(
                 text = { Text("Settings") },
                 onClick = {
@@ -1226,6 +1235,18 @@ private fun ChromeProfileMenu(
                 onClick = {
                     menuExpanded = false
                     onSwitchServerClick()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Sign Out",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onSignOutClick()
                 },
             )
         }

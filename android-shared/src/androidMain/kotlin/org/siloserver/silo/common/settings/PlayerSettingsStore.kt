@@ -15,6 +15,7 @@ interface PlayerSettingsStore {
      *  networks. Default true. Consumed by [DownloadEnqueuer] at enqueue
      *  time to set the WorkManager NetworkType constraint. */
     val downloadsWifiOnlyFlow: Flow<Boolean>
+    val keepWatchedDownloadsFlow: Flow<Boolean>
     val defaultDownloadQualityFlow: Flow<String>
 
     // Doubles
@@ -55,6 +56,7 @@ interface PlayerSettingsStore {
     suspend fun setDvProfile7HDR10Fallback(value: Boolean)
     suspend fun setPictureInPictureEnabled(value: Boolean)
     suspend fun setDownloadsWifiOnly(value: Boolean)
+    suspend fun setKeepWatchedDownloads(value: Boolean)
     suspend fun setDefaultDownloadQuality(value: String)
 
     suspend fun setPlaybackSpeed(value: Double)

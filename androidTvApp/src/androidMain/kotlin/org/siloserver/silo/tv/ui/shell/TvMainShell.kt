@@ -25,7 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
@@ -104,6 +104,7 @@ import org.siloserver.silo.common.ui.components.resolveAvatarUrl
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.admin.shouldShowClientAdminSurface
 import org.siloserver.silo.model.auth.isActingAdmin
+import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
@@ -173,7 +174,11 @@ fun TvMainShell(
     val personalDataRepository: PersonalDataRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
+    val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val serverRegistry: ServerRegistry = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
+    val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
+    val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     val serverUrl = rememberProfileServerUrl()
 
@@ -233,6 +238,11 @@ fun TvMainShell(
 
     val currentRoute = currentEntry?.destination?.route ?: firstTvRoute()
 
+    LaunchedEffect(activeServerEntry?.id, activeServerEntry?.profileId) {
+        requestsFeatureStore.reset()
+        requestsFeatureStore.refresh()
+    }
+
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
     val searchInputFocusRequester = remember { FocusRequester() }
@@ -261,8 +271,6 @@ fun TvMainShell(
     val tabAnchors = remember { mutableStateMapOf<TvTopMenuPanel, LayoutCoordinates>() }
     val panelScope = rememberCoroutineScope()
 
-    val serverRegistry: ServerRegistry = koinInject()
-    val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val accountSnapshot by produceState(
         initialValue = TvAccountState(),
         authRepository,
@@ -597,6 +605,10 @@ fun TvMainShell(
                                 onOpenPersonDetail = onOpenPersonDetail,
                             )
                         },
+                        onOpenRequestDetail = { mediaType, tmdbId ->
+                            navigateToSecondary(TvMainRoute.RequestDetail(mediaType, tmdbId).route)
+                        },
+                        onOpenLibraryItem = onOpenItemDetail,
                         searchFieldFocusRequester = searchInputFocusRequester,
                     )
                 }
@@ -947,13 +959,14 @@ fun TvMainShell(
                     navigateToSecondary(TvMainRoute.History.route)
                     moveFocusToContent(TvMainRoute.History.route)
                 },
+                showRequests = requestsEnabled,
+                onRequests = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.Requests.route)
+                    moveFocusToContent(TvMainRoute.Requests.route)
+                },
                 onSettings = closeMenuAnd {
                     navigateToRoute(TvMainRoute.Settings.route)
                     moveFocusToContent(TvMainRoute.Settings.route)
-                },
-                onAdminDashboard = closeMenuAnd {
-                    navigateToSecondary(TvMainRoute.AdminHub.route)
-                    moveFocusToContent(TvMainRoute.AdminHub.route)
                 },
                 onSwitchServer = closeMenuAnd(onSwitchServer),
                 onSignOut = closeMenuAnd(onSignedOut),
@@ -1134,8 +1147,8 @@ private fun cascadePanelOffset(
  * returns focus to the avatar via [onDismiss].
  *
  * Row set + order mirrors tvOS: Switch Profile · Watchlist · Favorites ·
- * History · Settings · (Admin Dashboard, admin only) · Switch Server · Sign Out.
- * Calendar is no longer here — it is a top-level tab.
+ * History · Requests (feature-gated) · Settings · Switch Server · Sign Out.
+ * Calendar is a top-level tab.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -1145,8 +1158,9 @@ private fun TvProfileDropdown(
     onWatchlist: () -> Unit,
     onFavorites: () -> Unit,
     onHistory: () -> Unit,
+    showRequests: Boolean,
+    onRequests: () -> Unit,
     onSettings: () -> Unit,
-    onAdminDashboard: () -> Unit,
     onSwitchServer: () -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
@@ -1188,17 +1202,17 @@ private fun TvProfileDropdown(
         ProfileDropdownRow(label = "Watchlist", icon = Icons.Filled.Bookmark, onClick = onWatchlist)
         ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
         ProfileDropdownRow(label = "History", icon = Icons.Filled.History, onClick = onHistory)
+        if (showRequests) {
+            ProfileDropdownRow(
+                label = "Requests",
+                icon = Icons.Filled.AutoAwesome,
+                onClick = onRequests,
+            )
+        }
 
         ProfileDropdownDivider()
 
         ProfileDropdownRow(label = "Settings", icon = Icons.Filled.Settings, onClick = onSettings)
-        if (accountState.isAdmin) {
-            ProfileDropdownRow(
-                label = "Admin Dashboard",
-                icon = Icons.Filled.AdminPanelSettings,
-                onClick = onAdminDashboard,
-            )
-        }
         ProfileDropdownRow(label = "Switch Server", icon = Icons.Filled.Dns, onClick = onSwitchServer)
         ProfileDropdownRow(
             label = "Sign Out",

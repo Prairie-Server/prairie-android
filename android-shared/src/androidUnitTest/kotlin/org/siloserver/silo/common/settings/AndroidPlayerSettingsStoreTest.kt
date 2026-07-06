@@ -193,6 +193,20 @@ class AndroidPlayerSettingsStoreTest {
     }
 
     @Test
+    fun `keep watched downloads is local-only`() = runTest {
+        val store = newStore()
+        assertEquals(false, store.keepWatchedDownloadsFlow.first())
+
+        store.setKeepWatchedDownloads(true)
+
+        assertEquals(true, store.keepWatchedDownloadsFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.KeepWatchedDownloads },
+            "Keep-watched cleanup preference is local and must not flush an unknown server key.",
+        )
+    }
+
+    @Test
     fun `videoGravity rejects invalid value and falls back to fit`() = runTest {
         val store = newStore()
         store.setVideoGravity("garbage")

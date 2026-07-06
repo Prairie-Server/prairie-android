@@ -383,6 +383,12 @@ fun AppNavigation(
                 onItemClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
+                onRequestMediaClick = { item ->
+                    navController.navigate(Route.RequestDetail(item.mediaType, item.tmdbId).route)
+                },
+                onRequestLibraryItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
                 onBackClick = { navController.popBackStack() },
                 viewModel = searchViewModel,
                 initialMediaType = MobileSearchMediaType.fromRouteValue(
