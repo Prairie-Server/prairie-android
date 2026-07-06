@@ -122,6 +122,7 @@ class AndroidPlayerSettingsStoreTest {
         assertEquals(0, store.audioSyncMsFlow.first())
         assertEquals(30, store.nextUpPromptSecondsFlow.first())
         assertEquals("auto", store.preferredQualityFlow.first())
+        assertEquals("original", store.defaultDownloadQualityFlow.first())
         assertEquals("", store.audioLanguageFlow.first())
         assertEquals("fit", store.videoGravityFlow.first())
         assertEquals(SubtitleAppearance.DEFAULT, store.subtitleAppearanceFlow.first())
@@ -159,6 +160,36 @@ class AndroidPlayerSettingsStoreTest {
         assertTrue(calls.any { it.key == PlaybackSettingsKeys.PreferredQuality && it.value == "720p" })
         assertTrue(calls.any { it.key == PlaybackSettingsKeys.PlaybackSpeed && it.value == "1.5" })
         assertTrue(calls.all { it.profileId == activeProfileId })
+    }
+
+    @Test
+    fun `default download quality is local-only and constrained to supported presets`() = runTest {
+        val store = newStore()
+        assertEquals("original", store.defaultDownloadQualityFlow.first())
+
+        store.setDefaultDownloadQuality("10mbps")
+        assertEquals("10mbps", store.defaultDownloadQualityFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.DefaultDownloadQuality },
+            "Download quality is a local client queue preference until the server exposes a synced setting.",
+        )
+
+        store.setDefaultDownloadQuality("1080p")
+        assertEquals("original", store.defaultDownloadQualityFlow.first())
+    }
+
+    @Test
+    fun `downloads wifi only is local-only`() = runTest {
+        val store = newStore()
+        assertEquals(true, store.downloadsWifiOnlyFlow.first())
+
+        store.setDownloadsWifiOnly(false)
+
+        assertEquals(false, store.downloadsWifiOnlyFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.DownloadsWifiOnly },
+            "Downloads Wi-Fi-only controls WorkManager constraints and must not flush an unknown server key.",
+        )
     }
 
     @Test

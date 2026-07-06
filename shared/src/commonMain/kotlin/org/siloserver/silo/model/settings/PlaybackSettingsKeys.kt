@@ -42,6 +42,14 @@ object PlaybackSettingsKeys {
     const val DownloadsWifiOnly = "downloads.wifi_only"
 
     /**
+     * Local-only per-profile default for queued downloads. Values are
+     * [org.siloserver.silo.model.download.DownloadQuality.wire] presets.
+     * This stays local until the server exposes a synced setting; the selected
+     * value is still sent on each download create request.
+     */
+    const val DefaultDownloadQuality = "downloads.default_quality"
+
+    /**
      * Local-only per-profile setting: seconds to skip back when RESUMING a
      * partially-watched item, so context is re-established. Default 7; 0 = off.
      * Not server-registered, so it stays out of [DeviceSettings] (never pulled

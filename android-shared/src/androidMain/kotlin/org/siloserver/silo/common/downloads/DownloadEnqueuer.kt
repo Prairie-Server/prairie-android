@@ -3,6 +3,7 @@ package org.siloserver.silo.common.downloads
 import android.content.Context
 import android.util.Log
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.download.DownloadMediaType
 import org.siloserver.silo.model.download.DownloadRequest
 import org.siloserver.silo.model.download.DownloadSidecar
@@ -51,7 +52,7 @@ class DownloadEnqueuer(
         displayTitle: String,
     ): ApiResult<Unit> {
         Log.i(TAG, "start: contentId=$contentId fileId=$fileId title=$displayTitle")
-        val record = when (val r = repository.create(DownloadRequest(contentId = contentId, fileId = fileId))) {
+        val record = when (val r = repository.create(downloadRequest(contentId = contentId, fileId = fileId))) {
             is ApiResult.Success -> r.data.also { Log.i(TAG, "start: server record id=${it.id} status=${it.status}") }
             is ApiResult.Error -> { Log.w(TAG, "start: server error ${r.code} ${r.message}"); return ApiResult.Error(r.code, r.error, r.message) }
             is ApiResult.NetworkError -> { Log.w(TAG, "start: network error", r.exception); return ApiResult.NetworkError(r.exception) }
@@ -81,7 +82,7 @@ class DownloadEnqueuer(
         val displayTitle = "$seriesTitle S${seasonNumber}E${episodeNumber}" +
             (episodeTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
         val record = when (val r = repository.create(
-            DownloadRequest(contentId = episodeContentId, fileId = fileId)
+            downloadRequest(contentId = episodeContentId, fileId = fileId)
         )) {
             is ApiResult.Success -> r.data
             is ApiResult.Error -> { Log.w(TAG, "startEpisode: server error ${r.code} ${r.message}"); return ApiResult.Error(r.code, r.error, r.message) }
@@ -121,7 +122,7 @@ class DownloadEnqueuer(
     suspend fun startSeries(seriesContentId: String): ApiResult<Unit> {
         Log.i(TAG, "startSeries: contentId=$seriesContentId")
         val records = when (val r = repository.createBatch(
-            DownloadRequest(contentId = seriesContentId, series = true)
+            downloadRequest(contentId = seriesContentId, series = true)
         )) {
             is ApiResult.Success -> r.data.also { Log.i(TAG, "startSeries: server returned ${it.size} records") }
             is ApiResult.Error -> { Log.w(TAG, "startSeries: server error ${r.code} ${r.message}"); return ApiResult.Error(r.code, r.error, r.message) }
@@ -234,6 +235,23 @@ class DownloadEnqueuer(
             }
         }
         return map
+    }
+
+    private suspend fun downloadRequest(
+        contentId: String,
+        fileId: Int? = null,
+        episodeId: String? = null,
+        series: Boolean = false,
+    ): DownloadRequest {
+        val quality = DownloadQuality.fromWire(playerSettingsStore.defaultDownloadQualityFlow.first())
+        return DownloadRequest(
+            contentId = contentId,
+            episodeId = episodeId,
+            fileId = fileId,
+            series = series,
+            quality = quality.wire,
+            targetBitrateKbps = quality.targetBitrateKbps,
+        )
     }
 
     /**

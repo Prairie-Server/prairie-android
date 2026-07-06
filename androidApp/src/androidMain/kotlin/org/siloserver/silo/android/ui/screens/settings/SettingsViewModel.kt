@@ -9,6 +9,7 @@ import org.siloserver.silo.model.admin.shouldShowClientAdminSurface
 import org.siloserver.silo.model.auth.AuthSession
 import org.siloserver.silo.model.auth.User
 import org.siloserver.silo.model.auth.isActingAdmin
+import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.notifications.NotificationPreferencesUpdate
 import org.siloserver.silo.model.profile.UpdateProfileRequest
 import org.siloserver.silo.network.ApiResult
@@ -62,6 +63,7 @@ data class SettingsUiState(
 
     // Downloads
     val downloadsWifiOnly: Boolean = true,
+    val defaultDownloadQuality: String = DownloadQuality.Original.label,
 
     // Subtitles
     val subtitleLanguage: String = "Off",
@@ -142,7 +144,6 @@ class SettingsViewModel(
         val audioLanguage: String,
         val autoSkipIntro: Boolean,
         val autoSkipCredits: Boolean,
-        val downloadsWifiOnly: Boolean,
     )
 
     private fun observePlayerSettings() {
@@ -151,7 +152,6 @@ class SettingsViewModel(
             playerSettingsStore.audioLanguageFlow,
             playerSettingsStore.autoSkipIntroFlow,
             playerSettingsStore.autoSkipCreditsFlow,
-            playerSettingsStore.downloadsWifiOnlyFlow,
             ::PlayerSettingsSnapshot,
         ).onEach { snap ->
             _uiState.update {
@@ -160,9 +160,14 @@ class SettingsViewModel(
                     audioLanguage = audioLanguageLabel(snap.audioLanguage),
                     autoSkipIntro = snap.autoSkipIntro,
                     autoSkipCredits = snap.autoSkipCredits,
-                    downloadsWifiOnly = snap.downloadsWifiOnly,
                 )
             }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.downloadsWifiOnlyFlow.onEach { wifiOnly ->
+            _uiState.update { it.copy(downloadsWifiOnly = wifiOnly) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.defaultDownloadQualityFlow.onEach { quality ->
+            _uiState.update { it.copy(defaultDownloadQuality = downloadQualityLabel(quality)) }
         }.launchIn(viewModelScope)
         playerSettingsStore.pictureInPictureEnabledFlow.onEach { enabled ->
             _uiState.update { it.copy(pictureInPictureEnabled = enabled) }
@@ -171,6 +176,12 @@ class SettingsViewModel(
 
     fun setDownloadsWifiOnly(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setDownloadsWifiOnly(value) }
+    }
+
+    fun setDefaultDownloadQuality(value: String) {
+        viewModelScope.launch {
+            playerSettingsStore.setDefaultDownloadQuality(downloadQualityWireValue(value))
+        }
     }
 
     // Separate from observePlayerSettings() because combine() has no typed
@@ -401,6 +412,12 @@ class SettingsViewModel(
             "4K" -> "2160p"
             else -> value.lowercase()
         }
+
+    private fun downloadQualityLabel(value: String): String =
+        DownloadQuality.fromWire(value).label
+
+    private fun downloadQualityWireValue(value: String): String =
+        DownloadQuality.entries.firstOrNull { it.label == value }?.wire ?: DownloadQuality.Original.wire
 
     private fun audioLanguageLabel(value: String): String =
         value.ifBlank { "Default" }

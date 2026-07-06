@@ -1,9 +1,12 @@
 package org.siloserver.silo.model.download
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class DownloadRecordSerializationTest {
 
@@ -84,5 +87,48 @@ class DownloadRecordSerializationTest {
         val r = json.decodeFromString<DownloadRecord>(source)
         assertEquals(DownloadStatus.Unknown, r.statusEnum())
         assertEquals("paused_by_quota", r.status)
+    }
+
+    @Test
+    fun `DownloadRequest encodes original download quality without bitrate`() {
+        val encoded = json.encodeToString(
+            DownloadRequest(
+                contentId = "movie-1",
+                fileId = 10,
+                quality = DownloadQuality.Original.wire,
+                targetBitrateKbps = DownloadQuality.Original.targetBitrateKbps,
+            )
+        )
+
+        assertTrue(encoded.contains(""""quality":"original""""))
+        assertFalse(encoded.contains("target_bitrate_kbps"))
+    }
+
+    @Test
+    fun `DownloadRequest encodes bitrate preset quality with target bitrate`() {
+        val preset = DownloadQuality.Mbps10
+        val encoded = json.encodeToString(
+            DownloadRequest(
+                contentId = "movie-1",
+                fileId = 10,
+                quality = preset.wire,
+                targetBitrateKbps = preset.targetBitrateKbps,
+            )
+        )
+
+        assertTrue(encoded.contains(""""quality":"10mbps""""))
+        assertTrue(encoded.contains(""""target_bitrate_kbps":10000"""))
+    }
+
+    @Test
+    fun `DownloadQuality parses supported presets and rejects unknowns to original`() {
+        assertEquals(DownloadQuality.Original, DownloadQuality.fromWire("original"))
+        assertEquals(DownloadQuality.Mbps20, DownloadQuality.fromWire("20mbps"))
+        assertEquals(DownloadQuality.Mbps10, DownloadQuality.fromWire("10mbps"))
+        assertEquals(DownloadQuality.Mbps5, DownloadQuality.fromWire("5mbps"))
+        assertEquals(DownloadQuality.Mbps2, DownloadQuality.fromWire("2mbps"))
+        assertEquals(DownloadQuality.Mbps1, DownloadQuality.fromWire("1mbps"))
+        assertEquals(DownloadQuality.Original, DownloadQuality.fromWire("1080p"))
+        assertEquals(DownloadQuality.Original, DownloadQuality.fromWire(null))
     }
 }

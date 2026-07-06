@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.components.SiloTopBar
+import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.feature.CLIENT_REQUESTS_SURFACE_ENABLED
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -239,6 +240,12 @@ fun SettingsScreen(
             item {
                 SettingsSectionCard {
                     SettingsSectionHeader(title = "Downloads")
+                    SettingsDropdownRow(
+                        label = "Default Quality",
+                        value = state.defaultDownloadQuality,
+                        options = DownloadQuality.entries.map { it.label },
+                        onOptionSelected = viewModel::setDefaultDownloadQuality,
+                    )
                     SettingsSwitchRow(
                         label = "Wi-Fi only",
                         checked = state.downloadsWifiOnly,
