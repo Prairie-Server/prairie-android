@@ -84,6 +84,35 @@ data class CatalogResponse(
     val snapshot: String? = null
 )
 
+data class CatalogQueryRule(
+    val field: String,
+    val op: String,
+    val value: String,
+)
+
+data class CatalogQueryGroup(
+    val match: String = "all",
+    val rules: List<CatalogQueryRule> = emptyList(),
+)
+
+@Serializable
+data class AudiobookGroup(
+    val name: String,
+    @SerialName("item_count") val itemCount: Int = 0,
+    @SerialName("total_duration_seconds") val totalDurationSeconds: Long? = null,
+    @SerialName("in_progress_count") val inProgressCount: Int = 0,
+    @SerialName("finished_count") val finishedCount: Int = 0,
+    @SerialName("poster_urls") val posterUrls: List<String> = emptyList(),
+)
+
+@Serializable
+data class AudiobookGroupsResponse(
+    val total: Int = 0,
+    @SerialName("total_exact") val totalExact: Boolean? = null,
+    @SerialName("has_more") val hasMore: Boolean = false,
+    val groups: List<AudiobookGroup> = emptyList(),
+)
+
 @Serializable
 data class CatalogFiltersResponse(
     val genres: List<String> = emptyList(),

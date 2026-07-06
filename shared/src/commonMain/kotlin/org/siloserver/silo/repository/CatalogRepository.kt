@@ -1,7 +1,9 @@
 package org.siloserver.silo.repository
 
 import org.siloserver.silo.model.catalog.CatalogFiltersResponse
+import org.siloserver.silo.model.catalog.CatalogQueryGroup
 import org.siloserver.silo.model.catalog.CatalogResponse
+import org.siloserver.silo.model.catalog.AudiobookGroupsResponse
 import org.siloserver.silo.model.catalog.EpisodesResponse
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
@@ -35,6 +37,7 @@ class CatalogRepository(
         yearMin: Int? = null,
         yearMax: Int? = null,
         snapshotAt: String? = null,
+        queryGroups: List<CatalogQueryGroup> = emptyList(),
     ): ApiResult<CatalogResponse> {
         val result = catalogApi.getCatalog(
             source = source,
@@ -51,6 +54,7 @@ class CatalogRepository(
             yearMin = yearMin,
             yearMax = yearMax,
             snapshotAt = snapshotAt,
+            queryGroups = queryGroups,
         )
 
         // Only the unfiltered, first-page default browse of a single library is
@@ -60,6 +64,7 @@ class CatalogRepository(
                 query == null && genre == null && contentRating == null &&
                 namePrefix == null && yearMin == null && yearMax == null &&
                 source == null && mediaType == null && snapshotAt == null &&
+                queryGroups.isEmpty() &&
                 (sort == null || sort == "added_at") && (order == null || order == "desc")
         } ?: return result
 
@@ -76,6 +81,26 @@ class CatalogRepository(
     /** Returns available filter options (genres, studios, etc.) for the catalog. */
     suspend fun getFilters(libraryId: Int? = null): ApiResult<CatalogFiltersResponse> =
         catalogApi.getFilters(libraryId)
+
+    /** Groups audiobook libraries by author, narrator, or series for book-native browsing. */
+    suspend fun getAudiobookGroups(
+        libraryId: Int,
+        groupBy: String,
+        sort: String = "name",
+        offset: Int? = null,
+        limit: Int? = null,
+        query: String? = null,
+        includeTotal: Boolean? = null,
+    ): ApiResult<AudiobookGroupsResponse> =
+        catalogApi.getAudiobookGroups(
+            libraryId = libraryId,
+            groupBy = groupBy,
+            sort = sort,
+            offset = offset,
+            limit = limit,
+            query = query,
+            includeTotal = includeTotal,
+        )
 
     /** Fetches full metadata for a single catalog item (offline: last cached detail). */
     suspend fun getItemDetail(contentId: String): ApiResult<ItemDetail> {

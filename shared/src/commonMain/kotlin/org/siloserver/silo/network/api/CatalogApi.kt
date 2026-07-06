@@ -23,6 +23,7 @@ class CatalogApi(private val client: HttpClient) {
         yearMin: Int? = null,
         yearMax: Int? = null,
         snapshotAt: String? = null,
+        queryGroups: List<CatalogQueryGroup> = emptyList(),
     ): ApiResult<CatalogResponse> = safeApiCall {
         client.get("/api/v1/catalog") {
             source?.let { parameter("source", it) }
@@ -39,6 +40,34 @@ class CatalogApi(private val client: HttpClient) {
             yearMin?.let { parameter("year_min", it) }
             yearMax?.let { parameter("year_max", it) }
             snapshotAt?.let { parameter("snapshot", it) }
+            queryGroups.forEachIndexed { groupIndex, group ->
+                parameter("groups[$groupIndex][match]", group.match)
+                group.rules.forEachIndexed { ruleIndex, rule ->
+                    parameter("groups[$groupIndex][rules][$ruleIndex][field]", rule.field)
+                    parameter("groups[$groupIndex][rules][$ruleIndex][op]", rule.op)
+                    parameter("groups[$groupIndex][rules][$ruleIndex][value]", rule.value)
+                }
+            }
+        }
+    }
+
+    suspend fun getAudiobookGroups(
+        libraryId: Int,
+        groupBy: String,
+        sort: String = "name",
+        offset: Int? = null,
+        limit: Int? = null,
+        query: String? = null,
+        includeTotal: Boolean? = null,
+    ): ApiResult<AudiobookGroupsResponse> = safeApiCall {
+        client.get("/api/v1/catalog/audiobook-groups") {
+            parameter("library_id", libraryId)
+            parameter("group_by", groupBy)
+            parameter("sort", sort)
+            offset?.let { parameter("offset", it) }
+            limit?.let { parameter("limit", it) }
+            query?.let { parameter("q", it) }
+            includeTotal?.let { parameter("include_total", it) }
         }
     }
 
