@@ -2,6 +2,7 @@ package org.siloserver.silo.android.ui.screens.player
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -114,9 +115,15 @@ fun PlayerOverlay(
     val introSkipState by viewModel.introSkipState.collectAsState()
     val sleepTimerState by viewModel.sleepTimerState.collectAsState()
     val sleepTimerDefault by viewModel.sleepTimerDefaultMinutes.collectAsState()
+    val videoGravity by viewModel.videoGravity.collectAsState()
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val subtitleTools by viewModel.subtitleTools.collectAsState()
+    val cycleVideoGravity: () -> Unit = {
+        val nextGravity = nextMobileVideoGravity(videoGravity)
+        viewModel.onSetVideoGravity(nextGravity)
+        Toast.makeText(context, mobileVideoGravityLabel(nextGravity), Toast.LENGTH_SHORT).show()
+    }
     // Remote "display_message" from the control socket — show transiently.
     val remoteMessage by viewModel.remoteMessage.collectAsState()
     LaunchedEffect(remoteMessage?.id) {
@@ -147,6 +154,7 @@ fun PlayerOverlay(
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
                 onFastForwardHold = gatedFastForwardHold,
+                onCycleVideoGravity = cycleVideoGravity,
                 modifier = Modifier.zIndex(0f),
             )
         }
@@ -468,7 +476,7 @@ fun PlayerOverlay(
         onDismiss = { settingsSheetVisible = false },
         playbackSpeed = viewModel.playbackSpeed.collectAsState().value,
         onSetPlaybackSpeed = viewModel::onSetPlaybackSpeed,
-        videoGravity = viewModel.videoGravity.collectAsState().value,
+        videoGravity = videoGravity,
         onSetVideoGravity = viewModel::onSetVideoGravity,
         autoSkipIntroEnabled = viewModel.autoSkipIntroEnabled.collectAsState().value,
         onSetAutoSkipIntro = viewModel::onSetAutoSkipIntro,
@@ -565,4 +573,16 @@ private fun SleepTimerChip(remainingSeconds: Int) {
             fontSize = 13.sp,
         )
     }
+}
+
+internal fun nextMobileVideoGravity(current: String): String = when (current) {
+    "fit" -> "fill"
+    "fill" -> "stretch"
+    else -> "fit"
+}
+
+internal fun mobileVideoGravityLabel(value: String): String = when (value) {
+    "fill" -> "Fill"
+    "stretch" -> "Stretch"
+    else -> "Fit"
 }
