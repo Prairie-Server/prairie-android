@@ -17,6 +17,7 @@ import org.siloserver.silo.repository.NotificationsRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.PlaybackRepository
 import org.siloserver.silo.repository.ProfileRepository
+import org.siloserver.silo.repository.PushRegistrationRepository
 import org.siloserver.silo.repository.RecommendationRepository
 import org.siloserver.silo.repository.RequestsRepository
 import org.siloserver.silo.repository.SectionRepository
@@ -65,6 +66,7 @@ val repositoryModule = module {
     single { EbookReaderRepository(get()) }
     single { SubtitlesRepository(get()) }
     single { AdminRepository(get()) }
+    single { PushRegistrationRepository(get()) }
 
     // REST-backed inbox state plus a realtime factory that builds the default
     // websocket client from the shared HttpClient + NotificationsApi. The

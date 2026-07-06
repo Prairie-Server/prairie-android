@@ -27,6 +27,12 @@ import org.siloserver.silo.network.EncryptedTokenManagerImpl
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.createSecureSharedPrefs
+import org.siloserver.silo.android.push.AndroidPushRegistrar
+import org.siloserver.silo.android.push.AndroidPushTokenProvider
+import org.siloserver.silo.android.push.DisabledAndroidPushTokenProvider
+import org.siloserver.silo.android.push.PushMessageHandler
+import org.siloserver.silo.android.push.PushNotificationPresenter
+import org.siloserver.silo.android.push.SiloFirebaseMessagingService
 import org.siloserver.silo.android.ui.screens.admin.AdminEntryViewModel
 import org.siloserver.silo.android.ui.screens.admin.AdminLogsViewModel
 import org.siloserver.silo.android.ui.screens.admin.AdminScansViewModel
@@ -161,6 +167,22 @@ val androidModule = module {
             deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
         )
     }
+    single<AndroidPushTokenProvider> { DisabledAndroidPushTokenProvider() }
+    single {
+        AndroidPushRegistrar(
+            tokenProvider = get(),
+            repository = get(),
+            deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
+        )
+    }
+    single {
+        PushNotificationPresenter(
+            context = androidContext(),
+            notificationsRepository = get(),
+        )
+    }
+    single { PushMessageHandler(presenter = get()) }
+    single { SiloFirebaseMessagingService(handler = get()) }
 
     // Player infrastructure
     single { SubtitleManager() }
