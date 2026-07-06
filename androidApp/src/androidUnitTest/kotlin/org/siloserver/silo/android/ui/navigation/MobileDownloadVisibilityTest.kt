@@ -33,6 +33,38 @@ class MobileDownloadVisibilityTest {
     }
 
     @Test
+    fun `startup routes to downloads when local media exists and server cannot be used`() {
+        assertFalse(
+            shouldStartOnDownloads(
+                hasLocalDownloads = false,
+                isDeviceOnline = false,
+                canUseServer = false,
+            ),
+        )
+        assertTrue(
+            shouldStartOnDownloads(
+                hasLocalDownloads = true,
+                isDeviceOnline = false,
+                canUseServer = true,
+            ),
+        )
+        assertTrue(
+            shouldStartOnDownloads(
+                hasLocalDownloads = true,
+                isDeviceOnline = true,
+                canUseServer = false,
+            ),
+        )
+        assertFalse(
+            shouldStartOnDownloads(
+                hasLocalDownloads = true,
+                isDeviceOnline = true,
+                canUseServer = true,
+            ),
+        )
+    }
+
+    @Test
     fun `missing active scope does not make global downloads visible`() {
         val storage = DownloadStorage(tmp.newFolder("filesDir"))
         storage.prepareWrite("srv1", "profA", 1, fileName = "one.mkv").writeBytes(ByteArray(100))

@@ -26,6 +26,7 @@ import org.siloserver.silo.android.ui.navigation.AppNavigation
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
+import org.siloserver.silo.android.ui.navigation.shouldStartOnDownloads
 import org.siloserver.silo.android.ui.theme.SiloTheme
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
@@ -199,11 +200,24 @@ class MainActivity : ComponentActivity() {
         val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
         if (profileId.isNullOrBlank()) return Route.ProfileSelection.route
 
-        // Offline-with-downloads fast path: if the device has no network AND
-        // we have downloaded media on disk, land directly on the Downloads
-        // tab so the user isn't greeted with HomeScreen's "Something went
-        // wrong / Check your connection" error. Online flows are unchanged.
-        if (!isOnline() && hasLocalDownloads(activeEntry.id, profileId)) {
+        // Offline-with-downloads fast path: if local media exists and either
+        // the device has no network OR the configured Silo server fails the
+        // authoritative health probe, land directly on Downloads instead of
+        // greeting the user with a dead Home request.
+        val hasDownloads = hasLocalDownloads(activeEntry.id, profileId)
+        val online = isOnline()
+        val canUseServer = if (hasDownloads && online) {
+            get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java).retryNow().canUseServer
+        } else {
+            online
+        }
+        if (
+            shouldStartOnDownloads(
+                hasLocalDownloads = hasDownloads,
+                isDeviceOnline = online,
+                canUseServer = canUseServer,
+            )
+        ) {
             return Route.Downloads.route
         }
 
