@@ -171,6 +171,53 @@ class PlayerViewModelSharedCoordinatorTest {
     }
 
     @Test
+    fun mobileServerRecoveryCannotOutliveSelectedPlaybackContext() {
+        val loadContentBody = viewModelSource
+            .substringAfter("fun loadContent(")
+            .substringBefore("private fun startIntroAutoSkipObserver")
+        val fallbackBody = viewModelSource
+            .substringAfter("private fun startServerRecoveryFallback(")
+            .substringBefore("fun onEngineSwitchFailed")
+        val versionSwitchBody = viewModelSource
+            .substringAfter("fun onSelectVersion(")
+            .substringBefore("/** Toggle controls visibility. */")
+        val exitBody = viewModelSource
+            .substringAfter("fun onExit()")
+            .substringBefore("fun onOpenSettings")
+        val clearedBody = viewModelSource
+            .substringAfter("override fun onCleared()")
+            .substringBefore("private suspend fun resolveDownloadScope")
+
+        assertTrue(viewModelSource.contains("private data class ServerRecoveryIdentity"))
+        assertTrue(
+            fallbackBody.contains("val recoveryIdentity = state.serverRecoveryIdentityFor(version) ?: return"),
+            "server fallback must capture the content/session/version/file it belongs to",
+        )
+        assertTrue(
+            fallbackBody.contains("isCurrentServerRecovery(recoveryIdentity)") &&
+                fallbackBody.contains("current.matchesServerRecovery(recoveryIdentity)"),
+            "server fallback must drop stale coroutine completions before mutating player state",
+        )
+        assertTrue(
+            loadContentBody.contains("resetPlaybackRecoveryState()"),
+            "loading a new item must cancel in-flight recovery and clear retry bookkeeping",
+        )
+        assertTrue(
+            versionSwitchBody.contains("resetPlaybackRecoveryState()") &&
+                versionSwitchBody.indexOf("resetPlaybackRecoveryState()") < versionSwitchBody.indexOf("viewModelScope.launch"),
+            "switching versions must reset recovery state before the async restart begins",
+        )
+        assertTrue(
+            exitBody.contains("resetPlaybackRecoveryState()"),
+            "exiting playback must cancel any in-flight server fallback before state is cleared",
+        )
+        assertTrue(
+            clearedBody.contains("resetPlaybackRecoveryState()"),
+            "ViewModel teardown must cancel in-flight server fallback jobs",
+        )
+    }
+
+    @Test
     fun mobilePlaybackStarterOwnsRemoteStartupAlgorithm() {
         val starterFile = java.io.File(
             "src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/MobileVideoPlaybackStarter.kt",

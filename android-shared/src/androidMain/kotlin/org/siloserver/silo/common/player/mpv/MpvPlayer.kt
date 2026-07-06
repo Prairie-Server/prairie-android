@@ -51,6 +51,8 @@ import javax.net.ssl.X509TrustManager
 
 private const val FitVideoZoom = 0.0
 private const val CropLetterboxVideoZoom = 0.42
+private const val DefaultMpvAudioOutput = "audiotrack,aaudio"
+private const val DefaultMpvHardwareDecoder = "mediacodec,mediacodec-copy"
 
 @androidx.media3.common.util.UnstableApi
 class MpvPlayer(
@@ -68,13 +70,13 @@ class MpvPlayer(
     // PCM decode under aaudio — losing Atmos/TrueHD bitstreaming. The
     // audiotrack AO supports both PCM and passthrough; aaudio remains the
     // fallback if audiotrack fails to initialize.
-    private val audioOutput: String = "audiotrack,aaudio",
+    private val audioOutput: String = DefaultMpvAudioOutput,
     // Direct rendering first (zero-copy AImageReader path on the GL renderer,
     // available on our API-26 device floor), with copy-back as the per-codec
     // fallback — mpv walks the list per codec at decoder init. Forcing
     // copy-back everywhere doubles memory bandwidth on 4K streams, which is
     // what stutters weaker TV SoCs.
-    private val hwDec: String = "mediacodec,mediacodec-copy",
+    private val hwDec: String = DefaultMpvHardwareDecoder,
     private val bufferSizeMb: Int = 64,
     private val httpHeaderFieldsProvider: () -> List<Pair<String, String>> = { emptyList() },
 ) : BasePlayer(), MPVLib.EventObserver, AudioManager.OnAudioFocusChangeListener, MpvVideoScaleController {
@@ -132,10 +134,10 @@ class MpvPlayer(
         var videoOutput: String = "gpu-next"
             private set
 
-        var audioOutput: String = "audiotrack,aaudio"
+        var audioOutput: String = DefaultMpvAudioOutput
             private set
 
-        var hwDec: String = "mediacodec,mediacodec-copy"
+        var hwDec: String = DefaultMpvHardwareDecoder
             private set
 
         var bufferSizeMb: Int = 64

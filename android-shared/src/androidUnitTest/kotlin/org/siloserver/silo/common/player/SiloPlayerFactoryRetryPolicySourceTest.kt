@@ -11,7 +11,8 @@ class SiloPlayerFactoryRetryPolicySourceTest {
     @Test
     fun mediaSourceFactoryUsesServerRestartRetryPolicy() {
         assertTrue(
-            source.contains(".setLoadErrorHandlingPolicy(SiloMediaLoadErrorHandlingPolicy())"),
+            source.contains("val mediaLoadErrorHandlingPolicy = SiloMediaLoadErrorHandlingPolicy()") &&
+                source.split(".setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)").size - 1 >= 2,
             "DefaultMediaSourceFactory must keep retrying transient manifest/segment failures during server restarts.",
         )
     }

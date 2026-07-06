@@ -291,6 +291,13 @@ class PlayerViewModel(
     private val attemptedEngines = mutableSetOf<PlaybackEngineKind>()
     private var transientNetworkRetries = 0
     private var recoveryJob: Job? = null
+    private data class ServerRecoveryIdentity(
+        val contentId: String,
+        val sessionId: String,
+        val selectedVersionIndex: Int,
+        val fileId: Int,
+    )
+
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
@@ -395,8 +402,7 @@ class PlayerViewModel(
         // AutoPlayGuard streak intentionally PERSISTS across episodes.)
         autoAdvanceHandled = false
         engineSwitchFallbackAttempted = false
-        attemptedEngines.clear()
-        transientNetworkRetries = 0
+        resetPlaybackRecoveryState()
         // Cancel any in-flight resolve from the previous episode so its result
         // can't land on this one and overwrite the fresh next-episode pointer.
         resolveNextEpisodeJob?.cancel()
@@ -722,6 +728,7 @@ class PlayerViewModel(
         val selectedAudioIndex = state.selectedAudioIndex
         val selectedSubtitleIndex = state.selectedSubtitleIndex
         val version = state.versions.getOrNull(state.selectedVersionIndex) ?: return
+        val recoveryIdentity = state.serverRecoveryIdentityFor(version) ?: return
         val fallbackMode = when (recoveryAction) {
             is PlaybackRecoveryAction.ServerRemux -> PlaybackSessionManager.TranscodeMode.REMUX
             is PlaybackRecoveryAction.AlternateDirectEngine -> PlaybackSessionManager.TranscodeMode.REMUX
@@ -738,6 +745,10 @@ class PlayerViewModel(
             return
         }
         recoveryJob = viewModelScope.launch {
+            if (!isCurrentServerRecovery(recoveryIdentity)) {
+                Log.i(TAG, "Ignoring stale server recovery before fallback start: $recoveryIdentity")
+                return@launch
+            }
             val capabilities = capabilityDetector.detect()
             val sessionResponse = PlaybackSessionResponse(
                 sessionId = sessionId,
@@ -788,6 +799,10 @@ class PlayerViewModel(
                 },
             )) {
                 is ApiResult.Success -> {
+                    if (!isCurrentServerRecovery(recoveryIdentity)) {
+                        Log.i(TAG, "Ignoring stale server recovery success: $recoveryIdentity")
+                        return@launch
+                    }
                     val fallback = r.data
                     sessionLifecycle.adoptActiveSession(
                         params = StartParams(
@@ -800,25 +815,70 @@ class PlayerViewModel(
                         ),
                         session = fallback,
                     )
-                    _uiState.update {
-                        it.copy(
-                            sessionId = fallback.sessionId,
-                            playMethod = fallback.playMethod,
-                            playbackPlan = fallback.playbackPlan,
-                            delivery = fallback.resolvedPlaybackDelivery(),
-                            streamUrl = fallback.streamUrl,
-                            startPosition = fallback.position,
-                        )
+                    _uiState.update { current ->
+                        if (!current.matchesServerRecovery(recoveryIdentity)) {
+                            current
+                        } else {
+                            current.copy(
+                                sessionId = fallback.sessionId,
+                                playMethod = fallback.playMethod,
+                                playbackPlan = fallback.playbackPlan,
+                                delivery = fallback.resolvedPlaybackDelivery(),
+                                streamUrl = fallback.streamUrl,
+                                startPosition = fallback.position,
+                            )
+                        }
                     }
                 }
-                is ApiResult.Error -> _uiState.update {
-                    it.copy(error = "$notice (start failed: ${r.message})")
+                is ApiResult.Error -> _uiState.update { current ->
+                    if (!current.matchesServerRecovery(recoveryIdentity)) {
+                        current
+                    } else {
+                        current.copy(error = "$notice (start failed: ${r.message})")
+                    }
                 }
-                is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(error = "$notice (network error: ${r.exception.message})")
+                is ApiResult.NetworkError -> _uiState.update { current ->
+                    if (!current.matchesServerRecovery(recoveryIdentity)) {
+                        current
+                    } else {
+                        current.copy(error = "$notice (network error: ${r.exception.message})")
+                    }
                 }
             }
         }
+    }
+
+    private fun resetPlaybackRecoveryState() {
+        cancelRecoveryJob()
+        attemptedEngines.clear()
+        transientNetworkRetries = 0
+    }
+
+    private fun cancelRecoveryJob() {
+        recoveryJob?.cancel()
+        recoveryJob = null
+    }
+
+    private fun PlayerUiState.serverRecoveryIdentityFor(version: FileVersion): ServerRecoveryIdentity? {
+        val sessionId = sessionId ?: return null
+        val contentId = contentId.takeIf { it.isNotBlank() } ?: return null
+        return ServerRecoveryIdentity(
+            contentId = contentId,
+            sessionId = sessionId,
+            selectedVersionIndex = selectedVersionIndex,
+            fileId = version.fileId,
+        )
+    }
+
+    private fun isCurrentServerRecovery(identity: ServerRecoveryIdentity): Boolean =
+        _uiState.value.matchesServerRecovery(identity)
+
+    private fun PlayerUiState.matchesServerRecovery(identity: ServerRecoveryIdentity): Boolean {
+        val currentFileId = versions.getOrNull(selectedVersionIndex)?.fileId
+        return contentId == identity.contentId &&
+            sessionId == identity.sessionId &&
+            selectedVersionIndex == identity.selectedVersionIndex &&
+            currentFileId == identity.fileId
     }
 
     fun onEngineSwitchFailed(message: String) {
@@ -1475,6 +1535,7 @@ class PlayerViewModel(
         if (index == currentState.selectedVersionIndex) return
 
         val currentPosition = currentState.position
+        resetPlaybackRecoveryState()
 
         viewModelScope.launch {
             val lifecycleSessionId = (sessionLifecycle.state.value as? SessionState.Active)
@@ -1643,6 +1704,7 @@ class PlayerViewModel(
 
     /** Called when the user exits the player. */
     fun onExit() {
+        resetPlaybackRecoveryState()
         viewModelScope.launch {
             // Track B: durably record the final position for both paths, then ask
             // the outbox to drain promptly (covers the online offline-download case
@@ -1822,6 +1884,7 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        resetPlaybackRecoveryState()
         super.onCleared()
         // Guarantee the final resume position is persisted on teardown. onExit's
         // write runs in viewModelScope, which is cancelling here — so AWAIT one

@@ -9,13 +9,19 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
+import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
@@ -83,6 +89,16 @@ class SiloPlayerFactory(
         // 1500 packets matches what battle-tested players ship.
         .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
 
+    private val hlsExtractorFactory = DefaultHlsExtractorFactory(
+        // HLS uses a separate extractor path from progressive TS. Keep the DTS
+        // payload-reader flag in both places so Blu-ray-sourced HLS remuxes do
+        // not lose DTS tracks. Media3 does not expose the TS timestamp-search
+        // byte window on DefaultHlsExtractorFactory, so that tuning remains
+        // progressive-TS only.
+        DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS,
+        /* exposeCea608WhenMissingDeclarations = */ true,
+    ).setSubtitleParserFactory(subtitleParserFactory)
+
     fun createPlayer(
         preferFfmpegAudio: Boolean = BuildConfig.FFMPEG_AUDIO_ENABLED,
     ): ExoPlayer {
@@ -137,10 +153,19 @@ class SiloPlayerFactory(
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
+        val mediaLoadErrorHandlingPolicy = SiloMediaLoadErrorHandlingPolicy()
+        val defaultMediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
             .setDataSourceFactory(dataSourceFactory)
             .setSubtitleParserFactory(subtitleParserFactory)
-            .setLoadErrorHandlingPolicy(SiloMediaLoadErrorHandlingPolicy())
+            .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
+        val hlsMediaSourceFactory = HlsMediaSource.Factory(dataSourceFactory)
+            .setExtractorFactory(hlsExtractorFactory)
+            .setSubtitleParserFactory(subtitleParserFactory)
+            .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
+        val mediaSourceFactory = SiloMediaSourceFactory(
+            defaultFactory = defaultMediaSourceFactory,
+            hlsFactory = hlsMediaSourceFactory,
+        )
 
         // Staged buffer: start once a modest cushion is ready, wait longer
         // after an actual stall, and let playback grow a deeper forward
@@ -315,6 +340,47 @@ class SiloPlayerFactory(
 
     private fun buildAbsoluteUrl(serverUrl: String, streamUrl: String): String =
         resolvePlaybackStreamUrl(serverUrl, streamUrl)
+
+    private class SiloMediaSourceFactory(
+        private val defaultFactory: MediaSource.Factory,
+        private val hlsFactory: MediaSource.Factory,
+    ) : MediaSource.Factory {
+        override fun setDrmSessionManagerProvider(
+            drmSessionManagerProvider: DrmSessionManagerProvider,
+        ): MediaSource.Factory {
+            defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            hlsFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            return this
+        }
+
+        override fun setLoadErrorHandlingPolicy(
+            loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
+        ): MediaSource.Factory {
+            defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            hlsFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            return this
+        }
+
+        override fun getSupportedTypes(): IntArray = defaultFactory.supportedTypes
+
+        override fun createMediaSource(mediaItem: MediaItem): MediaSource {
+            val localConfiguration = mediaItem.localConfiguration
+                ?: return defaultFactory.createMediaSource(mediaItem)
+            val contentType = Util.inferContentTypeForUriAndMimeType(
+                localConfiguration.uri,
+                localConfiguration.mimeType,
+            )
+            val hasExternalSubtitleSidecars = localConfiguration.subtitleConfigurations.isNotEmpty()
+            // DefaultMediaSourceFactory is still the only public Media3 path here
+            // that merges MediaItem sidecar subtitles. Keep that route when
+            // sidecars are present so subtitle delay/normalization do not regress.
+            return if (contentType == C.CONTENT_TYPE_HLS && !hasExternalSubtitleSidecars) {
+                hlsFactory.createMediaSource(mediaItem)
+            } else {
+                defaultFactory.createMediaSource(mediaItem)
+            }
+        }
+    }
 }
 
 /**

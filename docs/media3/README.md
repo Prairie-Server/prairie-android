@@ -65,8 +65,9 @@ cases; this document suite remains the Media3 reference.
   `DefaultMediaSourceFactory`. For HLS fallback also add `media3-exoplayer-hls`.
 - **"Why doesn't Dolby Vision work on my TV?"** Check the profile and selected
   route. DV Profile 5 needs a decoder **and** a DV-capable HDMI link; Profile 7
-  is not a launch-safe Android TV DV direct-play claim and needs the fallback
-  policy in **09**.
+  direct-plays only when the decoder advertises dual-layer support with the
+  multi-instance HEVC gate; otherwise the route falls through the mpv/server
+  recovery policy in **09** and **10**.
 - **"Why is Atmos silent on my AVR?"** Passthrough gate failed. Read **04 §4** on
   `AudioCapabilities.supportsEncoding(...)` and **05 §1** on what has to match for
   TrueHD / E-AC-3 JOC to leave the device as a bitstream. Common causes: eARC not
