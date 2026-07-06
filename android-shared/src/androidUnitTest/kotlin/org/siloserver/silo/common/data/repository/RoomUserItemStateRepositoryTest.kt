@@ -148,6 +148,26 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun recordTrackSelectionsWritesFileProjectionWithoutOutbox() = runTest {
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 456.0, durationSeconds = 3600.0)
+        repo.recordAudioTrackSelection("c1", fileId = 7, audioFingerprint = "1|eng|eac3|5.1|false")
+        repo.recordSubtitleTrackSelection("c1", fileId = 7, subtitleFingerprint = "off")
+
+        val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
+        assertEquals(456.0, row?.positionSeconds)
+        assertEquals("1|eng|eac3|5.1|false", row?.audioFingerprint)
+        assertEquals("off", row?.subtitleFingerprint)
+        assertEquals(
+            org.siloserver.silo.repository.port.LocalTrackSelection(
+                audioFingerprint = "1|eng|eac3|5.1|false",
+                subtitleFingerprint = "off",
+            ),
+            repo.localTrackSelection("c1", fileId = 7),
+        )
+        assertEquals(1, db.dirtyOperationDao().count(), "track selections are local-only; position op is unchanged")
+    }
+
+    @Test
     fun recordEbookProgressWritesProjectionOpAndReadsBack() = runTest {
         repo.recordEbookProgress("c1", fileId = 7, location = "epubcfi(/6/4!/4)", progress = 0.42)
         val back = repo.localEbookProgress("c1", fileId = 7)

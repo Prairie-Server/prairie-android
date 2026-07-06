@@ -53,8 +53,13 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.common.player.AutoPlayGuard
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.errorMessage
+import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
+import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.playback.nextEpisodeAfter
+import org.siloserver.silo.playback.resolveAudioTrackOrdinal
+import org.siloserver.silo.playback.resolveSubtitleTrackOrdinal
 import org.siloserver.silo.playback.selectPlaybackVersion
+import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
@@ -310,6 +315,7 @@ class PlayerViewModel(
     private var pendingApproachingEndVideoEnded: Boolean? = null
     private var upNextCountdownJob: Job? = null
     private var engineSwitchFallbackAttempted = false
+    private var persistNextSubtitleSelection = false
 
     // Recovery ladder state — mirrors TvPlayerViewModel. The planner picks the
     // cheapest viable fallback (alternate direct engine → server remux →
@@ -432,6 +438,7 @@ class PlayerViewModel(
         autoAdvanceHandled = false
         pendingApproachingEndVideoEnded = null
         engineSwitchFallbackAttempted = false
+        persistNextSubtitleSelection = false
         resetPlaybackRecoveryState()
         upNextCountdownJob?.cancel()
         upNextCountdownJob = null
@@ -485,6 +492,7 @@ class PlayerViewModel(
                     is VideoPlayerUiState.Ready -> applyCoordinatorStateToUi(
                         playbackState = playbackState,
                         preferredFileId = preferredFileId,
+                        initialAudioTrackIndex = initialAudioTrackIndex,
                         initialSubtitleTrackIndex = initialSubtitleTrackIndex,
                     )
                     is VideoPlayerUiState.Error -> {
@@ -508,6 +516,7 @@ class PlayerViewModel(
     private suspend fun applyCoordinatorStateToUi(
         playbackState: VideoPlayerUiState.Ready,
         preferredFileId: Int?,
+        initialAudioTrackIndex: Int?,
         initialSubtitleTrackIndex: Int?,
     ) {
         val watchDetail = when (val r = catalogRepository.getWatchDetail(playbackState.contentId)) {
@@ -532,9 +541,27 @@ class PlayerViewModel(
             ?: watchDetail?.let { findPreferredVersion(it, preferredFileId, null) }
             ?: 0
         val version = versions.getOrNull(versionIndex)
+        val localTrackSelection = version?.fileId
+            ?.takeIf { initialAudioTrackIndex == null || initialSubtitleTrackIndex == null }
+            ?.let { fileId -> userItemStatePort.localTrackSelection(playbackState.contentId, fileId) }
+        val persistedAudioIndex = if (initialAudioTrackIndex == null) {
+            version?.audioTracks
+                ?.let { tracks -> resolveAudioTrackOrdinal(tracks, localTrackSelection?.audioFingerprint) }
+        } else {
+            null
+        }
+        val persistedSubtitleIndex = if (initialSubtitleTrackIndex == null) {
+            version?.subtitleTracks
+                ?.let { tracks -> resolveSubtitleTrackOrdinal(tracks, localTrackSelection?.subtitleFingerprint) }
+        } else {
+            null
+        }
         val resolvedSubtitleIndex = initialSubtitleTrackIndex
             ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
+            ?: persistedSubtitleIndex
+                ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
             ?: -1
+        persistNextSubtitleSelection = initialSubtitleTrackIndex != null || persistedSubtitleIndex != null
 
         _uiState.update {
             it.copy(
@@ -577,6 +604,17 @@ class PlayerViewModel(
                 preferredAudioLanguage = playbackState.preferredAudioLanguage,
                 preferredTextLanguage = playbackState.preferredTextLanguage,
             )
+        }
+
+        if (initialAudioTrackIndex != null && initialAudioTrackIndex in _uiState.value.audioTracks.indices) {
+            persistAudioTrackSelection(initialAudioTrackIndex)
+        }
+        if (
+            persistedAudioIndex != null &&
+            persistedAudioIndex != playbackState.audioTrackIndex &&
+            persistedAudioIndex in _uiState.value.audioTracks.indices
+        ) {
+            onSelectAudio(persistedAudioIndex)
         }
 
         // Begin observing intro auto-skip inputs for this session.
@@ -1144,7 +1182,23 @@ class PlayerViewModel(
 
     /** Select a subtitle track (-1 to disable). */
     fun onSelectSubtitle(index: Int) {
+        persistNextSubtitleSelection = true
         _uiState.update { it.copy(selectedSubtitleIndex = index) }
+    }
+
+    fun onSubtitleSelectionApplied(index: Int) {
+        if (!persistNextSubtitleSelection) return
+        persistNextSubtitleSelection = false
+        val state = _uiState.value
+        val fileId = currentFileId() ?: return
+        val fingerprint = if (index == -1) {
+            SUBTITLE_OFF_FINGERPRINT
+        } else {
+            state.subtitleTracks.getOrNull(index)?.let(::subtitleTrackFingerprint) ?: return
+        }
+        viewModelScope.launch {
+            userItemStatePort.recordSubtitleTrackSelection(state.contentId, fileId, fingerprint)
+        }
     }
 
     /** Select an audio track (may require server-side switch). */
@@ -1159,6 +1213,7 @@ class PlayerViewModel(
             when (result) {
                 is ApiResult.Success -> {
                     val response = result.data
+                    persistAudioTrackSelection(response.audioTrackIndex)
                     // If the server provided a new stream URL, update the state
                     if (response.streamUrl != currentState.streamUrl) {
                         _uiState.update {
@@ -1179,6 +1234,15 @@ class PlayerViewModel(
                     Log.e(TAG, "Network error changing audio", result.exception)
                 }
             }
+        }
+    }
+
+    private fun persistAudioTrackSelection(index: Int) {
+        val state = _uiState.value
+        val fileId = currentFileId() ?: return
+        val fingerprint = state.audioTracks.getOrNull(index)?.let(::audioTrackFingerprint) ?: return
+        viewModelScope.launch {
+            userItemStatePort.recordAudioTrackSelection(state.contentId, fileId, fingerprint)
         }
     }
 

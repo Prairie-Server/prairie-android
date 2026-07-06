@@ -717,9 +717,9 @@ fun PlayerScreen(
     // Handle subtitle selection
     LaunchedEffect(videoBackend, uiState.subtitleTracks, uiState.selectedSubtitleIndex) {
         val backend = videoBackend ?: return@LaunchedEffect
-        backend.selectSubtitle(
-            subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex),
-        )
+        if (backend.selectSubtitle(subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex))) {
+            viewModel.onSubtitleSelectionApplied(uiState.selectedSubtitleIndex)
+        }
     }
 
     // Notify the ViewModel we're leaving the screen.

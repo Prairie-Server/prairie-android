@@ -43,9 +43,11 @@ import org.siloserver.silo.model.subtitles.SubtitleDownloadRequest
 import org.siloserver.silo.model.subtitles.SubtitleResult
 import org.siloserver.silo.model.subtitles.SubtitleSearchRequest
 import org.siloserver.silo.model.subtitles.SubtitleTranslateRequest
+import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.errorMessage
 import org.siloserver.silo.playback.nextEpisodeAfter
+import org.siloserver.silo.playback.trackSelectionFingerprint
 import org.siloserver.silo.repository.SubtitlesRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -592,6 +594,8 @@ class TvPlayerViewModel(
     // later user track change isn't overridden.
     private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
     private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
+    private var pendingPersistedAudioFingerprint: String? = null
+    private var pendingPersistedSubtitleFingerprint: String? = null
     private var autoTextSubtitleSelectionAttempted = false
     private var manualSubtitleSelectionApplied = false
     private val recoveryPlanner = PlaybackRecoveryPlanner()
@@ -929,6 +933,19 @@ class TvPlayerViewModel(
                     ),
                 )) {
                     is VideoPlayerUiState.Ready -> {
+                        val localTrackSelection = result.fileId
+                            ?.takeIf { initialAudioTrackIndex == null || launchArgs.initialSubtitleTrackIndex == null }
+                            ?.let { fileId -> userItemStatePort.localTrackSelection(contentId, fileId) }
+                        pendingPersistedAudioFingerprint = if (initialAudioTrackIndex == null) {
+                            localTrackSelection?.audioFingerprint
+                        } else {
+                            null
+                        }
+                        pendingPersistedSubtitleFingerprint = if (launchArgs.initialSubtitleTrackIndex == null) {
+                            localTrackSelection?.subtitleFingerprint
+                        } else {
+                            null
+                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -1533,6 +1550,7 @@ class TvPlayerViewModel(
      */
     fun onTracksChanged(audio: List<PlayerTrackEntry>, subtitle: List<PlayerTrackEntry>) {
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
+        resolvePendingPersistedTrackSelection(audio, subtitle)
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
         resolveAutoPreferredTextSubtitle(audio, subtitle)
@@ -1552,9 +1570,39 @@ class TvPlayerViewModel(
                 videoQualities = videoQualities,
             )
         }
+        resolvePendingPersistedTrackSelection(audio, subtitle)
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
         resolveAutoPreferredTextSubtitle(audio, subtitle)
+    }
+
+    private fun resolvePendingPersistedTrackSelection(
+        audio: List<PlayerTrackEntry>,
+        subtitle: List<PlayerTrackEntry>,
+    ) {
+        pendingPersistedAudioFingerprint?.let { fingerprint ->
+            if (audio.isNotEmpty()) {
+                pendingPersistedAudioFingerprint = null
+                audio.firstOrNull { it.selectionFingerprint() == fingerprint }
+                    ?.let { _pendingRemoteAudioIndex.value = it.index }
+            }
+        }
+
+        pendingPersistedSubtitleFingerprint?.let { fingerprint ->
+            if (fingerprint == SUBTITLE_OFF_FINGERPRINT) {
+                pendingPersistedSubtitleFingerprint = null
+                manualSubtitleSelectionApplied = true
+                _subtitleSelectRequests.tryEmit(-1)
+                return
+            }
+            if (subtitle.isEmpty()) return
+            pendingPersistedSubtitleFingerprint = null
+            subtitle.firstOrNull { it.selectionFingerprint() == fingerprint }
+                ?.let {
+                    manualSubtitleSelectionApplied = true
+                    _subtitleSelectRequests.tryEmit(it.index)
+                }
+        }
     }
 
     private fun resolveAutoPreferredTextSubtitle(
@@ -1615,6 +1663,32 @@ class TvPlayerViewModel(
     fun onSubtitleSelectionApplied(index: Int) {
         _uiState.update {
             it.copy(subtitleTracks = subtitleTracksWithSelection(it.subtitleTracks, index))
+        }
+    }
+
+    fun persistSubtitleSelection(index: Int) {
+        persistSubtitleTrackSelection(index)
+    }
+
+    fun onAudioSelectionApplied(index: Int) {
+        val state = _uiState.value
+        val fileId = state.selectedFileId ?: state.mediaFileId ?: return
+        val fingerprint = state.audioTracks.firstOrNull { it.index == index }?.selectionFingerprint() ?: return
+        viewModelScope.launch {
+            userItemStatePort.recordAudioTrackSelection(contentId, fileId, fingerprint)
+        }
+    }
+
+    private fun persistSubtitleTrackSelection(index: Int) {
+        val state = _uiState.value
+        val fileId = state.selectedFileId ?: state.mediaFileId ?: return
+        val fingerprint = if (index == -1) {
+            SUBTITLE_OFF_FINGERPRINT
+        } else {
+            state.subtitleTracks.firstOrNull { it.index == index }?.selectionFingerprint() ?: return
+        }
+        viewModelScope.launch {
+            userItemStatePort.recordSubtitleTrackSelection(contentId, fileId, fingerprint)
         }
     }
 
@@ -2204,3 +2278,12 @@ class TvPlayerViewModel(
     }
 
 }
+
+private fun PlayerTrackEntry.selectionFingerprint(): String =
+    trackSelectionFingerprint(
+        index = index,
+        language = language,
+        codec = codecOrMime,
+        title = label,
+        forced = isForced,
+    )

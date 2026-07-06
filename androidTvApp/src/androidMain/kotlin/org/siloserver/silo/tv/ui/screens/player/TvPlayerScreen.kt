@@ -365,7 +365,9 @@ fun TvPlayerScreen(
         viewModel.onManualSubtitleSelectionIntent()
         viewModel.onSubtitleSelectionApplied(idx)
         if (dismiss) viewModel.closeSubtitleMenu()
-        if (videoBackend?.selectSubtitle(selectedTrack) != true) {
+        if (videoBackend?.selectSubtitle(selectedTrack) == true) {
+            viewModel.persistSubtitleSelection(idx)
+        } else {
             Log.w(TAG, "Subtitle selection deferred or failed for index=$idx")
         }
     }
@@ -1209,6 +1211,7 @@ fun TvPlayerScreen(
                                     ?.toVideoTrackEntry()
                                 if (selectedTrack != null) {
                                     videoBackend?.selectAudioTrack(selectedTrack)
+                                    viewModel.onAudioSelectionApplied(idx)
                                 }
                             },
                             onSelectVideoQuality = { id ->

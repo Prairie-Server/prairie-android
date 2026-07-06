@@ -59,6 +59,21 @@ interface UserItemStatePort {
     suspend fun localPositionForContent(contentId: String): Double? = null
 
     /**
+     * Durably record per-file track selections. These are local-only hints for
+     * future playback starts, stored as stable fingerprints rather than raw UI
+     * ordinals so they survive track-list reordering. They do not enqueue a
+     * server outbox op because the server currently models track choices as
+     * playback-session inputs, not user state.
+     */
+    suspend fun recordAudioTrackSelection(contentId: String, fileId: Int, audioFingerprint: String?) {
+    }
+
+    suspend fun recordSubtitleTrackSelection(contentId: String, fileId: Int, subtitleFingerprint: String?) {
+    }
+
+    suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? = null
+
+    /**
      * Durably record ebook reading position (CFI [location] + [progress] 0..1) for
      * offline-safe resume + sync. Like [recordPosition] there is no inline call:
      * the local file-level projection (cfi/readProgress) is the resume source and a
@@ -88,6 +103,9 @@ interface UserItemStatePort {
 
 /** Local optimistic content-level state; null fields = "no local opinion" (defer to server). */
 data class LocalContentState(val watched: Boolean?, val favorite: Boolean?)
+
+/** Local per-file track choices; null fields mean "no local override". */
+data class LocalTrackSelection(val audioFingerprint: String?, val subtitleFingerprint: String?)
 
 /** Local ebook resume point: CFI [location] + [progress] fraction (0..1). */
 data class EbookLocalProgress(val location: String, val progress: Double)
