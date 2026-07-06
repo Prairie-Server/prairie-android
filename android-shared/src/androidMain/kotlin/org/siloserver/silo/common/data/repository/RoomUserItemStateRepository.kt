@@ -11,6 +11,7 @@ import org.siloserver.silo.common.data.sync.revertForTerminalOp
 import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.repository.port.EbookLocalProgress
 import org.siloserver.silo.repository.port.LocalContentState
+import org.siloserver.silo.repository.port.LocalPlaybackProgress
 import org.siloserver.silo.repository.port.LocalTrackSelection
 import org.siloserver.silo.repository.port.OutboxHandle
 import org.siloserver.silo.repository.port.UserItemStatePort
@@ -137,11 +138,25 @@ class RoomUserItemStateRepository(
     }
 
     override suspend fun localPositionForContent(contentId: String): Double? {
+        return localPlaybackProgress(contentId)?.positionSeconds
+    }
+
+    override suspend fun localPlaybackProgress(contentId: String): LocalPlaybackProgress? {
         val snapshot = snapshotProvider() ?: return null
         val profileId = snapshot.profileId ?: return null
         return userStateDao.getByContent(snapshot.serverId, profileId, contentId)
-            .mapNotNull { it.positionSeconds.takeIf { p -> p > 0.0 } }
-            .maxOrNull()
+            .furthestProgress()
+    }
+
+    override suspend fun localPlaybackProgressForContent(contentIds: List<String>): Map<String, LocalPlaybackProgress> {
+        if (contentIds.isEmpty()) return emptyMap()
+        val snapshot = snapshotProvider() ?: return emptyMap()
+        val profileId = snapshot.profileId ?: return emptyMap()
+        return userStateDao.progressForContentIds(snapshot.serverId, profileId, contentIds.distinct())
+            .groupBy { it.contentId }
+            .mapValues { (_, rows) -> rows.furthestProgress() }
+            .filterValues { it != null }
+            .mapValues { (_, value) -> value!! }
     }
 
     override suspend fun recordAudioTrackSelection(
@@ -339,3 +354,17 @@ class RoomUserItemStateRepository(
         }
     }
 }
+
+private fun List<UserItemStateEntity>.furthestProgress(): LocalPlaybackProgress? =
+    filter { it.positionSeconds.isFinite() && it.positionSeconds > 0.0 }
+        .maxWithOrNull(
+            compareBy<UserItemStateEntity> { it.positionSeconds }
+                .thenBy { it.clientUpdatedAtMs },
+        )
+        ?.let {
+            LocalPlaybackProgress(
+                fileId = it.fileId,
+                positionSeconds = it.positionSeconds,
+                durationSeconds = it.durationSeconds,
+            )
+        }

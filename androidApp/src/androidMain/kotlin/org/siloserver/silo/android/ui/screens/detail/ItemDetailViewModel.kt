@@ -18,6 +18,7 @@ import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.DownloadsRepository
 import org.siloserver.silo.repository.EbookReaderRepository
 import org.siloserver.silo.repository.PersonalDataRepository
+import org.siloserver.silo.viewmodel.applyLocalPlaybackProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -217,7 +218,7 @@ class ItemDetailViewModel(
 
             when (val result = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
-                    val detail = result.data
+                    val detail = withLocalProgress(result.data)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -261,7 +262,7 @@ class ItemDetailViewModel(
     }
 
     private suspend fun seedCachedDetail() {
-        val cached = catalogRepository.getCachedItemDetail(contentId) ?: return
+        val cached = catalogRepository.getCachedItemDetail(contentId)?.let { withLocalProgress(it) } ?: return
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -391,7 +392,7 @@ class ItemDetailViewModel(
             _uiState.update { it.copy(isLoadingEpisodes = true) }
             when (val result = catalogRepository.getEpisodes(seriesId, seasonNumber)) {
                 is ApiResult.Success -> {
-                    val episodes = result.data.episodes
+                    val episodes = withLocalProgress(result.data.episodes)
                     _uiState.update {
                         it.copy(
                             isLoadingEpisodes = false,
@@ -417,6 +418,16 @@ class ItemDetailViewModel(
                 }
             }
         }
+    }
+
+    private suspend fun withLocalProgress(detail: ItemDetail): ItemDetail =
+        applyLocalPlaybackProgress(detail, userItemState.localPlaybackProgress(detail.contentId))
+
+    private suspend fun withLocalProgress(episodes: List<EpisodeListItem>): List<EpisodeListItem> {
+        if (episodes.isEmpty()) return episodes
+        val progress = userItemState.localPlaybackProgressForContent(episodes.map { it.contentId })
+        if (progress.isEmpty()) return episodes
+        return episodes.map { episode -> applyLocalPlaybackProgress(episode, progress[episode.contentId]) }
     }
 
     /**

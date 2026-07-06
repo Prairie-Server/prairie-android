@@ -14,8 +14,11 @@ import org.siloserver.silo.model.section.SectionItem
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
+import org.siloserver.silo.repository.port.NoOpUserItemStatePort
+import org.siloserver.silo.repository.port.UserItemStatePort
 import org.siloserver.silo.tv.ui.util.isTvHiddenMediaType
 import org.siloserver.silo.tv.ui.util.visibleOnTv
+import org.siloserver.silo.viewmodel.applyLocalPlaybackProgress
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,6 +90,7 @@ class TvItemDetailViewModel(
     private val personalDataRepository: PersonalDataRepository,
     private val playerSettingsStore: PlayerSettingsStore,
     private val contentId: String,
+    private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvItemDetailUiState())
@@ -137,7 +141,7 @@ class TvItemDetailViewModel(
     }
 
     private suspend fun seedCachedDetail() {
-        val cached = catalogRepository.getCachedItemDetail(contentId) ?: return
+        val cached = catalogRepository.getCachedItemDetail(contentId)?.let { withLocalProgress(it) } ?: return
         if (isTvHiddenMediaType(cached.type)) return
         _uiState.update {
             it.copy(
@@ -154,7 +158,7 @@ class TvItemDetailViewModel(
         viewModelScope.launch {
             when (val result = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
-                    val detail = result.data
+                    val detail = withLocalProgress(result.data)
                     if (isTvHiddenMediaType(detail.type)) {
                         _uiState.update {
                             it.copy(
@@ -377,7 +381,7 @@ class TvItemDetailViewModel(
             _uiState.update { it.copy(episodesLoading = true) }
             when (val r = catalogRepository.getEpisodes(seriesContentId, seasonNumber)) {
                 is ApiResult.Success -> {
-                    val episodes = r.data.episodes.sortedBy { ep -> ep.episodeNumber }
+                    val episodes = withLocalProgress(r.data.episodes.sortedBy { ep -> ep.episodeNumber })
                     _uiState.update { it.copy(episodesLoading = false, episodes = episodes) }
                     refreshNextUp(episodes)
                 }
@@ -387,6 +391,16 @@ class TvItemDetailViewModel(
                 }
             }
         }
+    }
+
+    private suspend fun withLocalProgress(detail: ItemDetail): ItemDetail =
+        applyLocalPlaybackProgress(detail, userItemState.localPlaybackProgress(detail.contentId))
+
+    private suspend fun withLocalProgress(episodes: List<EpisodeListItem>): List<EpisodeListItem> {
+        if (episodes.isEmpty()) return episodes
+        val progress = userItemState.localPlaybackProgressForContent(episodes.map { it.contentId })
+        if (progress.isEmpty()) return episodes
+        return episodes.map { episode -> applyLocalPlaybackProgress(episode, progress[episode.contentId]) }
     }
 
     /**
@@ -468,7 +482,7 @@ class TvItemDetailViewModel(
             when (result) {
                 is ApiResult.Success -> _uiState.update {
                     it.copy(
-                        nextUpPlaybackDetail = result.data,
+                        nextUpPlaybackDetail = withLocalProgress(result.data),
                         isLoadingNextUpPlaybackDetail = false,
                         didLoadNextUpPlaybackDetail = true,
                     )

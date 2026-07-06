@@ -58,6 +58,12 @@ interface UserItemStatePort {
      */
     suspend fun localPositionForContent(contentId: String): Double? = null
 
+    /** Full local resume snapshot for a content item, including the file that produced it. */
+    suspend fun localPlaybackProgress(contentId: String): LocalPlaybackProgress? = null
+
+    /** Batched local resume snapshots for card/detail overlays. */
+    suspend fun localPlaybackProgressForContent(contentIds: List<String>): Map<String, LocalPlaybackProgress> = emptyMap()
+
     /**
      * Durably record per-file track selections. These are local-only hints for
      * future playback starts, stored as stable fingerprints rather than raw UI
@@ -109,6 +115,13 @@ data class LocalTrackSelection(val audioFingerprint: String?, val subtitleFinger
 
 /** Local ebook resume point: CFI [location] + [progress] fraction (0..1). */
 data class EbookLocalProgress(val location: String, val progress: Double)
+
+/** Local video/audio resume point that has not necessarily synced to the server yet. */
+data class LocalPlaybackProgress(
+    val fileId: Int,
+    val positionSeconds: Double,
+    val durationSeconds: Double?,
+)
 
 /**
  * Opaque reference to an enqueued outbox op. [NONE] means nothing was recorded

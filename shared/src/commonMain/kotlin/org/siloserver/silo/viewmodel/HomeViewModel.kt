@@ -10,7 +10,6 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.SectionRepository
 import org.siloserver.silo.repository.port.HomeCachePort
 import org.siloserver.silo.repository.port.NoOpHomeCachePort
-import org.siloserver.silo.repository.port.LocalContentState
 import org.siloserver.silo.repository.port.NoOpUserItemStatePort
 import org.siloserver.silo.repository.port.UserItemStatePort
 import kotlinx.coroutines.async
@@ -76,29 +75,18 @@ class HomeViewModel(
     }
 
     /**
-     * Overlay local optimistic watched/favorite onto card user_state (local non-null
-     * wins; watchlist stays server — no local projection). Makes an offline mutation
-     * show immediately instead of the stale server snapshot baked into a cached card.
+     * Overlay local optimistic watched/favorite plus queued playback progress onto
+     * cards. Local progress wins only when it is ahead of the server snapshot, so
+     * an offline replay never makes the visible resume point move backwards.
      */
     private suspend fun overlayLocalState(sections: List<ResolvedSection>): List<ResolvedSection> {
         val ids = sections.flatMap { section -> section.items.map { it.contentId } }.distinct()
         if (ids.isEmpty()) return sections
-        val local: Map<String, LocalContentState> = userItemState.localContentStates(ids)
-        if (local.isEmpty()) return sections
-        return sections.map { section ->
-            section.copy(
-                items = section.items.map { item ->
-                    val ls = local[item.contentId] ?: return@map item
-                    val base = item.userState ?: MediaItemUserState()
-                    item.copy(
-                        userState = base.copy(
-                            played = ls.watched ?: base.played,
-                            isFavorite = ls.favorite ?: base.isFavorite,
-                        ),
-                    )
-                },
-            )
-        }
+        return applyLocalStateOverlay(
+            sections = sections,
+            contentStates = userItemState.localContentStates(ids),
+            progressStates = userItemState.localPlaybackProgressForContent(ids),
+        )
     }
 
     private suspend fun fetchSections() {
