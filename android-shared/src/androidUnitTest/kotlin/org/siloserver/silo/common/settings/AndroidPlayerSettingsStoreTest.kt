@@ -78,6 +78,18 @@ class AndroidPlayerSettingsStoreTest {
     }
 
     @Test
+    fun `picture in picture defaults on and stays local`() = runTest {
+        val store = newStore()
+        assertEquals(true, store.pictureInPictureEnabledFlow.first())
+        store.setPictureInPictureEnabled(false)
+        assertEquals(false, store.pictureInPictureEnabledFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.PictureInPictureEnabled },
+            "PiP is platform-local and must never flush an unknown setting key to the server",
+        )
+    }
+
+    @Test
     fun `setSubtitleAppearance round-trips through JSON`() = runTest {
         val store = newStore()
         val custom = SubtitleAppearance.DEFAULT.copy(
@@ -105,6 +117,7 @@ class AndroidPlayerSettingsStoreTest {
         assertEquals(false, store.autoSkipIntroFlow.first())
         assertEquals(true, store.autoPlayNextFlow.first())
         assertEquals(true, store.hdrEnabledFlow.first())
+        assertEquals(true, store.pictureInPictureEnabledFlow.first())
         assertEquals(1.0, store.playbackSpeedFlow.first(), 0.0)
         assertEquals(0, store.audioSyncMsFlow.first())
         assertEquals(30, store.nextUpPromptSecondsFlow.first())

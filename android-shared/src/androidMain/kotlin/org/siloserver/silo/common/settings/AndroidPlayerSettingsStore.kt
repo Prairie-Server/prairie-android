@@ -142,6 +142,9 @@ class AndroidPlayerSettingsStore(
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DvProfile7HDR10Fallback, true) }
 
+    override val pictureInPictureEnabledFlow: Flow<Boolean> =
+        profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.PictureInPictureEnabled, true) }
+
     override val downloadsWifiOnlyFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DownloadsWifiOnly, true) }
 
@@ -212,6 +215,9 @@ class AndroidPlayerSettingsStore(
 
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) =
         writeBool(PlaybackSettingsKeys.DvProfile7HDR10Fallback, value)
+
+    override suspend fun setPictureInPictureEnabled(value: Boolean) =
+        writeBoolLocal(PlaybackSettingsKeys.PictureInPictureEnabled, value)
 
     override suspend fun setDownloadsWifiOnly(value: Boolean) =
         writeBool(PlaybackSettingsKeys.DownloadsWifiOnly, value)
@@ -391,6 +397,12 @@ class AndroidPlayerSettingsStore(
     private suspend fun writeIntLocal(key: String, value: Int) {
         withScope { scope, store ->
             store.edit { it[intPreferencesKey(scope.keyPrefix + key)] = value }
+        }
+    }
+
+    private suspend fun writeBoolLocal(key: String, value: Boolean) {
+        withScope { scope, store ->
+            store.edit { it[booleanPreferencesKey(scope.keyPrefix + key)] = value }
         }
     }
 

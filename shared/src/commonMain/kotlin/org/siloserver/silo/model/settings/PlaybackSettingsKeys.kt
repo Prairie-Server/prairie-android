@@ -57,6 +57,12 @@ object PlaybackSettingsKeys {
      */
     const val PassOutThreshold = "player.passout_threshold"
 
+    /**
+     * Local-only per-profile setting. Platform PiP is device/OS-specific and
+     * not a server playback preference, so this never enters [DeviceSettings].
+     */
+    const val PictureInPictureEnabled = "player.picture_in_picture_enabled"
+
     val DeviceSettings = listOf(
         PreferredQuality,
         AudioLanguage,

@@ -235,6 +235,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val autoPlayNextFlow = MutableStateFlow(true)
     override val hdrEnabledFlow = MutableStateFlow(true)
     override val dvProfile7HDR10FallbackFlow = MutableStateFlow(false)
+    override val pictureInPictureEnabledFlow = MutableStateFlow(true)
     override val downloadsWifiOnlyFlow = MutableStateFlow(true)
     override val playbackSpeedFlow = MutableStateFlow(1.0)
     override val audioSyncMsFlow = MutableStateFlow(0)
@@ -264,6 +265,9 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     }
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) {
         setterCalls += "setDvProfile7HDR10Fallback"; dvProfile7HDR10FallbackFlow.value = value
+    }
+    override suspend fun setPictureInPictureEnabled(value: Boolean) {
+        setterCalls += "setPictureInPictureEnabled"; pictureInPictureEnabledFlow.value = value
     }
     override suspend fun setDownloadsWifiOnly(value: Boolean) {
         setterCalls += "setDownloadsWifiOnly"; downloadsWifiOnlyFlow.value = value

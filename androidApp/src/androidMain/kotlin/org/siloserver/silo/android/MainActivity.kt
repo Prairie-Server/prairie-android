@@ -2,6 +2,7 @@ package org.siloserver.silo.android
 
 import android.Manifest
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -27,6 +28,8 @@ import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
 import org.siloserver.silo.android.ui.theme.SiloTheme
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
+import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
 import org.siloserver.silo.common.startup.warmAuthenticatedStartup
@@ -137,6 +140,21 @@ class MainActivity : ComponentActivity() {
         monitor.stopForeground()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
+            .enterPictureInPictureIfEligible(this, SiloPictureInPictureSurface.Mobile)
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
+            .setInPictureInPictureMode(isInPictureInPictureMode)
     }
 
     private fun maybeRequestNotificationPermission() {

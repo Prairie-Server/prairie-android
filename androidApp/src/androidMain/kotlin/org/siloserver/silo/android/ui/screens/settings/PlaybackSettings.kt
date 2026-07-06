@@ -36,12 +36,14 @@ fun PlaybackSettings(
     audioLanguage: String,
     autoSkipIntro: Boolean,
     autoSkipCredits: Boolean,
+    pictureInPictureEnabled: Boolean,
     resumeRewindSeconds: Int,
     passOutThreshold: Int,
     onQualityChanged: (String) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
     onResetPlaybackOverrides: () -> Unit,
@@ -74,6 +76,12 @@ fun PlaybackSettings(
             label = "Auto-Skip Credits",
             checked = autoSkipCredits,
             onCheckedChange = onAutoSkipCreditsChanged,
+        )
+
+        SettingsSwitchRow(
+            label = "Picture-in-Picture",
+            checked = pictureInPictureEnabled,
+            onCheckedChange = onPictureInPictureEnabledChanged,
         )
 
         SettingsDropdownRow(

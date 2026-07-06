@@ -172,6 +172,7 @@ fun TvSettingsScreen(
             onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
             onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
             onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
+            onPictureInPictureEnabledChanged = viewModel::onPictureInPictureEnabledChanged,
             onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
             onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
             onNextUpPromptSecondsChanged = viewModel::onNextUpPromptSecondsChanged,
@@ -393,6 +394,7 @@ private fun TvPlaybackSettingsScreen(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
     onNextUpPromptSecondsChanged: (Int) -> Unit,
@@ -413,6 +415,11 @@ private fun TvPlaybackSettingsScreen(
                     label = "Audio Language",
                     value = audioLanguageLabel(state.audioLanguage),
                     onClick = { activePicker = PlaybackPicker.AudioLanguage },
+                )
+                SettingsToggleRow(
+                    label = "Picture-in-Picture",
+                    checked = state.pictureInPictureEnabled,
+                    onCheckedChange = onPictureInPictureEnabledChanged,
                 )
             }
         }

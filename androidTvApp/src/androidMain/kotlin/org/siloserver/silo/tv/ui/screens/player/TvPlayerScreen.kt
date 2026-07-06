@@ -4,6 +4,7 @@ package org.siloserver.silo.tv.ui.screens.player
 
 import android.app.Activity
 import android.content.ComponentName
+import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -52,6 +53,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.zIndex
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -91,6 +94,9 @@ import org.siloserver.silo.common.player.SessionState
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.common.player.SubtitleManager
 import org.siloserver.silo.common.player.VideoPlayerMediaSpec
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
+import org.siloserver.silo.common.pip.SiloPictureInPicturePlaybackState
+import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.player.backend.PlaybackEngineCommand
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendRequest
@@ -117,6 +123,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 
 private const val CONTROLS_AUTO_HIDE_MS = 5_000L
 // Skip back is 10s; skip forward is 30s, matching tvOS (gobackward.10 /
@@ -175,8 +182,12 @@ fun TvPlayerScreen(
     audioCapabilityManager: AudioCapabilityManager = koinInject(),
     capabilityDetector: PlaybackCapabilityDetector = koinInject(),
     activePlayerHolder: ActivePlayerHolder = koinInject(),
+    pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject(),
+    playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore = koinInject(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
+    val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     // The real session player (ExoPlayer/MpvPlayer) the service publishes. The
     // PlayerView surface must bind to THIS, not the MediaController, so the
     // surface gets correct lifecycle callbacks (esp. MPV) and re-binds on engine
@@ -225,6 +236,9 @@ fun TvPlayerScreen(
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     var transportFocusRequest by remember { mutableStateOf(0) }
     val startupStallDetector = remember { PlaybackStartupStallDetector() }
+    var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
+    var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
+    var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -597,11 +611,11 @@ fun TvPlayerScreen(
     }
 
     // Lifecycle pausing — send pause to the service when we're backgrounded.
-    DisposableEffect(lifecycleOwner, mediaController) {
+    DisposableEffect(lifecycleOwner, mediaController, isInPictureInPictureMode) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> mediaController?.pause()
-                Lifecycle.Event.ON_STOP -> mediaController?.pause()
+                Lifecycle.Event.ON_PAUSE -> if (!isInPictureInPictureMode) mediaController?.pause()
+                Lifecycle.Event.ON_STOP -> if (!isInPictureInPictureMode) mediaController?.pause()
                 else -> Unit
             }
         }
@@ -675,6 +689,8 @@ fun TvPlayerScreen(
                             if (mg.length > 0) mg.getFormat(0).frameRate else 0f
                         } ?: 0f
                     if (videoSize.width > 0 && videoSize.height > 0) {
+                        pictureInPictureVideoWidth = videoSize.width
+                        pictureInPictureVideoHeight = videoSize.height
                         hdrDisplayController.applyForMedia(
                             videoWidth = videoSize.width,
                             videoHeight = videoSize.height,
@@ -938,6 +954,38 @@ fun TvPlayerScreen(
         applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)
     }
 
+    LaunchedEffect(
+        context,
+        mediaController,
+        pictureInPictureEnabled,
+        state.streamUrl,
+        state.isLoading,
+        state.error,
+        state.isPaused,
+        pictureInPictureVideoWidth,
+        pictureInPictureVideoHeight,
+        pictureInPictureSourceRect,
+    ) {
+        pictureInPictureCoordinator.updatePlaybackState(
+            activity = context as? Activity,
+            surface = SiloPictureInPictureSurface.Tv,
+            state = SiloPictureInPicturePlaybackState(
+                enabled = pictureInPictureEnabled,
+                videoActive = state.streamUrl != null && !state.isLoading && state.error == null,
+                isPlaying = mediaController?.isPlaying == true && !state.isPaused,
+                videoWidth = pictureInPictureVideoWidth,
+                videoHeight = pictureInPictureVideoHeight,
+                sourceRectHint = pictureInPictureSourceRect,
+            ),
+        )
+    }
+
+    DisposableEffect(context) {
+        onDispose {
+            pictureInPictureCoordinator.clearPlaybackState(context as? Activity, SiloPictureInPictureSurface.Tv)
+        }
+    }
+
     // Ensure the outer Box owns focus when the overlay is hidden so the first
     // remote key press can reach onPreviewKeyEvent.
     LaunchedEffect(state.showControls) {
@@ -988,7 +1036,20 @@ fun TvPlayerScreen(
                 val controller = mediaController
                 if (controller != null) {
                     AndroidView(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.boundsInWindow()
+                                val next = Rect(
+                                    bounds.left.roundToInt(),
+                                    bounds.top.roundToInt(),
+                                    bounds.right.roundToInt(),
+                                    bounds.bottom.roundToInt(),
+                                )
+                                if (pictureInPictureSourceRect != next) {
+                                    pictureInPictureSourceRect = next
+                                }
+                            },
                         factory = { ctx ->
                             val parent = FrameLayout(ctx)
                             (LayoutInflater.from(ctx).inflate(
@@ -1018,7 +1079,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showControls && !state.hudOpen && !state.showNextUp) {
+                if (!isInPictureInPictureMode && state.showControls && !state.hudOpen && !state.showNextUp) {
                     // In a room, transport authority gates what the local
                     // member may drive: a guest who can't seek gets a disabled
                     // scrubber + skip; play/pause only under guest_play_pause.
@@ -1121,7 +1182,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.hudOpen) {
+                if (!isInPictureInPictureMode && state.hudOpen) {
                     // Floating top-center card — no full-screen scrim so video
                     // stays visible behind it. Mirrors tvOS TVPlayerInfoHUD.
                     Box(
@@ -1215,7 +1276,7 @@ fun TvPlayerScreen(
                     }
                 }
 
-                if (showQuickSubtitlePicker) {
+                if (!isInPictureInPictureMode && showQuickSubtitlePicker) {
                     TvQuickSubtitlePicker(
                         tracks = state.subtitleTracks,
                         onSelect = { idx ->
@@ -1227,7 +1288,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showSubtitleSearchDialog) {
+                if (!isInPictureInPictureMode && state.showSubtitleSearchDialog) {
                     TvSubtitleSearchDialog(
                         state = subtitleSearch,
                         onLanguageChanged = viewModel::setSubtitleSearchLanguage,
@@ -1237,7 +1298,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showAiTranslateDialog) {
+                if (!isInPictureInPictureMode && state.showAiTranslateDialog) {
                     // Translate sources = the session's sidecar subtitle list,
                     // filtered with mobile/web parity (isTranslatableSource):
                     // embedded → any non-bitmap codec (ffmpeg-extractable);
@@ -1265,18 +1326,20 @@ fun TvPlayerScreen(
 
         // Lifecycle-driven notice toast (top-start). Slides in for outage
         // recovery, fades out when the lifecycle clears the notice.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 32.dp, start = 32.dp),
-            contentAlignment = Alignment.TopStart,
-        ) {
-            TvPlayerNoticeOverlay(notice = notice)
+        if (!isInPictureInPictureMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 32.dp, start = 32.dp),
+                contentAlignment = Alignment.TopStart,
+            ) {
+                TvPlayerNoticeOverlay(notice = notice)
+            }
         }
 
         // Remote-control "display_message" toast (top-center), shown a few
         // seconds regardless of controls visibility.
-        remoteMessage?.let { message ->
+        if (!isInPictureInPictureMode) remoteMessage?.let { message ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1306,7 +1369,7 @@ fun TvPlayerScreen(
         // members…" pill while the room is on the wait barrier, and the join
         // code for the host. Only shown while the idle overlay is up.
         val snapshot = roomSnapshot
-        if (roomController != null && snapshot != null && state.showControls && !state.hudOpen) {
+        if (!isInPictureInPictureMode && roomController != null && snapshot != null && state.showControls && !state.hudOpen) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1323,7 +1386,7 @@ fun TvPlayerScreen(
 
         // Host close-confirm dialog. Closing tears the room down for everyone
         // (server emits room_closed → every member exits). Cancel resumes.
-        if (showLeaveDialog && roomController != null) {
+        if (!isInPictureInPictureMode && showLeaveDialog && roomController != null) {
             TvRoomCloseConfirmDialog(
                 onClose = {
                     showLeaveDialog = false
@@ -1338,18 +1401,20 @@ fun TvPlayerScreen(
         // watching?" dialog: a 16:9 mini-player (the still-playing video,
         // visible behind a bordered frame) beside a next-episode panel with
         // Play Now / Keep Watching / Back and an auto-play countdown ring.
-        if (state.showNextUp) {
-            TvPlayerNextUpOverlay(
-                nextEpisode = state.nextEpisode,
-                videoEnded = state.nextUpVideoEnded,
-                countdownSeconds = state.nextUpCountdownSeconds,
-                countdownTotalSeconds = state.nextUpCountdownTotalSeconds,
-                autoPlayEnabled = autoPlayNextEnabled,
-                onPlayNow = viewModel::playNextEpisodeNow,
-                onKeepWatching = viewModel::dismissNextUp,
-                onToggleAutoPlay = { viewModel.onSetAutoPlayNext(!autoPlayNextEnabled) },
-                onBack = { stopPlaybackAndExit() },
-            )
+        if (!isInPictureInPictureMode) {
+            if (state.showNextUp) {
+                TvPlayerNextUpOverlay(
+                    nextEpisode = state.nextEpisode,
+                    videoEnded = state.nextUpVideoEnded,
+                    countdownSeconds = state.nextUpCountdownSeconds,
+                    countdownTotalSeconds = state.nextUpCountdownTotalSeconds,
+                    autoPlayEnabled = autoPlayNextEnabled,
+                    onPlayNow = viewModel::playNextEpisodeNow,
+                    onKeepWatching = viewModel::dismissNextUp,
+                    onToggleAutoPlay = { viewModel.onSetAutoPlayNext(!autoPlayNextEnabled) },
+                    onBack = { stopPlaybackAndExit() },
+                )
+            }
         }
 
         // Intro auto-skip banner (bottom-end, above the transport cluster).
@@ -1357,18 +1422,20 @@ fun TvPlayerScreen(
         // Center routes directly to [handleSkipIntroNow] while the manual prompt
         // is active, so the viewer does not need a first click just to reveal UI.
         // Bottom inset (200dp) clears the transport cluster + scrubber column.
-        if (!state.hudOpen && !state.showNextUp) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 200.dp, end = 32.dp),
-                contentAlignment = Alignment.BottomEnd,
-            ) {
-                TvIntroAutoSkipBanner(
-                    state = introSkipState,
-                    onSkipNow = { handleSkipIntroNow() },
-                    onCancelCountdown = viewModel::onCancelIntroAutoSkip,
-                )
+        if (!isInPictureInPictureMode) {
+            if (!state.hudOpen && !state.showNextUp) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 200.dp, end = 32.dp),
+                    contentAlignment = Alignment.BottomEnd,
+                ) {
+                    TvIntroAutoSkipBanner(
+                        state = introSkipState,
+                        onSkipNow = { handleSkipIntroNow() },
+                        onCancelCountdown = viewModel::onCancelIntroAutoSkip,
+                    )
+                }
             }
         }
 

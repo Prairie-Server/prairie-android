@@ -1,6 +1,7 @@
 package org.siloserver.silo.common.di
 
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
 import org.siloserver.silo.common.player.ActivePlayerHolder
 import org.siloserver.silo.common.player.AudiobookSettingsStore
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
@@ -42,6 +43,8 @@ val playerInfraModule = module {
     // Shares the active session Player with the in-process UI so the video
     // SurfaceView can bind directly to it (proper surface lifecycle for MPV).
     single { ActivePlayerHolder() }
+
+    single { SiloPictureInPictureCoordinator() }
 
     // Long-lived application-scope flusher: debounced server writes survive
     // ViewModel teardown. Uses Dispatchers.IO since flushOne does network work.

@@ -50,6 +50,7 @@ data class SettingsUiState(
     val audioLanguage: String = "Default",
     val autoSkipIntro: Boolean = false,
     val autoSkipCredits: Boolean = false,
+    val pictureInPictureEnabled: Boolean = true,
     // Seconds to skip back on resume (0 = off); consecutive auto-advances
     // before the "Still watching?" prompt (0 = off).
     val resumeRewindSeconds: Int = 7,
@@ -158,6 +159,9 @@ class SettingsViewModel(
                     downloadsWifiOnly = snap.downloadsWifiOnly,
                 )
             }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.pictureInPictureEnabledFlow.onEach { enabled ->
+            _uiState.update { it.copy(pictureInPictureEnabled = enabled) }
         }.launchIn(viewModelScope)
     }
 
@@ -318,6 +322,10 @@ class SettingsViewModel(
 
     fun setAutoSkipCredits(enabled: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoSkipCredits(enabled) }
+    }
+
+    fun setPictureInPictureEnabled(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setPictureInPictureEnabled(enabled) }
     }
 
     fun resetPlaybackOverrides() {
