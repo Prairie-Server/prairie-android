@@ -39,15 +39,19 @@ object DisplayHdrProbe {
         val hlg = Display.HdrCapabilities.HDR_TYPE_HLG in types
         val dv = Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION in types
 
-        // The panel-side probe doesn't differentiate DV profiles. The codec
+        // The panel-side probe doesn't differentiate DV profiles — Android
+        // only reports whether the link/panel carries DV at all. The codec
         // probe (MediaCodecCapabilitiesProbe) enumerates actual profile
-        // support; this layer just tells us whether the HDMI link / panel can
-        // carry DV at all. Consumers intersect the two.
+        // support (and already strips P7 without multi-instance HEVC), so
+        // this layer must list every profile we model or the intersection
+        // silently drops legitimate decoder claims — listing only [5, 8]
+        // here is what previously made native P7 support undetectable even
+        // on dual-layer-capable hardware.
         return HdrCapabilities(
             hdr10 = hdr10,
             hdr10Plus = hdr10p,
             hlg = hlg,
-            dolbyVisionProfiles = if (dv) listOf(5, 8) else emptyList(),
+            dolbyVisionProfiles = if (dv) listOf(5, 7, 8) else emptyList(),
         )
     }
 
