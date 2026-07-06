@@ -27,7 +27,6 @@ import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -330,6 +329,7 @@ internal fun displayedSubtitleVideoRect(
     viewHeight: Int,
     videoWidth: Int,
     videoHeight: Int,
+    videoPixelWidthHeightRatio: Float = 1f,
     resizeMode: Int,
 ): SubtitleVideoRect {
     val full = SubtitleVideoRect(
@@ -342,7 +342,10 @@ internal fun displayedSubtitleVideoRect(
         return full
     }
 
-    val aspect = videoWidth.toFloat() / videoHeight.toFloat()
+    val pixelRatio = videoPixelWidthHeightRatio
+        .takeIf { it.isFinite() && it > 0f }
+        ?: 1f
+    val aspect = (videoWidth.toFloat() * pixelRatio) / videoHeight.toFloat()
     val (targetWidth, targetHeight) = when (resizeMode) {
         AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH -> {
             val width = viewWidth
@@ -353,11 +356,14 @@ internal fun displayedSubtitleVideoRect(
             (height * aspect).roundToInt() to height
         }
         AspectRatioFrameLayout.RESIZE_MODE_FIT -> {
-            val scale = min(
-                viewWidth.toFloat() / videoWidth.toFloat(),
-                viewHeight.toFloat() / videoHeight.toFloat(),
-            )
-            (videoWidth * scale).roundToInt() to (videoHeight * scale).roundToInt()
+            val viewAspect = viewWidth.toFloat() / viewHeight.toFloat()
+            if (viewAspect > aspect) {
+                val height = viewHeight
+                (height * aspect).roundToInt() to height
+            } else {
+                val width = viewWidth
+                width to (width / aspect).roundToInt()
+            }
         }
         // Zoom intentionally crops outside the view, and Fill intentionally
         // distorts to the view. In both cases the visible video occupies the
@@ -432,11 +438,13 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
 
     private fun applyRect(playerView: PlayerView) {
         val subtitleView = playerView.subtitleView ?: return
+        val videoSize = playerView.player?.videoSize ?: VideoSize.UNKNOWN
         val rect = displayedSubtitleVideoRect(
             viewWidth = playerView.width,
             viewHeight = playerView.height,
-            videoWidth = playerView.player?.videoSize?.width ?: 0,
-            videoHeight = playerView.player?.videoSize?.height ?: 0,
+            videoWidth = videoSize.width,
+            videoHeight = videoSize.height,
+            videoPixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
             resizeMode = playerView.resizeMode,
         )
         val current = subtitleView.layoutParams as? FrameLayout.LayoutParams

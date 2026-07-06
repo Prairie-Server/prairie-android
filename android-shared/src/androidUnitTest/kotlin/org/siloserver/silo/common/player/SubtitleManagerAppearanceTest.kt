@@ -100,6 +100,20 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
+    fun fitModeUsesVideoPixelAspectRatioForAnamorphicContent() {
+        val rect = displayedSubtitleVideoRect(
+            viewWidth = 1920,
+            viewHeight = 1080,
+            videoWidth = 720,
+            videoHeight = 576,
+            videoPixelWidthHeightRatio = 16f / 15f,
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+        )
+
+        assertEquals(SubtitleVideoRect(left = 240, top = 0, width = 1440, height = 1080), rect)
+    }
+
+    @Test
     fun zoomAndFillModesUseFullViewRect() {
         val zoom = displayedSubtitleVideoRect(
             viewWidth = 1080,
