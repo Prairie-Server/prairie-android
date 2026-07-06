@@ -2133,7 +2133,7 @@ internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEnt
                 val label = format.label.orEmpty().ifBlank { format.language?.uppercase() ?: "" }
                 val codecOrMime = format.subtitleCodecOrMime()
                 val forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0
-                val hearingImpaired = label.isHearingImpairedSubtitleLabel()
+                val hearingImpaired = label.indicatesHearingImpairedSubtitle()
                 result.add(
                     PlayerTrackEntry(
                         index = media3FlatTextIndex,
@@ -2179,15 +2179,6 @@ private fun Format.subtitleCodecOrMime(): String? =
     } else {
         sampleMimeType ?: codecs
     }
-
-private fun String.isHearingImpairedSubtitleLabel(): Boolean {
-    val lower = lowercase()
-    return lower.contains("sdh") ||
-        lower.contains("hearing") ||
-        lower.contains("hearing impaired") ||
-        lower.contains("(hi)") ||
-        lower == "hi"
-}
 
 /**
  * A selectable video quality variant. Unlike [extractTrackEntries] (which

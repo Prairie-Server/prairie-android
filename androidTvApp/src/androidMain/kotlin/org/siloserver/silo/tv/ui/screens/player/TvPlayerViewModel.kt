@@ -84,6 +84,25 @@ data class PlayerTrackEntry(
     val isHearingImpaired: Boolean = false,
 )
 
+private val hearingImpairedSubtitleTokenRegex = Regex(
+    pattern = """(^|[^a-z0-9])(cc|sdh|hi)([^a-z0-9]|$)""",
+    option = RegexOption.IGNORE_CASE,
+)
+
+internal fun String.indicatesHearingImpairedSubtitle(): Boolean {
+    val lower = lowercase()
+    return lower.contains("closed caption") ||
+        lower.contains("hearing impaired") ||
+        lower.contains("hearing-impaired") ||
+        lower.contains("hearing") ||
+        hearingImpairedSubtitleTokenRegex.containsMatchIn(this)
+}
+
+private fun PlayerTrackEntry.isEffectivelyHearingImpaired(): Boolean =
+    isHearingImpaired ||
+        label.indicatesHearingImpairedSubtitle() ||
+        displayLabel.indicatesHearingImpairedSubtitle()
+
 internal fun subtitleTracksWithSelection(
     tracks: List<PlayerTrackEntry>,
     selectedIndex: Int,
@@ -196,10 +215,10 @@ private fun bestAutoSubtitleTrack(
     if (pool.isEmpty()) return null
 
     if (preferForced) {
-        pool.firstOrNull { it.isForced && !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+        pool.firstOrNull { it.isForced && !it.isEffectivelyHearingImpaired() && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
             ?.let { return it }
     }
-    pool.firstOrNull { !it.isForced && !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+    pool.firstOrNull { !it.isForced && !it.isEffectivelyHearingImpaired() && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
         ?.let { return it }
     pool.firstOrNull { !it.isForced && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
         ?.let { return it }
@@ -219,9 +238,9 @@ private fun bestForcedAutoSubtitleTrack(
     }.filter { it.isForced }
     if (pool.isEmpty()) return null
 
-    pool.firstOrNull { !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+    pool.firstOrNull { !it.isEffectivelyHearingImpaired() && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
         ?.let { return it }
-    pool.firstOrNull { !it.isHearingImpaired }
+    pool.firstOrNull { !it.isEffectivelyHearingImpaired() }
         ?.let { return it }
     return pool.first()
 }
