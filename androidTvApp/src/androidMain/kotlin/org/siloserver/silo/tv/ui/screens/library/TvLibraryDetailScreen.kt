@@ -1,6 +1,8 @@
 package org.siloserver.silo.tv.ui.screens.library
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +55,7 @@ import org.siloserver.silo.tv.ui.components.TvAlphabetRail
 import org.siloserver.silo.tv.ui.components.TvCardWidth
 import org.siloserver.silo.tv.ui.components.TvCatalogEmptyState
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
+import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.TvMediaCard
 import org.siloserver.silo.tv.ui.components.TvSkylineSectionFeed
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
@@ -124,6 +127,38 @@ fun TvLibraryDetailScreen(
                 state = state,
                 onItemClick = onItemClick,
                 onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
+                onLoadMore = viewModel::loadMoreBrowse,
+                onRetry = viewModel::retryBrowse,
+                onInitialContentFocus = onInitialContentFocus,
+            )
+            TvLibraryTab.Genres -> LibraryTab(
+                state = state,
+                onItemClick = onItemClick,
+                onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
+                onLoadMore = viewModel::loadMoreBrowse,
+                onRetry = viewModel::retryBrowse,
+                onInitialContentFocus = onInitialContentFocus,
+                showGenreChips = true,
+            )
+            TvLibraryTab.Alphabet -> LibraryTab(
+                state = state,
+                onItemClick = onItemClick,
+                onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
+                onLoadMore = viewModel::loadMoreBrowse,
+                onRetry = viewModel::retryBrowse,
+                onInitialContentFocus = onInitialContentFocus,
+                showAlphabetRail = true,
+            )
+            TvLibraryTab.RecentlyAdded,
+            TvLibraryTab.Authors,
+            TvLibraryTab.Series -> LibraryTab(
+                state = state,
+                onItemClick = onItemClick,
+                onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
                 onLoadMore = viewModel::loadMoreBrowse,
                 onRetry = viewModel::retryBrowse,
                 onInitialContentFocus = onInitialContentFocus,
@@ -195,9 +230,12 @@ private fun LibraryTab(
     state: TvLibraryDetailViewModel.UiState,
     onItemClick: (String) -> Unit,
     onNamePrefixChanged: (String?) -> Unit,
+    onGenreChanged: (String?) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onInitialContentFocus: () -> Unit,
+    showAlphabetRail: Boolean = false,
+    showGenreChips: Boolean = false,
 ) {
     val firstGridItemFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
@@ -232,13 +270,17 @@ private fun LibraryTab(
                 onItemClick = onItemClick,
                 onLoadMore = onLoadMore,
                 firstItemFocusRequester = firstGridItemFocusRequester,
+                showGenreChips = showGenreChips,
+                onGenreChanged = onGenreChanged,
             )
         }
-        TvAlphabetRail(
-            selected = state.browseFilter.namePrefix,
-            onSelect = onNamePrefixChanged,
-            modifier = Modifier.padding(end = Spacing.md),
-        )
+        if (showAlphabetRail) {
+            TvAlphabetRail(
+                selected = state.browseFilter.namePrefix,
+                onSelect = onNamePrefixChanged,
+                modifier = Modifier.padding(end = Spacing.md),
+            )
+        }
     }
 }
 
@@ -249,6 +291,8 @@ private fun LibraryGrid(
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
     firstItemFocusRequester: FocusRequester,
+    showGenreChips: Boolean,
+    onGenreChanged: (String?) -> Unit,
 ) {
     val gridState: LazyGridState = rememberLazyGridState()
 
@@ -297,6 +341,17 @@ private fun LibraryGrid(
                 bottom = Spacing.xxxl,
             ),
         ) {
+            if (showGenreChips) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "genres") {
+                    GenreChipCloud(
+                        genres = state.genres,
+                        selectedGenre = state.browseFilter.genre,
+                        loading = state.filtersLoading,
+                        onGenreChanged = onGenreChanged,
+                    )
+                }
+            }
+
             if (state.browseLoading && state.browseItems.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
                     InlineLoadingState()
@@ -334,6 +389,46 @@ private fun LibraryGrid(
                 item(span = { GridItemSpan(maxLineSpan) }, key = "loading-more") {
                     InlineLoadingState(verticalPadding = 24.dp)
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GenreChipCloud(
+    genres: List<String>,
+    selectedGenre: String?,
+    loading: Boolean,
+    onGenreChanged: (String?) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Text(
+            text = if (loading) "Loading genres" else "Genres",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White.copy(alpha = 0.74f),
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            TvFilterChip(
+                text = "All",
+                selected = selectedGenre == null,
+                onClick = { onGenreChanged(null) },
+            )
+            genres.forEach { genre ->
+                TvFilterChip(
+                    text = genre,
+                    selected = selectedGenre == genre,
+                    onClick = { onGenreChanged(genre) },
+                )
             }
         }
     }

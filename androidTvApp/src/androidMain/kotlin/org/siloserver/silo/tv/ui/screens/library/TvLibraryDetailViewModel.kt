@@ -20,14 +20,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Library content sections, in tvOS order (`TVLibraryPill`):
- * Recommended · Collections · Browse. [Browse] is the full A–Z poster grid
- * (tvOS calls the same surface "Browse"; the on-screen tab label matches).
+ * Library content sections committed by the Skyline cascade. The extra browse
+ * variants are request presets over the same catalog grid, while Collections
+ * and Recommended keep their dedicated surfaces.
  */
 enum class TvLibraryTab(val label: String) {
     Recommended("Recommended"),
     Collections("Collections"),
     Browse("Browse"),
+    Genres("Genres"),
+    Alphabet("A-Z"),
+    RecentlyAdded("Recently Added"),
+    Authors("Authors"),
+    Series("Series"),
 }
 
 /**
@@ -61,6 +66,7 @@ data class TvLibraryBrowseFilter(
     // Default to newest-first (added_at), matching the global browse + the
     // shared CatalogRepository's default; TV previously diverged with Title.
     val sort: String = TvLibrarySortOption.DateAdded.wireValue,
+    val order: String = "desc",
     val yearMin: Int? = null,
     val yearMax: Int? = null,
 )
@@ -119,13 +125,26 @@ class TvLibraryDetailViewModel(
     }
 
     fun onTabSelected(tab: TvLibraryTab) {
-        if (_uiState.value.selectedTab == tab) return
-        _uiState.update { it.copy(selectedTab = tab) }
+        val state = _uiState.value
+        val nextFilter = state.browseFilter.forTab(tab)
+        val filterChanged = nextFilter != state.browseFilter
+        if (state.selectedTab == tab && !filterChanged) return
+        _uiState.update {
+            it.copy(
+                selectedTab = tab,
+                browseFilter = nextFilter,
+            )
+        }
         when (tab) {
             TvLibraryTab.Recommended -> if (!loadedRecommended) loadRecommended()
-            TvLibraryTab.Browse -> {
+            TvLibraryTab.Browse,
+            TvLibraryTab.Genres,
+            TvLibraryTab.Alphabet,
+            TvLibraryTab.RecentlyAdded,
+            TvLibraryTab.Authors,
+            TvLibraryTab.Series -> {
                 if (!loadedFilters) loadFilters()
-                if (!loadedBrowse) loadBrowse(reset = true)
+                if (!loadedBrowse || filterChanged || state.selectedTab != tab) loadBrowse(reset = true)
             }
             TvLibraryTab.Collections -> if (!loadedCollections) loadCollections()
         }
@@ -144,6 +163,7 @@ class TvLibraryDetailViewModel(
         updateBrowseFilter(
             _uiState.value.browseFilter.copy(
                 sort = sort.wireValue,
+                order = sort.defaultOrder,
                 namePrefix = null,
             ),
         )
@@ -317,6 +337,7 @@ class TvLibraryDetailViewModel(
                 libraryId = libraryId,
                 genre = filter.genre,
                 sort = filter.sort,
+                order = filter.order,
                 offset = offset,
                 limit = pageSize,
                 namePrefix = filter.namePrefix,
@@ -445,4 +466,52 @@ class TvLibraryDetailViewModel(
     }
 
     private fun mediaTypeFor(type: String): String? = tvCatalogMediaTypeFor(type)
+
+    private fun TvLibraryBrowseFilter.forTab(tab: TvLibraryTab): TvLibraryBrowseFilter =
+        when (tab) {
+            TvLibraryTab.Recommended,
+            TvLibraryTab.Collections -> this
+            TvLibraryTab.Browse -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = TvLibrarySortOption.DateAdded.wireValue,
+                order = "desc",
+            )
+            TvLibraryTab.Genres -> copy(
+                namePrefix = null,
+                sort = TvLibrarySortOption.Title.wireValue,
+                order = "asc",
+            )
+            TvLibraryTab.Alphabet -> copy(
+                genre = null,
+                sort = TvLibrarySortOption.Title.wireValue,
+                order = "asc",
+            )
+            TvLibraryTab.RecentlyAdded -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = TvLibrarySortOption.DateAdded.wireValue,
+                order = "desc",
+            )
+            TvLibraryTab.Authors -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = "author",
+                order = "asc",
+            )
+            TvLibraryTab.Series -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = "series",
+                order = "asc",
+            )
+        }
 }
+
+private val TvLibrarySortOption.defaultOrder: String
+    get() = when (this) {
+        TvLibrarySortOption.Title -> "asc"
+        TvLibrarySortOption.DateAdded,
+        TvLibrarySortOption.ReleaseDate,
+        TvLibrarySortOption.Rating -> "desc"
+    }

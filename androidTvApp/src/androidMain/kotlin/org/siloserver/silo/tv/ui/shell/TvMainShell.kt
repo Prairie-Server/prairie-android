@@ -1085,13 +1085,18 @@ private fun TvRootDestination.toRoute(): String = when (this) {
 
 /**
  * Maps a committed cascade [TvLibraryPill] to the library detail screen's
- * section tab. Recommended → Recommended, Browse → Browse (the full grid),
- * Collections → Collections.
+ * section tab. Browse variants stay distinct so the detail ViewModel can apply
+ * their catalog request presets.
  */
 private fun TvLibraryPill.toLibraryTab(): TvLibraryTab = when (this) {
     TvLibraryPill.Recommended -> TvLibraryTab.Recommended
     TvLibraryPill.Browse -> TvLibraryTab.Browse
     TvLibraryPill.Collections -> TvLibraryTab.Collections
+    TvLibraryPill.Genres -> TvLibraryTab.Genres
+    TvLibraryPill.Alphabet -> TvLibraryTab.Alphabet
+    TvLibraryPill.RecentlyAdded -> TvLibraryTab.RecentlyAdded
+    TvLibraryPill.Authors -> TvLibraryTab.Authors
+    TvLibraryPill.Series -> TvLibraryTab.Series
 }
 
 /**
