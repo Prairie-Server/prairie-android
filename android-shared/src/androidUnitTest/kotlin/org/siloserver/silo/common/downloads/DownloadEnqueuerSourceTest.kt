@@ -16,4 +16,12 @@ class DownloadEnqueuerSourceTest {
         assertTrue(source.contains("quality = quality.wire"))
         assertTrue(source.contains("targetBitrateKbps = quality.targetBitrateKbps"))
     }
+
+    @Test
+    fun `download create requests accept an explicit per-download quality override`() {
+        assertTrue(source.contains("downloadQualityOverride: DownloadQuality? = null"))
+        assertTrue(source.contains("downloadQualityOverride ?: DownloadQuality.fromWire"))
+        assertTrue(source.contains("quality = quality.wire"))
+        assertTrue(source.contains("targetBitrateKbps = quality.targetBitrateKbps"))
+    }
 }

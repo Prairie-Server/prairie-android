@@ -42,6 +42,7 @@ import org.siloserver.silo.model.catalog.isBookLikeItemType
 import org.siloserver.silo.model.ebook.chooseEbookVersion
 import org.siloserver.silo.model.ebook.isInAppReadableEbookVersion
 import org.siloserver.silo.model.ebook.isSupportedEbookVersion
+import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.siloserver.silo.network.ServerRegistry
 import org.koin.compose.koinInject
@@ -75,6 +76,8 @@ fun ItemDetailScreen(
     val downloadStorage: DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingDownloadQualityAction by remember { mutableStateOf<((DownloadQuality) -> Unit)?>(null) }
+    var showDownloadQualityPicker by remember { mutableStateOf(false) }
     val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -98,6 +101,25 @@ fun ItemDetailScreen(
         }
         pendingDownloadAction = action
         legacyStoragePermissionLauncher.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
+    }
+
+    fun runDownloadQualityAction(requirePermission: Boolean = true, action: (DownloadQuality) -> Unit) {
+        runDownloadAction(requirePermission = requirePermission) {
+            pendingDownloadQualityAction = action
+            showDownloadQualityPicker = true
+        }
+    }
+
+    fun runDownloadTap(
+        downloadState: DetailDownloadState,
+        directAction: () -> Unit,
+        qualityAction: (DownloadQuality) -> Unit,
+    ) {
+        if (!downloadState.isDownloaded && downloadState.progress == null) {
+            runDownloadQualityAction(requirePermission = true, action = qualityAction)
+        } else {
+            runDownloadAction(requirePermission = false, action = directAction)
+        }
     }
 
     fun localDownloadFor(fileId: Int) =
@@ -200,15 +222,24 @@ fun ItemDetailScreen(
                             onWatchlistClick = { viewModel.toggleWatchlist() },
                             onDownloadClick = audiobookVersion?.let { version ->
                                 {
-                                    runDownloadAction(
-                                        requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
-                                    ) {
-                                        viewModel.onDownloadTapped(
-                                            version,
-                                            detail.title,
-                                            forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
-                                        )
-                                    }
+                                    runDownloadTap(
+                                        downloadState = downloadState,
+                                        directAction = {
+                                            viewModel.onDownloadTapped(
+                                                version,
+                                                detail.title,
+                                                forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                            )
+                                        },
+                                        qualityAction = { quality ->
+                                            viewModel.onDownloadTapped(
+                                                version,
+                                                detail.title,
+                                                forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                                downloadQuality = quality,
+                                            )
+                                        },
+                                    )
                                 }
                             },
                         )
@@ -251,15 +282,24 @@ fun ItemDetailScreen(
                             onWatchlistClick = { viewModel.toggleWatchlist() },
                             onDownloadClick = selectedBookVersion?.takeIf { it.isSupportedEbookVersion() }?.let { version ->
                                 {
-                                    runDownloadAction(
-                                        requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
-                                    ) {
-                                        viewModel.onDownloadTapped(
-                                            version,
-                                            detail.title,
-                                            forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
-                                        )
-                                    }
+                                    runDownloadTap(
+                                        downloadState = downloadState,
+                                        directAction = {
+                                            viewModel.onDownloadTapped(
+                                                version,
+                                                detail.title,
+                                                forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                            )
+                                        },
+                                        qualityAction = { quality ->
+                                            viewModel.onDownloadTapped(
+                                                version,
+                                                detail.title,
+                                                forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                                downloadQuality = quality,
+                                            )
+                                        },
+                                    )
                                 }
                             },
                             onOpenExternalClick = selectedBookVersion
@@ -344,12 +384,34 @@ fun ItemDetailScreen(
                             onClearRating = { viewModel.clearRating() },
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
-                            onSeriesDownloadClick = { runDownloadAction { viewModel.onSeriesDownloadTapped() } },
+                            onSeriesDownloadClick = {
+                                if (seriesDownloadState.isDownloaded) {
+                                    runDownloadAction(requirePermission = false) {
+                                        viewModel.onSeriesDownloadTapped()
+                                    }
+                                } else {
+                                    runDownloadQualityAction { quality ->
+                                        viewModel.onSeriesDownloadTapped(downloadQuality = quality)
+                                    }
+                                }
+                            },
                             onSeasonDownloadClick = { season ->
-                                runDownloadAction { viewModel.onSeasonDownloadTapped(season) }
+                                runDownloadQualityAction { quality ->
+                                    viewModel.onSeasonDownloadTapped(season, downloadQuality = quality)
+                                }
                             },
                             onEpisodeDownloadClick = { ep ->
-                                runDownloadAction { viewModel.onEpisodeDownloadTapped(ep) }
+                                val episodeState = detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = episodeDownloadRecords,
+                                )
+                                runDownloadTap(
+                                    downloadState = episodeState,
+                                    directAction = { viewModel.onEpisodeDownloadTapped(ep) },
+                                    qualityAction = { quality ->
+                                        viewModel.onEpisodeDownloadTapped(ep, downloadQuality = quality)
+                                    },
+                                )
                             },
                             episodeDownloadState = { ep ->
                                 detailDownloadStateForFile(
@@ -423,15 +485,24 @@ fun ItemDetailScreen(
                             downloadProgress = downloadState.progress,
                             onDownloadTapped = selectedVersion?.let { v ->
                                 {
-                                    runDownloadAction(
-                                        requirePermission = !downloadState.isDownloaded && downloadState.progress == null,
-                                    ) {
-                                        viewModel.onDownloadTapped(
-                                            v,
-                                            detail.title,
-                                            forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
-                                        )
-                                    }
+                                    runDownloadTap(
+                                        downloadState = downloadState,
+                                        directAction = {
+                                            viewModel.onDownloadTapped(
+                                                v,
+                                                detail.title,
+                                                forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                            )
+                                        },
+                                        qualityAction = { quality ->
+                                            viewModel.onDownloadTapped(
+                                                v,
+                                                detail.title,
+                                                forceRedownloadMissingLocal = downloadState.needsLocalRecovery,
+                                                downloadQuality = quality,
+                                            )
+                                        },
+                                    )
                                 }
                             },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
@@ -443,6 +514,23 @@ fun ItemDetailScreen(
                     }
                 }
             }
+        }
+
+        if (showDownloadQualityPicker) {
+            DownloadQualityPickerSheet(
+                onQualitySelected = { quality ->
+                    pendingDownloadQualityAction?.let { action ->
+                        val runSelectedQuality: (DownloadQuality) -> Unit = { quality -> action(quality) }
+                        runSelectedQuality(quality)
+                    }
+                    pendingDownloadQualityAction = null
+                    showDownloadQualityPicker = false
+                },
+                onDismiss = {
+                    pendingDownloadQualityAction = null
+                    showDownloadQualityPicker = false
+                },
+            )
         }
 
         // Floating back button — sits on the hero artwork without
