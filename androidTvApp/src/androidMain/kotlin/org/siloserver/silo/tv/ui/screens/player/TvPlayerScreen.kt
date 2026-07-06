@@ -1039,6 +1039,7 @@ fun TvPlayerScreen(
         state.streamUrl,
         state.isLoading,
         state.error,
+        state.isPlaying,
         state.isPaused,
         pictureInPictureVideoWidth,
         pictureInPictureVideoHeight,
@@ -1050,7 +1051,7 @@ fun TvPlayerScreen(
             state = SiloPictureInPicturePlaybackState(
                 enabled = pictureInPictureEnabled,
                 videoActive = state.streamUrl != null && !state.isLoading && state.error == null,
-                isPlaying = mediaController?.isPlaying == true && !state.isPaused,
+                isPlaying = state.isPlaying && !state.isPaused,
                 videoWidth = pictureInPictureVideoWidth,
                 videoHeight = pictureInPictureVideoHeight,
                 sourceRectHint = pictureInPictureSourceRect,

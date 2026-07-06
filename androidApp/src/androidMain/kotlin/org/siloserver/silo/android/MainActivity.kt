@@ -27,6 +27,7 @@ import org.siloserver.silo.android.ui.navigation.AppNavigation
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
+import org.siloserver.silo.android.ui.navigation.notificationNavigationRouteOrNull
 import org.siloserver.silo.android.ui.navigation.shouldStartOnDownloads
 import org.siloserver.silo.android.ui.theme.SiloTheme
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
@@ -175,10 +176,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun notificationRouteOrNull(intent: Intent?): String? =
-        intent
-            ?.getStringExtra(PushNotificationPresenter.EXTRA_NAV_ROUTE)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
+        notificationNavigationRouteOrNull(
+            intent?.getStringExtra(PushNotificationPresenter.EXTRA_NAV_ROUTE),
+        )
 
     private fun String.isAuthenticatedStartRoute(): Boolean =
         this == Route.Home.route || this == Route.Downloads.route

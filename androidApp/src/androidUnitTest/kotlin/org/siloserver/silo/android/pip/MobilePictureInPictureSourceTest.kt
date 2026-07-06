@@ -37,6 +37,11 @@ class MobilePictureInPictureSourceTest {
         assertTrue(player.contains("SiloPictureInPictureCoordinator"))
         assertTrue(player.contains("pictureInPictureEnabledFlow"))
         assertTrue(player.contains("updatePlaybackState("))
+        val pipEffect = player
+            .substringAfter("LaunchedEffect(\n        activity,")
+            .substringBefore(") {\n        pictureInPictureCoordinator.updatePlaybackState")
+        assertTrue(pipEffect.contains("uiState.isPlaying"))
+        assertTrue(player.contains("isPlaying = uiState.isPlaying && !uiState.isPaused"))
         assertTrue(player.contains("onGloballyPositioned"))
         assertTrue(player.contains("if (!isInPictureInPictureMode)"))
     }

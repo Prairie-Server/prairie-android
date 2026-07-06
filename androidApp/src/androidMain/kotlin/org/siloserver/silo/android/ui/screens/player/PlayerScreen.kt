@@ -740,6 +740,7 @@ fun PlayerScreen(
         uiState.streamUrl,
         uiState.isLoading,
         uiState.error,
+        uiState.isPlaying,
         uiState.isPaused,
         pictureInPictureVideoWidth,
         pictureInPictureVideoHeight,
@@ -751,7 +752,7 @@ fun PlayerScreen(
             state = SiloPictureInPicturePlaybackState(
                 enabled = pictureInPictureEnabled,
                 videoActive = uiState.streamUrl != null && !uiState.isLoading && uiState.error == null,
-                isPlaying = mediaController?.isPlaying == true && !uiState.isPaused,
+                isPlaying = uiState.isPlaying && !uiState.isPaused,
                 videoWidth = pictureInPictureVideoWidth,
                 videoHeight = pictureInPictureVideoHeight,
                 sourceRectHint = pictureInPictureSourceRect,

@@ -27,6 +27,11 @@ class TvPictureInPictureSourceTest {
         assertTrue(player.contains("SiloPictureInPictureCoordinator"))
         assertTrue(player.contains("pictureInPictureEnabledFlow"))
         assertTrue(player.contains("updatePlaybackState("))
+        val pipEffect = player
+            .substringAfter("LaunchedEffect(\n        context,")
+            .substringBefore(") {\n        pictureInPictureCoordinator.updatePlaybackState")
+        assertTrue(pipEffect.contains("state.isPlaying"))
+        assertTrue(player.contains("isPlaying = state.isPlaying && !state.isPaused"))
         assertTrue(player.contains("!isInPictureInPictureMode"))
         assertTrue(player.contains("if (!isInPictureInPictureMode && state.showControls"))
         assertTrue(player.contains("Lifecycle.Event.ON_PAUSE -> if (!isInPictureInPictureMode)"))
