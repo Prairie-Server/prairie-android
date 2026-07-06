@@ -62,8 +62,10 @@ fun CatalogGrid(
     modifier: Modifier = Modifier,
     selectedNamePrefix: String? = null,
     onNamePrefixSelected: ((String?) -> Unit)? = null,
+    viewDensity: CatalogViewDensity = CatalogViewDensity.Normal,
 ) {
     val gridState = rememberLazyGridState()
+    val cardWidth = viewDensity.minCardWidth
 
     // Trigger load more when scrolled near bottom
     val shouldLoadMore by remember {
@@ -84,12 +86,12 @@ fun CatalogGrid(
         LazyVerticalGrid(
             // iOS phone: adaptive poster grid, 110pt minimum card width, 12pt
             // column spacing, 16pt row spacing, 16pt horizontal page padding.
-            columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
+            columns = GridCells.Adaptive(cardWidth),
             state = gridState,
             contentPadding = PaddingValues(
                 start = 16.dp,
                 top = 8.dp,
-                end = if (onNamePrefixSelected != null) 48.dp else 16.dp,
+                end = if (onNamePrefixSelected != null) 40.dp else 16.dp,
                 bottom = 8.dp,
             ),
             horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
@@ -110,7 +112,7 @@ fun CatalogGrid(
                     type = item.type,
                     userState = userState,
                     onClick = { onItemClick(item.contentId) },
-                    width = MediaGridDefaults.PosterGridMinWidth,
+                    width = cardWidth,
                     overlay = OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )

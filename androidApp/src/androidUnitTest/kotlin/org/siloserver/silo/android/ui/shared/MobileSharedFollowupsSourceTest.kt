@@ -49,7 +49,6 @@ class MobileSharedFollowupsSourceTest {
         )
 
         listOf(
-            catalogGrid,
             searchResults,
             personalGrid,
             collectionDetail,
@@ -68,6 +67,13 @@ class MobileSharedFollowupsSourceTest {
             )
         }
 
+        assertTrue(
+            catalogGrid.contains("viewDensity: CatalogViewDensity = CatalogViewDensity.Normal") &&
+                catalogGrid.contains("val cardWidth = viewDensity.minCardWidth") &&
+                catalogGrid.contains("columns = GridCells.Adaptive(cardWidth)") &&
+                catalogGrid.contains("width = cardWidth"),
+            "CatalogGrid should use the selected view density for adaptive columns and card sizing.",
+        )
         assertTrue(
             catalogGrid.contains("GridItemSpan(maxLineSpan)") &&
                 searchResults.contains("GridItemSpan(maxLineSpan)"),

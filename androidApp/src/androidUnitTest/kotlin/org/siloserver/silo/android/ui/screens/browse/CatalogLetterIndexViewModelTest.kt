@@ -58,6 +58,23 @@ class CatalogLetterIndexViewModelTest {
     }
 
     @Test
+    fun browseDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
+        val requests = mutableListOf<RequestRecord>()
+        val repositories = repositoriesFor(requests)
+        val viewModel = BrowseViewModel(
+            catalogRepository = repositories.catalog,
+            savedStateHandle = SavedStateHandle(mapOf("libraryId" to "1")),
+        )
+        awaitState { viewModel.uiState.value.items.map { it.contentId } == listOf("all-1") }
+        val catalogRequestCount = requests.catalogRequestCount()
+
+        viewModel.selectViewDensity(CatalogViewDensity.Compact)
+
+        assertEquals(CatalogViewDensity.Compact, viewModel.uiState.value.catalogDensity)
+        assertEquals(catalogRequestCount, requests.catalogRequestCount())
+    }
+
+    @Test
     fun librariesBrowseLetterSelectionUsesServerNamePrefix() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
@@ -79,6 +96,26 @@ class CatalogLetterIndexViewModelTest {
     }
 
     @Test
+    fun librariesDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
+        val requests = mutableListOf<RequestRecord>()
+        val repositories = repositoriesFor(requests)
+        val viewModel = LibrariesViewModel(
+            personalDataRepository = repositories.personal,
+            sectionRepository = repositories.sections,
+            catalogRepository = repositories.catalog,
+        )
+        awaitState { !viewModel.uiState.value.isLoadingLibraries }
+        viewModel.selectTab(LibrariesSubtab.Browse)
+        awaitState { viewModel.uiState.value.catalogItems.map { it.contentId } == listOf("all-1") }
+        val catalogRequestCount = requests.catalogRequestCount()
+
+        viewModel.selectViewDensity(CatalogViewDensity.Comfortable)
+
+        assertEquals(CatalogViewDensity.Comfortable, viewModel.uiState.value.catalogDensity)
+        assertEquals(catalogRequestCount, requests.catalogRequestCount())
+    }
+
+    @Test
     fun readingBrowseLetterSelectionUsesServerNamePrefix() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
@@ -97,6 +134,26 @@ class CatalogLetterIndexViewModelTest {
 
         assertEquals("S", requests.lastCatalogRequest().query["name_prefix"])
         assertEquals("S", viewModel.uiState.value.selectedNamePrefix)
+    }
+
+    @Test
+    fun readingDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
+        val requests = mutableListOf<RequestRecord>()
+        val repositories = repositoriesFor(requests)
+        val viewModel = ReadingHubViewModel(
+            personalDataRepository = repositories.personal,
+            sectionRepository = repositories.sections,
+            catalogRepository = repositories.catalog,
+        )
+        awaitState { !viewModel.uiState.value.isLoadingLibraries }
+        viewModel.selectTab(LibrariesSubtab.Browse)
+        awaitState { viewModel.uiState.value.catalogItems.map { it.contentId } == listOf("all-1") }
+        val catalogRequestCount = requests.catalogRequestCount()
+
+        viewModel.selectViewDensity(CatalogViewDensity.Compact)
+
+        assertEquals(CatalogViewDensity.Compact, viewModel.uiState.value.catalogDensity)
+        assertEquals(catalogRequestCount, requests.catalogRequestCount())
     }
 
     private fun runCatalogTest(block: suspend () -> Unit) = runTest {
@@ -132,6 +189,9 @@ class CatalogLetterIndexViewModelTest {
     private fun MutableList<RequestRecord>.lastCatalogRequest(): RequestRecord =
         lastOrNull { it.path == "/api/v1/catalog" }
             ?: error("Expected a catalog request, got $this")
+
+    private fun List<RequestRecord>.catalogRequestCount(): Int =
+        count { it.path == "/api/v1/catalog" }
 
     private fun repositoriesFor(requests: MutableList<RequestRecord>): Repositories {
         val client = HttpClient(

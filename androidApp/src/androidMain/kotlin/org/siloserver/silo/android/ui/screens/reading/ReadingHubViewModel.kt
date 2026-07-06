@@ -2,9 +2,10 @@ package org.siloserver.silo.android.ui.screens.reading
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.android.ui.screens.browse.CatalogViewDensity
+import org.siloserver.silo.android.ui.screens.browse.normalizeCatalogNamePrefix
 import org.siloserver.silo.android.ui.screens.libraries.LibrariesSubtab
 import org.siloserver.silo.android.ui.screens.libraries.LibraryBrowseSort
-import org.siloserver.silo.android.ui.screens.browse.normalizeCatalogNamePrefix
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.navigation.ReadingFormatFilter
 import org.siloserver.silo.model.navigation.availableReadingFormatFilters
@@ -43,6 +44,7 @@ data class ReadingHubUiState(
     val browseGenres: List<String> = emptyList(),
     val selectedBrowseGenre: String? = null,
     val selectedNamePrefix: String? = null,
+    val catalogDensity: CatalogViewDensity = CatalogViewDensity.Normal,
     val browseSort: LibraryBrowseSort = LibraryBrowseSort.RecentlyAdded,
     val catalogError: String? = null,
     val isLoadingCollections: Boolean = false,
@@ -219,6 +221,11 @@ class ReadingHubViewModel(
             )
         }
         _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
+    }
+
+    fun selectViewDensity(density: CatalogViewDensity) {
+        if (_uiState.value.catalogDensity == density) return
+        _uiState.update { it.copy(catalogDensity = density) }
     }
 
     fun loadMoreCatalog() {

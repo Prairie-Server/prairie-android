@@ -38,6 +38,7 @@ data class BrowseUiState(
     val total: Int = 0,
     val filters: BrowseFilters = BrowseFilters(),
     val selectedNamePrefix: String? = null,
+    val catalogDensity: CatalogViewDensity = CatalogViewDensity.Normal,
     val availableFilters: CatalogFiltersResponse? = null,
     val libraryId: Int? = null,
     val title: String = "Browse",
@@ -95,6 +96,11 @@ class BrowseViewModel(
             )
         }
         loadItems(reset = true)
+    }
+
+    fun selectViewDensity(density: CatalogViewDensity) {
+        if (_uiState.value.catalogDensity == density) return
+        _uiState.update { it.copy(catalogDensity = density) }
     }
 
     /**

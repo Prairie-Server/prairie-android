@@ -86,6 +86,7 @@ import org.siloserver.silo.android.ui.components.MediaRowsSkeleton
 import org.siloserver.silo.android.ui.components.PosterGridSkeleton
 import org.siloserver.silo.android.ui.components.rememberShimmerProgress
 import org.siloserver.silo.android.ui.screens.browse.CatalogGrid
+import org.siloserver.silo.android.ui.screens.browse.CatalogViewDensity
 import org.siloserver.silo.android.ui.screens.browse.normalizeCatalogNamePrefix
 import org.siloserver.silo.android.ui.screens.home.FeaturedCarousel
 import org.siloserver.silo.android.ui.screens.home.HomeSectionRow
@@ -142,6 +143,7 @@ data class LibrariesUiState(
     val browseGenres: List<String> = emptyList(),
     val selectedBrowseGenre: String? = null,
     val selectedNamePrefix: String? = null,
+    val catalogDensity: CatalogViewDensity = CatalogViewDensity.Normal,
     val browseSort: LibraryBrowseSort = LibraryBrowseSort.RecentlyAdded,
     val catalogError: String? = null,
     val isLoadingCollections: Boolean = false,
@@ -292,6 +294,11 @@ class LibrariesViewModel(
             )
         }
         _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
+    }
+
+    fun selectViewDensity(density: CatalogViewDensity) {
+        if (_uiState.value.catalogDensity == density) return
+        _uiState.update { it.copy(catalogDensity = density) }
     }
 
     fun loadMoreCatalog() {
@@ -636,6 +643,7 @@ fun LibrariesScreen(
                         onGenreChanged = viewModel::selectBrowseGenre,
                         onSortChanged = viewModel::selectBrowseSort,
                         onNamePrefixChanged = viewModel::selectNamePrefix,
+                        onDensityChanged = viewModel::selectViewDensity,
                     )
                     LibrariesSubtab.Collections -> CollectionsTabContent(
                         state = state,
@@ -772,6 +780,7 @@ private fun BrowseTabContent(
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
     onNamePrefixChanged: (String?) -> Unit,
+    onDensityChanged: (CatalogViewDensity) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -819,6 +828,14 @@ private fun BrowseTabContent(
                     colors = libraryChipColors(state.browseSort == sort),
                 )
             }
+            CatalogViewDensity.entries.forEach { density ->
+                FilterChip(
+                    selected = state.catalogDensity == density,
+                    onClick = { onDensityChanged(density) },
+                    label = { Text(density.label) },
+                    colors = libraryChipColors(state.catalogDensity == density),
+                )
+            }
         }
 
         when {
@@ -858,6 +875,7 @@ private fun BrowseTabContent(
                     onLoadMore = onLoadMore,
                     selectedNamePrefix = state.selectedNamePrefix,
                     onNamePrefixSelected = onNamePrefixChanged,
+                    viewDensity = state.catalogDensity,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

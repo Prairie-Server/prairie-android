@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.components.EmptyStateView
 import org.siloserver.silo.android.ui.components.ErrorView
 import org.siloserver.silo.android.ui.screens.browse.CatalogGrid
+import org.siloserver.silo.android.ui.screens.browse.CatalogViewDensity
 import org.siloserver.silo.android.ui.screens.home.HomeSectionRow
 import org.siloserver.silo.android.ui.screens.libraries.LibrariesSubtab
 import org.siloserver.silo.android.ui.screens.libraries.LibraryBrowseSort
@@ -116,6 +117,7 @@ fun ReadingHubScreen(
             onGenreChanged = viewModel::selectBrowseGenre,
             onSortChanged = viewModel::selectBrowseSort,
             onNamePrefixChanged = viewModel::selectNamePrefix,
+            onDensityChanged = viewModel::selectViewDensity,
         )
     }
 }
@@ -281,6 +283,7 @@ private fun ReadingHubContent(
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
     onNamePrefixChanged: (String?) -> Unit,
+    onDensityChanged: (CatalogViewDensity) -> Unit,
 ) {
     when {
         state.isLoadingLibraries && state.libraries.isEmpty() -> {
@@ -337,6 +340,7 @@ private fun ReadingHubContent(
                         onGenreChanged = onGenreChanged,
                         onSortChanged = onSortChanged,
                         onNamePrefixChanged = onNamePrefixChanged,
+                        onDensityChanged = onDensityChanged,
                     )
                     LibrariesSubtab.Collections -> ReadingCollectionsTab(
                         state = state,
@@ -423,6 +427,7 @@ private fun ReadingBrowseTab(
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
     onNamePrefixChanged: (String?) -> Unit,
+    onDensityChanged: (CatalogViewDensity) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (state.browseGenres.isNotEmpty()) {
@@ -460,6 +465,13 @@ private fun ReadingBrowseTab(
                     selected = state.browseSort == sort,
                     onClick = { onSortChanged(sort) },
                     label = { Text(sort.label) },
+                )
+            }
+            CatalogViewDensity.entries.forEach { density ->
+                FilterChip(
+                    selected = state.catalogDensity == density,
+                    onClick = { onDensityChanged(density) },
+                    label = { Text(density.label) },
                 )
             }
         }
@@ -505,6 +517,7 @@ private fun ReadingBrowseTab(
                     onLoadMore = onLoadMore,
                     selectedNamePrefix = state.selectedNamePrefix,
                     onNamePrefixSelected = onNamePrefixChanged,
+                    viewDensity = state.catalogDensity,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

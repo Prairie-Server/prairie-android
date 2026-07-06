@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -107,6 +108,22 @@ fun BrowseScreen(
                 .fillMaxSize()
                 .padding(contentPadding),
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CatalogViewDensity.entries.forEach { density ->
+                    FilterChip(
+                        selected = state.catalogDensity == density,
+                        onClick = { viewModel.selectViewDensity(density) },
+                        label = { Text(density.label) },
+                    )
+                }
+            }
+
             // Active filter chips — iOS phone: horizontal scroll of removable
             // capsule chips (surfaceElevated bg, caption text, xmark.circle.fill).
             val activeFilterCount = state.filters.genres.size + state.filters.contentRatings.size
@@ -215,6 +232,7 @@ fun BrowseScreen(
                         onLoadMore = { viewModel.loadMore() },
                         selectedNamePrefix = state.selectedNamePrefix,
                         onNamePrefixSelected = viewModel::selectNamePrefix,
+                        viewDensity = state.catalogDensity,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
