@@ -8,6 +8,8 @@ import org.siloserver.silo.common.downloads.DownloadSubscriptionWorker
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
 import org.siloserver.silo.common.downloads.DownloadStorage
 import org.siloserver.silo.common.downloads.DownloadWorker
+import org.siloserver.silo.common.cast.SiloCastNsdBrowser
+import org.siloserver.silo.common.pairing.PairingDeviceId
 import org.siloserver.silo.common.player.AudioCapabilityManager
 import org.siloserver.silo.common.player.AudioTrackManager
 import org.siloserver.silo.common.player.SiloPlayerFactory
@@ -65,6 +67,7 @@ import org.siloserver.silo.android.ui.screens.player.PlayerViewModel
 import org.siloserver.silo.android.ui.screens.reading.ReadingHubViewModel
 import org.siloserver.silo.android.ui.screens.search.SearchViewModel
 import org.siloserver.silo.android.ui.screens.settings.SettingsViewModel
+import org.siloserver.silo.android.cast.SiloCastController
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
@@ -147,6 +150,16 @@ val androidModule = module {
     single<AndroidServerSettingsCache> { AndroidServerSettingsCache(androidContext()) }
     single<org.siloserver.silo.network.DeviceMetadataProvider> {
         AndroidDeviceMetadataProvider(androidContext(), platform = "android")
+    }
+    single { SiloCastNsdBrowser(androidContext()) }
+    single {
+        SiloCastController(
+            browser = get(),
+            deviceNameProvider = {
+                android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android Phone"
+            },
+            deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
+        )
     }
 
     // Player infrastructure

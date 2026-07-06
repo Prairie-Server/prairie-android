@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Info
@@ -71,7 +72,9 @@ fun MovieDetailContent(
     onSeasonClick: (() -> Unit)? = null,
     isDownloaded: Boolean = false,
     downloadProgress: Float? = null,
+    playOnDeviceLabel: String = "Play on device",
     onDownloadTapped: (() -> Unit)? = null,
+    onPlayOnDevice: (() -> Unit)? = null,
     onWatchTogether: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -90,7 +93,7 @@ fun MovieDetailContent(
     val hasAudioOptions = audioTracks.size > 1
     val hasSubtitleOptions = subtitleTracks.isNotEmpty()
     val hasMediaInfo = detail.versions.isNotEmpty()
-    val hasOverflow = hasAudioOptions || hasSubtitleOptions || hasMediaInfo ||
+    val hasOverflow = hasAudioOptions || hasSubtitleOptions || hasMediaInfo || onPlayOnDevice != null ||
         onSeriesClick != null || onSeasonClick != null || onWatchTogether != null
 
     val eyebrow = if (detail.type == "episode") {
@@ -182,6 +185,18 @@ fun MovieDetailContent(
                                     onClick = {
                                         dismiss()
                                         showMediaInfo = true
+                                    },
+                                )
+                            }
+                            if (onPlayOnDevice != null) {
+                                DropdownMenuItem(
+                                    text = { Text(playOnDeviceLabel) },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.Cast, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        dismiss()
+                                        onPlayOnDevice()
                                     },
                                 )
                             }

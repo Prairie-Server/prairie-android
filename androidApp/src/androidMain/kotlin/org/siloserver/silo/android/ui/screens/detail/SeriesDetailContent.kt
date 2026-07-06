@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Visibility
@@ -72,6 +73,8 @@ fun SeriesDetailContent(
     /** Series-level roll-up across ALL seasons: isDownloaded when every episode
      *  is downloaded, progress = downloaded/total fraction while partial. */
     seriesDownloadState: DetailDownloadState = DetailDownloadState(),
+    playOnDeviceLabel: String = "Play on device",
+    onPlayOnDevice: (() -> Unit)? = null,
     onWatchTogether: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -116,18 +119,32 @@ fun SeriesDetailContent(
                     onToggleWatched = onToggleWatched,
                     userRating = userRating,
                     onRateClick = { showRatingSheet = true },
-                    overflow = if (onWatchTogether != null) {
+                    overflow = if (onWatchTogether != null || onPlayOnDevice != null) {
                         { dismiss ->
-                            DropdownMenuItem(
-                                text = { Text("Watch Together") },
-                                leadingIcon = {
-                                    Icon(Icons.Outlined.Groups, contentDescription = null)
-                                },
-                                onClick = {
-                                    dismiss()
-                                    onWatchTogether()
-                                },
-                            )
+                            if (onPlayOnDevice != null) {
+                                DropdownMenuItem(
+                                    text = { Text(playOnDeviceLabel) },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.Cast, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        dismiss()
+                                        onPlayOnDevice()
+                                    },
+                                )
+                            }
+                            if (onWatchTogether != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Watch Together") },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.Groups, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        dismiss()
+                                        onWatchTogether()
+                                    },
+                                )
+                            }
                         }
                     } else {
                         null

@@ -2,15 +2,18 @@ package org.siloserver.silo.android.ui.navigation
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -20,6 +23,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
+import org.siloserver.silo.android.cast.SiloCastController
+import org.siloserver.silo.android.ui.screens.cast.SiloCastMiniBar
+import org.siloserver.silo.android.ui.screens.cast.SiloCastRemoteScreen
 import org.siloserver.silo.android.ui.screens.MainScreen
 import org.siloserver.silo.android.ui.screens.auth.LoginScreen
 import org.siloserver.silo.android.ui.screens.auth.DevicePairingScreen
@@ -73,6 +79,12 @@ fun AppNavigation(
 ) {
     val tokenManager: TokenManager = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
+    val siloCastController: SiloCastController = koinInject()
+
+    DisposableEffect(siloCastController) {
+        siloCastController.startBrowsing()
+        onDispose { siloCastController.stopBrowsing() }
+    }
 
     // Graceful handling of server-side session invalidation (refresh 401'd).
     // The TokenManager has already wiped the active server's tokens by the
@@ -114,6 +126,7 @@ fun AppNavigation(
     // every composable signature in between.
     SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
     CompositionLocalProvider(LocalSharedTransitionScope provides this) {
+    Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -342,6 +355,9 @@ fun AppNavigation(
                 store = overlayPrefsStore,
                 onBackClick = { navController.popBackStack() },
             )
+        }
+        composable(Route.SiloCastRemote.route) {
+            SiloCastRemoteScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = Route.Search.ROUTE,
@@ -700,6 +716,12 @@ fun AppNavigation(
             }
         }
 
+    }
+        SiloCastMiniBar(
+            controller = siloCastController,
+            onOpenRemote = { navController.navigate(Route.SiloCastRemote.route) },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
     }
     }

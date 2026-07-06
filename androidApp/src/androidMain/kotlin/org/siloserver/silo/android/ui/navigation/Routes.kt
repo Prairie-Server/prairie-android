@@ -122,7 +122,9 @@ sealed class Route(val route: String) {
         }
     }
 
-    // --- Player (fullscreen, no system bars) ---
+    // --- Player / casting (fullscreen or hidden shell routes, no menu entries) ---
+    data object SiloCastRemote : Route("silocast/remote")
+
     data class Player(
         val contentId: String,
         val fileId: Int? = null,

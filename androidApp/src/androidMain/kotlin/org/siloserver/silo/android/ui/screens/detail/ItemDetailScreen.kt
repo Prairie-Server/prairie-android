@@ -31,8 +31,10 @@ import org.siloserver.silo.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import org.siloserver.silo.android.downloads.hasLegacyPublicDownloadPermission
 import org.siloserver.silo.android.ui.components.DetailLoadingSkeleton
 import org.siloserver.silo.android.ui.components.ErrorView
+import org.siloserver.silo.android.ui.screens.cast.SiloCastTargetPickerSheet
 import org.siloserver.silo.android.ui.screens.downloads.openDownloadTargetInExternalApp
 import org.siloserver.silo.android.ui.util.playbackResumePosition
+import org.siloserver.silo.cast.SiloCastLaunchRequest
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.common.downloads.DownloadOpenTarget
 import org.siloserver.silo.common.downloads.DownloadStorage
@@ -46,6 +48,8 @@ import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.siloserver.silo.network.ServerRegistry
 import org.koin.compose.koinInject
+
+private const val PLAY_ON_DEVICE_LABEL = "Play on device"
 
 /**
  * Item detail dispatcher. Routes to [MovieDetailContent] or
@@ -78,6 +82,7 @@ fun ItemDetailScreen(
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingDownloadQualityAction by remember { mutableStateOf<((DownloadQuality) -> Unit)?>(null) }
     var showDownloadQualityPicker by remember { mutableStateOf(false) }
+    var pendingSiloCastLaunchRequest by remember { mutableStateOf<SiloCastLaunchRequest?>(null) }
     val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -141,6 +146,27 @@ fun ItemDetailScreen(
             Toast.makeText(context, "No app found to open this file.", Toast.LENGTH_LONG).show()
         }
     }
+
+    fun videoCastRequest(
+        contentId: String,
+        title: String,
+        subtitle: String? = null,
+        fileId: Int? = null,
+        audioTrackIndex: Int? = null,
+        subtitleTrackIndex: Int? = null,
+        resumePositionSeconds: Double? = null,
+    ): SiloCastLaunchRequest =
+        SiloCastLaunchRequest(
+            serverId = serverRegistry.activeServerId.value,
+            contentId = contentId,
+            fileId = fileId?.toString(),
+            mediaKind = "video",
+            title = title,
+            subtitle = subtitle,
+            resumeTime = resumePositionSeconds,
+            audioTrackId = audioTrackIndex?.toString(),
+            subtitleTrackId = subtitleTrackIndex?.toString(),
+        )
 
     Box(
         modifier = modifier
@@ -420,6 +446,18 @@ fun ItemDetailScreen(
                                 )
                             },
                             seriesDownloadState = seriesDownloadState,
+                            playOnDeviceLabel = PLAY_ON_DEVICE_LABEL,
+                            onPlayOnDevice = {
+                                val castContentId = nextEpisode?.contentId ?: detail.contentId
+                                pendingSiloCastLaunchRequest = videoCastRequest(
+                                    contentId = castContentId,
+                                    title = nextEpisode?.title ?: detail.title,
+                                    subtitle = nextEpisodeLabel,
+                                    resumePositionSeconds = nextEpisode
+                                        ?.let { playbackResumePosition(it) }
+                                        ?: playbackResumePosition(detail.userData),
+                                )
+                            },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
                                 { onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null) }
                             } else {
@@ -483,6 +521,7 @@ fun ItemDetailScreen(
                             },
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
+                            playOnDeviceLabel = PLAY_ON_DEVICE_LABEL,
                             onDownloadTapped = selectedVersion?.let { v ->
                                 {
                                     runDownloadTap(
@@ -504,6 +543,16 @@ fun ItemDetailScreen(
                                         },
                                     )
                                 }
+                            },
+                            onPlayOnDevice = {
+                                pendingSiloCastLaunchRequest = videoCastRequest(
+                                    contentId = detail.contentId,
+                                    title = detail.title,
+                                    fileId = playbackFileId,
+                                    audioTrackIndex = explicitAudioIndex,
+                                    subtitleTrackIndex = explicitSubtitleIndex,
+                                    resumePositionSeconds = playbackResumePosition(detail.userData),
+                                )
                             },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
                                 { onWatchTogether(detail.contentId, explicitFileId) }
@@ -530,6 +579,13 @@ fun ItemDetailScreen(
                     pendingDownloadQualityAction = null
                     showDownloadQualityPicker = false
                 },
+            )
+        }
+
+        pendingSiloCastLaunchRequest?.let { request ->
+            SiloCastTargetPickerSheet(
+                launchRequest = request,
+                onDismiss = { pendingSiloCastLaunchRequest = null },
             )
         }
 
