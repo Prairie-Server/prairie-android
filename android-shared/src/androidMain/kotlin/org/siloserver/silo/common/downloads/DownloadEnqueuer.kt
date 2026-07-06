@@ -3,6 +3,7 @@ package org.siloserver.silo.common.downloads
 import android.content.Context
 import android.util.Log
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.download.DownloadMediaType
 import org.siloserver.silo.model.download.DownloadRequest
 import org.siloserver.silo.model.download.DownloadSidecar
@@ -49,9 +50,16 @@ class DownloadEnqueuer(
         contentId: String,
         fileId: Int,
         displayTitle: String,
+        downloadQualityOverride: DownloadQuality? = null,
     ): ApiResult<Unit> {
         Log.i(TAG, "start: contentId=$contentId fileId=$fileId title=$displayTitle")
-        val record = when (val r = repository.create(DownloadRequest(contentId = contentId, fileId = fileId))) {
+        val record = when (val r = repository.create(
+            downloadRequest(
+                contentId = contentId,
+                fileId = fileId,
+                downloadQualityOverride = downloadQualityOverride,
+            ),
+        )) {
             is ApiResult.Success -> r.data.also { Log.i(TAG, "start: server record id=${it.id} status=${it.status}") }
             is ApiResult.Error -> { Log.w(TAG, "start: server error ${r.code} ${r.message}"); return ApiResult.Error(r.code, r.error, r.message) }
             is ApiResult.NetworkError -> { Log.w(TAG, "start: network error", r.exception); return ApiResult.NetworkError(r.exception) }
@@ -76,12 +84,17 @@ class DownloadEnqueuer(
         episodeNumber: Int,
         episodeTitle: String?,
         posterUrl: String? = null,
+        downloadQualityOverride: DownloadQuality? = null,
     ): ApiResult<Unit> {
         Log.i(TAG, "startEpisode: series=$seriesContentId ep=$episodeContentId fileId=$fileId S${seasonNumber}E${episodeNumber}")
         val displayTitle = "$seriesTitle S${seasonNumber}E${episodeNumber}" +
             (episodeTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
         val record = when (val r = repository.create(
-            DownloadRequest(contentId = episodeContentId, fileId = fileId)
+            downloadRequest(
+                contentId = episodeContentId,
+                fileId = fileId,
+                downloadQualityOverride = downloadQualityOverride,
+            ),
         )) {
             is ApiResult.Success -> r.data
             is ApiResult.Error -> { Log.w(TAG, "startEpisode: server error ${r.code} ${r.message}"); return ApiResult.Error(r.code, r.error, r.message) }
@@ -118,10 +131,17 @@ class DownloadEnqueuer(
      * remaining sidecars get bare-bones titles instead of failing the
      * whole batch.
      */
-    suspend fun startSeries(seriesContentId: String): ApiResult<Unit> {
+    suspend fun startSeries(
+        seriesContentId: String,
+        downloadQualityOverride: DownloadQuality? = null,
+    ): ApiResult<Unit> {
         Log.i(TAG, "startSeries: contentId=$seriesContentId")
         val records = when (val r = repository.createBatch(
-            DownloadRequest(contentId = seriesContentId, series = true)
+            downloadRequest(
+                contentId = seriesContentId,
+                series = true,
+                downloadQualityOverride = downloadQualityOverride,
+            ),
         )) {
             is ApiResult.Success -> r.data.also { Log.i(TAG, "startSeries: server returned ${it.size} records") }
             is ApiResult.Error -> { Log.w(TAG, "startSeries: server error ${r.code} ${r.message}"); return ApiResult.Error(r.code, r.error, r.message) }
@@ -176,6 +196,7 @@ class DownloadEnqueuer(
     suspend fun startSeason(
         seriesContentId: String,
         seasonNumber: Int,
+        downloadQualityOverride: DownloadQuality? = null,
     ): ApiResult<Unit> {
         Log.i(TAG, "startSeason: series=$seriesContentId season=$seasonNumber")
         val episodes = when (val r = catalogRepository.getEpisodes(seriesContentId, seasonNumber)) {
@@ -204,6 +225,7 @@ class DownloadEnqueuer(
                 episodeNumber = ep.episodeNumber,
                 episodeTitle = ep.title,
                 posterUrl = posterUrl,
+                downloadQualityOverride = downloadQualityOverride,
             )
             if (result is ApiResult.Success) queued++
             else if (firstError == null) firstError = result
@@ -234,6 +256,24 @@ class DownloadEnqueuer(
             }
         }
         return map
+    }
+
+    private suspend fun downloadRequest(
+        contentId: String,
+        fileId: Int? = null,
+        episodeId: String? = null,
+        series: Boolean = false,
+        downloadQualityOverride: DownloadQuality? = null,
+    ): DownloadRequest {
+        val quality = downloadQualityOverride ?: DownloadQuality.fromWire(playerSettingsStore.defaultDownloadQualityFlow.first())
+        return DownloadRequest(
+            contentId = contentId,
+            episodeId = episodeId,
+            fileId = fileId,
+            series = series,
+            quality = quality.wire,
+            targetBitrateKbps = quality.targetBitrateKbps,
+        )
     }
 
     /**

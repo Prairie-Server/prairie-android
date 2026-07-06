@@ -58,6 +58,27 @@ interface UserItemStatePort {
      */
     suspend fun localPositionForContent(contentId: String): Double? = null
 
+    /** Full local resume snapshot for a content item, including the file that produced it. */
+    suspend fun localPlaybackProgress(contentId: String): LocalPlaybackProgress? = null
+
+    /** Batched local resume snapshots for card/detail overlays. */
+    suspend fun localPlaybackProgressForContent(contentIds: List<String>): Map<String, LocalPlaybackProgress> = emptyMap()
+
+    /**
+     * Durably record per-file track selections. These are local-only hints for
+     * future playback starts, stored as stable fingerprints rather than raw UI
+     * ordinals so they survive track-list reordering. They do not enqueue a
+     * server outbox op because the server currently models track choices as
+     * playback-session inputs, not user state.
+     */
+    suspend fun recordAudioTrackSelection(contentId: String, fileId: Int, audioFingerprint: String?) {
+    }
+
+    suspend fun recordSubtitleTrackSelection(contentId: String, fileId: Int, subtitleFingerprint: String?) {
+    }
+
+    suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? = null
+
     /**
      * Durably record ebook reading position (CFI [location] + [progress] 0..1) for
      * offline-safe resume + sync. Like [recordPosition] there is no inline call:
@@ -89,8 +110,18 @@ interface UserItemStatePort {
 /** Local optimistic content-level state; null fields = "no local opinion" (defer to server). */
 data class LocalContentState(val watched: Boolean?, val favorite: Boolean?)
 
+/** Local per-file track choices; null fields mean "no local override". */
+data class LocalTrackSelection(val audioFingerprint: String?, val subtitleFingerprint: String?)
+
 /** Local ebook resume point: CFI [location] + [progress] fraction (0..1). */
 data class EbookLocalProgress(val location: String, val progress: Double)
+
+/** Local video/audio resume point that has not necessarily synced to the server yet. */
+data class LocalPlaybackProgress(
+    val fileId: Int,
+    val positionSeconds: Double,
+    val durationSeconds: Double?,
+)
 
 /**
  * Opaque reference to an enqueued outbox op. [NONE] means nothing was recorded

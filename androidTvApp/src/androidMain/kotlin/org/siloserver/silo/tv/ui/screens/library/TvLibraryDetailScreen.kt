@@ -1,6 +1,8 @@
 package org.siloserver.silo.tv.ui.screens.library
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -48,11 +51,13 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.common.ui.components.ThumbhashImage
+import org.siloserver.silo.model.catalog.AudiobookGroup
 import org.siloserver.silo.model.section.LibraryCollection
 import org.siloserver.silo.tv.ui.components.TvAlphabetRail
 import org.siloserver.silo.tv.ui.components.TvCardWidth
 import org.siloserver.silo.tv.ui.components.TvCatalogEmptyState
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
+import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.TvMediaCard
 import org.siloserver.silo.tv.ui.components.TvSkylineSectionFeed
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
@@ -124,10 +129,86 @@ fun TvLibraryDetailScreen(
                 state = state,
                 onItemClick = onItemClick,
                 onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
                 onLoadMore = viewModel::loadMoreBrowse,
                 onRetry = viewModel::retryBrowse,
                 onInitialContentFocus = onInitialContentFocus,
             )
+            TvLibraryTab.Genres -> LibraryTab(
+                state = state,
+                onItemClick = onItemClick,
+                onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
+                onLoadMore = viewModel::loadMoreBrowse,
+                onRetry = viewModel::retryBrowse,
+                onInitialContentFocus = onInitialContentFocus,
+                showGenreChips = true,
+            )
+            TvLibraryTab.Alphabet -> LibraryTab(
+                state = state,
+                onItemClick = onItemClick,
+                onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
+                onLoadMore = viewModel::loadMoreBrowse,
+                onRetry = viewModel::retryBrowse,
+                onInitialContentFocus = onInitialContentFocus,
+                showAlphabetRail = true,
+            )
+            TvLibraryTab.RecentlyAdded -> LibraryTab(
+                state = state,
+                onItemClick = onItemClick,
+                onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                onGenreChanged = viewModel::onGenreChanged,
+                onLoadMore = viewModel::loadMoreBrowse,
+                onRetry = viewModel::retryBrowse,
+                onInitialContentFocus = onInitialContentFocus,
+            )
+            TvLibraryTab.Authors -> {
+                if (state.selectedAudiobookGroup == null) {
+                    AudiobookGroupsTab(
+                        state = state,
+                        groupLabel = "authors",
+                        onGroupClick = viewModel::onAudiobookGroupSelected,
+                        onLoadMore = viewModel::loadMoreAudiobookGroups,
+                        onRetry = viewModel::retryAudiobookGroups,
+                        onInitialContentFocus = onInitialContentFocus,
+                    )
+                } else {
+                    LibraryTab(
+                        state = state,
+                        onItemClick = onItemClick,
+                        onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                        onGenreChanged = viewModel::onGenreChanged,
+                        onLoadMore = viewModel::loadMoreBrowse,
+                        onRetry = viewModel::retryBrowse,
+                        onInitialContentFocus = onInitialContentFocus,
+                        onClearAudiobookGroup = viewModel::onAudiobookGroupCleared,
+                    )
+                }
+            }
+            TvLibraryTab.Series -> {
+                if (state.selectedAudiobookGroup == null) {
+                    AudiobookGroupsTab(
+                        state = state,
+                        groupLabel = "series",
+                        onGroupClick = viewModel::onAudiobookGroupSelected,
+                        onLoadMore = viewModel::loadMoreAudiobookGroups,
+                        onRetry = viewModel::retryAudiobookGroups,
+                        onInitialContentFocus = onInitialContentFocus,
+                    )
+                } else {
+                    LibraryTab(
+                        state = state,
+                        onItemClick = onItemClick,
+                        onNamePrefixChanged = viewModel::onNamePrefixChanged,
+                        onGenreChanged = viewModel::onGenreChanged,
+                        onLoadMore = viewModel::loadMoreBrowse,
+                        onRetry = viewModel::retryBrowse,
+                        onInitialContentFocus = onInitialContentFocus,
+                        onClearAudiobookGroup = viewModel::onAudiobookGroupCleared,
+                    )
+                }
+            }
             TvLibraryTab.Collections -> CollectionsTab(
                 state = state,
                 onCollectionClick = onCollectionClick,
@@ -195,9 +276,13 @@ private fun LibraryTab(
     state: TvLibraryDetailViewModel.UiState,
     onItemClick: (String) -> Unit,
     onNamePrefixChanged: (String?) -> Unit,
+    onGenreChanged: (String?) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onInitialContentFocus: () -> Unit,
+    showAlphabetRail: Boolean = false,
+    showGenreChips: Boolean = false,
+    onClearAudiobookGroup: (() -> Unit)? = null,
 ) {
     val firstGridItemFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
@@ -232,13 +317,18 @@ private fun LibraryTab(
                 onItemClick = onItemClick,
                 onLoadMore = onLoadMore,
                 firstItemFocusRequester = firstGridItemFocusRequester,
+                showGenreChips = showGenreChips,
+                onGenreChanged = onGenreChanged,
+                onClearAudiobookGroup = onClearAudiobookGroup,
             )
         }
-        TvAlphabetRail(
-            selected = state.browseFilter.namePrefix,
-            onSelect = onNamePrefixChanged,
-            modifier = Modifier.padding(end = Spacing.md),
-        )
+        if (showAlphabetRail) {
+            TvAlphabetRail(
+                selected = state.browseFilter.namePrefix,
+                onSelect = onNamePrefixChanged,
+                modifier = Modifier.padding(end = Spacing.md),
+            )
+        }
     }
 }
 
@@ -249,6 +339,9 @@ private fun LibraryGrid(
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
     firstItemFocusRequester: FocusRequester,
+    showGenreChips: Boolean,
+    onGenreChanged: (String?) -> Unit,
+    onClearAudiobookGroup: (() -> Unit)?,
 ) {
     val gridState: LazyGridState = rememberLazyGridState()
 
@@ -297,6 +390,27 @@ private fun LibraryGrid(
                 bottom = Spacing.xxxl,
             ),
         ) {
+            if (showGenreChips) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "genres") {
+                    GenreChipCloud(
+                        genres = state.genres,
+                        selectedGenre = state.browseFilter.genre,
+                        loading = state.filtersLoading,
+                        onGenreChanged = onGenreChanged,
+                    )
+                }
+            }
+
+            if (state.selectedAudiobookGroup != null && onClearAudiobookGroup != null) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "audiobook-group-header") {
+                    AudiobookGroupDrillInHeader(
+                        tab = state.selectedTab,
+                        group = state.selectedAudiobookGroup,
+                        onClear = onClearAudiobookGroup,
+                    )
+                }
+            }
+
             if (state.browseLoading && state.browseItems.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
                     InlineLoadingState()
@@ -334,6 +448,249 @@ private fun LibraryGrid(
                 item(span = { GridItemSpan(maxLineSpan) }, key = "loading-more") {
                     InlineLoadingState(verticalPadding = 24.dp)
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AudiobookGroupsTab(
+    state: TvLibraryDetailViewModel.UiState,
+    groupLabel: String,
+    onGroupClick: (AudiobookGroup) -> Unit,
+    onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
+    onInitialContentFocus: () -> Unit,
+) {
+    val gridState: LazyGridState = rememberLazyGridState()
+    val firstGroupFocusRequester = remember { FocusRequester() }
+    var initialFocusRequested by remember { mutableStateOf(false) }
+
+    val nearEnd by remember(
+        gridState,
+        state.audiobookGroupsHasMore,
+        state.audiobookGroups.size,
+        state.audiobookGroupsLoading,
+        state.audiobookGroupsLoadingMore,
+    ) {
+        derivedStateOf {
+            if (!state.audiobookGroupsHasMore || state.audiobookGroupsLoading || state.audiobookGroupsLoadingMore) {
+                false
+            } else {
+                val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()
+                state.audiobookGroups.isNotEmpty() &&
+                    lastVisible != null &&
+                    lastVisible.index >= state.audiobookGroups.size -
+                        (LibraryGridLoadMoreRowsThreshold * LibraryGridColumns)
+            }
+        }
+    }
+
+    LaunchedEffect(nearEnd) {
+        if (nearEnd) onLoadMore()
+    }
+
+    LaunchedEffect(state.selectedTab, state.audiobookGroups.isNotEmpty()) {
+        if (initialFocusRequested || state.audiobookGroups.isEmpty()) return@LaunchedEffect
+        kotlinx.coroutines.delay(120)
+        runCatching { firstGroupFocusRequester.requestFocus() }
+        onInitialContentFocus()
+        initialFocusRequested = true
+    }
+
+    CompositionLocalProvider(LocalBringIntoViewSpec provides TvSmoothBringIntoViewSpec) {
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(LibraryGridColumns),
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(LibraryGridColumnSpacing),
+            verticalArrangement = Arrangement.spacedBy(LibraryGridRowSpacing),
+            contentPadding = PaddingValues(
+                start = Spacing.safeArea,
+                top = TvTopMenuLayout.contentTopInset,
+                end = Spacing.safeArea,
+                bottom = Spacing.xxxl,
+            ),
+        ) {
+            when {
+                state.audiobookGroupsLoading && state.audiobookGroups.isEmpty() -> {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
+                        InlineLoadingState()
+                    }
+                }
+                state.audiobookGroupsError != null && state.audiobookGroups.isEmpty() -> {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "error") {
+                        TvErrorScreen(message = state.audiobookGroupsError, onRetry = onRetry)
+                    }
+                }
+                state.audiobookGroups.isEmpty() -> {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
+                        TvCatalogEmptyState(message = "No audiobook $groupLabel found.")
+                    }
+                }
+                else -> {
+                    itemsIndexed(
+                        state.audiobookGroups,
+                        key = { _, group -> group.name },
+                        contentType = { _, _ -> "audiobook-group" },
+                    ) { index, group ->
+                        TvAudiobookGroupCard(
+                            group = group,
+                            onClick = { onGroupClick(group) },
+                            focusRequester = firstGroupFocusRequester.takeIf { index == 0 },
+                        )
+                    }
+                }
+            }
+
+            if (state.audiobookGroupsLoadingMore) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "loading-more") {
+                    InlineLoadingState(verticalPadding = 24.dp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudiobookGroupDrillInHeader(
+    tab: TvLibraryTab,
+    group: AudiobookGroup,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = Spacing.md),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TvFilterChip(
+            text = "All ${tab.label}",
+            selected = false,
+            onClick = onClear,
+        )
+        Column {
+            Text(
+                text = group.name,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White.copy(alpha = 0.94f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            audiobookGroupSubtitle(group)?.let { subtitle ->
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.62f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvAudiobookGroupCard(
+    group: AudiobookGroup,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            onClick = onClick,
+            shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
+            modifier = Modifier
+                .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
+                .fillMaxWidth()
+                .aspectRatio(1f),
+        ) {
+            val posterUrl = group.posterUrls.firstOrNull { it.isNotBlank() }
+            if (posterUrl != null) {
+                ThumbhashImage(
+                    url = posterUrl,
+                    thumbhash = null,
+                    contentDescription = group.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(SubtleSurface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Headphones,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = group.name,
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        audiobookGroupSubtitle(group)?.let { subtitle ->
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.68f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GenreChipCloud(
+    genres: List<String>,
+    selectedGenre: String?,
+    loading: Boolean,
+    onGenreChanged: (String?) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Text(
+            text = if (loading) "Loading genres" else "Genres",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White.copy(alpha = 0.74f),
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            TvFilterChip(
+                text = "All",
+                selected = selectedGenre == null,
+                onClick = { onGenreChanged(null) },
+            )
+            genres.forEach { genre ->
+                TvFilterChip(
+                    text = genre,
+                    selected = selectedGenre == genre,
+                    onClick = { onGenreChanged(genre) },
+                )
             }
         }
     }
@@ -519,6 +876,32 @@ private fun collectionCountText(collection: LibraryCollection): String? {
         else -> if (plural) "items" else "item"
     }
     return "$count $noun".uppercase()
+}
+
+private fun audiobookGroupSubtitle(group: AudiobookGroup): String? {
+    val parts = mutableListOf<String>()
+    if (group.itemCount > 0) {
+        parts += "${group.itemCount} ${if (group.itemCount == 1) "book" else "books"}"
+    }
+    group.totalDurationSeconds
+        ?.takeIf { it > 0 }
+        ?.let(::formatAudiobookGroupDuration)
+        ?.let { parts += it }
+    if (group.inProgressCount > 0) {
+        parts += "${group.inProgressCount} in progress"
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" • ")
+}
+
+private fun formatAudiobookGroupDuration(seconds: Long): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+        hours > 0 -> "${hours}h"
+        minutes > 0 -> "${minutes}m"
+        else -> "<1m"
+    }
 }
 
 // ============================================================================

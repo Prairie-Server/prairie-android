@@ -264,12 +264,18 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                     )
                     true
                 } else {
-                    // The [TokenManager.sessionExpired] event emitted by this
-                    // call is what the root NavHost observer uses to route the
-                    // user back to the login screen; without it, the UI would
-                    // stay on Home and keep rendering "Failed to load..." for
-                    // every subsequent API call that now has no credentials.
-                    tokenManager.invalidateSession()
+                    // Only auth rejection proves the refresh token is bad.
+                    // Gateway/proxy/server failures should keep the session so
+                    // a temporary outage does not sign the user out.
+                    if (refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
+                        // The [TokenManager.sessionExpired] event emitted by
+                        // this call is what the root NavHost observer uses to
+                        // route the user back to the login screen; without it,
+                        // the UI would stay on Home and keep rendering
+                        // "Failed to load..." for every subsequent API call
+                        // that now has no credentials.
+                        tokenManager.invalidateSession()
+                    }
                     false
                 }
             } catch (e: Throwable) {
@@ -295,6 +301,11 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
         }
     }
 }
+
+private fun HttpStatusCode.shouldInvalidateSessionAfterRefreshFailure(): Boolean =
+    this == HttpStatusCode.BadRequest ||
+        this == HttpStatusCode.Unauthorized ||
+        this == HttpStatusCode.Forbidden
 
 private suspend fun HttpRequestBuilder.attachSiloDeviceMetadataHeaders(
     deviceMetadataProvider: DeviceMetadataProvider?,

@@ -18,6 +18,8 @@ import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.DownloadsRepository
 import org.siloserver.silo.repository.EbookReaderRepository
 import org.siloserver.silo.repository.PersonalDataRepository
+import org.siloserver.silo.viewmodel.applyLocalPlaybackProgress
+import org.siloserver.silo.model.download.DownloadQuality
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -119,6 +121,7 @@ class ItemDetailViewModel(
         version: FileVersion,
         displayTitle: String,
         forceRedownloadMissingLocal: Boolean = false,
+        downloadQuality: DownloadQuality? = null,
     ) {
         val existing = downloadRecordFor(version)
         when (
@@ -137,22 +140,27 @@ class ItemDetailViewModel(
             DetailDownloadTapAction.ReplaceAndStart -> viewModelScope.launch {
                 val staleRecord = existing
                 if (staleRecord == null || downloadsRepository.delete(staleRecord.id) is ApiResult.Success) {
-                    startDownload(version, displayTitle)
+                    startDownload(version, displayTitle, downloadQuality)
                 }
             }
             DetailDownloadTapAction.Start -> viewModelScope.launch {
-                startDownload(version, displayTitle)
+                startDownload(version, displayTitle, downloadQuality)
             }
         }
     }
 
-    private suspend fun startDownload(version: FileVersion, displayTitle: String) {
+    private suspend fun startDownload(
+        version: FileVersion,
+        displayTitle: String,
+        downloadQuality: DownloadQuality? = null,
+    ) {
         // wifiOnly read from per-profile PlayerSettingsStore inside
         // DownloadEnqueuer.start; default true.
         downloadEnqueuer.start(
             contentId = contentId,
             fileId = version.fileId,
             displayTitle = displayTitle,
+            downloadQualityOverride = downloadQuality,
         )
     }
 
@@ -161,7 +169,10 @@ class ItemDetailViewModel(
      * entry in the server-sorted files list) and queues it. If the episode
      * has no files (rare — orphaned record), no-ops.
      */
-    fun onEpisodeDownloadTapped(episode: EpisodeListItem) {
+    fun onEpisodeDownloadTapped(
+        episode: EpisodeListItem,
+        downloadQuality: DownloadQuality? = null,
+    ) {
         val fileId = episode.files.firstOrNull()?.fileId ?: return
         val detail = _uiState.value.detail ?: return
         // Branch on current state like the movie/audiobook path: a downloaded
@@ -184,6 +195,7 @@ class ItemDetailViewModel(
                     episodeNumber = episode.episodeNumber,
                     episodeTitle = episode.title,
                     posterUrl = detail.posterUrl,
+                    downloadQualityOverride = downloadQuality,
                 )
             }
         }
@@ -191,16 +203,30 @@ class ItemDetailViewModel(
 
     /** Series-level "Download series" — uses the server's batch endpoint
      *  (one POST → N records sharing a batchId). */
-    fun onSeriesDownloadTapped() {
+    fun onSeriesDownloadTapped(downloadQuality: DownloadQuality? = null) {
         val detail = _uiState.value.detail ?: return
-        viewModelScope.launch { downloadEnqueuer.startSeries(detail.contentId) }
+        viewModelScope.launch {
+            downloadEnqueuer.startSeries(
+                seriesContentId = detail.contentId,
+                downloadQualityOverride = downloadQuality,
+            )
+        }
     }
 
     /** Per-season "Download season" — server has no season-batch endpoint
      *  so this loops POST-per-episode locally inside the enqueuer. */
-    fun onSeasonDownloadTapped(seasonNumber: Int) {
+    fun onSeasonDownloadTapped(
+        seasonNumber: Int,
+        downloadQuality: DownloadQuality? = null,
+    ) {
         val detail = _uiState.value.detail ?: return
-        viewModelScope.launch { downloadEnqueuer.startSeason(detail.contentId, seasonNumber) }
+        viewModelScope.launch {
+            downloadEnqueuer.startSeason(
+                seriesContentId = detail.contentId,
+                seasonNumber = seasonNumber,
+                downloadQualityOverride = downloadQuality,
+            )
+        }
     }
 
     init {
@@ -217,7 +243,7 @@ class ItemDetailViewModel(
 
             when (val result = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
-                    val detail = result.data
+                    val detail = withLocalProgress(result.data)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -261,7 +287,7 @@ class ItemDetailViewModel(
     }
 
     private suspend fun seedCachedDetail() {
-        val cached = catalogRepository.getCachedItemDetail(contentId) ?: return
+        val cached = catalogRepository.getCachedItemDetail(contentId)?.let { withLocalProgress(it) } ?: return
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -391,7 +417,7 @@ class ItemDetailViewModel(
             _uiState.update { it.copy(isLoadingEpisodes = true) }
             when (val result = catalogRepository.getEpisodes(seriesId, seasonNumber)) {
                 is ApiResult.Success -> {
-                    val episodes = result.data.episodes
+                    val episodes = withLocalProgress(result.data.episodes)
                     _uiState.update {
                         it.copy(
                             isLoadingEpisodes = false,
@@ -417,6 +443,16 @@ class ItemDetailViewModel(
                 }
             }
         }
+    }
+
+    private suspend fun withLocalProgress(detail: ItemDetail): ItemDetail =
+        applyLocalPlaybackProgress(detail, userItemState.localPlaybackProgress(detail.contentId))
+
+    private suspend fun withLocalProgress(episodes: List<EpisodeListItem>): List<EpisodeListItem> {
+        if (episodes.isEmpty()) return episodes
+        val progress = userItemState.localPlaybackProgressForContent(episodes.map { it.contentId })
+        if (progress.isEmpty()) return episodes
+        return episodes.map { episode -> applyLocalPlaybackProgress(episode, progress[episode.contentId]) }
     }
 
     /**

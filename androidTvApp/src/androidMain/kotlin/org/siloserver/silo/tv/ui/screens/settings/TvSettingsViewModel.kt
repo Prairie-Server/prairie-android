@@ -74,6 +74,7 @@ class TvSettingsViewModel(
         // Mirrors iOS `subtitleAppearance` / `subtitleUsesDeviceAppearanceOverride`.
         val subtitleAppearance: SubtitleAppearance = SubtitleAppearance.DEFAULT,
         val subtitleUsesDeviceOverride: Boolean = false,
+        val pictureInPictureEnabled: Boolean = true,
         val autoPlayNext: Boolean = true,
         val autoSkipIntro: Boolean = false,
         val autoSkipCredits: Boolean = false,
@@ -230,6 +231,11 @@ class TvSettingsViewModel(
         viewModelScope.launch {
             playerSettingsStore.subtitleUsesDeviceOverrideFlow.collect { enabled ->
                 _uiState.update { it.copy(subtitleUsesDeviceOverride = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            playerSettingsStore.pictureInPictureEnabledFlow.collect { enabled ->
+                _uiState.update { it.copy(pictureInPictureEnabled = enabled) }
             }
         }
     }
@@ -448,6 +454,10 @@ class TvSettingsViewModel(
 
     fun onAutoSkipCreditsChanged(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoSkipCredits(value) }
+    }
+
+    fun onPictureInPictureEnabledChanged(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setPictureInPictureEnabled(value) }
     }
 
     fun onResumeRewindSecondsChanged(value: Int) {

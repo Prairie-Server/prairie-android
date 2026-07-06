@@ -2,6 +2,7 @@ package org.siloserver.silo.tv.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -53,7 +54,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.common.settings.OverlayPrefsStore
-import org.siloserver.silo.model.feature.CLIENT_REQUESTS_SURFACE_ENABLED
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
@@ -69,26 +69,11 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * TV Settings — a tvOS-style drill-in category menu (modeled on
- * `iosApp/.../tvOS/Screens/Settings/TVSettingsView.swift`).
+ * TV Settings — a tvOS-style split rail/detail surface modeled on
+ * `iosApp/.../tvOS/Screens/Settings/TVSettingsView.swift`.
  *
- * The root is a short list of categories rather than one wall of controls:
- *  - a tappable Account header (avatar + name + role/username) that switches
- *    profile,
- *  - a Preferences group of value rows (Playback, Subtitles, Card Overlays)
- *    that drill into dedicated sub-screens,
- *  - an Account-actions group (Admin Dashboard when gated, Sign Out with a
- *    confirm dialog, plus the Android-only Manage Sessions / Pair a Device),
- *  - an About group (Server name, URL, Manage Servers, app version from
- *    `BuildConfig.VERSION_NAME`).
- *
- * The Android-only extras the iOS root doesn't have (Notifications prefs,
- * Library shortcuts, Manage Sessions, Pair a Device) are relocated into
- * sensible groups rather than deleted.
- *
- * Sub-screens are presented as full-screen overlays (local `SubScreen`
- * state) instead of pushes — the TV NavHost owns the back stack and we want
- * Back to land on the root menu, matching the tvOS full-screen-cover model.
+ * Requests/admin/watch-together routes stay compiled elsewhere, but this
+ * settings surface deliberately avoids exposing them as normal user menu rows.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -113,7 +98,8 @@ fun TvSettingsScreen(
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val firstActionFocusRequester = remember { FocusRequester() }
 
-    var subScreen by remember { mutableStateOf<SubScreen?>(null) }
+    var selectedCategory by remember { mutableStateOf(TvSettingsCategory.General) }
+    var showCardOverlaysEditor by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -135,18 +121,13 @@ fun TvSettingsScreen(
         }
     }
 
-    // Render the root only when no sub-screen is drilled in. The sub-screens
-    // are full-screen; keeping the root composed underneath would leave its rows
-    // in the focus tree, so focus could leak behind the overlay and fire hidden
-    // root actions.
-    if (subScreen == null) SettingsRootMenu(
+    SettingsSplitLayout(
         state = state,
+        selectedCategory = selectedCategory,
         firstActionFocusRequester = firstActionFocusRequester,
+        onCategorySelected = { selectedCategory = it },
+        onOpenCardOverlays = { showCardOverlaysEditor = true },
         onSwitchProfile = { viewModel.onSwitchProfile(context) },
-        onOpenPlayback = { subScreen = SubScreen.Playback },
-        onOpenSubtitles = { subScreen = SubScreen.Subtitles },
-        onOpenCardOverlays = { subScreen = SubScreen.CardOverlays },
-        onNavigateToAdmin = onNavigateToAdmin,
         onManageSessions = onManageSessions,
         onPairDevice = onPairDevice,
         onManageServers = onManageServers,
@@ -156,50 +137,41 @@ fun TvSettingsScreen(
         onNavigateToWatchlist = onNavigateToWatchlist,
         onNavigateToHistory = onNavigateToHistory,
         onNavigateToCollections = onNavigateToCollections,
-        onNavigateToRequests = onNavigateToRequests,
         onNotificationsEnabledChanged = viewModel::onNotificationsEnabledChanged,
         onNotifyFavoritesChanged = viewModel::onNotifyFavoritesChanged,
         onNotifyWatchlistChanged = viewModel::onNotifyWatchlistChanged,
         onNotifyContinueWatchingChanged = viewModel::onNotifyContinueWatchingChanged,
         onNotifyNextUpChanged = viewModel::onNotifyNextUpChanged,
+        onQualityChanged = viewModel::onPlaybackQualityChanged,
+        onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
+        onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
+        onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
+        onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
+        onPictureInPictureEnabledChanged = viewModel::onPictureInPictureEnabledChanged,
+        onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
+        onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
+        onNextUpPromptSecondsChanged = viewModel::onNextUpPromptSecondsChanged,
+        onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
+        onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
+        onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
+        onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
+        onSubtitleFontSizeChanged = viewModel::setSubtitleFontSize,
+        onSubtitleFontFamilyChanged = viewModel::setSubtitleFontFamily,
+        onSubtitleFontColorChanged = viewModel::setSubtitleFontColor,
+        onSubtitleTextOutlineChanged = viewModel::setSubtitleTextOutline,
+        onSubtitleTextOutlineColorChanged = viewModel::setSubtitleTextOutlineColor,
+        onSubtitleBackgroundStyleChanged = viewModel::setSubtitleBackgroundStyle,
+        onSubtitleBackgroundOpacityChanged = viewModel::setSubtitleBackgroundOpacity,
+        onSubtitleBackgroundColorChanged = viewModel::setSubtitleBackgroundColor,
+        onSubtitlePositionChanged = viewModel::setSubtitlePosition,
+        onSubtitleDeviceOverrideEnabledChanged = viewModel::setSubtitleDeviceOverrideEnabled,
     )
 
-    when (subScreen) {
-        SubScreen.Playback -> TvPlaybackSettingsScreen(
-            state = state,
-            onQualityChanged = viewModel::onPlaybackQualityChanged,
-            onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
-            onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
-            onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
-            onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
-            onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
-            onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
-            onNextUpPromptSecondsChanged = viewModel::onNextUpPromptSecondsChanged,
-            onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
-            onDismiss = { subScreen = null },
-        )
-        SubScreen.Subtitles -> TvSubtitleSettingsScreen(
-            state = state,
-            onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
-            onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
-            onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
-            onSubtitleFontSizeChanged = viewModel::setSubtitleFontSize,
-            onSubtitleFontFamilyChanged = viewModel::setSubtitleFontFamily,
-            onSubtitleFontColorChanged = viewModel::setSubtitleFontColor,
-            onSubtitleTextOutlineChanged = viewModel::setSubtitleTextOutline,
-            onSubtitleTextOutlineColorChanged = viewModel::setSubtitleTextOutlineColor,
-            onSubtitleBackgroundStyleChanged = viewModel::setSubtitleBackgroundStyle,
-            onSubtitleBackgroundOpacityChanged = viewModel::setSubtitleBackgroundOpacity,
-            onSubtitleBackgroundColorChanged = viewModel::setSubtitleBackgroundColor,
-            onSubtitlePositionChanged = viewModel::setSubtitlePosition,
-            onSubtitleDeviceOverrideEnabledChanged = viewModel::setSubtitleDeviceOverrideEnabled,
-            onDismiss = { subScreen = null },
-        )
-        SubScreen.CardOverlays -> TvCardOverlaySettingsScreen(
+    if (showCardOverlaysEditor) {
+        TvCardOverlaySettingsScreen(
             store = overlayPrefsStore,
-            onDismiss = { subScreen = null },
+            onDismiss = { showCardOverlaysEditor = false },
         )
-        null -> Unit
     }
 
     if (showSignOutConfirm) {
@@ -216,22 +188,46 @@ fun TvSettingsScreen(
     }
 }
 
-private enum class SubScreen { Playback, Subtitles, CardOverlays }
+private enum class TvSettingsCategory(
+    val title: String,
+    val eyebrow: String,
+    val blurb: String,
+) {
+    General(
+        title = "General",
+        eyebrow = "PREFERENCES",
+        blurb = "App-level options for this Android TV.",
+    ),
+    Playback(
+        title = "Playback",
+        eyebrow = "PREFERENCES",
+        blurb = "Streaming, episode, and playback behavior for this device.",
+    ),
+    Subtitles(
+        title = "Subtitles",
+        eyebrow = "PREFERENCES",
+        blurb = "Language, behavior, and subtitle appearance.",
+    ),
+    Server(
+        title = "Server",
+        eyebrow = "CONNECTION",
+        blurb = "Active server, device pairing, and account tools.",
+    ),
+}
 
 // ---------------------------------------------------------------------------
-// Root menu
+// Split settings layout (tvOS parity)
 // ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SettingsRootMenu(
+private fun SettingsSplitLayout(
     state: TvSettingsViewModel.UiState,
+    selectedCategory: TvSettingsCategory,
     firstActionFocusRequester: FocusRequester,
-    onSwitchProfile: () -> Unit,
-    onOpenPlayback: () -> Unit,
-    onOpenSubtitles: () -> Unit,
+    onCategorySelected: (TvSettingsCategory) -> Unit,
     onOpenCardOverlays: () -> Unit,
-    onNavigateToAdmin: () -> Unit,
+    onSwitchProfile: () -> Unit,
     onManageSessions: () -> Unit,
     onPairDevice: () -> Unit,
     onManageServers: () -> Unit,
@@ -241,7 +237,322 @@ private fun SettingsRootMenu(
     onNavigateToWatchlist: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToCollections: () -> Unit,
-    onNavigateToRequests: () -> Unit,
+    onNotificationsEnabledChanged: (Boolean) -> Unit,
+    onNotifyFavoritesChanged: (Boolean) -> Unit,
+    onNotifyWatchlistChanged: (Boolean) -> Unit,
+    onNotifyContinueWatchingChanged: (Boolean) -> Unit,
+    onNotifyNextUpChanged: (Boolean) -> Unit,
+    onQualityChanged: (PlaybackQuality) -> Unit,
+    onAudioLanguageChanged: (String) -> Unit,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
+    onAutoSkipIntroChanged: (Boolean) -> Unit,
+    onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onPictureInPictureEnabledChanged: (Boolean) -> Unit,
+    onResumeRewindSecondsChanged: (Int) -> Unit,
+    onPassOutThresholdChanged: (Int) -> Unit,
+    onNextUpPromptSecondsChanged: (Int) -> Unit,
+    onResetPlaybackOverrides: () -> Unit,
+    onSubtitleModeChanged: (SubtitleMode) -> Unit,
+    onSubtitleLanguageChanged: (String) -> Unit,
+    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
+    onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
+    onSubtitleFontFamilyChanged: (String) -> Unit,
+    onSubtitleFontColorChanged: (String) -> Unit,
+    onSubtitleTextOutlineChanged: (Boolean) -> Unit,
+    onSubtitleTextOutlineColorChanged: (String) -> Unit,
+    onSubtitleBackgroundStyleChanged: (SubtitleBackgroundStylePreset) -> Unit,
+    onSubtitleBackgroundOpacityChanged: (Int) -> Unit,
+    onSubtitleBackgroundColorChanged: (String) -> Unit,
+    onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
+    onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(
+                start = 72.dp,
+                top = TvTopMenuLayout.contentTopInset,
+                end = 72.dp,
+                bottom = Spacing.xxxl,
+            ),
+        horizontalArrangement = Arrangement.spacedBy(52.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        SettingsRail(
+            state = state,
+            selectedCategory = selectedCategory,
+            firstActionFocusRequester = firstActionFocusRequester,
+            onCategorySelected = onCategorySelected,
+            onSwitchProfile = onSwitchProfile,
+            onRequestSignOut = onRequestSignOut,
+            modifier = Modifier.width(300.dp),
+        )
+        SettingsDetailPane(
+            state = state,
+            selectedCategory = selectedCategory,
+            onOpenCardOverlays = onOpenCardOverlays,
+            onManageSessions = onManageSessions,
+            onPairDevice = onPairDevice,
+            onManageServers = onManageServers,
+            onNavigateToBrowse = onNavigateToBrowse,
+            onNavigateToFavorites = onNavigateToFavorites,
+            onNavigateToWatchlist = onNavigateToWatchlist,
+            onNavigateToHistory = onNavigateToHistory,
+            onNavigateToCollections = onNavigateToCollections,
+            onNotificationsEnabledChanged = onNotificationsEnabledChanged,
+            onNotifyFavoritesChanged = onNotifyFavoritesChanged,
+            onNotifyWatchlistChanged = onNotifyWatchlistChanged,
+            onNotifyContinueWatchingChanged = onNotifyContinueWatchingChanged,
+            onNotifyNextUpChanged = onNotifyNextUpChanged,
+            onQualityChanged = onQualityChanged,
+            onAudioLanguageChanged = onAudioLanguageChanged,
+            onAutoPlayNextChanged = onAutoPlayNextChanged,
+            onAutoSkipIntroChanged = onAutoSkipIntroChanged,
+            onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+            onPictureInPictureEnabledChanged = onPictureInPictureEnabledChanged,
+            onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
+            onPassOutThresholdChanged = onPassOutThresholdChanged,
+            onNextUpPromptSecondsChanged = onNextUpPromptSecondsChanged,
+            onResetPlaybackOverrides = onResetPlaybackOverrides,
+            onSubtitleModeChanged = onSubtitleModeChanged,
+            onSubtitleLanguageChanged = onSubtitleLanguageChanged,
+            onShowForcedSubtitlesChanged = onShowForcedSubtitlesChanged,
+            onSubtitleFontSizeChanged = onSubtitleFontSizeChanged,
+            onSubtitleFontFamilyChanged = onSubtitleFontFamilyChanged,
+            onSubtitleFontColorChanged = onSubtitleFontColorChanged,
+            onSubtitleTextOutlineChanged = onSubtitleTextOutlineChanged,
+            onSubtitleTextOutlineColorChanged = onSubtitleTextOutlineColorChanged,
+            onSubtitleBackgroundStyleChanged = onSubtitleBackgroundStyleChanged,
+            onSubtitleBackgroundOpacityChanged = onSubtitleBackgroundOpacityChanged,
+            onSubtitleBackgroundColorChanged = onSubtitleBackgroundColorChanged,
+            onSubtitlePositionChanged = onSubtitlePositionChanged,
+            onSubtitleDeviceOverrideEnabledChanged = onSubtitleDeviceOverrideEnabledChanged,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun SettingsRail(
+    state: TvSettingsViewModel.UiState,
+    selectedCategory: TvSettingsCategory,
+    firstActionFocusRequester: FocusRequester,
+    onCategorySelected: (TvSettingsCategory) -> Unit,
+    onSwitchProfile: () -> Unit,
+    onRequestSignOut: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .focusGroup(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.displayMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(start = 8.dp, bottom = 20.dp),
+        )
+        SettingsAccountRow(
+            name = state.profileName ?: state.user?.username ?: "-",
+            subtitle = accountSubtitle(state),
+            avatar = state.profileAvatar,
+            onClick = onSwitchProfile,
+            focusRequester = firstActionFocusRequester,
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        TvSettingsCategory.entries.forEach { category ->
+            SettingsRailCategoryRow(
+                category = category,
+                selected = category == selectedCategory,
+                onClick = { onCategorySelected(category) },
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        SettingsActionRow(
+            label = "Sign Out",
+            onClick = onRequestSignOut,
+            destructive = true,
+        )
+        Text(
+            text = "Silo ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            modifier = Modifier.padding(start = 8.dp, top = 8.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsRailCategoryRow(
+    category: TvSettingsCategory,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val foreground = if (isFocused) FocusedContent else Color.White
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.05f),
+            contentColor = Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = category.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = foreground,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsDetailPane(
+    state: TvSettingsViewModel.UiState,
+    selectedCategory: TvSettingsCategory,
+    onOpenCardOverlays: () -> Unit,
+    onManageSessions: () -> Unit,
+    onPairDevice: () -> Unit,
+    onManageServers: () -> Unit,
+    onNavigateToBrowse: () -> Unit,
+    onNavigateToFavorites: () -> Unit,
+    onNavigateToWatchlist: () -> Unit,
+    onNavigateToHistory: () -> Unit,
+    onNavigateToCollections: () -> Unit,
+    onNotificationsEnabledChanged: (Boolean) -> Unit,
+    onNotifyFavoritesChanged: (Boolean) -> Unit,
+    onNotifyWatchlistChanged: (Boolean) -> Unit,
+    onNotifyContinueWatchingChanged: (Boolean) -> Unit,
+    onNotifyNextUpChanged: (Boolean) -> Unit,
+    onQualityChanged: (PlaybackQuality) -> Unit,
+    onAudioLanguageChanged: (String) -> Unit,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
+    onAutoSkipIntroChanged: (Boolean) -> Unit,
+    onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onPictureInPictureEnabledChanged: (Boolean) -> Unit,
+    onResumeRewindSecondsChanged: (Int) -> Unit,
+    onPassOutThresholdChanged: (Int) -> Unit,
+    onNextUpPromptSecondsChanged: (Int) -> Unit,
+    onResetPlaybackOverrides: () -> Unit,
+    onSubtitleModeChanged: (SubtitleMode) -> Unit,
+    onSubtitleLanguageChanged: (String) -> Unit,
+    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
+    onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
+    onSubtitleFontFamilyChanged: (String) -> Unit,
+    onSubtitleFontColorChanged: (String) -> Unit,
+    onSubtitleTextOutlineChanged: (Boolean) -> Unit,
+    onSubtitleTextOutlineColorChanged: (String) -> Unit,
+    onSubtitleBackgroundStyleChanged: (SubtitleBackgroundStylePreset) -> Unit,
+    onSubtitleBackgroundOpacityChanged: (Int) -> Unit,
+    onSubtitleBackgroundColorChanged: (String) -> Unit,
+    onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
+    onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        Text(
+            text = selectedCategory.eyebrow,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = selectedCategory.title,
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            text = selectedCategory.blurb,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp, bottom = 22.dp),
+        )
+
+        when (selectedCategory) {
+            TvSettingsCategory.General -> TvGeneralSettingsPane(
+                state = state,
+                onOpenCardOverlays = onOpenCardOverlays,
+                onNavigateToBrowse = onNavigateToBrowse,
+                onNavigateToFavorites = onNavigateToFavorites,
+                onNavigateToWatchlist = onNavigateToWatchlist,
+                onNavigateToHistory = onNavigateToHistory,
+                onNavigateToCollections = onNavigateToCollections,
+                onNotificationsEnabledChanged = onNotificationsEnabledChanged,
+                onNotifyFavoritesChanged = onNotifyFavoritesChanged,
+                onNotifyWatchlistChanged = onNotifyWatchlistChanged,
+                onNotifyContinueWatchingChanged = onNotifyContinueWatchingChanged,
+                onNotifyNextUpChanged = onNotifyNextUpChanged,
+            )
+            TvSettingsCategory.Playback -> TvPlaybackSettingsPane(
+                state = state,
+                onQualityChanged = onQualityChanged,
+                onAudioLanguageChanged = onAudioLanguageChanged,
+                onAutoPlayNextChanged = onAutoPlayNextChanged,
+                onAutoSkipIntroChanged = onAutoSkipIntroChanged,
+                onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+                onPictureInPictureEnabledChanged = onPictureInPictureEnabledChanged,
+                onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
+                onPassOutThresholdChanged = onPassOutThresholdChanged,
+                onNextUpPromptSecondsChanged = onNextUpPromptSecondsChanged,
+                onResetPlaybackOverrides = onResetPlaybackOverrides,
+            )
+            TvSettingsCategory.Subtitles -> TvSubtitleSettingsPane(
+                state = state,
+                onSubtitleModeChanged = onSubtitleModeChanged,
+                onSubtitleLanguageChanged = onSubtitleLanguageChanged,
+                onShowForcedSubtitlesChanged = onShowForcedSubtitlesChanged,
+                onSubtitleFontSizeChanged = onSubtitleFontSizeChanged,
+                onSubtitleFontFamilyChanged = onSubtitleFontFamilyChanged,
+                onSubtitleFontColorChanged = onSubtitleFontColorChanged,
+                onSubtitleTextOutlineChanged = onSubtitleTextOutlineChanged,
+                onSubtitleTextOutlineColorChanged = onSubtitleTextOutlineColorChanged,
+                onSubtitleBackgroundStyleChanged = onSubtitleBackgroundStyleChanged,
+                onSubtitleBackgroundOpacityChanged = onSubtitleBackgroundOpacityChanged,
+                onSubtitleBackgroundColorChanged = onSubtitleBackgroundColorChanged,
+                onSubtitlePositionChanged = onSubtitlePositionChanged,
+                onSubtitleDeviceOverrideEnabledChanged = onSubtitleDeviceOverrideEnabledChanged,
+            )
+            TvSettingsCategory.Server -> TvServerSettingsPane(
+                state = state,
+                onManageSessions = onManageSessions,
+                onPairDevice = onPairDevice,
+                onManageServers = onManageServers,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvGeneralSettingsPane(
+    state: TvSettingsViewModel.UiState,
+    onOpenCardOverlays: () -> Unit,
+    onNavigateToBrowse: () -> Unit,
+    onNavigateToFavorites: () -> Unit,
+    onNavigateToWatchlist: () -> Unit,
+    onNavigateToHistory: () -> Unit,
+    onNavigateToCollections: () -> Unit,
     onNotificationsEnabledChanged: (Boolean) -> Unit,
     onNotifyFavoritesChanged: (Boolean) -> Unit,
     onNotifyWatchlistChanged: (Boolean) -> Unit,
@@ -249,49 +560,15 @@ private fun SettingsRootMenu(
     onNotifyNextUpChanged: (Boolean) -> Unit,
 ) {
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(
-            start = 72.dp,
-            top = TvTopMenuLayout.contentTopInset,
-            end = 72.dp,
-            bottom = Spacing.xxxl,
-        ),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
     ) {
-        // Account header — tappable, switches profile.
-        item {
-            SettingsAccountRow(
-                name = state.profileName ?: state.user?.username ?: "—",
-                subtitle = accountSubtitle(state),
-                avatar = state.profileAvatar,
-                onClick = onSwitchProfile,
-                focusRequester = firstActionFocusRequester,
-            )
-        }
-
-        // Preferences — drill-in categories.
         item {
             SettingsGroup(title = "Preferences") {
-                SettingsValueRow(
-                    label = "Playback",
-                    value = state.playbackQuality.label,
-                    onClick = onOpenPlayback,
-                )
-                SettingsValueRow(
-                    label = "Subtitles",
-                    value = subtitleLanguageLabel(state.subtitleLanguage),
-                    onClick = onOpenSubtitles,
-                )
-                SettingsValueRow(
-                    label = "Card Overlays",
-                    value = "",
-                    onClick = onOpenCardOverlays,
-                )
+                SettingsActionRow(label = "Card Overlays", onClick = onOpenCardOverlays)
             }
         }
-
         if (state.notificationsVisible) {
             item {
                 SettingsGroup(title = "Notifications") {
@@ -325,8 +602,6 @@ private fun SettingsRootMenu(
                 }
             }
         }
-
-        // Library shortcuts (Android-only extra).
         item {
             SettingsGroup(title = "Library") {
                 SettingsActionRow(label = "Browse", onClick = onNavigateToBrowse)
@@ -334,74 +609,32 @@ private fun SettingsRootMenu(
                 SettingsActionRow(label = "Watchlist", onClick = onNavigateToWatchlist)
                 SettingsActionRow(label = "Watch history", onClick = onNavigateToHistory)
                 SettingsActionRow(label = "Collections", onClick = onNavigateToCollections)
-                if (CLIENT_REQUESTS_SURFACE_ENABLED) {
-                    SettingsActionRow(label = "Requests", onClick = onNavigateToRequests)
-                }
-            }
-        }
-
-        // Account actions.
-        item {
-            SettingsGroup(title = "Account") {
-                if (state.adminVisible) {
-                    SettingsActionRow(label = "Admin Dashboard", onClick = onNavigateToAdmin)
-                }
-                SettingsActionRow(label = "Manage Sessions", onClick = onManageSessions)
-                SettingsActionRow(label = "Pair a Device", onClick = onPairDevice)
-                SettingsActionRow(
-                    label = "Sign Out",
-                    onClick = onRequestSignOut,
-                    destructive = true,
-                )
-            }
-        }
-
-        // About / Server.
-        item {
-            SettingsGroup(title = "About") {
-                SettingsInfoRow(
-                    label = "Server",
-                    value = state.serverName.ifBlank { "Not configured" },
-                )
-                if (state.serverUrl.isNotBlank() && state.serverName != state.serverUrl) {
-                    SettingsInfoRow(label = "URL", value = state.serverUrl)
-                }
-                SettingsActionRow(label = "Manage Servers", onClick = onManageServers)
-                SettingsInfoRow(label = "Version", value = BuildConfig.VERSION_NAME)
             }
         }
     }
 }
 
-private fun accountSubtitle(state: TvSettingsViewModel.UiState): String {
-    val role = state.user?.role?.takeIf { it.isNotBlank() }
-        ?.replaceFirstChar { it.uppercase() }
-    val username = state.user?.username?.takeIf { it.isNotBlank() }
-    return listOfNotNull(role, username).joinToString(" · ").ifBlank { "Switch profile" }
-}
-
-// ---------------------------------------------------------------------------
-// Playback sub-screen
-// ---------------------------------------------------------------------------
-
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvPlaybackSettingsScreen(
+private fun TvPlaybackSettingsPane(
     state: TvSettingsViewModel.UiState,
     onQualityChanged: (PlaybackQuality) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
     onNextUpPromptSecondsChanged: (Int) -> Unit,
     onResetPlaybackOverrides: () -> Unit,
-    onDismiss: () -> Unit,
 ) {
     var activePicker by remember { mutableStateOf<PlaybackPicker?>(null) }
 
-    TvSettingsSubScreenScaffold(title = "Playback", onDismiss = onDismiss) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
+    ) {
         item {
             SettingsGroup(title = "Streaming") {
                 SettingsValueRow(
@@ -413,6 +646,11 @@ private fun TvPlaybackSettingsScreen(
                     label = "Audio Language",
                     value = audioLanguageLabel(state.audioLanguage),
                     onClick = { activePicker = PlaybackPicker.AudioLanguage },
+                )
+                SettingsToggleRow(
+                    label = "Picture-in-Picture",
+                    checked = state.pictureInPictureEnabled,
+                    onCheckedChange = onPictureInPictureEnabledChanged,
                 )
             }
         }
@@ -513,15 +751,8 @@ private fun TvPlaybackSettingsScreen(
     }
 }
 
-private enum class PlaybackPicker { Quality, AudioLanguage, NextUpPrompt, ResumeRewind, PassOutThreshold }
-
-// ---------------------------------------------------------------------------
-// Subtitle sub-screen (keeps existing controls)
-// ---------------------------------------------------------------------------
-
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvSubtitleSettingsScreen(
+private fun TvSubtitleSettingsPane(
     state: TvSettingsViewModel.UiState,
     onSubtitleModeChanged: (SubtitleMode) -> Unit,
     onSubtitleLanguageChanged: (String) -> Unit,
@@ -536,13 +767,15 @@ private fun TvSubtitleSettingsScreen(
     onSubtitleBackgroundColorChanged: (String) -> Unit,
     onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
     onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
 ) {
     var activePicker by remember { mutableStateOf<SubtitlePicker?>(null) }
     val appearance = state.subtitleAppearance
 
-    TvSettingsSubScreenScaffold(title = "Subtitles", onDismiss = onDismiss) {
-        // Profile section — language / behavior / forced (unchanged).
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
+    ) {
         item {
             SettingsGroup(title = "Profile") {
                 SettingsValueRow(
@@ -562,9 +795,6 @@ private fun TvSubtitleSettingsScreen(
                 )
             }
         }
-
-        // Appearance section — device-scoped override (ports tvOS
-        // TVSubtitleSettingsView appearance block).
         item {
             SettingsGroup(title = "Appearance") {
                 SettingsToggleRow(
@@ -740,6 +970,53 @@ private fun TvSubtitleSettingsScreen(
     }
 }
 
+@Composable
+private fun TvServerSettingsPane(
+    state: TvSettingsViewModel.UiState,
+    onManageSessions: () -> Unit,
+    onPairDevice: () -> Unit,
+    onManageServers: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
+    ) {
+        item {
+            SettingsGroup(title = "Active Server") {
+                SettingsInfoRow(
+                    label = "Server",
+                    value = state.serverName.ifBlank { "Not configured" },
+                )
+                if (state.serverUrl.isNotBlank() && state.serverName != state.serverUrl) {
+                    SettingsInfoRow(label = "URL", value = state.serverUrl)
+                }
+                SettingsActionRow(label = "Manage Servers", onClick = onManageServers)
+            }
+        }
+        item {
+            SettingsGroup(title = "Account") {
+                SettingsActionRow(label = "Manage Sessions", onClick = onManageSessions)
+                SettingsActionRow(label = "Pair a Device", onClick = onPairDevice)
+            }
+        }
+        item {
+            SettingsGroup(title = "About") {
+                SettingsInfoRow(label = "Version", value = BuildConfig.VERSION_NAME)
+            }
+        }
+    }
+}
+
+private fun accountSubtitle(state: TvSettingsViewModel.UiState): String {
+    val role = state.user?.role?.takeIf { it.isNotBlank() }
+        ?.replaceFirstChar { it.uppercase() }
+    val username = state.user?.username?.takeIf { it.isNotBlank() }
+    return listOfNotNull(role, username).joinToString(" · ").ifBlank { "Switch profile" }
+}
+
+private enum class PlaybackPicker { Quality, AudioLanguage, NextUpPrompt, ResumeRewind, PassOutThreshold }
+
 private enum class SubtitlePicker {
     Mode,
     Language,
@@ -751,50 +1028,6 @@ private enum class SubtitlePicker {
     BackgroundOpacity,
     BackgroundColor,
     Position,
-}
-
-// ---------------------------------------------------------------------------
-// Sub-screen scaffold (full-screen overlay with a title + back-to-dismiss)
-// ---------------------------------------------------------------------------
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvSettingsSubScreenScaffold(
-    title: String,
-    onDismiss: () -> Unit,
-    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
-) {
-    BackHandler(onBack = onDismiss)
-    val firstRowFocus = remember { FocusRequester() }
-    LaunchedEffect(title) { runCatching { firstRowFocus.requestFocus() } }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .focusRequester(firstRowFocus),
-            contentPadding = PaddingValues(
-                start = 72.dp,
-                top = TvTopMenuLayout.contentTopInset,
-                end = 72.dp,
-                bottom = Spacing.xxxl,
-            ),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xl),
-        ) {
-            item {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-            }
-            content()
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1050,8 +1283,8 @@ private fun SettingsGroup(
 }
 
 private val RowShape = RoundedCornerShape(12.dp)
-private val RowMaxWidth = 960.dp
-private val RowHeight = 64.dp
+private val RowMaxWidth = 840.dp
+private val RowHeight = 56.dp
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

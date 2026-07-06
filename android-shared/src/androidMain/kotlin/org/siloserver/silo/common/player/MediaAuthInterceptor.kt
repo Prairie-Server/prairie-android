@@ -118,9 +118,12 @@ class MediaAuthInterceptor(
                     return@use false
                 }
                 if (!resp.isSuccessful) {
-                    // Refresh itself 401ed or 5xx'd — clear tokens so the
-                    // UI gets bounced to login on its next 401.
-                    tokenManager.invalidateSession()
+                    // Only auth rejection proves the refresh token is bad.
+                    // Gateway/proxy/server failures should keep the session so
+                    // a temporary outage does not sign the user out.
+                    if (resp.code.shouldInvalidateSessionAfterRefreshFailure()) {
+                        tokenManager.invalidateSession()
+                    }
                     return@use false
                 }
                 val payload = resp.body?.string().orEmpty()
@@ -138,3 +141,6 @@ class MediaAuthInterceptor(
         }
     }
 }
+
+private fun Int.shouldInvalidateSessionAfterRefreshFailure(): Boolean =
+    this == 400 || this == 401 || this == 403

@@ -42,6 +42,21 @@ object PlaybackSettingsKeys {
     const val DownloadsWifiOnly = "downloads.wifi_only"
 
     /**
+     * Local-only per-profile cleanup preference. When true, the client does not
+     * suggest reclaiming watched downloads. Mirrors Apple
+     * `downloads.keepWatchedDownloads`.
+     */
+    const val KeepWatchedDownloads = "downloads.keep_watched"
+
+    /**
+     * Local-only per-profile default for queued downloads. Values are
+     * [org.siloserver.silo.model.download.DownloadQuality.wire] presets.
+     * This stays local until the server exposes a synced setting; the selected
+     * value is still sent on each download create request.
+     */
+    const val DefaultDownloadQuality = "downloads.default_quality"
+
+    /**
      * Local-only per-profile setting: seconds to skip back when RESUMING a
      * partially-watched item, so context is re-established. Default 7; 0 = off.
      * Not server-registered, so it stays out of [DeviceSettings] (never pulled
@@ -56,6 +71,12 @@ object PlaybackSettingsKeys {
      * server-registered → excluded from [DeviceSettings].
      */
     const val PassOutThreshold = "player.passout_threshold"
+
+    /**
+     * Local-only per-profile setting. Platform PiP is device/OS-specific and
+     * not a server playback preference, so this never enters [DeviceSettings].
+     */
+    const val PictureInPictureEnabled = "player.picture_in_picture_enabled"
 
     val DeviceSettings = listOf(
         PreferredQuality,

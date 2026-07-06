@@ -37,6 +37,8 @@ data class BrowseUiState(
     val hasMore: Boolean = false,
     val total: Int = 0,
     val filters: BrowseFilters = BrowseFilters(),
+    val selectedNamePrefix: String? = null,
+    val catalogDensity: CatalogViewDensity = CatalogViewDensity.Normal,
     val availableFilters: CatalogFiltersResponse? = null,
     val libraryId: Int? = null,
     val title: String = "Browse",
@@ -80,6 +82,25 @@ class BrowseViewModel(
      */
     fun resetFilters() {
         applyFilters(BrowseFilters())
+    }
+
+    fun selectNamePrefix(prefix: String?) {
+        val normalizedPrefix = normalizeCatalogNamePrefix(prefix)
+        if (_uiState.value.selectedNamePrefix == normalizedPrefix) return
+        _uiState.update {
+            it.copy(
+                selectedNamePrefix = normalizedPrefix,
+                items = emptyList(),
+                total = 0,
+                hasMore = false,
+            )
+        }
+        loadItems(reset = true)
+    }
+
+    fun selectViewDensity(density: CatalogViewDensity) {
+        if (_uiState.value.catalogDensity == density) return
+        _uiState.update { it.copy(catalogDensity = density) }
     }
 
     /**
@@ -151,6 +172,7 @@ class BrowseViewModel(
                 order = filters.order,
                 offset = offset,
                 limit = pageSize,
+                namePrefix = currentState.selectedNamePrefix,
             )
 
             when (result) {

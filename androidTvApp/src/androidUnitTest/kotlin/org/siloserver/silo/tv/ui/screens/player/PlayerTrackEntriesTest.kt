@@ -116,6 +116,82 @@ class PlayerTrackEntriesTest {
     }
 
     @Test
+    fun autoSubtitlePreferenceDemotesClosedCaptionTitledTracksWhenPlainDialogueExists() {
+        val ccFirst = listOf(
+            PlayerTrackEntry(
+                index = 4,
+                label = "English (CC)",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+            PlayerTrackEntry(
+                index = 7,
+                label = "English",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+        )
+        val closedCaptionFirst = listOf(
+            PlayerTrackEntry(
+                index = 5,
+                label = "English Closed Captions",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+            PlayerTrackEntry(
+                index = 8,
+                label = "English Dialogue",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+        )
+
+        assertEquals(7, preferredAutoTextSubtitleIndex(ccFirst, preferredLanguage = "en"))
+        assertEquals(8, preferredAutoTextSubtitleIndex(closedCaptionFirst, preferredLanguage = "en"))
+    }
+
+    @Test
+    fun autoSubtitlePreferenceKeepsClosedCaptionTrackWhenItIsOnlyLanguageMatch() {
+        val tracks = listOf(
+            PlayerTrackEntry(
+                index = 4,
+                label = "English (CC)",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+        )
+
+        assertEquals(4, preferredAutoTextSubtitleIndex(tracks, preferredLanguage = "en"))
+    }
+
+    @Test
+    fun autoSubtitlePreferenceDoesNotTreatCcInsideWordsAsClosedCaption() {
+        val tracks = listOf(
+            PlayerTrackEntry(
+                index = 4,
+                label = "Soccer Cut",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+            PlayerTrackEntry(
+                index = 7,
+                label = "English",
+                language = "en",
+                isSelected = false,
+                codecOrMime = MimeTypes.TEXT_VTT,
+            ),
+        )
+
+        assertEquals(4, preferredAutoTextSubtitleIndex(tracks, preferredLanguage = "en"))
+    }
+
+    @Test
     fun autoSubtitleResolverDisablesWhenAudioAlreadyMatchesPreferredLanguage() {
         val audio = listOf(
             PlayerTrackEntry(

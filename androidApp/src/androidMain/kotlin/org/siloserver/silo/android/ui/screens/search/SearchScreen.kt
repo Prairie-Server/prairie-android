@@ -34,6 +34,8 @@ import org.siloserver.silo.android.ui.components.SiloTopBar
 import org.siloserver.silo.model.navigation.MediaMode
 import org.siloserver.silo.model.navigation.MediaModeCapabilities
 import org.siloserver.silo.model.navigation.mobileMediaModeCapabilities
+import org.siloserver.silo.model.feature.RequestsFeatureStore
+import org.siloserver.silo.model.request.RequestMediaResult
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.koin.compose.koinInject
@@ -50,6 +52,8 @@ import org.koin.compose.koinInject
 @Composable
 fun SearchScreen(
     onItemClick: (String) -> Unit,
+    onRequestMediaClick: (RequestMediaResult) -> Unit,
+    onRequestLibraryItemClick: (String) -> Unit,
     onBackClick: (() -> Unit)? = null,
     viewModel: SearchViewModel,
     modifier: Modifier = Modifier,
@@ -57,6 +61,8 @@ fun SearchScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val personalDataRepository: PersonalDataRepository = koinInject()
+    val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
     val availableModes by produceState(
         initialValue = MediaModeCapabilities(
             listOf(
@@ -162,6 +168,17 @@ fun SearchScreen(
                 }
             }
 
+            @Composable
+            fun RequestSearchFooter() {
+                RequestSearchSection(
+                    query = state.query,
+                    selectedMediaType = state.mediaType,
+                    requestsEnabled = requestsEnabled,
+                    onRequestMediaClick = onRequestMediaClick,
+                    onRequestLibraryItemClick = onRequestLibraryItemClick,
+                )
+            }
+
             when {
                 state.isSearching && state.results.isEmpty() -> {
                     // iOS shows a blank surface (Color.clear) while the first
@@ -199,10 +216,15 @@ fun SearchScreen(
                     }
                 }
                 state.hasSearched && state.results.isEmpty() && !state.isSearching -> {
-                    SearchEmptyState(
-                        text = "No results",
-                        subtitle = "Try a different search term",
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            SearchEmptyState(
+                                text = "No results",
+                                subtitle = "Try a different search term",
+                            )
+                        }
+                        RequestSearchFooter()
+                    }
                 }
                 else -> {
                     SearchResults(
@@ -213,6 +235,7 @@ fun SearchScreen(
                         onItemClick = onItemClick,
                         onLoadMore = { viewModel.loadMore() },
                         modifier = Modifier.fillMaxSize(),
+                        footer = { RequestSearchFooter() },
                     )
                 }
             }

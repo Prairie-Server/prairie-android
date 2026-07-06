@@ -52,4 +52,23 @@ class SiloPlayerFactorySubtitleParserTest {
             "direct/remux MediaItems should set a MIME hint from the selected file container.",
         )
     }
+
+    @Test
+    fun hlsMediaSourcesKeepTsPayloadFlagsWithoutDroppingSidecarSubtitleMerging() {
+        assertTrue(
+            source.contains("DefaultHlsExtractorFactory(") &&
+                source.contains("DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS"),
+            "HLS must get the same DTS TS payload-reader flag as progressive TS streams.",
+        )
+        assertTrue(
+            source.contains("HlsMediaSource.Factory(dataSourceFactory)") &&
+                source.contains(".setExtractorFactory(hlsExtractorFactory)"),
+            "HLS playback must use the configured HLS extractor factory when it is safe to do so.",
+        )
+        assertTrue(
+            source.contains("hasExternalSubtitleSidecars") &&
+                source.contains("DefaultMediaSourceFactory is still the only public Media3 path"),
+            "HLS items with sidecar subtitles must preserve DefaultMediaSourceFactory subtitle merging.",
+        )
+    }
 }

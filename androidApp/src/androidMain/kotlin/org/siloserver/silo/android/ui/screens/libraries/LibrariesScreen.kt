@@ -48,6 +48,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -86,6 +87,8 @@ import org.siloserver.silo.android.ui.components.MediaRowsSkeleton
 import org.siloserver.silo.android.ui.components.PosterGridSkeleton
 import org.siloserver.silo.android.ui.components.rememberShimmerProgress
 import org.siloserver.silo.android.ui.screens.browse.CatalogGrid
+import org.siloserver.silo.android.ui.screens.browse.CatalogViewDensity
+import org.siloserver.silo.android.ui.screens.browse.normalizeCatalogNamePrefix
 import org.siloserver.silo.android.ui.screens.home.FeaturedCarousel
 import org.siloserver.silo.android.ui.screens.home.HomeSectionRow
 import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
@@ -140,6 +143,8 @@ data class LibrariesUiState(
     val catalogHasMore: Boolean = false,
     val browseGenres: List<String> = emptyList(),
     val selectedBrowseGenre: String? = null,
+    val selectedNamePrefix: String? = null,
+    val catalogDensity: CatalogViewDensity = CatalogViewDensity.Normal,
     val browseSort: LibraryBrowseSort = LibraryBrowseSort.RecentlyAdded,
     val catalogError: String? = null,
     val isLoadingCollections: Boolean = false,
@@ -239,6 +244,7 @@ class LibrariesViewModel(
                 catalogHasMore = false,
                 browseGenres = emptyList(),
                 selectedBrowseGenre = null,
+                selectedNamePrefix = null,
                 catalogError = null,
                 collections = emptyList(),
                 collectionsError = null,
@@ -275,6 +281,25 @@ class LibrariesViewModel(
             )
         }
         _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
+    }
+
+    fun selectNamePrefix(prefix: String?) {
+        val normalizedPrefix = normalizeCatalogNamePrefix(prefix)
+        if (_uiState.value.selectedNamePrefix == normalizedPrefix) return
+        _uiState.update {
+            it.copy(
+                selectedNamePrefix = normalizedPrefix,
+                catalogItems = emptyList(),
+                catalogTotal = 0,
+                catalogHasMore = false,
+            )
+        }
+        _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
+    }
+
+    fun selectViewDensity(density: CatalogViewDensity) {
+        if (_uiState.value.catalogDensity == density) return
+        _uiState.update { it.copy(catalogDensity = density) }
     }
 
     fun loadMoreCatalog() {
@@ -388,6 +413,7 @@ class LibrariesViewModel(
                     order = state.browseSort.sortOrder,
                     offset = offset,
                     limit = pageSize,
+                    namePrefix = state.selectedNamePrefix,
                 )
             ) {
                 is ApiResult.Success -> {
@@ -508,10 +534,11 @@ fun LibrariesScreen(
     activeProfile: Profile?,
     onLibrarySelectorClick: () -> Unit,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -617,6 +644,8 @@ fun LibrariesScreen(
                         onLoadMore = viewModel::loadMoreCatalog,
                         onGenreChanged = viewModel::selectBrowseGenre,
                         onSortChanged = viewModel::selectBrowseSort,
+                        onNamePrefixChanged = viewModel::selectNamePrefix,
+                        onDensityChanged = viewModel::selectViewDensity,
                     )
                     LibrariesSubtab.Collections -> CollectionsTabContent(
                         state = state,
@@ -640,10 +669,11 @@ fun LibrariesScreen(
             onLibrarySelectorClick = onLibrarySelectorClick,
             onTabSelected = viewModel::selectTab,
             onSearchClick = onSearchClick,
-            onPersonalListsClick = onPersonalListsClick,
+            onRequestsClick = onRequestsClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
+            onSignOutClick = onSignOutClick,
         )
     }
 }
@@ -752,6 +782,8 @@ private fun BrowseTabContent(
     onLoadMore: () -> Unit,
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
+    onNamePrefixChanged: (String?) -> Unit,
+    onDensityChanged: (CatalogViewDensity) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -799,6 +831,14 @@ private fun BrowseTabContent(
                     colors = libraryChipColors(state.browseSort == sort),
                 )
             }
+            CatalogViewDensity.entries.forEach { density ->
+                FilterChip(
+                    selected = state.catalogDensity == density,
+                    onClick = { onDensityChanged(density) },
+                    label = { Text(density.label) },
+                    colors = libraryChipColors(state.catalogDensity == density),
+                )
+            }
         }
 
         when {
@@ -836,6 +876,9 @@ private fun BrowseTabContent(
                     hasMore = state.catalogHasMore,
                     onItemClick = onItemClick,
                     onLoadMore = onLoadMore,
+                    selectedNamePrefix = state.selectedNamePrefix,
+                    onNamePrefixSelected = onNamePrefixChanged,
+                    viewDensity = state.catalogDensity,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -975,10 +1018,11 @@ private fun LibrariesFloatingChrome(
     onLibrarySelectorClick: () -> Unit,
     onTabSelected: (LibrariesSubtab) -> Unit,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
     val animatedFill by animateFloatAsState(
@@ -1030,10 +1074,11 @@ private fun LibrariesFloatingChrome(
                 }
                 ChromeProfileMenu(
                     activeProfile = activeProfile,
-                    onPersonalListsClick = onPersonalListsClick,
+                    onRequestsClick = onRequestsClick,
                     onSettingsClick = onSettingsClick,
                     onSwitchProfileClick = onSwitchProfileClick,
                     onSwitchServerClick = onSwitchServerClick,
+                    onSignOutClick = onSignOutClick,
                 )
             }
         }
@@ -1126,10 +1171,11 @@ private fun ChromeIconButton(
 @Composable
 private fun ChromeProfileMenu(
     activeProfile: Profile?,
-    onPersonalListsClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     Box {
@@ -1160,13 +1206,16 @@ private fun ChromeProfileMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
-            DropdownMenuItem(
-                text = { Text("Favorites & Watchlist") },
-                onClick = {
-                    menuExpanded = false
-                    onPersonalListsClick()
-                },
-            )
+            if (onRequestsClick != null) {
+                DropdownMenuItem(
+                    text = { Text("Requests") },
+                    onClick = {
+                        menuExpanded = false
+                        onRequestsClick()
+                    },
+                )
+                HorizontalDivider()
+            }
             DropdownMenuItem(
                 text = { Text("Settings") },
                 onClick = {
@@ -1186,6 +1235,18 @@ private fun ChromeProfileMenu(
                 onClick = {
                     menuExpanded = false
                     onSwitchServerClick()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Sign Out",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onSignOutClick()
                 },
             )
         }

@@ -2,16 +2,14 @@ package org.siloserver.silo.android.ui.screens.player
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,8 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,11 +59,12 @@ fun PlayerOverlay(
     state: PlayerViewModel.PlayerUiState,
     viewModel: PlayerViewModel,
     roomSnapshot: RoomSnapshot? = null,
+    isFastForwardHoldActive: Boolean = false,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Double) -> Unit,
     onToggleControls: () -> Unit,
-    onNextEpisode: () -> Unit,
+    onFastForwardHold: (Boolean) -> Unit = {},
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectVersion: (Int) -> Unit,
@@ -83,6 +80,7 @@ fun PlayerOverlay(
     var subtitleStyleVisible by remember { mutableStateOf(false) }
     var sleepTimerVisible by remember { mutableStateOf(false) }
     var chaptersSheetVisible by remember { mutableStateOf(false) }
+    var statsSheetVisible by remember { mutableStateOf(false) }
     var subtitleSearchVisible by remember { mutableStateOf(false) }
     var aiTranslateVisible by remember { mutableStateOf(false) }
     // Host close-room confirm dialog (Watch Together): the host backing out of
@@ -105,6 +103,7 @@ fun PlayerOverlay(
     }
     val gatedSeek: (Double) -> Unit = { pos -> if (seekEnabled) onSeek(pos) }
     val gatedPlayPause: () -> Unit = { if (playPauseEnabled) onPlayPause() }
+    val gatedFastForwardHold: (Boolean) -> Unit = if (!inRoom) onFastForwardHold else { _: Boolean -> }
 
     // Orientation lock — toggled from the top-bar lock icon (iOS parity).
     // Default false: respect system rotation lock (PlayerScreen sets the
@@ -117,9 +116,15 @@ fun PlayerOverlay(
     val introSkipState by viewModel.introSkipState.collectAsState()
     val sleepTimerState by viewModel.sleepTimerState.collectAsState()
     val sleepTimerDefault by viewModel.sleepTimerDefaultMinutes.collectAsState()
+    val videoGravity by viewModel.videoGravity.collectAsState()
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val subtitleTools by viewModel.subtitleTools.collectAsState()
+    val cycleVideoGravity: () -> Unit = {
+        val nextGravity = nextMobileVideoGravity(videoGravity)
+        viewModel.onSetVideoGravity(nextGravity)
+        Toast.makeText(context, mobileVideoGravityLabel(nextGravity), Toast.LENGTH_SHORT).show()
+    }
     // Remote "display_message" from the control socket — show transiently.
     val remoteMessage by viewModel.remoteMessage.collectAsState()
     LaunchedEffect(remoteMessage?.id) {
@@ -149,6 +154,8 @@ fun PlayerOverlay(
                 onSeek = gatedSeek,
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+                onFastForwardHold = gatedFastForwardHold,
+                onCycleVideoGravity = cycleVideoGravity,
                 modifier = Modifier.zIndex(0f),
             )
         }
@@ -166,6 +173,28 @@ fun PlayerOverlay(
             )
         }
 
+        AnimatedVisibility(
+            visible = isFastForwardHoldActive,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 64.dp)
+                .zIndex(3f),
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.72f),
+                shape = RoundedCornerShape(999.dp),
+            ) {
+                Text(
+                    text = "2x",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                )
+            }
+        }
+
         // Notice overlay (top-left). Driven by PlaybackSessionLifecycle.notice — surfaces
         // server-reconnecting / suspend warnings as a transient toast. Stacks above the
         // buffering spinner; fine to obscure briefly during Reconnecting (the spinner is
@@ -177,16 +206,6 @@ fun PlayerOverlay(
             contentAlignment = Alignment.TopStart,
         ) {
             PlayerNoticeOverlay(notice = notice)
-        }
-
-        // F2: pass-out "Still watching?" prompt — shown instead of auto-advancing
-        // once the consecutive-auto-advance streak hits the threshold.
-        if (state.stillWatchingPrompt) {
-            StillWatchingPrompt(
-                nextEpisodeLabel = state.nextEpisodeLabel,
-                onContinue = viewModel::onStillWatchingContinue,
-                onStop = viewModel::onStillWatchingStop,
-            )
         }
 
         // Remote-control "display_message" toast (top-center), shown for a few
@@ -298,39 +317,53 @@ fun PlayerOverlay(
             )
         }
 
-        // Intro auto-skip banner (Hidden / ShowingButton / CountingDown)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 120.dp, end = 24.dp)
-                .zIndex(2f),
-            contentAlignment = Alignment.BottomEnd,
-        ) {
-            IntroAutoSkipBanner(
-                state = introSkipState,
-                onSkipNow = viewModel::onSkipIntroNow,
-                onCancelCountdown = viewModel::onCancelIntroAutoSkip,
-            )
+        val bottomEndSlotModifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(bottom = 120.dp, end = 24.dp)
+            .zIndex(2f)
+
+        // Intro auto-skip banner (Hidden / ShowingButton / CountingDown).
+        // Shares the bottom-end slot with the Up Next card; intro and credits
+        // never overlap in practice, but the card wins the slot if both could show.
+        if (!state.showUpNext) {
+            Box(
+                modifier = bottomEndSlotModifier,
+                contentAlignment = Alignment.BottomEnd,
+            ) {
+                IntroAutoSkipBanner(
+                    state = introSkipState,
+                    onSkipNow = viewModel::onSkipIntroNow,
+                    onCancelCountdown = viewModel::onCancelIntroAutoSkip,
+                )
+            }
         }
 
-        // Next Episode overlay
+        var retainedUpNextInfo by remember { mutableStateOf<PlayerViewModel.NextEpisodeInfo?>(null) }
+        LaunchedEffect(state.showUpNext, state.nextEpisode) {
+            state.nextEpisode?.let { retainedUpNextInfo = it }
+            if (!state.showUpNext) {
+                kotlinx.coroutines.delay(220)
+                retainedUpNextInfo = null
+            }
+        }
+        val showUpNextCard = state.showUpNext && retainedUpNextInfo != null
+
+        // F2: Up Next card — next-episode thumbnail/title/runtime with an
+        // auto-play countdown (null countdown = pass-out gated / auto-play off).
         AnimatedVisibility(
-            visible = state.showNextEpisode,
+            visible = showUpNextCard,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 120.dp, end = 24.dp)
-                .zIndex(2f),
+            modifier = bottomEndSlotModifier,
         ) {
-            Button(
-                onClick = onNextEpisode,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                ),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text("Next Episode")
+            retainedUpNextInfo?.let { next ->
+                UpNextCard(
+                    info = next,
+                    videoEnded = state.upNextVideoEnded,
+                    countdownSeconds = state.upNextCountdownSeconds,
+                    onPlayNow = viewModel::playUpNextNow,
+                    onDismiss = viewModel::dismissUpNext,
+                )
             }
         }
 
@@ -444,7 +477,7 @@ fun PlayerOverlay(
         onDismiss = { settingsSheetVisible = false },
         playbackSpeed = viewModel.playbackSpeed.collectAsState().value,
         onSetPlaybackSpeed = viewModel::onSetPlaybackSpeed,
-        videoGravity = viewModel.videoGravity.collectAsState().value,
+        videoGravity = videoGravity,
         onSetVideoGravity = viewModel::onSetVideoGravity,
         autoSkipIntroEnabled = viewModel.autoSkipIntroEnabled.collectAsState().value,
         onSetAutoSkipIntro = viewModel::onSetAutoSkipIntro,
@@ -470,11 +503,22 @@ fun PlayerOverlay(
             showQualitySelector = true
         },
         hasMultipleVersions = state.versions.size > 1,
+        stats = state.stats,
+        onOpenPlaybackStats = {
+            settingsSheetVisible = false
+            statsSheetVisible = true
+        },
         audioDelayMs = viewModel.audioDelayMs.collectAsState().value,
         onSetAudioDelay = viewModel::onSetAudioDelay,
         subtitleDelayMs = viewModel.subtitleDelayMs.collectAsState().value,
         onSetSubtitleDelay = viewModel::onSetSubtitleDelay,
         sleepTimerState = sleepTimerState,
+    )
+
+    PlaybackStatsSheet(
+        isVisible = statsSheetVisible,
+        stats = state.stats,
+        onDismiss = { statsSheetVisible = false },
     )
 
     // Chapters picker — opened from the "Chapters" row in PlayerSettingsSheet.
@@ -543,43 +587,14 @@ private fun SleepTimerChip(remainingSeconds: Int) {
     }
 }
 
-@Composable
-private fun StillWatchingPrompt(
-    nextEpisodeLabel: String?,
-    onContinue: () -> Unit,
-    onStop: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
-            .zIndex(11f),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("Still watching?", style = MaterialTheme.typography.titleLarge)
-                nextEpisodeLabel?.let { label ->
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "Up next: $label",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = onStop) { Text("Stop") }
-                    Button(onClick = onContinue) { Text("Continue") }
-                }
-            }
-        }
-    }
+internal fun nextMobileVideoGravity(current: String): String = when (current) {
+    "fit" -> "fill"
+    "fill" -> "stretch"
+    else -> "fit"
+}
+
+internal fun mobileVideoGravityLabel(value: String): String = when (value) {
+    "fill" -> "Fill"
+    "stretch" -> "Stretch"
+    else -> "Fit"
 }

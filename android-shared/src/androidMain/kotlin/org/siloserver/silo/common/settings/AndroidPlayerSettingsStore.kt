@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import org.siloserver.silo.model.settings.EffectiveSetting
+import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.settings.PlaybackSettingsKeys
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.network.ApiResult
@@ -142,8 +143,21 @@ class AndroidPlayerSettingsStore(
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DvProfile7HDR10Fallback, true) }
 
+    override val pictureInPictureEnabledFlow: Flow<Boolean> =
+        profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.PictureInPictureEnabled, true) }
+
     override val downloadsWifiOnlyFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DownloadsWifiOnly, true) }
+
+    override val keepWatchedDownloadsFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.KeepWatchedDownloads, false) }
+
+    override val defaultDownloadQualityFlow: Flow<String> =
+        profileScopedFlow(DownloadQuality.Original.wire) { p, s ->
+            DownloadQuality.fromWire(
+                p.stringFor(s, PlaybackSettingsKeys.DefaultDownloadQuality, DownloadQuality.Original.wire)
+            ).wire
+        }
 
     override val subtitleUsesDeviceOverrideFlow: Flow<Boolean> =
         profileScopedFlow(false) { p, s ->
@@ -213,8 +227,17 @@ class AndroidPlayerSettingsStore(
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) =
         writeBool(PlaybackSettingsKeys.DvProfile7HDR10Fallback, value)
 
+    override suspend fun setPictureInPictureEnabled(value: Boolean) =
+        writeBoolLocal(PlaybackSettingsKeys.PictureInPictureEnabled, value)
+
     override suspend fun setDownloadsWifiOnly(value: Boolean) =
-        writeBool(PlaybackSettingsKeys.DownloadsWifiOnly, value)
+        writeBoolLocal(PlaybackSettingsKeys.DownloadsWifiOnly, value)
+
+    override suspend fun setKeepWatchedDownloads(value: Boolean) =
+        writeBoolLocal(PlaybackSettingsKeys.KeepWatchedDownloads, value)
+
+    override suspend fun setDefaultDownloadQuality(value: String) =
+        writeStringLocal(PlaybackSettingsKeys.DefaultDownloadQuality, DownloadQuality.fromWire(value).wire)
 
     override suspend fun setPlaybackSpeed(value: Double) {
         val clamped = value.coerceIn(0.25, 4.0)
@@ -391,6 +414,18 @@ class AndroidPlayerSettingsStore(
     private suspend fun writeIntLocal(key: String, value: Int) {
         withScope { scope, store ->
             store.edit { it[intPreferencesKey(scope.keyPrefix + key)] = value }
+        }
+    }
+
+    private suspend fun writeBoolLocal(key: String, value: Boolean) {
+        withScope { scope, store ->
+            store.edit { it[booleanPreferencesKey(scope.keyPrefix + key)] = value }
+        }
+    }
+
+    private suspend fun writeStringLocal(key: String, value: String) {
+        withScope { scope, store ->
+            store.edit { it[stringPreferencesKey(scope.keyPrefix + key)] = value }
         }
     }
 

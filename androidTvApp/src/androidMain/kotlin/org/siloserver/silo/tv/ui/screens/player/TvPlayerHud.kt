@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
@@ -70,15 +71,25 @@ import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 
-private val HudMaxWidth = 600.dp
-private val HudMinHeight = 250.dp
-private val HudMaxHeight = 310.dp
+private val HudMaxWidth = 680.dp
+private val HudMinHeight = 290.dp
+private val HudMaxHeight = 360.dp
 private val HudPanelCorner = 18.dp
-private val HudPanelPadding = 18.dp
-private val HudContentGap = 12.dp
-private val HudTabHeight = 32.dp
-private val HudPaneBottomPadding = 12.dp
-private val HudPaneColumnGap = 28.dp
+private val HudPanelPadding = 22.dp
+private val HudContentGap = 14.dp
+private val HudTabHeight = 40.dp
+private val HudPaneBottomPadding = 14.dp
+private val HudPaneColumnGap = 32.dp
+private val HudTitleTextSize = 21.sp
+private val HudTitleLineHeight = 25.sp
+private val HudBodyTextSize = 16.sp
+private val HudBodyLineHeight = 20.sp
+private val HudMetaTextSize = 15.sp
+private val HudMetaLineHeight = 19.sp
+private val HudChipTextSize = 14.sp
+private val HudChipLineHeight = 18.sp
+private val HudTabTextSize = 16.sp
+private val HudTabLineHeight = 20.sp
 
 /**
  * Floating top-center player HUD mirroring `iosApp/.../tvOS/TVPlayerInfoHUD.swift`.
@@ -187,7 +198,7 @@ fun TvPlayerHud(
     Box(
         modifier = modifier
             .widthIn(max = HudMaxWidth)
-            .fillMaxWidth(0.66f)
+            .fillMaxWidth(0.72f)
             .heightIn(min = HudMinHeight, max = HudMaxHeight)
             .clip(RoundedCornerShape(HudPanelCorner))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
@@ -224,7 +235,7 @@ fun TvPlayerHud(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 tabs.forEach { tab ->
                     HudTabPill(
@@ -396,15 +407,15 @@ private fun HudTabPill(
             .background(bg)
             .focusRequester(focusRequester)
             .focusable(enabled = enabled, interactionSource = interactionSource)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             color = fg,
             style = MaterialTheme.typography.titleSmall.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudTabTextSize,
+                lineHeight = HudTabLineHeight,
                 fontWeight = FontWeight.SemiBold,
             ),
         )
@@ -421,7 +432,7 @@ private fun HudPaneViewport(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(bottom = HudPaneBottomPadding),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         content = content,
     )
 }
@@ -489,8 +500,8 @@ private fun HudInfoPane(
                 text = title.ifBlank { "Now Playing" },
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.headlineSmall.copy(
-                    fontSize = 17.sp,
-                    lineHeight = 19.sp,
+                    fontSize = HudTitleTextSize,
+                    lineHeight = HudTitleLineHeight,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 maxLines = 2,
@@ -500,14 +511,20 @@ private fun HudInfoPane(
                 Text(
                     text = episodeTag,
                     color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = HudBodyTextSize,
+                        lineHeight = HudBodyLineHeight,
+                    ),
                 )
             }
             if (metaBits.isNotEmpty()) {
                 Text(
                     text = metaBits.joinToString("  ·  "),
                     color = Color.White.copy(alpha = 0.65f),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = HudMetaTextSize,
+                        lineHeight = HudMetaLineHeight,
+                    ),
                 )
             }
         },
@@ -523,14 +540,14 @@ private fun HudInfoPane(
                                     color = Color.White.copy(alpha = 0.35f),
                                     shape = RoundedCornerShape(50),
                                 )
-                                .padding(horizontal = 5.dp, vertical = 2.dp),
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
                         ) {
                             Text(
                                 text = badge,
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelMedium.copy(
-                                    fontSize = 13.sp,
-                                    lineHeight = 16.sp,
+                                    fontSize = HudChipTextSize,
+                                    lineHeight = HudChipLineHeight,
                                     fontWeight = FontWeight.SemiBold,
                                 ),
                             )
@@ -570,14 +587,14 @@ private fun PaneColumn(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = header.uppercase(),
             color = Color.White.copy(alpha = 0.5f),
             style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudChipTextSize,
+                lineHeight = HudChipLineHeight,
                 fontWeight = FontWeight.SemiBold,
             ),
         )
@@ -592,8 +609,8 @@ private fun LabelValueRow(label: String, value: String) {
             text = label,
             color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
                 fontWeight = FontWeight.Medium,
             ),
         )
@@ -601,7 +618,10 @@ private fun LabelValueRow(label: String, value: String) {
         Text(
             text = value,
             color = Color.White.copy(alpha = 0.7f),
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 13.sp, lineHeight = 16.sp),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
+            ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -625,7 +645,7 @@ private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifi
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         rows.forEach { (label, value) ->
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -633,16 +653,16 @@ private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifi
                     text = label,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
+                        fontSize = HudBodyTextSize,
+                        lineHeight = HudBodyLineHeight,
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
+                        fontSize = HudBodyTextSize,
+                        lineHeight = HudBodyLineHeight,
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -737,7 +757,7 @@ private fun HudVideoPane(
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 // Quality — derived from the real per-format video variants
                 // (resolution / bitrate) flattened from the video group. This is
                 // a genuine Media3 track override (setOverrideForType on the
@@ -944,8 +964,8 @@ private fun HudClickChip(
             text = label,
             color = fg,
             style = MaterialTheme.typography.titleSmall.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
                 fontWeight = FontWeight.SemiBold,
             ),
         )
@@ -973,7 +993,7 @@ private fun HudAudioPane(
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         PaneColumn("Track") {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val selectedTrack = audioTracks.firstOrNull { it.isSelected }
                 HudFocusedSettingRow(
                     label = "Audio track",
@@ -1058,7 +1078,7 @@ private fun HudSubtitlesPane(
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val selectedSub = subtitleTracks.firstOrNull { it.isSelected }
                 HudFocusedSettingRow(
                     label = "Subtitles",
@@ -1368,8 +1388,8 @@ private fun HudSubtitlePreview(
                 text = "Subtitle example",
                 color = hexToColor(appearance.fontColor),
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 17.sp,
+                    fontSize = HudBodyTextSize,
+                    lineHeight = HudBodyLineHeight,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 maxLines = 1,
@@ -1582,8 +1602,8 @@ private fun HudChaptersPane(
     LazyColumn(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 170.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .heightIn(max = 210.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         itemsIndexed(
             chapters,
@@ -1615,16 +1635,16 @@ private fun HudChapterRow(
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .clickable(enabled = true, interactionSource = interactionSource, indication = null) { onSelect() }
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = formatTime(chapter.startSeconds),
             color = fg.copy(alpha = 0.72f),
             style = MaterialTheme.typography.bodyMedium.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
                 fontWeight = FontWeight.Medium,
             ),
         )
@@ -1632,8 +1652,8 @@ private fun HudChapterRow(
             text = chapter.title.ifBlank { "Chapter ${chapter.index + 1}" },
             color = fg,
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
                 fontWeight = FontWeight.SemiBold,
             ),
             modifier = Modifier.weight(1f),
@@ -1724,22 +1744,22 @@ internal fun HudFocusedSettingRow(
                 if (rightFocusRequester != null) right = rightFocusRequester
             }
             .graphicsLayer { alpha = rowAlpha }
-            .clip(RoundedCornerShape(5.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
                 indication = null,
             ) { onActivate() }
-            .padding(horizontal = 7.dp, vertical = 5.5.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = label,
             color = labelColor,
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
                 fontWeight = FontWeight.Medium,
             ),
             maxLines = 1,
@@ -1753,7 +1773,7 @@ internal fun HudFocusedSettingRow(
             if (colorHex != null) {
                 Box(
                     modifier = Modifier
-                        .size(9.dp)
+                        .size(11.dp)
                         .clip(CircleShape)
                         .background(hexToColor(colorHex))
                         .border(0.5.dp, Color.White.copy(alpha = 0.45f), CircleShape),
@@ -1763,8 +1783,8 @@ internal fun HudFocusedSettingRow(
                 text = value,
                 color = valueColor,
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = 13.sp,
-                    lineHeight = 16.sp,
+                    fontSize = HudBodyTextSize,
+                    lineHeight = HudBodyLineHeight,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 maxLines = 1,
@@ -1774,7 +1794,7 @@ internal fun HudFocusedSettingRow(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = null,
                 tint = chevronColor,
-                modifier = Modifier.size(9.dp),
+                modifier = Modifier.size(11.dp),
             )
         }
     }
@@ -1809,8 +1829,8 @@ internal fun HudPickerDialog(
 
     Box(
         modifier = modifier
-            .width(310.dp)
-            .heightIn(max = 170.dp)
+            .width(360.dp)
+            .heightIn(max = 220.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f))
             .border(0.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
@@ -1820,22 +1840,22 @@ internal fun HudPickerDialog(
             // or backs out (Back).
             .focusGroup()
             .focusProperties { exit = { FocusRequester.Cancel } }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = presentation.title,
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.headlineSmall.copy(
-                    fontSize = 17.sp,
-                    lineHeight = 20.sp,
+                    fontSize = HudTitleTextSize,
+                    lineHeight = HudTitleLineHeight,
                     fontWeight = FontWeight.SemiBold,
                 ),
             )
             LazyColumn(
                 state = listState,
-                modifier = Modifier.heightIn(max = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.heightIn(max = 160.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 itemsIndexed(
                     options,
@@ -1873,18 +1893,18 @@ private fun HudPickerOptionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(5.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(interactionSource = interactionSource, indication = null) { onSelect() }
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         if (option.colorHex != null) {
             Box(
                 modifier = Modifier
-                    .size(9.dp)
+                    .size(11.dp)
                     .clip(CircleShape)
                     .background(hexToColor(option.colorHex))
                     .border(0.5.dp, Color.White.copy(alpha = 0.45f), CircleShape),
@@ -1894,8 +1914,8 @@ private fun HudPickerOptionRow(
             text = option.label,
             color = fg,
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
                 fontWeight = FontWeight.Medium,
             ),
             maxLines = 1,

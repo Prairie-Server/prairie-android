@@ -80,9 +80,9 @@ class TvLoginViewModel(
             return
         }
 
+        _uiState.update { it.copy(isLoading = true, error = null) }
         credentialLoginJob?.cancel()
         credentialLoginJob = viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             when (val result = authRepository.loginForTokens(s.username, s.password)) {
                 is ApiResult.Success -> {
                     if (!tryCompleteAuth()) {

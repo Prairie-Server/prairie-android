@@ -4,21 +4,31 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
+import org.siloserver.silo.common.downloads.DownloadReclaimCandidate
+import org.siloserver.silo.common.downloads.DownloadReclaimPlan
+import org.siloserver.silo.common.downloads.DownloadReclaimPlanner
 import org.siloserver.silo.common.downloads.DownloadStorage
+import org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorFactory
+import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.model.download.DownloadMediaType
 import org.siloserver.silo.model.download.DownloadRecord
 import org.siloserver.silo.model.download.DownloadSidecar
 import org.siloserver.silo.model.download.DownloadStatus
+import org.siloserver.silo.model.download.DownloadSubscription
 import org.siloserver.silo.model.download.statusEnum
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.errorMessage
+import org.siloserver.silo.repository.DownloadSubscriptionRepository
 import org.siloserver.silo.repository.DownloadsRepository
 import org.siloserver.silo.repository.ProfileRepository
+import org.siloserver.silo.repository.port.UserItemStatePort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,6 +60,15 @@ data class DownloadItem(
     val localUri: String? = null,
     val displayName: String? = null,
     val container: String? = null,
+)
+
+data class DownloadSubscriptionUiItem(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val enabled: Boolean,
+    val lastEvaluatedAt: Long?,
+    val lastError: String?,
 )
 
 internal data class DownloadItemFileState(
@@ -201,8 +220,14 @@ data class DownloadTypeSection(
 
 data class DownloadsUiState(
     val sections: List<DownloadTypeSection> = emptyList(),
+    val subscriptions: List<DownloadSubscriptionUiItem> = emptyList(),
+    val reclaimPlan: DownloadReclaimPlan? = null,
     val totalBytesUsed: Long = 0,
+    val keepWatchedDownloads: Boolean = false,
     val isLoading: Boolean = false,
+    val isRunningMonitoredDownloads: Boolean = false,
+    val isReclaiming: Boolean = false,
+    val isRemovingAllDownloads: Boolean = false,
     val error: String? = null,
 ) {
     /** "Is there anything?" — drives the Downloads-tab visibility in
@@ -235,6 +260,10 @@ class DownloadsViewModel(
     private val profileRepository: ProfileRepository,
     private val downloadEnqueuer: DownloadEnqueuer,
     private val legacyImporter: org.siloserver.silo.common.downloads.LegacyDownloadImporter,
+    private val subscriptionRepository: DownloadSubscriptionRepository,
+    private val subscriptionEvaluatorFactory: DownloadSubscriptionEvaluatorFactory,
+    private val userItemStatePort: UserItemStatePort,
+    private val playerSettingsStore: PlayerSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DownloadsUiState(isLoading = true))
@@ -250,6 +279,10 @@ class DownloadsViewModel(
     @Volatile private var scopeByFileId: Map<Int, Pair<String, String>> = emptyMap()
 
     init {
+        playerSettingsStore.keepWatchedDownloadsFlow.onEach { keepWatched ->
+            _uiState.update { it.copy(keepWatchedDownloads = keepWatched) }
+        }.launchIn(viewModelScope)
+
         viewModelScope.launch {
             // Bootstrap: finish the one-time legacy sidecar→Room import before the
             // first metadata read, so pre-cutover downloads aren't briefly missing
@@ -260,6 +293,7 @@ class DownloadsViewModel(
             finishPendingDeletions()
             // Backfill + initial sidecar read.
             reloadSidecarMetadata()
+            refreshSubscriptionsInternal()
             val seeded = metadataByRecordId.values.toList()
             repository.seedFromSidecars(seeded.map { it.record })
 
@@ -307,6 +341,7 @@ class DownloadsViewModel(
     fun refresh() {
         viewModelScope.launch {
             reloadSidecarMetadata()
+            refreshSubscriptionsInternal()
             val keep = metadataByRecordId.keys
             val (serverId, profileId) = activeDownloadScope()
             when (val r = repository.refresh(keepIdsAbsentFromServer = keep, serverId = serverId, profileId = profileId)) {
@@ -314,6 +349,89 @@ class DownloadsViewModel(
                 is ApiResult.Error, is ApiResult.NetworkError ->
                     _uiState.update { it.copy(error = r.errorMessage("Failed to refresh downloads")) }
             }
+        }
+    }
+
+    fun refreshSubscriptions() {
+        viewModelScope.launch {
+            runCatching { refreshSubscriptionsInternal() }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(error = error.message ?: "Failed to refresh monitored downloads")
+                    }
+                }
+        }
+    }
+
+    fun runMonitoredDownloadsNow() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRunningMonitoredDownloads = true) }
+            val (serverId, profileId) = activeDownloadScope()
+            val now = System.currentTimeMillis()
+            val evaluator = subscriptionEvaluatorFactory.create()
+            var firstError: String? = null
+
+            val active = runCatching { subscriptionRepository.active(serverId, profileId) }
+                .getOrElse { error ->
+                    _uiState.update {
+                        it.copy(
+                            isRunningMonitoredDownloads = false,
+                            error = error.message ?: "Failed to load monitored downloads",
+                        )
+                    }
+                    return@launch
+                }
+
+            for (subscription in active) {
+                runCatching {
+                    evaluator.evaluate(subscription)
+                    subscriptionRepository.updateEvaluation(serverId, profileId, subscription.id, now, null, now)
+                }.onFailure { error ->
+                    if (firstError == null) firstError = error.message ?: "Monitored download failed"
+                    subscriptionRepository.updateEvaluation(
+                        serverId = serverId,
+                        profileId = profileId,
+                        id = subscription.id,
+                        evaluatedAt = now,
+                        error = error.message ?: error::class.simpleName,
+                        updatedAt = now,
+                    )
+                }
+            }
+
+            refreshSubscriptionsInternal()
+            refresh()
+            _uiState.update {
+                it.copy(
+                    isRunningMonitoredDownloads = false,
+                    error = firstError ?: it.error,
+                )
+            }
+        }
+    }
+
+    fun calculateReclaimWatched() {
+        viewModelScope.launch {
+            val plan = buildReclaimWatchedPlan()
+            _uiState.update { it.copy(reclaimPlan = plan) }
+        }
+    }
+
+    fun clearReclaimPlan() {
+        _uiState.update { it.copy(reclaimPlan = null) }
+    }
+
+    fun reclaimWatched() {
+        viewModelScope.launch {
+            val plan = _uiState.value.reclaimPlan ?: buildReclaimWatchedPlan()
+            if (plan.count == 0) {
+                _uiState.update { it.copy(reclaimPlan = null) }
+                return@launch
+            }
+
+            _uiState.update { it.copy(isReclaiming = true) }
+            removeRecords(plan.items.map { it.recordId })
+            _uiState.update { it.copy(isReclaiming = false, reclaimPlan = null) }
         }
     }
 
@@ -353,6 +471,19 @@ class DownloadsViewModel(
      *  Movies", "Delete all TV"). */
     fun removeSection(section: DownloadTypeSection) {
         viewModelScope.launch { removeRecords(section.recordIds) }
+    }
+
+    fun removeAllDownloads() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRemovingAllDownloads = true) }
+            try {
+                reloadSidecarMetadata()
+                val ids = (repository.records.value.map { it.id } + metadataByRecordId.keys).distinct()
+                removeRecords(ids)
+            } finally {
+                _uiState.update { it.copy(isRemovingAllDownloads = false) }
+            }
+        }
     }
 
     private suspend fun removeRecords(ids: List<String>) {
@@ -412,6 +543,34 @@ class DownloadsViewModel(
         }
     }
 
+    private suspend fun refreshSubscriptionsInternal() {
+        val (serverId, profileId) = activeDownloadScope()
+        val subscriptions = subscriptionRepository.all(serverId, profileId).map { it.toUiItem() }
+        _uiState.update { it.copy(subscriptions = subscriptions) }
+    }
+
+    private suspend fun buildReclaimWatchedPlan(): DownloadReclaimPlan {
+        reloadSidecarMetadata()
+        val sidecars = metadataByRecordId.values.toList()
+        val watchedStates = userItemStatePort.localContentStates(sidecars.map { it.record.contentId })
+        val liveById = repository.records.value.associateBy { it.id }
+        val rows = sidecars.map { sidecar ->
+            val live = liveById[sidecar.record.id]
+            val item = sidecar.toDownloadItem(live)
+            DownloadReclaimCandidate(
+                recordId = sidecar.record.id,
+                contentId = sidecar.record.contentId,
+                mediaFileId = sidecar.record.mediaFileId,
+                title = sidecar.title,
+                status = (live ?: sidecar.record).status,
+                fileSizeBytes = item.fileSizeBytes,
+                completed = watchedStates[sidecar.record.contentId]?.watched == true,
+                updatedAtMs = sidecar.updatedAtMs,
+            )
+        }
+        return DownloadReclaimPlanner().plan(rows)
+    }
+
     /** One filesystem walk loads both lookup maps. Call on Dispatchers.IO. */
     private suspend fun reloadSidecarMetadata() {
         val (activeServerId, activeProfileId) = activeDownloadScope()
@@ -434,6 +593,16 @@ class DownloadsViewModel(
         } ?: DownloadEnqueuer.DEFAULT_PROFILE_ID
         return serverId to profileId
     }
+
+    private fun DownloadSubscription.toUiItem(): DownloadSubscriptionUiItem =
+        DownloadSubscriptionUiItem(
+            id = id,
+            title = displayTitle,
+            subtitle = "${mediaKind.name} · ${targetType.name} · ${quality.label}",
+            enabled = enabled,
+            lastEvaluatedAt = lastEvaluatedAt,
+            lastError = lastError,
+        )
 
     companion object {
         private const val TAG = "DownloadsViewModel"

@@ -316,4 +316,16 @@ class MpvPlayerSourceTest {
         assertTrue(removeBody.contains("arrayOf(\"playlist-clear\")"))
         assertTrue(removeBody.contains("EVENT_TIMELINE_CHANGED"))
     }
+
+    @Test
+    fun mpvPassthroughDefaultsUseSingleSourceOfTruth() {
+        val text = source.readText()
+
+        assertTrue(text.contains("private const val DefaultMpvAudioOutput = \"audiotrack,aaudio\""))
+        assertTrue(text.contains("private val audioOutput: String = DefaultMpvAudioOutput"))
+        assertTrue(text.contains("var audioOutput: String = DefaultMpvAudioOutput"))
+        assertTrue(text.contains("private const val DefaultMpvHardwareDecoder = \"mediacodec,mediacodec-copy\""))
+        assertTrue(text.contains("private val hwDec: String = DefaultMpvHardwareDecoder"))
+        assertTrue(text.contains("var hwDec: String = DefaultMpvHardwareDecoder"))
+    }
 }

@@ -14,9 +14,22 @@ class TvClientSurfaceVisibilitySourceTest {
     ).readText()
 
     @Test
-    fun requestsCodeRemainsRoutableButHiddenFromTvSettings() {
-        assertTrue(settingsScreen.contains("CLIENT_REQUESTS_SURFACE_ENABLED"))
-        assertTrue(settingsScreen.contains("if (CLIENT_REQUESTS_SURFACE_ENABLED)"))
+    fun requestsAreFeatureGatedInTvProfileMenu() {
+        assertTrue(shell.contains("RequestsFeatureStore"))
+        assertTrue(shell.contains("requestsFeatureStore.reset()"))
+        assertTrue(shell.contains("requestsFeatureStore.refresh()"))
+        assertTrue(shell.contains("ProfileDropdownRow(label = \"Watchlist\""))
+        assertTrue(shell.contains("ProfileDropdownRow(label = \"Favorites\""))
+        assertTrue(shell.contains("ProfileDropdownRow(label = \"History\""))
         assertTrue(shell.contains("TvMainRoute.Requests.route"))
+        assertTrue(shell.contains("showRequests = requestsEnabled"))
+        assertTrue(shell.contains("onRequests = closeMenuAnd"))
+        assertTrue(shell.contains("if (showRequests) {"))
+        assertTrue(shell.contains("label = \"Requests\""))
+        assertTrue(shell.contains("icon = Icons.Filled.AutoAwesome"))
+        assertTrue(shell.contains("onClick = onRequests"))
+        assertFalse(shell.contains("label = \"Admin Dashboard\",\n                icon = Icons.Filled.AdminPanelSettings"))
+        assertFalse(settingsScreen.contains("CLIENT_REQUESTS_SURFACE_ENABLED"))
+        assertFalse(settingsScreen.contains("SettingsActionRow(label = \"Requests\""))
     }
 }

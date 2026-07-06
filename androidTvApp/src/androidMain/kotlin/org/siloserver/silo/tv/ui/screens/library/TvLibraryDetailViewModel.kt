@@ -2,7 +2,10 @@ package org.siloserver.silo.tv.ui.screens.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.model.catalog.AudiobookGroup
 import org.siloserver.silo.model.catalog.BrowseItem
+import org.siloserver.silo.model.catalog.CatalogQueryGroup
+import org.siloserver.silo.model.catalog.CatalogQueryRule
 import org.siloserver.silo.model.section.LibraryCollection
 import org.siloserver.silo.model.section.LibraryCollectionsResponse
 import org.siloserver.silo.model.section.ResolvedSection
@@ -20,14 +23,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Library content sections, in tvOS order (`TVLibraryPill`):
- * Recommended · Collections · Browse. [Browse] is the full A–Z poster grid
- * (tvOS calls the same surface "Browse"; the on-screen tab label matches).
+ * Library content sections committed by the Skyline cascade. The extra browse
+ * variants are request presets over the same catalog grid, while Collections
+ * and Recommended keep their dedicated surfaces.
  */
 enum class TvLibraryTab(val label: String) {
     Recommended("Recommended"),
     Collections("Collections"),
     Browse("Browse"),
+    Genres("Genres"),
+    Alphabet("A-Z"),
+    RecentlyAdded("Recently Added"),
+    Authors("Authors"),
+    Series("Series"),
 }
 
 /**
@@ -61,8 +69,10 @@ data class TvLibraryBrowseFilter(
     // Default to newest-first (added_at), matching the global browse + the
     // shared CatalogRepository's default; TV previously diverged with Title.
     val sort: String = TvLibrarySortOption.DateAdded.wireValue,
+    val order: String = "desc",
     val yearMin: Int? = null,
     val yearMax: Int? = null,
+    val queryGroups: List<CatalogQueryGroup> = emptyList(),
 )
 
 class TvLibraryDetailViewModel(
@@ -88,6 +98,12 @@ class TvLibraryDetailViewModel(
         val browseLoadingMore: Boolean = false,
         val browseError: String? = null,
         val browseFilter: TvLibraryBrowseFilter = TvLibraryBrowseFilter(),
+        val audiobookGroups: List<AudiobookGroup> = emptyList(),
+        val audiobookGroupsHasMore: Boolean = false,
+        val audiobookGroupsLoading: Boolean = false,
+        val audiobookGroupsLoadingMore: Boolean = false,
+        val audiobookGroupsError: String? = null,
+        val selectedAudiobookGroup: AudiobookGroup? = null,
         val collections: List<LibraryCollection> = emptyList(),
         val collectionSections: List<TvCollectionSection> = emptyList(),
         val collectionsLoading: Boolean = false,
@@ -109,6 +125,8 @@ class TvLibraryDetailViewModel(
     private var loadedFilters = false
     private var browseGeneration = 0
     private var browseSnapshot: String? = null
+    private var loadedAudiobookGroupBy: String? = null
+    private var audiobookGroupsGeneration = 0
 
     init {
         // Only the default Recommended tab loads eagerly. Filters (the genre
@@ -119,13 +137,35 @@ class TvLibraryDetailViewModel(
     }
 
     fun onTabSelected(tab: TvLibraryTab) {
-        if (_uiState.value.selectedTab == tab) return
-        _uiState.update { it.copy(selectedTab = tab) }
+        val state = _uiState.value
+        val nextFilter = state.browseFilter.forTab(tab)
+        val filterChanged = nextFilter != state.browseFilter
+        val audiobookGroupBy = tab.audiobookGroupBy
+        if (state.selectedTab == tab && !filterChanged) return
+        _uiState.update {
+            it.copy(
+                selectedTab = tab,
+                browseFilter = nextFilter,
+                browseItems = if (audiobookGroupBy != null) emptyList() else it.browseItems,
+                browseHasMore = if (audiobookGroupBy != null) false else it.browseHasMore,
+                browseError = if (audiobookGroupBy != null) null else it.browseError,
+                selectedAudiobookGroup = if (audiobookGroupBy != null) null else it.selectedAudiobookGroup,
+            )
+        }
         when (tab) {
             TvLibraryTab.Recommended -> if (!loadedRecommended) loadRecommended()
-            TvLibraryTab.Browse -> {
+            TvLibraryTab.Browse,
+            TvLibraryTab.Genres,
+            TvLibraryTab.Alphabet,
+            TvLibraryTab.RecentlyAdded -> {
                 if (!loadedFilters) loadFilters()
-                if (!loadedBrowse) loadBrowse(reset = true)
+                if (!loadedBrowse || filterChanged || state.selectedTab != tab) loadBrowse(reset = true)
+            }
+            TvLibraryTab.Authors,
+            TvLibraryTab.Series -> {
+                if (loadedAudiobookGroupBy != audiobookGroupBy || state.selectedTab != tab) {
+                    loadAudiobookGroups(groupBy = audiobookGroupBy ?: return, reset = true)
+                }
             }
             TvLibraryTab.Collections -> if (!loadedCollections) loadCollections()
         }
@@ -144,6 +184,7 @@ class TvLibraryDetailViewModel(
         updateBrowseFilter(
             _uiState.value.browseFilter.copy(
                 sort = sort.wireValue,
+                order = sort.defaultOrder,
                 namePrefix = null,
             ),
         )
@@ -173,6 +214,57 @@ class TvLibraryDetailViewModel(
         loadBrowse(reset = false)
     }
 
+    fun loadMoreAudiobookGroups() {
+        val state = _uiState.value
+        val groupBy = state.selectedTab.audiobookGroupBy ?: return
+        if (state.audiobookGroupsLoading || state.audiobookGroupsLoadingMore || !state.audiobookGroupsHasMore) return
+        loadAudiobookGroups(groupBy = groupBy, reset = false)
+    }
+
+    fun onAudiobookGroupSelected(group: AudiobookGroup) {
+        val field = _uiState.value.selectedTab.audiobookCatalogField ?: return
+        val queryGroup = CatalogQueryGroup(
+            match = "all",
+            rules = listOf(
+                CatalogQueryRule(
+                    field = field,
+                    op = "is",
+                    value = group.name,
+                ),
+            ),
+        )
+        loadedBrowse = false
+        _uiState.update {
+            it.copy(
+                selectedAudiobookGroup = group,
+                browseItems = emptyList(),
+                browseHasMore = false,
+                browseError = null,
+                browseFilter = TvLibraryBrowseFilter(
+                    sort = TvLibrarySortOption.Title.wireValue,
+                    order = "asc",
+                    queryGroups = listOf(queryGroup),
+                ),
+            )
+        }
+        loadBrowse(reset = true)
+    }
+
+    fun onAudiobookGroupCleared() {
+        loadedBrowse = false
+        _uiState.update {
+            it.copy(
+                selectedAudiobookGroup = null,
+                browseItems = emptyList(),
+                browseHasMore = false,
+                browseLoading = false,
+                browseLoadingMore = false,
+                browseError = null,
+                browseFilter = it.browseFilter.forTab(it.selectedTab),
+            )
+        }
+    }
+
     fun retryRecommended() {
         loadRecommended()
     }
@@ -183,6 +275,11 @@ class TvLibraryDetailViewModel(
 
     fun retryCollections() {
         loadCollections()
+    }
+
+    fun retryAudiobookGroups() {
+        val groupBy = _uiState.value.selectedTab.audiobookGroupBy ?: return
+        loadAudiobookGroups(groupBy = groupBy, reset = true)
     }
 
     private fun updateBrowseFilter(filter: TvLibraryBrowseFilter) {
@@ -317,12 +414,14 @@ class TvLibraryDetailViewModel(
                 libraryId = libraryId,
                 genre = filter.genre,
                 sort = filter.sort,
+                order = filter.order,
                 offset = offset,
                 limit = pageSize,
                 namePrefix = filter.namePrefix,
                 yearMin = filter.yearMin,
                 yearMax = filter.yearMax,
                 snapshotAt = browseSnapshot,
+                queryGroups = filter.queryGroups,
             )
 
             if (generation != browseGeneration) return@launch
@@ -361,6 +460,83 @@ class TvLibraryDetailViewModel(
                             browseLoading = false,
                             browseLoadingMore = false,
                             browseError = "Network error: ${result.exception.message ?: "unknown"}",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadAudiobookGroups(groupBy: String, reset: Boolean) {
+        loadedAudiobookGroupBy = groupBy
+
+        val generation = if (reset) {
+            audiobookGroupsGeneration += 1
+            audiobookGroupsGeneration
+        } else {
+            audiobookGroupsGeneration
+        }
+
+        viewModelScope.launch {
+            val state = _uiState.value
+            val offset = if (reset) 0 else state.audiobookGroups.size
+
+            _uiState.update {
+                if (reset) {
+                    it.copy(
+                        audiobookGroups = emptyList(),
+                        audiobookGroupsHasMore = false,
+                        audiobookGroupsLoading = true,
+                        audiobookGroupsLoadingMore = false,
+                        audiobookGroupsError = null,
+                        selectedAudiobookGroup = null,
+                    )
+                } else {
+                    it.copy(audiobookGroupsLoadingMore = true)
+                }
+            }
+
+            when (
+                val result = catalogRepository.getAudiobookGroups(
+                    libraryId = libraryId,
+                    groupBy = groupBy,
+                    sort = "name",
+                    offset = offset,
+                    limit = pageSize,
+                )
+            ) {
+                is ApiResult.Success -> {
+                    if (generation != audiobookGroupsGeneration) return@launch
+                    val response = result.data
+                    _uiState.update {
+                        it.copy(
+                            audiobookGroups = if (reset) response.groups else it.audiobookGroups + response.groups,
+                            audiobookGroupsHasMore = response.hasMore,
+                            audiobookGroupsLoading = false,
+                            audiobookGroupsLoadingMore = false,
+                            audiobookGroupsError = null,
+                        )
+                    }
+                }
+                is ApiResult.Error -> {
+                    if (generation != audiobookGroupsGeneration) return@launch
+                    loadedAudiobookGroupBy = null
+                    _uiState.update {
+                        it.copy(
+                            audiobookGroupsLoading = false,
+                            audiobookGroupsLoadingMore = false,
+                            audiobookGroupsError = result.message.ifBlank { "Failed to load audiobook groups" },
+                        )
+                    }
+                }
+                is ApiResult.NetworkError -> {
+                    if (generation != audiobookGroupsGeneration) return@launch
+                    loadedAudiobookGroupBy = null
+                    _uiState.update {
+                        it.copy(
+                            audiobookGroupsLoading = false,
+                            audiobookGroupsLoadingMore = false,
+                            audiobookGroupsError = "Network error: ${result.exception.message ?: "unknown"}",
                         )
                     }
                 }
@@ -445,4 +621,72 @@ class TvLibraryDetailViewModel(
     }
 
     private fun mediaTypeFor(type: String): String? = tvCatalogMediaTypeFor(type)
+
+    private fun TvLibraryBrowseFilter.forTab(tab: TvLibraryTab): TvLibraryBrowseFilter =
+        when (tab) {
+            TvLibraryTab.Recommended,
+            TvLibraryTab.Collections -> this
+            TvLibraryTab.Browse -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = TvLibrarySortOption.DateAdded.wireValue,
+                order = "desc",
+                queryGroups = emptyList(),
+            )
+            TvLibraryTab.Genres -> copy(
+                namePrefix = null,
+                sort = TvLibrarySortOption.Title.wireValue,
+                order = "asc",
+                queryGroups = emptyList(),
+            )
+            TvLibraryTab.Alphabet -> copy(
+                genre = null,
+                sort = TvLibrarySortOption.Title.wireValue,
+                order = "asc",
+                queryGroups = emptyList(),
+            )
+            TvLibraryTab.RecentlyAdded -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = TvLibrarySortOption.DateAdded.wireValue,
+                order = "desc",
+                queryGroups = emptyList(),
+            )
+            TvLibraryTab.Authors -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = TvLibrarySortOption.Title.wireValue,
+                order = "asc",
+                queryGroups = emptyList(),
+            )
+            TvLibraryTab.Series -> copy(
+                genre = null,
+                namePrefix = null,
+                sort = TvLibrarySortOption.Title.wireValue,
+                order = "asc",
+                queryGroups = emptyList(),
+            )
+        }
 }
+
+private val TvLibraryTab.audiobookGroupBy: String?
+    get() = when (this) {
+        TvLibraryTab.Authors -> "author"
+        TvLibraryTab.Series -> "series"
+        else -> null
+    }
+
+private val TvLibraryTab.audiobookCatalogField: String?
+    get() = when (this) {
+        TvLibraryTab.Authors -> "author"
+        TvLibraryTab.Series -> "series"
+        else -> null
+    }
+
+private val TvLibrarySortOption.defaultOrder: String
+    get() = when (this) {
+        TvLibrarySortOption.Title -> "asc"
+        TvLibrarySortOption.DateAdded,
+        TvLibrarySortOption.ReleaseDate,
+        TvLibrarySortOption.Rating -> "desc"
+    }

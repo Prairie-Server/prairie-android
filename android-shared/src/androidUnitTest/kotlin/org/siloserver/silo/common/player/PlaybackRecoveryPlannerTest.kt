@@ -44,6 +44,64 @@ class PlaybackRecoveryPlannerTest {
     }
 
     @Test
+    fun unsupportedDvProfilePrefersAlternateDirectEngineAndNeverRemuxes() {
+        // mpv decodes the HDR10 base layer of P7, so an alternate direct
+        // engine beats a server fallback; a remux would re-send the exact DV
+        // stream the Media3 decoder just refused, so it must be skipped even
+        // when the plan offers one.
+        val plan = PlaybackExecutionPlan(
+            planId = "s1",
+            delivery = PlaybackDelivery.ORIGINAL_HTTP,
+            engine = PlaybackEngineKind.MEDIA3_DIRECT,
+            routeFamily = PlaybackRouteFamily.PLATFORM_NATIVE,
+            fallbacks = listOf(
+                PlaybackFallbackCandidate(
+                    delivery = PlaybackDelivery.ORIGINAL_HTTP,
+                    engine = PlaybackEngineKind.MPV_DIRECT,
+                    reason = "alternate_direct_engine",
+                ),
+                PlaybackFallbackCandidate(
+                    delivery = PlaybackDelivery.SERVER_REMUX_HLS,
+                    engine = PlaybackEngineKind.MEDIA3_HLS,
+                    reason = "container_adaptation",
+                ),
+            ),
+        )
+
+        val action = PlaybackRecoveryPlanner().planForPlayability(
+            currentPlan = plan,
+            reason = Playability.UnsupportedDvProfile(7),
+        )
+
+        val alternate = assertIs<PlaybackRecoveryAction.AlternateDirectEngine>(action)
+        assertEquals(PlaybackEngineKind.MPV_DIRECT, alternate.engine)
+    }
+
+    @Test
+    fun unsupportedDvProfileWithoutAlternateEngineTranscodesInsteadOfRemuxing() {
+        val plan = PlaybackExecutionPlan(
+            planId = "s1",
+            delivery = PlaybackDelivery.ORIGINAL_HTTP,
+            engine = PlaybackEngineKind.MEDIA3_DIRECT,
+            routeFamily = PlaybackRouteFamily.PLATFORM_NATIVE,
+            fallbacks = listOf(
+                PlaybackFallbackCandidate(
+                    delivery = PlaybackDelivery.SERVER_REMUX_HLS,
+                    engine = PlaybackEngineKind.MEDIA3_HLS,
+                    reason = "container_adaptation",
+                ),
+            ),
+        )
+
+        val action = PlaybackRecoveryPlanner().planForPlayability(
+            currentPlan = plan,
+            reason = Playability.UnsupportedDvProfile(7),
+        )
+
+        assertIs<PlaybackRecoveryAction.ServerTranscode>(action)
+    }
+
+    @Test
     fun playerErrorPrefersServerRemuxCandidateBeforeFullTranscode() {
         val plan = PlaybackExecutionPlan(
             planId = "s1",

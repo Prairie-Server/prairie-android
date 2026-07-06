@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -12,16 +13,23 @@ import androidx.compose.ui.graphics.vector.ImageVector
  *
  * - [Recommended] — the server-driven landing feed (recommendations +
  *   sections); always first / the landing default.
+ * - [Browse] — the full library grid.
  * - [Collections] — curated collections within the library.
- * - [Browse] — the full library, browsable as an A–Z grid.
+ * - [Genres] / [Alphabet] / [RecentlyAdded] — video-library browse shortcuts.
+ * - [Authors] / [Series] — audiobook-native browse shortcuts.
  *
- * Every library type offers all three sections (tvOS `set(for:)` returns
- * `allCases` for every type).
+ * The set is type-aware so the cascade never exposes ebook-only or unsupported
+ * destinations on TV.
  */
 enum class TvLibraryPill {
     Recommended,
     Collections,
-    Browse;
+    Browse,
+    Genres,
+    Alphabet,
+    RecentlyAdded,
+    Authors,
+    Series;
 
     /** Pill / flyout-row label. */
     val title: String
@@ -29,6 +37,11 @@ enum class TvLibraryPill {
             Recommended -> "Recommended"
             Collections -> "Collections"
             Browse -> "Browse"
+            Genres -> "Genres"
+            Alphabet -> "A-Z"
+            RecentlyAdded -> "Recently Added"
+            Authors -> "Authors"
+            Series -> "Series"
         }
 
     /** Glyph shown beside the section name in the cascade flyout (§5.3). */
@@ -37,14 +50,43 @@ enum class TvLibraryPill {
             Recommended -> Icons.Filled.AutoAwesome // tvOS `sparkles`
             Collections -> Icons.Filled.Collections // tvOS `square.stack.3d.up`
             Browse -> Icons.Filled.GridView // tvOS `square.grid.2x2`
+            Genres -> Icons.Filled.AutoAwesome
+            Alphabet -> Icons.Filled.GridView
+            RecentlyAdded -> Icons.Filled.AutoAwesome
+            Authors -> Icons.Filled.Person
+            Series -> Icons.Filled.Collections
         }
 
     companion object {
         /**
-         * Sections offered for [type]. Mirrors tvOS `TVLibraryPill.set(for:)`,
-         * which returns every case for every library type: Recommended ·
-         * Collections · Browse.
+         * Sections offered for [type]. Movies/Series expose the documented
+         * video browse shortcuts; audiobooks expose only audiobook-safe
+         * destinations. Music is intentionally conservative until the server
+         * exposes album/artist/playlist grouping endpoints for native rows.
          */
-        fun set(type: TvLibraryTabType): List<TvLibraryPill> = entries.toList()
+        fun set(type: TvLibraryTabType): List<TvLibraryPill> = when (type) {
+            TvLibraryTabType.Movies,
+            TvLibraryTabType.Series -> listOf(
+                Recommended,
+                Browse,
+                Collections,
+                Genres,
+                Alphabet,
+                RecentlyAdded,
+            )
+            TvLibraryTabType.Audiobooks -> listOf(
+                Recommended,
+                Browse,
+                Authors,
+                Series,
+                Collections,
+                Alphabet,
+            )
+            TvLibraryTabType.Music -> listOf(
+                Recommended,
+                Browse,
+                Genres,
+            )
+        }
     }
 }

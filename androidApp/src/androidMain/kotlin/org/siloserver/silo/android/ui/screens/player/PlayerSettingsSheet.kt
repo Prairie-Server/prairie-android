@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SleepTimerState
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -66,6 +67,8 @@ fun PlayerSettingsSheet(
     hasChapters: Boolean = false,
     onOpenQuality: () -> Unit = {},
     hasMultipleVersions: Boolean = false,
+    stats: PlayerStatsSnapshot = PlayerStatsSnapshot(),
+    onOpenPlaybackStats: () -> Unit = {},
     audioDelayMs: Int = 0,
     onSetAudioDelay: (Int) -> Unit = {},
     subtitleDelayMs: Int = 0,
@@ -149,6 +152,16 @@ fun PlayerSettingsSheet(
                         },
                     )
                 }
+
+                TapRow(
+                    label = "Playback Stats",
+                    subtitle = stats.summaryLabel(),
+                    onClick = {
+                        scope.launch { sheetState.hide() }
+                        onDismiss()
+                        onOpenPlaybackStats()
+                    },
+                )
 
                 SectionHeader(text = "Episodes")
 
@@ -452,6 +465,14 @@ private fun formatSleepTimerSubtitle(state: SleepTimerState): String {
         is SleepTimerState.Idle -> "Off"
         is SleepTimerState.Active -> "Pausing in ${formatRemaining(state.remainingSeconds)}"
     }
+}
+
+private fun PlayerStatsSnapshot.summaryLabel(): String {
+    val route = backendRoute ?: backendDisplayName
+    return listOfNotNull(resolution, route, bitrateBps?.let(::formatStatsBitrate))
+        .take(2)
+        .joinToString(" - ")
+        .ifBlank { "Waiting for player data" }
 }
 
 /**

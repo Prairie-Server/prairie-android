@@ -21,8 +21,10 @@ class TvSearchLayoutReadabilityTest {
         assertTrue(source.contains("Modifier.focusProperties { down = firstResultFocusRequester }"))
         assertTrue(source.contains("up = firstFilterChipFocusRequester"))
         assertTrue(source.contains("firstResultFocusRequester.requestFocus()"))
+        assertTrue(source.contains("firstRequestResultFocusRequester.requestFocus()"))
         assertTrue(source.contains("var pendingSearchFocus by remember { mutableStateOf(false) }"))
-        assertTrue(source.contains("LaunchedEffect(pendingSearchFocus, state.isLoading, state.items)"))
+        assertTrue(source.contains("requestSearchSettled"))
+        assertTrue(source.contains("visibleRequestResults.size"))
         assertTrue(source.contains("pendingSearchFocus = true"))
     }
 
@@ -37,4 +39,20 @@ class TvSearchLayoutReadabilityTest {
         assertFalse(source.contains("SiloSearchKeyboard("))
     }
 
+    @Test
+    fun searchEmbedsRequestsWhenServerFeatureIsEnabled() {
+        assertTrue(source.contains("RequestsFeatureStore"))
+        assertTrue(source.contains("TvRequestSearchSection("))
+        assertTrue(source.contains("onOpenRequestDetail"))
+    }
+
+    @Test
+    fun requestSearchHasVisibleStatesAndFocusHandoff() {
+        assertTrue(source.contains("requestState.isLoading"))
+        assertTrue(source.contains("requestState.error"))
+        assertTrue(source.contains("requestState.hasSubmittedQuery"))
+        assertTrue(source.contains("RequestSearchFeedbackRow("))
+        assertTrue(source.contains("firstRequestResultFocusRequester.requestFocus()"))
+        assertTrue(source.contains("requestSearchSettled"))
+    }
 }

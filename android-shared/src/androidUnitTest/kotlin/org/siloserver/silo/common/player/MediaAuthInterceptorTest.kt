@@ -80,6 +80,37 @@ class MediaAuthInterceptorTest {
     }
 
     @Test
+    fun `gateway refresh failure keeps active session`() {
+        val tokenManager = FakeTokenManager(
+            accessToken = "expired-access",
+            refreshToken = "refresh-token",
+            serverUrl = "https://lib.strm.cafe",
+            serverId = "server-a",
+        )
+        val refreshClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                responseFor(
+                    chain.request(),
+                    code = 503,
+                    body = """{"error":"unavailable","message":"origin down"}""",
+                )
+            }
+            .build()
+        val chain = SequenceChain(
+            Request.Builder()
+                .url("https://lib.strm.cafe/api/v1/ebooks/book/files/7/read")
+                .build(),
+            responseCodes = listOf(401, 401),
+        )
+
+        MediaAuthInterceptor(tokenManager, refreshClient = refreshClient).intercept(chain).close()
+
+        assertFalse(tokenManager.invalidatedSession)
+        assertEquals("expired-access", runBlocking { tokenManager.getAccessToken() })
+        assertEquals("refresh-token", runBlocking { tokenManager.getRefreshToken() })
+    }
+
+    @Test
     fun `refresh response is discarded when active server changes mid refresh`() {
         val tokenManager = FakeTokenManager(
             accessToken = "expired-access",

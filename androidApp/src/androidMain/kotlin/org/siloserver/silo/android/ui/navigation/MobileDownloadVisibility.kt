@@ -22,3 +22,9 @@ fun shouldShowDownloadsTab(
     serverRecordCount: Int,
     activeScopeLocalBytes: Long,
 ): Boolean = serverRecordCount > 0 || activeScopeLocalBytes > 0L
+
+fun shouldStartOnDownloads(
+    hasLocalDownloads: Boolean,
+    isDeviceOnline: Boolean,
+    canUseServer: Boolean,
+): Boolean = hasLocalDownloads && (!isDeviceOnline || !canUseServer)

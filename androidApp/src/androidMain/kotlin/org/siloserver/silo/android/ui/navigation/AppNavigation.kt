@@ -2,15 +2,18 @@ package org.siloserver.silo.android.ui.navigation
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -20,6 +23,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
+import org.siloserver.silo.android.cast.SiloCastController
+import org.siloserver.silo.android.ui.screens.cast.SiloCastMiniBar
+import org.siloserver.silo.android.ui.screens.cast.SiloCastRemoteScreen
 import org.siloserver.silo.android.ui.screens.MainScreen
 import org.siloserver.silo.android.ui.screens.auth.LoginScreen
 import org.siloserver.silo.android.ui.screens.auth.DevicePairingScreen
@@ -38,6 +44,7 @@ import org.siloserver.silo.android.ui.screens.watchtogether.WatchTogetherEntrySh
 import org.siloserver.silo.android.ui.screens.watchtogether.WatchTogetherLobbyScreen
 import org.siloserver.silo.android.ui.screens.people.PersonDetailScreen
 import org.siloserver.silo.android.ui.screens.people.PersonDetailViewModel
+import org.siloserver.silo.android.ui.screens.notifications.InboxScreen
 import org.siloserver.silo.android.ui.screens.personal.FavoritesScreen
 import org.siloserver.silo.android.ui.screens.personal.HistoryScreen
 import org.siloserver.silo.android.ui.screens.personal.PersonalListsScreen
@@ -73,6 +80,12 @@ fun AppNavigation(
 ) {
     val tokenManager: TokenManager = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
+    val siloCastController: SiloCastController = koinInject()
+
+    DisposableEffect(siloCastController) {
+        siloCastController.startBrowsing()
+        onDispose { siloCastController.stopBrowsing() }
+    }
 
     // Graceful handling of server-side session invalidation (refresh 401'd).
     // The TokenManager has already wiped the active server's tokens by the
@@ -114,6 +127,7 @@ fun AppNavigation(
     // every composable signature in between.
     SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
     CompositionLocalProvider(LocalSharedTransitionScope provides this) {
+    Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -294,14 +308,22 @@ fun AppNavigation(
         composable(Route.Downloads.route) {
             MainScreen(navController, Tab.Downloads)
         }
+        composable(Route.Inbox.route) {
+            InboxScreen(
+                onBackClick = { navController.popBackStack() },
+                onItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
+            )
+        }
         // ---- Legacy route aliases (defensive) ----
-        // Pre-consolidation builds had standalone Video/Audio/Reading/Inbox
+        // Pre-consolidation builds had standalone Video/Audio/Reading
         // destinations; they were folded into the Home shell. A NavController
         // back stack restored from such a build could still reference these route
         // strings — and navigating to a route with no registered destination
         // throws (crash on launch). Register no-op aliases that redirect to Home
         // so a restore can never hit an unregistered destination.
-        for (legacyRoute in listOf("video", "audio", "reading", "inbox")) {
+        for (legacyRoute in listOf("video", "audio", "reading")) {
             composable(legacyRoute) {
                 LaunchedEffect(Unit) {
                     navController.navigate(Route.Home.route) {
@@ -343,6 +365,9 @@ fun AppNavigation(
                 onBackClick = { navController.popBackStack() },
             )
         }
+        composable(Route.SiloCastRemote.route) {
+            SiloCastRemoteScreen(onBack = { navController.popBackStack() })
+        }
         composable(
             route = Route.Search.ROUTE,
             arguments = listOf(
@@ -356,6 +381,12 @@ fun AppNavigation(
             val searchViewModel = koinViewModel<SearchViewModel>()
             SearchScreen(
                 onItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
+                onRequestMediaClick = { item ->
+                    navController.navigate(Route.RequestDetail(item.mediaType, item.tmdbId).route)
+                },
+                onRequestLibraryItemClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
                 onBackClick = { navController.popBackStack() },
@@ -700,6 +731,12 @@ fun AppNavigation(
             }
         }
 
+    }
+        SiloCastMiniBar(
+            controller = siloCastController,
+            onOpenRemote = { navController.navigate(Route.SiloCastRemote.route) },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
     }
     }

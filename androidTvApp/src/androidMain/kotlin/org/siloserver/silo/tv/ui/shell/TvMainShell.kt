@@ -25,7 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
@@ -96,12 +96,15 @@ import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.common.ui.components.isImageAvatar
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
 import org.siloserver.silo.tv.ui.theme.DarkBackground
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.network.ServerReachabilityStatus
 import org.siloserver.silo.common.ui.components.profileAvatarDisplayText
 import org.siloserver.silo.common.ui.components.rememberProfileServerUrl
 import org.siloserver.silo.common.ui.components.resolveAvatarUrl
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.admin.shouldShowClientAdminSurface
 import org.siloserver.silo.model.auth.isActingAdmin
+import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
@@ -170,6 +173,12 @@ fun TvMainShell(
     val authRepository: AuthRepository = koinInject()
     val personalDataRepository: PersonalDataRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
+    val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
+    val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val serverRegistry: ServerRegistry = koinInject()
+    val reachabilityState by reachabilityMonitor.state.collectAsState()
+    val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
+    val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     val serverUrl = rememberProfileServerUrl()
 
@@ -229,6 +238,11 @@ fun TvMainShell(
 
     val currentRoute = currentEntry?.destination?.route ?: firstTvRoute()
 
+    LaunchedEffect(activeServerEntry?.id, activeServerEntry?.profileId) {
+        requestsFeatureStore.reset()
+        requestsFeatureStore.refresh()
+    }
+
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
     val searchInputFocusRequester = remember { FocusRequester() }
@@ -257,8 +271,6 @@ fun TvMainShell(
     val tabAnchors = remember { mutableStateMapOf<TvTopMenuPanel, LayoutCoordinates>() }
     val panelScope = rememberCoroutineScope()
 
-    val serverRegistry: ServerRegistry = koinInject()
-    val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val accountSnapshot by produceState(
         initialValue = TvAccountState(),
         authRepository,
@@ -593,6 +605,10 @@ fun TvMainShell(
                                 onOpenPersonDetail = onOpenPersonDetail,
                             )
                         },
+                        onOpenRequestDetail = { mediaType, tmdbId ->
+                            navigateToSecondary(TvMainRoute.RequestDetail(mediaType, tmdbId).route)
+                        },
+                        onOpenLibraryItem = onOpenItemDetail,
                         searchFieldFocusRequester = searchInputFocusRequester,
                     )
                 }
@@ -864,6 +880,16 @@ fun TvMainShell(
                 .zIndex(1f),
         )
 
+        if (reachabilityState.status == ServerReachabilityStatus.Unreachable) {
+            TvServerOfflinePill(
+                onRetry = { panelScope.launch { reachabilityMonitor.retryNow() } },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 92.dp)
+                    .zIndex(1.5f),
+            )
+        }
+
         // Persistent cascade overlays (tvOS `persistentPanels`): one Box per
         // visible library-type tab, ALWAYS in the tree. Inactive panels are
         // alpha-0 and focus-blocked; the active one fades in and accepts focus.
@@ -933,13 +959,14 @@ fun TvMainShell(
                     navigateToSecondary(TvMainRoute.History.route)
                     moveFocusToContent(TvMainRoute.History.route)
                 },
+                showRequests = requestsEnabled,
+                onRequests = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.Requests.route)
+                    moveFocusToContent(TvMainRoute.Requests.route)
+                },
                 onSettings = closeMenuAnd {
                     navigateToRoute(TvMainRoute.Settings.route)
                     moveFocusToContent(TvMainRoute.Settings.route)
-                },
-                onAdminDashboard = closeMenuAnd {
-                    navigateToSecondary(TvMainRoute.AdminHub.route)
-                    moveFocusToContent(TvMainRoute.AdminHub.route)
                 },
                 onSwitchServer = closeMenuAnd(onSwitchServer),
                 onSignOut = closeMenuAnd(onSignedOut),
@@ -1071,13 +1098,18 @@ private fun TvRootDestination.toRoute(): String = when (this) {
 
 /**
  * Maps a committed cascade [TvLibraryPill] to the library detail screen's
- * section tab. Recommended → Recommended, Browse → Browse (the full grid),
- * Collections → Collections.
+ * section tab. Browse variants stay distinct so the detail ViewModel can apply
+ * their catalog request presets.
  */
 private fun TvLibraryPill.toLibraryTab(): TvLibraryTab = when (this) {
     TvLibraryPill.Recommended -> TvLibraryTab.Recommended
     TvLibraryPill.Browse -> TvLibraryTab.Browse
     TvLibraryPill.Collections -> TvLibraryTab.Collections
+    TvLibraryPill.Genres -> TvLibraryTab.Genres
+    TvLibraryPill.Alphabet -> TvLibraryTab.Alphabet
+    TvLibraryPill.RecentlyAdded -> TvLibraryTab.RecentlyAdded
+    TvLibraryPill.Authors -> TvLibraryTab.Authors
+    TvLibraryPill.Series -> TvLibraryTab.Series
 }
 
 /**
@@ -1115,8 +1147,8 @@ private fun cascadePanelOffset(
  * returns focus to the avatar via [onDismiss].
  *
  * Row set + order mirrors tvOS: Switch Profile · Watchlist · Favorites ·
- * History · Settings · (Admin Dashboard, admin only) · Switch Server · Sign Out.
- * Calendar is no longer here — it is a top-level tab.
+ * History · Requests (feature-gated) · Settings · Switch Server · Sign Out.
+ * Calendar is a top-level tab.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -1126,8 +1158,9 @@ private fun TvProfileDropdown(
     onWatchlist: () -> Unit,
     onFavorites: () -> Unit,
     onHistory: () -> Unit,
+    showRequests: Boolean,
+    onRequests: () -> Unit,
     onSettings: () -> Unit,
-    onAdminDashboard: () -> Unit,
     onSwitchServer: () -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
@@ -1169,17 +1202,17 @@ private fun TvProfileDropdown(
         ProfileDropdownRow(label = "Watchlist", icon = Icons.Filled.Bookmark, onClick = onWatchlist)
         ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
         ProfileDropdownRow(label = "History", icon = Icons.Filled.History, onClick = onHistory)
+        if (showRequests) {
+            ProfileDropdownRow(
+                label = "Requests",
+                icon = Icons.Filled.AutoAwesome,
+                onClick = onRequests,
+            )
+        }
 
         ProfileDropdownDivider()
 
         ProfileDropdownRow(label = "Settings", icon = Icons.Filled.Settings, onClick = onSettings)
-        if (accountState.isAdmin) {
-            ProfileDropdownRow(
-                label = "Admin Dashboard",
-                icon = Icons.Filled.AdminPanelSettings,
-                onClick = onAdminDashboard,
-            )
-        }
         ProfileDropdownRow(label = "Switch Server", icon = Icons.Filled.Dns, onClick = onSwitchServer)
         ProfileDropdownRow(
             label = "Sign Out",
@@ -1272,6 +1305,41 @@ private fun ProfileDropdownDivider() {
             .height(1.dp)
             .background(Color.White.copy(alpha = 0.10f)),
     )
+}
+
+@Composable
+private fun TvServerOfflinePill(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pillShape = RoundedCornerShape(999.dp)
+    Surface(
+        modifier = modifier.widthIn(max = 460.dp),
+        onClick = onRetry,
+        shape = ClickableSurfaceDefaults.shape(pillShape),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF3A1F22).copy(alpha = 0.94f),
+            contentColor = Color.White,
+            focusedContainerColor = SiloOnSurface,
+            focusedContentColor = DarkBackground,
+            pressedContainerColor = SiloOnSurface,
+            pressedContentColor = DarkBackground,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)), shape = pillShape),
+            focusedBorder = Border(border = BorderStroke(1.dp, SiloOnSurface), shape = pillShape),
+        ),
+    ) {
+        Text(
+            text = "Offline mode - select to retry",
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /**

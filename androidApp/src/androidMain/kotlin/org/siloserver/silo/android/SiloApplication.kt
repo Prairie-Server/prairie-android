@@ -14,6 +14,7 @@ import coil3.request.crossfade
 import org.siloserver.silo.android.di.androidModule
 import org.siloserver.silo.android.downloads.AppWorkerFactory
 import org.siloserver.silo.android.notifications.NotificationsForegroundStarter
+import org.siloserver.silo.android.push.AndroidPushRegistrationStarter
 import org.siloserver.silo.common.di.playerInfraModule
 import org.siloserver.silo.common.di.playerModule
 import org.siloserver.silo.common.downloads.DownloadWorker
@@ -47,6 +48,14 @@ class SiloApplication : Application(), Configuration.Provider, SingletonImageLoa
             ).register()
         }.onFailure {
             android.util.Log.w("SiloApplication", "Notifications starter init failed", it)
+        }
+        runCatching {
+            AndroidPushRegistrationStarter(
+                registrar = koinApp.koin.get(),
+                notificationsRepository = koinApp.koin.get(),
+            ).register()
+        }.onFailure {
+            android.util.Log.w("SiloApplication", "Android push registration starter init failed", it)
         }
         // Configuration.Provider wasn't reliably picked up by WM's androidx.startup
         // auto-init (the auto-init seemed to win the race, leaving WM with its

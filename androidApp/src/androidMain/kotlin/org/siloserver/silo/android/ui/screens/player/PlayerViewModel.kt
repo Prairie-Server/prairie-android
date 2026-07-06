@@ -6,15 +6,21 @@ import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.android.BuildConfig
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
+import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.Playability
+import org.siloserver.silo.common.player.PlaybackRecoveryAction
+import org.siloserver.silo.common.player.PlaybackRecoveryPlanner
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.PlayerNotice
+import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SessionState
 import org.siloserver.silo.common.player.SleepTimerController
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.common.player.StartParams
+import org.siloserver.silo.common.player.backend.VideoBackendCapabilities
+import org.siloserver.silo.common.player.reducePlayerStats
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
@@ -32,7 +38,10 @@ import org.siloserver.silo.model.catalog.TimeRange
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackDelivery
+import org.siloserver.silo.model.playback.PlaybackEngineKind
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.playback.PlaybackRouteEventRequest
+import org.siloserver.silo.model.playback.PlaybackRouteFamily
 import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.mergeDownloadedSubtitles
@@ -48,8 +57,13 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.common.player.AutoPlayGuard
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.errorMessage
+import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
+import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.playback.nextEpisodeAfter
+import org.siloserver.silo.playback.resolveAudioTrackOrdinal
+import org.siloserver.silo.playback.resolveSubtitleTrackOrdinal
 import org.siloserver.silo.playback.selectPlaybackVersion
+import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
@@ -93,6 +107,7 @@ class PlayerViewModel(
     private val videoPlaybackCoordinator: VideoPlaybackSessionCoordinator,
     private val catalogRepository: CatalogRepository,
     private val playbackSessionManager: PlaybackSessionManager,
+    private val playbackAnalytics: PlaybackAnalyticsListener,
     private val profileRepository: ProfileRepository,
     private val personalDataRepository: PersonalDataRepository,
     private val capabilityDetector: PlaybackCapabilityDetector,
@@ -117,6 +132,26 @@ class PlayerViewModel(
         // Record a durable position roughly every 10s of content time (matches the
         // server reporter cadence) to bound DB/outbox churn.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
+        private const val MAX_TRANSIENT_NETWORK_RETRIES = 1
+        // Up-next auto-play countdown length (matches TV's NEXT_UP_COUNTDOWN_SECONDS).
+        const val UP_NEXT_COUNTDOWN_SECONDS = 10
+    }
+
+    /**
+     * Resolved next episode for the Up Next card (mirrors TV's NextEpisodeState).
+     * Populated by [resolveNextEpisode]; null for movies / last episodes.
+     */
+    data class NextEpisodeInfo(
+        val contentId: String,
+        val seasonNumber: Int,
+        val episodeNumber: Int,
+        val title: String?,
+        val stillUrl: String?,
+        val stillThumbhash: String?,
+        val runtimeMinutes: Int,
+    ) {
+        val label: String
+            get() = "S$seasonNumber·E$episodeNumber" + (title?.let { " — $it" } ?: "")
     }
 
     data class PlayerUiState(
@@ -159,7 +194,6 @@ class PlayerViewModel(
          * the player to `startSeconds` on tap. Mirrors iOS phone behavior.
          */
         val chapters: List<VersionChapter> = emptyList(),
-        val showNextEpisode: Boolean = false,
         val showControls: Boolean = true,
         val isBuffering: Boolean = false,
         val versions: List<FileVersion> = emptyList(),
@@ -168,10 +202,13 @@ class PlayerViewModel(
         val seriesId: String? = null,
         val seasonNumber: Int? = null,
         val episodeNumber: Int? = null,
-        // F2 next-episode auto-advance: resolved next episode + pass-out prompt.
-        val nextEpisodeContentId: String? = null,
-        val nextEpisodeLabel: String? = null,
-        val stillWatchingPrompt: Boolean = false,
+        // F2 next-episode auto-advance: resolved next episode + Up Next card.
+        val nextEpisode: NextEpisodeInfo? = null,
+        val showUpNext: Boolean = false,
+        /** True once the stream has actually ended (STATE_ENDED) while the card shows. */
+        val upNextVideoEnded: Boolean = false,
+        /** Remaining auto-play countdown seconds; null = no countdown (gated / auto-play off). */
+        val upNextCountdownSeconds: Int? = null,
         val preferredAudioLanguage: String? = null,
         val preferredTextLanguage: String? = null,
         /**
@@ -181,6 +218,10 @@ class PlayerViewModel(
          * current position.
          */
         val subtitleRefreshNonce: Int = 0,
+        // Live player statistics for phone diagnostics. Populates field-by-field
+        // as PlaybackAnalyticsListener emits decoder, format, bandwidth, and
+        // dropped-frame events.
+        val stats: PlayerStatsSnapshot = PlayerStatsSnapshot(),
     ) {
         /**
          * Media file id of the active version — the id the subtitle
@@ -263,6 +304,10 @@ class PlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val autoPlayNextEnabled: StateFlow<Boolean> = playerSettingsStore.autoPlayNextFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    // Seconds before end to surface the Up Next card when no credits marker
+    // exists (0 = only at end). Credits marker wins when present.
+    private val nextUpPromptSeconds: StateFlow<Int> = playerSettingsStore.nextUpPromptSecondsFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 30)
 
     // ---- F2 pass-out protection ----
     // Per-profile "Still watching?" threshold (default 3; 0 = off).
@@ -274,7 +319,29 @@ class PlayerViewModel(
     private val autoPlayGuard = AutoPlayGuard(threshold = { passOutThreshold.value })
     // Once-per-episode guard for the credits/ended trigger; reset on each load.
     private var autoAdvanceHandled = false
+    // End point fired before the next episode resolved — remember it (and the
+    // strongest videoEnded flag seen) so resolveNextEpisode can commit the card.
+    private var pendingApproachingEndVideoEnded: Boolean? = null
+    private var upNextCountdownJob: Job? = null
     private var engineSwitchFallbackAttempted = false
+    private var persistNextSubtitleSelection = false
+
+    // Recovery ladder state — mirrors TvPlayerViewModel. The planner picks the
+    // cheapest viable fallback (alternate direct engine → server remux →
+    // transcode); attemptedEngines prevents Media3↔mpv ping-pong; the
+    // transient-network budget lets a single blip retry the SAME route instead
+    // of demoting a healthy direct stream for the rest of playback.
+    private val recoveryPlanner = PlaybackRecoveryPlanner()
+    private val attemptedEngines = mutableSetOf<PlaybackEngineKind>()
+    private var transientNetworkRetries = 0
+    private var recoveryJob: Job? = null
+    private data class ServerRecoveryIdentity(
+        val contentId: String,
+        val sessionId: String,
+        val selectedVersionIndex: Int,
+        val fileId: Int,
+    )
+
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
@@ -356,6 +423,26 @@ class PlayerViewModel(
         sleepTimer.configure {
             _uiState.update { it.copy(isPaused = true) }
         }
+
+        viewModelScope.launch {
+            playbackAnalytics.events.collect { event ->
+                _uiState.update { it.copy(stats = reducePlayerStats(it.stats, event)) }
+            }
+        }
+    }
+
+    fun onBackendCapabilities(capabilities: VideoBackendCapabilities) {
+        _uiState.update { state ->
+            state.copy(
+                stats = state.stats.copy(
+                    backendKind = capabilities.backendKind.name,
+                    backendDisplayName = capabilities.displayName,
+                    backendRoute = capabilities.route.displayName,
+                    subtitleRendering = capabilities.subtitleRendering.name,
+                    hardContainers = if (capabilities.supportsHardContainers) "Yes" else "No",
+                ),
+            )
+        }
     }
 
     /**
@@ -378,22 +465,28 @@ class PlayerViewModel(
         // New item: re-arm the once-per-episode auto-advance trigger. (The
         // AutoPlayGuard streak intentionally PERSISTS across episodes.)
         autoAdvanceHandled = false
+        pendingApproachingEndVideoEnded = null
         engineSwitchFallbackAttempted = false
+        persistNextSubtitleSelection = false
+        resetPlaybackRecoveryState()
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
         // Cancel any in-flight resolve from the previous episode so its result
         // can't land on this one and overwrite the fresh next-episode pointer.
         resolveNextEpisodeJob?.cancel()
 
-        // Clear episode-scoped UI carried over from the previous item so the
-        // stale "Next episode"/prompt overlays can't flash during the reload.
+        // Clear episode-scoped UI carried over from the previous item so a
+        // stale Up Next card can't flash during the reload.
         _uiState.update {
             it.copy(
                 isLoading = true,
                 error = null,
                 contentId = contentId,
-                showNextEpisode = false,
-                stillWatchingPrompt = false,
-                nextEpisodeContentId = null,
-                nextEpisodeLabel = null,
+                nextEpisode = null,
+                showUpNext = false,
+                upNextVideoEnded = false,
+                upNextCountdownSeconds = null,
+                stats = PlayerStatsSnapshot(),
             )
         }
 
@@ -429,6 +522,7 @@ class PlayerViewModel(
                     is VideoPlayerUiState.Ready -> applyCoordinatorStateToUi(
                         playbackState = playbackState,
                         preferredFileId = preferredFileId,
+                        initialAudioTrackIndex = initialAudioTrackIndex,
                         initialSubtitleTrackIndex = initialSubtitleTrackIndex,
                     )
                     is VideoPlayerUiState.Error -> {
@@ -452,6 +546,7 @@ class PlayerViewModel(
     private suspend fun applyCoordinatorStateToUi(
         playbackState: VideoPlayerUiState.Ready,
         preferredFileId: Int?,
+        initialAudioTrackIndex: Int?,
         initialSubtitleTrackIndex: Int?,
     ) {
         val watchDetail = when (val r = catalogRepository.getWatchDetail(playbackState.contentId)) {
@@ -476,9 +571,44 @@ class PlayerViewModel(
             ?: watchDetail?.let { findPreferredVersion(it, preferredFileId, null) }
             ?: 0
         val version = versions.getOrNull(versionIndex)
+        val localTrackSelection = version?.fileId
+            ?.takeIf { initialAudioTrackIndex == null || initialSubtitleTrackIndex == null }
+            ?.let { fileId -> userItemStatePort.localTrackSelection(playbackState.contentId, fileId) }
+        val persistedAudioIndex = if (initialAudioTrackIndex == null) {
+            version?.audioTracks
+                ?.let { tracks -> resolveAudioTrackOrdinal(tracks, localTrackSelection?.audioFingerprint) }
+        } else {
+            null
+        }
+        val persistedSubtitleIndex = if (initialSubtitleTrackIndex == null) {
+            version?.subtitleTracks
+                ?.let { tracks -> resolveSubtitleTrackOrdinal(tracks, localTrackSelection?.subtitleFingerprint) }
+        } else {
+            null
+        }
+        val autoSubtitleSelection = if (initialSubtitleTrackIndex == null && persistedSubtitleIndex == null) {
+            resolveMobileAutoSubtitleSelection(
+                audioTracks = version?.audioTracks ?: emptyList(),
+                selectedAudioIndex = playbackState.audioTrackIndex,
+                subtitles = playbackState.subtitleUrls,
+                preferredLanguage = playbackState.preferredTextLanguage,
+                subtitleMode = playbackState.preferredSubtitleMode,
+                showForcedSubtitles = playbackState.showForcedSubtitles,
+            )
+        } else {
+            MobileSubtitleAutoSelection.NoChange
+        }
         val resolvedSubtitleIndex = initialSubtitleTrackIndex
             ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
-            ?: -1
+            ?: persistedSubtitleIndex
+                ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
+            ?: when (autoSubtitleSelection) {
+                is MobileSubtitleAutoSelection.Select ->
+                    autoSubtitleSelection.ordinal.takeIf { it in playbackState.subtitleUrls.indices } ?: -1
+                MobileSubtitleAutoSelection.Disable -> -1
+                MobileSubtitleAutoSelection.NoChange -> -1
+            }
+        persistNextSubtitleSelection = initialSubtitleTrackIndex != null || persistedSubtitleIndex != null
 
         _uiState.update {
             it.copy(
@@ -514,12 +644,24 @@ class PlayerViewModel(
                 seriesId = watchDetail?.seriesId,
                 seasonNumber = watchDetail?.seasonNumber,
                 episodeNumber = watchDetail?.episodeNumber,
-                nextEpisodeContentId = null,
-                nextEpisodeLabel = null,
-                stillWatchingPrompt = false,
+                nextEpisode = null,
+                showUpNext = false,
+                upNextVideoEnded = false,
+                upNextCountdownSeconds = null,
                 preferredAudioLanguage = playbackState.preferredAudioLanguage,
                 preferredTextLanguage = playbackState.preferredTextLanguage,
             )
+        }
+
+        if (initialAudioTrackIndex != null && initialAudioTrackIndex in _uiState.value.audioTracks.indices) {
+            persistAudioTrackSelection(initialAudioTrackIndex)
+        }
+        if (
+            persistedAudioIndex != null &&
+            persistedAudioIndex != playbackState.audioTrackIndex &&
+            persistedAudioIndex in _uiState.value.audioTracks.indices
+        ) {
+            onSelectAudio(persistedAudioIndex)
         }
 
         // Begin observing intro auto-skip inputs for this session.
@@ -562,12 +704,7 @@ class PlayerViewModel(
      */
     fun onUnsupportedPlayback(reason: Playability) {
         val state = _uiState.value
-        val sessionId = state.sessionId ?: return
-        val versions = state.versions
-        val versionIndex = state.selectedVersionIndex
-        val selectedAudioIndex = state.selectedAudioIndex
-        val selectedSubtitleIndex = state.selectedSubtitleIndex
-        val version = versions.getOrNull(versionIndex) ?: return
+        state.sessionId ?: return
 
         val notice = when (reason) {
             is Playability.UnsupportedDvProfile ->
@@ -582,7 +719,154 @@ class PlayerViewModel(
         }
         Log.i(TAG, "Preflight fallback: $notice")
 
+        val recoveryAction = recoveryPlanner.planForPlayability(state.playbackPlan, reason, attemptedEngines)
+        if (applyAlternateDirectFallback(state, recoveryAction)) return
+        startServerRecoveryFallback(notice, recoveryAction, state)
+    }
+
+    /**
+     * Player runtime error (decoder init, source, network after prepare).
+     * Mirrors TvPlayerViewModel.onPlayerError: a transient network blip retries
+     * the SAME route a bounded number of times (budget restored once playback
+     * progresses), everything else walks the recovery ladder — alternate
+     * direct engine first, then the plan's server remux/transcode candidates.
+     * Previously the mobile player had no error handling at all: a decoder or
+     * IO failure left the screen on a stale frame/spinner forever.
+     */
+    fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        val state = _uiState.value
+        val message = error.localizedMessage?.takeIf { msg -> msg.isNotBlank() }
+            ?: "Playback failed. Please try again."
+        val isTransientNetwork =
+            error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        val plan = state.playbackPlan
+        if (isTransientNetwork &&
+            state.sessionId != null &&
+            plan != null &&
+            transientNetworkRetries < MAX_TRANSIENT_NETWORK_RETRIES
+        ) {
+            transientNetworkRetries++
+            Log.i(TAG, "Transient network error; retrying same route ($transientNetworkRetries/$MAX_TRANSIENT_NETWORK_RETRIES)")
+            // Appending to the decision trace produces a new plan object, which
+            // re-runs the screen's mount effect — a same-route remount at the
+            // current position, without a server round-trip.
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = null,
+                    playbackPlan = plan.copy(
+                        timeline = plan.timeline.copy(playerStartSeconds = state.position),
+                        decisionTrace = plan.decisionTrace +
+                            "client_retry=transient_network:$transientNetworkRetries",
+                    ),
+                    startPosition = state.position,
+                )
+            }
+            return
+        }
+        val recoveryAction = recoveryPlanner.planForPlayerError(state.playbackPlan, error, attemptedEngines)
+        if (applyAlternateDirectFallback(state, recoveryAction)) return
+        if (state.sessionId != null && recoveryAction != PlaybackRecoveryAction.None) {
+            startServerRecoveryFallback(message, recoveryAction, state)
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = message,
+                isPlaying = false,
+                isBuffering = false,
+            )
+        }
+    }
+
+    /**
+     * Client-side engine switch (Media3 ↔ mpv) without a server fallback.
+     * Updating the plan's engine + startPosition re-runs the screen's mount
+     * effect, which sends SET_ENGINE to the playback service and remounts.
+     * Returns false when the action isn't an engine switch so the caller
+     * proceeds to the server ladder.
+     */
+    private fun applyAlternateDirectFallback(
+        state: PlayerUiState,
+        recoveryAction: PlaybackRecoveryAction,
+    ): Boolean {
+        val action = recoveryAction as? PlaybackRecoveryAction.AlternateDirectEngine ?: return false
+        val plan = state.playbackPlan ?: return false
+        val sessionId = state.sessionId ?: return false
+        // Record the engine we're leaving (and the one we're moving to) so a later
+        // failure can't bounce back to an engine that already failed.
+        attemptedEngines.add(plan.engine)
+        attemptedEngines.add(action.engine)
+        val nextRouteFamily = when (action.engine) {
+            PlaybackEngineKind.MPV_DIRECT -> PlaybackRouteFamily.COMPATIBILITY_DIRECT
+            PlaybackEngineKind.MEDIA3_DIRECT -> PlaybackRouteFamily.PLATFORM_NATIVE
+            else -> plan.routeFamily
+        }
         viewModelScope.launch {
+            playbackSessionManager.reportRouteEvent(
+                sessionId = sessionId,
+                request = PlaybackRouteEventRequest(
+                    planId = plan.planId,
+                    fromEngine = plan.engine,
+                    toEngine = action.engine,
+                    delivery = plan.delivery,
+                    routeFamily = nextRouteFamily,
+                    fallbackReason = "alternate_direct_engine",
+                    errorClass = action.errorClass,
+                    claims = plan.claims,
+                    blockers = plan.capabilities.blockers,
+                ),
+            )
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = null,
+                playbackPlan = plan.copy(
+                    engine = action.engine,
+                    routeFamily = nextRouteFamily,
+                    timeline = plan.timeline.copy(playerStartSeconds = state.position),
+                    decisionTrace = plan.decisionTrace +
+                        "client_fallback=alternate_direct_engine:${plan.engine}->${action.engine}",
+                ),
+                startPosition = state.position,
+            )
+        }
+        return true
+    }
+
+    private fun startServerRecoveryFallback(
+        notice: String,
+        recoveryAction: PlaybackRecoveryAction,
+        state: PlayerUiState,
+    ) {
+        val sessionId = state.sessionId ?: return
+        val selectedAudioIndex = state.selectedAudioIndex
+        val selectedSubtitleIndex = state.selectedSubtitleIndex
+        val version = state.versions.getOrNull(state.selectedVersionIndex) ?: return
+        val recoveryIdentity = state.serverRecoveryIdentityFor(version) ?: return
+        val fallbackMode = when (recoveryAction) {
+            is PlaybackRecoveryAction.ServerRemux -> PlaybackSessionManager.TranscodeMode.REMUX
+            is PlaybackRecoveryAction.AlternateDirectEngine -> PlaybackSessionManager.TranscodeMode.REMUX
+            is PlaybackRecoveryAction.ServerTranscode,
+            PlaybackRecoveryAction.None,
+            -> PlaybackSessionManager.TranscodeMode.FULL
+        }
+
+        // Single-flight: a second player/preflight error arriving before the
+        // first fallback finishes must not launch a competing transcode session
+        // (which would orphan one server session and race _uiState).
+        if (recoveryJob?.isActive == true) {
+            Log.i(TAG, "Server recovery already in flight; ignoring duplicate fallback request")
+            return
+        }
+        recoveryJob = viewModelScope.launch {
+            if (!isCurrentServerRecovery(recoveryIdentity)) {
+                Log.i(TAG, "Ignoring stale server recovery before fallback start: $recoveryIdentity")
+                return@launch
+            }
             val capabilities = capabilityDetector.detect()
             val sessionResponse = PlaybackSessionResponse(
                 sessionId = sessionId,
@@ -613,7 +897,7 @@ class PlayerViewModel(
                 session = sessionResponse,
                 seekSeconds = state.position,
                 resolution = version.resolution.orEmpty(),
-                mode = org.siloserver.silo.common.player.PlaybackSessionManager.TranscodeMode.FULL,
+                mode = fallbackMode,
                 audioTrackIndex = selectedAudioIndex,
                 subtitleTrackIndex = selectedSubtitleIndex,
                 renewSession = {
@@ -633,6 +917,10 @@ class PlayerViewModel(
                 },
             )) {
                 is ApiResult.Success -> {
+                    if (!isCurrentServerRecovery(recoveryIdentity)) {
+                        Log.i(TAG, "Ignoring stale server recovery success: $recoveryIdentity")
+                        return@launch
+                    }
                     val fallback = r.data
                     sessionLifecycle.adoptActiveSession(
                         params = StartParams(
@@ -645,25 +933,70 @@ class PlayerViewModel(
                         ),
                         session = fallback,
                     )
-                    _uiState.update {
-                        it.copy(
-                            sessionId = fallback.sessionId,
-                            playMethod = fallback.playMethod,
-                            playbackPlan = fallback.playbackPlan,
-                            delivery = fallback.resolvedPlaybackDelivery(),
-                            streamUrl = fallback.streamUrl,
-                            startPosition = fallback.position,
-                        )
+                    _uiState.update { current ->
+                        if (!current.matchesServerRecovery(recoveryIdentity)) {
+                            current
+                        } else {
+                            current.copy(
+                                sessionId = fallback.sessionId,
+                                playMethod = fallback.playMethod,
+                                playbackPlan = fallback.playbackPlan,
+                                delivery = fallback.resolvedPlaybackDelivery(),
+                                streamUrl = fallback.streamUrl,
+                                startPosition = fallback.position,
+                            )
+                        }
                     }
                 }
-                is ApiResult.Error -> _uiState.update {
-                    it.copy(error = "$notice (start failed: ${r.message})")
+                is ApiResult.Error -> _uiState.update { current ->
+                    if (!current.matchesServerRecovery(recoveryIdentity)) {
+                        current
+                    } else {
+                        current.copy(error = "$notice (start failed: ${r.message})")
+                    }
                 }
-                is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(error = "$notice (network error: ${r.exception.message})")
+                is ApiResult.NetworkError -> _uiState.update { current ->
+                    if (!current.matchesServerRecovery(recoveryIdentity)) {
+                        current
+                    } else {
+                        current.copy(error = "$notice (network error: ${r.exception.message})")
+                    }
                 }
             }
         }
+    }
+
+    private fun resetPlaybackRecoveryState() {
+        cancelRecoveryJob()
+        attemptedEngines.clear()
+        transientNetworkRetries = 0
+    }
+
+    private fun cancelRecoveryJob() {
+        recoveryJob?.cancel()
+        recoveryJob = null
+    }
+
+    private fun PlayerUiState.serverRecoveryIdentityFor(version: FileVersion): ServerRecoveryIdentity? {
+        val sessionId = sessionId ?: return null
+        val contentId = contentId.takeIf { it.isNotBlank() } ?: return null
+        return ServerRecoveryIdentity(
+            contentId = contentId,
+            sessionId = sessionId,
+            selectedVersionIndex = selectedVersionIndex,
+            fileId = version.fileId,
+        )
+    }
+
+    private fun isCurrentServerRecovery(identity: ServerRecoveryIdentity): Boolean =
+        _uiState.value.matchesServerRecovery(identity)
+
+    private fun PlayerUiState.matchesServerRecovery(identity: ServerRecoveryIdentity): Boolean {
+        val currentFileId = versions.getOrNull(selectedVersionIndex)?.fileId
+        return contentId == identity.contentId &&
+            sessionId == identity.sessionId &&
+            selectedVersionIndex == identity.selectedVersionIndex &&
+            currentFileId == identity.fileId
     }
 
     fun onEngineSwitchFailed(message: String) {
@@ -675,7 +1008,15 @@ class PlayerViewModel(
             state.versions.getOrNull(state.selectedVersionIndex) != null
         ) {
             engineSwitchFallbackAttempted = true
-            onUnsupportedPlayback(Playability.StartupStalled(bufferedAheadMs = 0L, stalledForMs = 0L))
+            // Don't blindly transcode: prefer another direct engine, then fall
+            // through the plan's remux/transcode ladder. A transcode-only source
+            // can't be rescued by a remux that copies the same streams.
+            val recoveryAction = recoveryPlanner.planForEngineSwitchFailure(
+                state.playbackPlan,
+                attemptedEngines,
+            )
+            if (applyAlternateDirectFallback(state, recoveryAction)) return
+            startServerRecoveryFallback(message, recoveryAction, state)
             return
         }
         _uiState.update {
@@ -697,22 +1038,34 @@ class PlayerViewModel(
         val bufferedSec = bufferedPositionMs / 1000.0
         val previousPosition = _uiState.value.position
 
+        // Playback is progressing — restore the transient-network retry budget so
+        // a later, unrelated blip gets a fresh retry instead of demoting at once.
+        if (positionSec > 0 && transientNetworkRetries > 0) {
+            transientNetworkRetries = 0
+        }
+
         _uiState.update { state ->
             state.copy(
                 position = positionSec,
                 duration = if (durationSec > 0) durationSec else state.duration,
                 bufferedPosition = bufferedSec,
-                // synthesize from the credits range — server doesn't tell us when to
-                // surface the next-episode prompt, so we infer it from the credits start.
-                showNextEpisode = state.credits?.let { positionSec >= it.start && state.nextEpisodeContentId != null } ?: false,
             )
         }
 
-        // F2: auto-advance / prompt when playback CROSSES the credits point (only
-        // on the before->after transition, so resuming inside the credits doesn't
-        // instantly skip).
-        _uiState.value.credits?.start?.let { creditsStart ->
+        // F2: surface the Up Next card when playback CROSSES the credits point
+        // (only on the before->after transition, so resuming inside the credits
+        // doesn't instantly trigger it). Without a credits marker, fall back to
+        // crossing (duration - nextUpPromptSeconds); 0 = only at end (iOS parity).
+        val creditsStart = _uiState.value.credits?.start
+        if (creditsStart != null) {
             if (previousPosition < creditsStart && positionSec >= creditsStart) onApproachingEnd()
+        } else {
+            val promptSeconds = nextUpPromptSeconds.value
+            val duration = _uiState.value.duration
+            if (promptSeconds > 0 && duration > 0) {
+                val promptStart = duration - promptSeconds
+                if (previousPosition < promptStart && positionSec >= promptStart) onApproachingEnd()
+            }
         }
 
         // Forward to the lifecycle so its 10s reporter has a fresh sample.
@@ -786,6 +1139,11 @@ class PlayerViewModel(
     /** Toggle play/pause — tracks user intent; PlayerScreen mirrors this to playWhenReady. */
     fun onPlayPause() {
         autoPlayGuard.recordUserAction() // deliberate interaction resets the pass-out streak
+        // A deliberate pause while the Up Next countdown is running opts out of
+        // auto-advance: stop the countdown but keep the card so Play Now /
+        // dismiss remain available (the card is non-modal, so transport input
+        // reaches the player underneath it).
+        if (!_uiState.value.isPaused) cancelUpNextCountdown()
         _uiState.update { it.copy(isPaused = !it.isPaused) }
         // Re-arm the auto-hide timer so controls don't linger after resuming playback.
         if (_uiState.value.showControls) {
@@ -803,6 +1161,13 @@ class PlayerViewModel(
 
     fun onSeek(position: Double) {
         autoPlayGuard.recordUserAction() // deliberate interaction resets the pass-out streak
+        pendingApproachingEndVideoEnded = null
+        // A deliberate scrub while the Up Next card is showing is the user
+        // taking back control (e.g. rewinding to rewatch) — dismiss the card
+        // and its countdown, same once-per-episode semantics as an explicit
+        // dismiss. Room-driven corrective seeks go through seekImmediate and
+        // are unaffected.
+        if (_uiState.value.showUpNext) dismissUpNext()
         _uiState.update { it.copy(position = position) }
         _seekRequests.tryEmit(position)
     }
@@ -864,7 +1229,23 @@ class PlayerViewModel(
 
     /** Select a subtitle track (-1 to disable). */
     fun onSelectSubtitle(index: Int) {
+        persistNextSubtitleSelection = true
         _uiState.update { it.copy(selectedSubtitleIndex = index) }
+    }
+
+    fun onSubtitleSelectionApplied(index: Int) {
+        if (!persistNextSubtitleSelection) return
+        persistNextSubtitleSelection = false
+        val state = _uiState.value
+        val fileId = currentFileId() ?: return
+        val fingerprint = if (index == -1) {
+            SUBTITLE_OFF_FINGERPRINT
+        } else {
+            state.subtitleTracks.getOrNull(index)?.let(::subtitleTrackFingerprint) ?: return
+        }
+        viewModelScope.launch {
+            userItemStatePort.recordSubtitleTrackSelection(state.contentId, fileId, fingerprint)
+        }
     }
 
     /** Select an audio track (may require server-side switch). */
@@ -879,6 +1260,7 @@ class PlayerViewModel(
             when (result) {
                 is ApiResult.Success -> {
                     val response = result.data
+                    persistAudioTrackSelection(response.audioTrackIndex)
                     // If the server provided a new stream URL, update the state
                     if (response.streamUrl != currentState.streamUrl) {
                         _uiState.update {
@@ -899,6 +1281,15 @@ class PlayerViewModel(
                     Log.e(TAG, "Network error changing audio", result.exception)
                 }
             }
+        }
+    }
+
+    private fun persistAudioTrackSelection(index: Int) {
+        val state = _uiState.value
+        val fileId = currentFileId() ?: return
+        val fingerprint = state.audioTracks.getOrNull(index)?.let(::audioTrackFingerprint) ?: return
+        viewModelScope.launch {
+            userItemStatePort.recordAudioTrackSelection(state.contentId, fileId, fingerprint)
         }
     }
 
@@ -1126,15 +1517,6 @@ class PlayerViewModel(
         introAutoSkipController.cancelCountdown()
     }
 
-    /** Manual "Next episode" — a deliberate action, so it resets the pass-out streak. */
-    fun onNextEpisode() {
-        // Watch Together is authoritative — a room member can't drive transport
-        // locally (matches the auto-advance guard), so ignore the tap in a room.
-        if (remoteTransportSuppressed) return
-        autoPlayGuard.recordUserAction()
-        advanceToNextEpisode()
-    }
-
     // ---- F2 next-episode auto-advance + pass-out protection ----
 
     /**
@@ -1166,36 +1548,161 @@ class PlayerViewModel(
                     ?.data?.episodes?.let { pool += it }
             }
             val next = nextEpisodeAfter(pool, curSeason, curEpisode) ?: return@launch
+            val info = NextEpisodeInfo(
+                contentId = next.contentId,
+                seasonNumber = next.seasonNumber,
+                episodeNumber = next.episodeNumber,
+                title = next.title,
+                stillUrl = next.stillUrl,
+                stillThumbhash = next.stillThumbhash,
+                runtimeMinutes = next.runtime,
+            )
             _uiState.update {
                 // Drop the result if the player has since moved to another item.
                 if (it.contentId != forContentId) return@update it
-                it.copy(
-                    nextEpisodeContentId = next.contentId,
-                    nextEpisodeLabel = "S${next.seasonNumber}·E${next.episodeNumber}" +
-                        (next.title?.let { t -> " — $t" } ?: ""),
-                )
+                it.copy(nextEpisode = info)
+            }
+            if (_uiState.value.contentId != forContentId) return@launch
+            // If the credits/end point already fired while we were still
+            // resolving, the card couldn't arm — commit it now with the
+            // strongest video-ended flag observed.
+            if (!autoAdvanceHandled) {
+                pendingApproachingEndVideoEnded?.let { videoEnded ->
+                    commitApproachingEnd(info, videoEnded)
+                }
             }
         }
     }
 
     /**
-     * Credits reached (or stream ended) — auto-advance to the next episode, or
-     * once the consecutive-auto-advance streak hits the guard's threshold show
-     * the "Still watching?" prompt instead. Once-per-episode.
+     * Credits reached (primary) or stream ended (fallback) — surface the Up Next
+     * card. When auto-play is on and the consecutive-auto-advance streak is
+     * below the pass-out threshold, the card runs a countdown that plays the
+     * next episode at zero. Once the streak hits the threshold (or auto-play is
+     * off), the card shows WITHOUT a countdown so the user must explicitly
+     * choose (the pass-out gate). Once-per-episode.
+     *
+     * [videoEnded] is true on STATE_ENDED — the card reads "Playing Next"; a
+     * repeat call while the card is showing only upgrades that flag.
      */
-    fun onApproachingEnd() {
-        if (autoAdvanceHandled) return
+    fun onApproachingEnd(videoEnded: Boolean = false) {
         // Watch Together is authoritative — never auto-advance a room member.
         if (remoteTransportSuppressed) return
-        if (_uiState.value.nextEpisodeContentId == null) return
-        if (!autoPlayNextEnabled.value) return
-        autoAdvanceHandled = true
-        if (autoPlayGuard.shouldGate()) {
-            _uiState.update { it.copy(stillWatchingPrompt = true) }
-        } else {
-            autoPlayGuard.recordAutoAdvance()
-            advanceToNextEpisode()
+        if (autoAdvanceHandled) {
+            if (videoEnded && _uiState.value.showUpNext) {
+                _uiState.update { it.copy(upNextVideoEnded = true) }
+            }
+            return
         }
+        val next = _uiState.value.nextEpisode
+        if (next == null) {
+            // Next episode hasn't resolved yet (or never will — last episode /
+            // movie). Record that the end point fired so resolveNextEpisode can
+            // commit the card if a next episode lands moments later. Unlike TV
+            // there is no full-screen "finished" panel on the phone, so nothing
+            // shows here even on videoEnded.
+            pendingApproachingEndVideoEnded = videoEnded || (pendingApproachingEndVideoEnded == true)
+            return
+        }
+        commitApproachingEnd(next, videoEnded)
+    }
+
+    private fun commitApproachingEnd(next: NextEpisodeInfo, videoEnded: Boolean) {
+        autoAdvanceHandled = true
+        pendingApproachingEndVideoEnded = null
+        // Gate check happens at commit; recordAutoAdvance only on the unattended
+        // countdown-expiry path (AutoPlayGuard's documented call sequence) — so
+        // after N unattended advances the (N+1)th card appears without a countdown.
+        val gated = autoPlayGuard.shouldGate()
+        val autoCountdown = autoPlayNextEnabled.value && !gated
+        val current = _uiState.value
+        // Pre-end commits anchor the countdown to the remaining playback time
+        // (see startUpNextCountdown); only an at-end commit uses the wall clock.
+        val initialCountdown = when {
+            !autoCountdown -> null
+            videoEnded -> UP_NEXT_COUNTDOWN_SECONDS
+            else -> kotlin.math.ceil((current.duration - current.position).coerceAtLeast(0.0)).toInt()
+        }
+        _uiState.update {
+            it.copy(
+                showUpNext = true,
+                upNextVideoEnded = videoEnded,
+                upNextCountdownSeconds = initialCountdown,
+            )
+        }
+        if (autoCountdown) startUpNextCountdown()
+    }
+
+    private fun startUpNextCountdown() {
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = viewModelScope.launch {
+            // Two anchors (iOS parity — silo-apple's PlayerViewModel derives the
+            // countdown from movieTime and only auto-plays once playback truly
+            // ends):
+            //  - Card committed BEFORE the end (credits / prompt crossing): the
+            //    countdown mirrors the remaining playback time, so it freezes on
+            //    pause, grows on a backward seek, and the advance fires only when
+            //    the player reports STATE_ENDED — never truncating the tail of an
+            //    episode that lacks a credits marker.
+            //  - Card committed AT the end (STATE_ENDED with no earlier crossing):
+            //    there is no playback left to anchor to, so a short wall-clock
+            //    countdown gives the user a window to cancel before auto-play.
+            val startedAtEnd = _uiState.value.upNextVideoEnded
+            var wallRemaining = UP_NEXT_COUNTDOWN_SECONDS
+            while (true) {
+                delay(1_000)
+                val state = _uiState.value
+                // Bail if something dismissed the card underneath us.
+                if (!state.showUpNext) return@launch
+                val remaining = if (startedAtEnd) {
+                    wallRemaining -= 1
+                    wallRemaining.coerceAtLeast(0)
+                } else {
+                    kotlin.math.ceil((state.duration - state.position).coerceAtLeast(0.0)).toInt()
+                }
+                _uiState.update {
+                    if (!it.showUpNext) it else it.copy(upNextCountdownSeconds = remaining)
+                }
+                if (!_uiState.value.showUpNext) return@launch
+                val playbackEnded =
+                    if (startedAtEnd) wallRemaining <= 0 else _uiState.value.upNextVideoEnded
+                if (!playbackEnded) continue
+                // Unattended countdown-expiry advance: increment the pass-out streak
+                // so a long unattended binge eventually trips the gate. An explicit
+                // Play Now (below) resets the streak instead.
+                autoPlayGuard.recordAutoAdvance()
+                advanceToNextEpisode()
+                return@launch
+            }
+        }
+    }
+
+    /** Up Next "Play Now" — an explicit choice, so it resets the pass-out streak. */
+    fun playUpNextNow() {
+        autoPlayGuard.recordUserAction()
+        advanceToNextEpisode()
+    }
+
+    /**
+     * Up Next dismiss — cancel the countdown and stay on the current playback.
+     * Does NOT re-arm [autoAdvanceHandled]: the card is once-per-episode.
+     */
+    fun dismissUpNext() {
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
+        _uiState.update { it.copy(showUpNext = false, upNextCountdownSeconds = null) }
+    }
+
+    /**
+     * Stops the auto-advance countdown but keeps the card visible — used when a
+     * deliberate transport action (pause) signals the user doesn't want to be
+     * yanked to the next episode. The card degrades to the no-countdown form.
+     */
+    private fun cancelUpNextCountdown() {
+        if (upNextCountdownJob == null) return
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
+        _uiState.update { it.copy(upNextCountdownSeconds = null) }
     }
 
     /**
@@ -1210,8 +1717,14 @@ class PlayerViewModel(
      * than inheriting the next episode's saved resume position.
      */
     private fun advanceToNextEpisode() {
-        val nextContentId = _uiState.value.nextEpisodeContentId ?: return
-        _uiState.update { it.copy(stillWatchingPrompt = false, showNextEpisode = false) }
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
+        if (remoteTransportSuppressed) {
+            _uiState.update { it.copy(showUpNext = false, upNextCountdownSeconds = null) }
+            return
+        }
+        val nextContentId = _uiState.value.nextEpisode?.contentId ?: return
+        _uiState.update { it.copy(showUpNext = false, upNextCountdownSeconds = null) }
         viewModelScope.launch {
             sessionLifecycle.stop()
             loadContent(
@@ -1220,17 +1733,6 @@ class PlayerViewModel(
                 suppressResumeRewind = true,
             )
         }
-    }
-
-    /** User tapped "Continue" on the prompt — reset the streak and play next. */
-    fun onStillWatchingContinue() {
-        autoPlayGuard.recordUserAction()
-        advanceToNextEpisode()
-    }
-
-    /** User tapped "Stop" (or dismissed) — stay on the finished episode. */
-    fun onStillWatchingStop() {
-        _uiState.update { it.copy(stillWatchingPrompt = false) }
     }
 
     // ---- Settings setters (forward to per-profile DataStore) -------------------
@@ -1306,6 +1808,7 @@ class PlayerViewModel(
         if (index == currentState.selectedVersionIndex) return
 
         val currentPosition = currentState.position
+        resetPlaybackRecoveryState()
 
         viewModelScope.launch {
             val lifecycleSessionId = (sessionLifecycle.state.value as? SessionState.Active)
@@ -1474,6 +1977,7 @@ class PlayerViewModel(
 
     /** Called when the user exits the player. */
     fun onExit() {
+        resetPlaybackRecoveryState()
         viewModelScope.launch {
             // Track B: durably record the final position for both paths, then ask
             // the outbox to drain promptly (covers the online offline-download case
@@ -1653,6 +2157,7 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        resetPlaybackRecoveryState()
         super.onCleared()
         // Guarantee the final resume position is persisted on teardown. onExit's
         // write runs in viewModelScope, which is cancelling here — so AWAIT one
@@ -1677,6 +2182,7 @@ class PlayerViewModel(
         lifecycleObserverJob?.cancel()
         searchJob?.cancel()
         aiJobHandle?.cancel()
+        upNextCountdownJob?.cancel()
         introAutoSkipController.reset()
         // Best-effort session stop. Lifecycle.stop() is suspend-based and may not
         // complete after onCleared (viewModelScope is cancelling) — fire & forget,

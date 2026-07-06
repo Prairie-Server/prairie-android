@@ -3,6 +3,7 @@ package org.siloserver.silo.android.ui.screens.player
 import android.app.Activity
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
+import android.graphics.Rect
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -28,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -58,6 +61,9 @@ import org.siloserver.silo.common.player.PlaybackPreflightListener
 import org.siloserver.silo.common.player.RefreshRateMatcher
 import org.siloserver.silo.common.player.SubtitleManager
 import org.siloserver.silo.common.player.VideoPlayerMediaSpec
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
+import org.siloserver.silo.common.pip.SiloPictureInPicturePlaybackState
+import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendRequest
 import org.siloserver.silo.common.player.backend.VideoPlaybackFormFactor
@@ -75,6 +81,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 import org.koin.compose.koinInject
 
 private const val TAG = "PlayerScreen"
@@ -113,7 +120,11 @@ fun PlayerScreen(
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val activePlayerHolder: ActivePlayerHolder = koinInject()
+    val pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject()
+    val playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore = koinInject()
     val uiState by viewModel.uiState.collectAsState()
+    val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
+    val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     val backendFactory: VideoPlaybackBackendFactory = koinInject()
     val audioCapabilityManager: AudioCapabilityManager = koinInject()
     val capabilityDetector: PlaybackCapabilityDetector = koinInject()
@@ -126,6 +137,10 @@ fun PlayerScreen(
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
     var exitRequested by remember { mutableStateOf(false) }
     val startupStallDetector = remember { PlaybackStartupStallDetector() }
+    var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
+    var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
+    var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
+    var fastForwardHoldActive by remember { mutableStateOf(false) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -255,6 +270,12 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(videoBackend) {
+        videoBackend?.let { backend ->
+            viewModel.onBackendCapabilities(backend.capabilities)
+        }
+    }
+
     DisposableEffect(context) {
         val sessionToken = SessionToken(
             context,
@@ -288,6 +309,7 @@ fun PlayerScreen(
     }
 
     val hdrEnabled by viewModel.hdrEnabled.collectAsState()
+    val preferredPlaybackSpeed by viewModel.playbackSpeed.collectAsState()
 
     // Apply capability-aware track selection presets. Re-runs on capability
     // or profile-language change so a mid-session HDMI hot-plug / Bluetooth
@@ -313,13 +335,16 @@ fun PlayerScreen(
         )
     }
 
-    // Mirror the user's preferred playback speed onto the live MediaController.
-    // Re-runs whenever the controller binds (so the value is applied after
-    // service rebind) or the user picks a new speed in PlayerSettingsSheet.
-    LaunchedEffect(mediaController) {
+    // Mirror the user's preferred playback speed onto the live MediaController,
+    // with hold-to-2x as a transient override that never writes the setting.
+    // Re-runs whenever the controller binds, the setting changes, or the user
+    // presses/releases the phone player's fast-forward hold gesture.
+    LaunchedEffect(mediaController, preferredPlaybackSpeed, fastForwardHoldActive) {
         val controller = mediaController ?: return@LaunchedEffect
-        viewModel.playbackSpeed.collect { speed ->
-            controller.setPlaybackSpeed(speed.toFloat())
+        if (fastForwardHoldActive) {
+            controller.setPlaybackSpeed(2.0f)
+        } else {
+            controller.setPlaybackSpeed(preferredPlaybackSpeed.toFloat())
         }
     }
 
@@ -560,6 +585,11 @@ fun PlayerScreen(
             val preflight = PlaybackPreflightListener(
                 detector = capabilityDetector,
                 onUnsupported = { verdict -> viewModel.onUnsupportedPlayback(verdict) },
+                // Runtime errors (decoder init, source, mid-stream IO) walk the
+                // same recovery ladder as preflight failures — previously the
+                // mobile player dropped these on the floor and the screen sat
+                // on a stale frame.
+                onError = { error -> viewModel.onPlayerError(error) },
             )
             controller.addListener(preflight)
             onDispose { controller.removeListener(preflight) }
@@ -581,14 +611,16 @@ fun PlayerScreen(
                     viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
                     if (playbackState == Player.STATE_ENDED) {
                         viewModel.onPlayingChanged(false)
-                        // F2 fallback: auto-advance / prompt if no credits marker
-                        // fired the trigger first.
-                        viewModel.onApproachingEnd()
+                        // F2 fallback: surface (or upgrade) the Up Next card if
+                        // no credits/prompt-seconds crossing fired first.
+                        viewModel.onApproachingEnd(videoEnded = true)
                     }
                 }
 
                 override fun onVideoSizeChanged(size: VideoSize) {
                     if (size.width > 0 && size.height > 0) {
+                        pictureInPictureVideoWidth = size.width
+                        pictureInPictureVideoHeight = size.height
                         // Pull frame rate off the selected video track; phone
                         // panels with multiple refresh rates switch to
                         // content-matching (seamless only — see ExoPlayer's
@@ -691,14 +723,47 @@ fun PlayerScreen(
     // Handle subtitle selection
     LaunchedEffect(videoBackend, uiState.subtitleTracks, uiState.selectedSubtitleIndex) {
         val backend = videoBackend ?: return@LaunchedEffect
-        backend.selectSubtitle(
-            subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex),
-        )
+        if (backend.selectSubtitle(subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex))) {
+            viewModel.onSubtitleSelectionApplied(uiState.selectedSubtitleIndex)
+        }
     }
 
     // Notify the ViewModel we're leaving the screen.
     DisposableEffect(Unit) {
         onDispose { viewModel.onExit() }
+    }
+
+    LaunchedEffect(
+        activity,
+        mediaController,
+        pictureInPictureEnabled,
+        uiState.streamUrl,
+        uiState.isLoading,
+        uiState.error,
+        uiState.isPlaying,
+        uiState.isPaused,
+        pictureInPictureVideoWidth,
+        pictureInPictureVideoHeight,
+        pictureInPictureSourceRect,
+    ) {
+        pictureInPictureCoordinator.updatePlaybackState(
+            activity = activity,
+            surface = SiloPictureInPictureSurface.Mobile,
+            state = SiloPictureInPicturePlaybackState(
+                enabled = pictureInPictureEnabled,
+                videoActive = uiState.streamUrl != null && !uiState.isLoading && uiState.error == null,
+                isPlaying = uiState.isPlaying && !uiState.isPaused,
+                videoWidth = pictureInPictureVideoWidth,
+                videoHeight = pictureInPictureVideoHeight,
+                sourceRectHint = pictureInPictureSourceRect,
+            ),
+        )
+    }
+
+    DisposableEffect(activity) {
+        onDispose {
+            pictureInPictureCoordinator.clearPlaybackState(activity, SiloPictureInPictureSurface.Mobile)
+        }
     }
 
     // UI
@@ -743,7 +808,7 @@ fun PlayerScreen(
             // appearance flow emits a new value. The PlayerView's `subtitleView`
             // is a child added on first inflation, so the apply must happen at
             // least once after the AndroidView factory runs.
-            LaunchedEffect(playerViewRef, subtitleAppearance) {
+            LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, resizeMode) {
                 val pv = playerViewRef ?: return@LaunchedEffect
                 subtitleManager.applyAppearance(pv, subtitleAppearance)
             }
@@ -768,46 +833,63 @@ fun PlayerScreen(
                         // callbacks; re-binds automatically when the engine swaps.
                         view.player = sessionPlayer
                         view.resizeMode = resizeMode
+                        subtitleManager.syncSubtitleVideoBounds(view)
                     },
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { coordinates ->
+                            val bounds = coordinates.boundsInWindow()
+                            val next = Rect(
+                                bounds.left.roundToInt(),
+                                bounds.top.roundToInt(),
+                                bounds.right.roundToInt(),
+                                bounds.bottom.roundToInt(),
+                            )
+                            if (pictureInPictureSourceRect != next) {
+                                pictureInPictureSourceRect = next
+                            }
+                        },
                 )
             }
 
-            PlayerOverlay(
-                state = uiState,
-                viewModel = viewModel,
-                roomSnapshot = roomSnapshot,
-                onBack = {
-                    // In-room exit: leave the room (host close confirm is handled
-                    // by the overlay before this fires). The controller resets the
-                    // repo + engine; solo playback just pops.
-                    exitRequested = true
-                    roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
-                    viewModel.onExit()
-                    navController.popBackStack()
-                },
-                onPlayPause = {
-                    // In a room, route through transport_request (gated to
-                    // controllers); solo playback toggles locally.
-                    if (roomController != null) roomController.onUserPlayPause()
-                    else viewModel.onPlayPause()
-                },
-                onSeek = { position ->
-                    if (roomController != null) {
-                        // Guest seeks are no-ops in the controller; host seeks
-                        // round-trip through the room and re-apply via a command.
-                        roomController.onUserSeek(position)
-                    } else {
-                        viewModel.onSeek(position)
-                        mediaController?.seekTo((position * 1000).toLong())
-                    }
-                },
-                onToggleControls = { viewModel.onToggleControls() },
-                onNextEpisode = { viewModel.onNextEpisode() },
-                onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
-                onSelectAudio = { viewModel.onSelectAudio(it) },
-                onSelectVersion = { viewModel.onSelectVersion(it) },
-            )
+            if (!isInPictureInPictureMode) {
+                PlayerOverlay(
+                    state = uiState,
+                    viewModel = viewModel,
+                    roomSnapshot = roomSnapshot,
+                    isFastForwardHoldActive = fastForwardHoldActive,
+                    onBack = {
+                        // In-room exit: leave the room (host close confirm is handled
+                        // by the overlay before this fires). The controller resets the
+                        // repo + engine; solo playback just pops.
+                        exitRequested = true
+                        roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
+                        viewModel.onExit()
+                        navController.popBackStack()
+                    },
+                    onPlayPause = {
+                        // In a room, route through transport_request (gated to
+                        // controllers); solo playback toggles locally.
+                        if (roomController != null) roomController.onUserPlayPause()
+                        else viewModel.onPlayPause()
+                    },
+                    onSeek = { position ->
+                        if (roomController != null) {
+                            // Guest seeks are no-ops in the controller; host seeks
+                            // round-trip through the room and re-apply via a command.
+                            roomController.onUserSeek(position)
+                        } else {
+                            viewModel.onSeek(position)
+                            mediaController?.seekTo((position * 1000).toLong())
+                        }
+                    },
+                    onToggleControls = { viewModel.onToggleControls() },
+                    onFastForwardHold = { active -> fastForwardHoldActive = active },
+                    onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
+                    onSelectAudio = { viewModel.onSelectAudio(it) },
+                    onSelectVersion = { viewModel.onSelectVersion(it) },
+                )
+            }
         }
     }
 }

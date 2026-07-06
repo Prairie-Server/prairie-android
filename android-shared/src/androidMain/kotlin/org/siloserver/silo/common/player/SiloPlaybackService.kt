@@ -60,6 +60,11 @@ import java.util.concurrent.atomic.AtomicInteger
 class SiloPlaybackService : MediaSessionService() {
 
     companion object {
+        const val ACTION_PIP_PLAY = "org.siloserver.silo.common.player.action.PIP_PLAY"
+        const val ACTION_PIP_PAUSE = "org.siloserver.silo.common.player.action.PIP_PAUSE"
+        const val ACTION_PIP_SKIP_BACK = "org.siloserver.silo.common.player.action.PIP_SKIP_BACK"
+        const val ACTION_PIP_SKIP_FORWARD = "org.siloserver.silo.common.player.action.PIP_SKIP_FORWARD"
+
         /**
          * Debug-only counter so we can assert "exactly one playback player per
          * process" in tests / logcat. Read via adb logcat on tag [TAG].
@@ -67,6 +72,14 @@ class SiloPlaybackService : MediaSessionService() {
         private val playerInstanceCount = AtomicInteger(0)
         private const val TAG = "SiloPlayback"
         private const val POSITION_TICK_MS = 500L
+        private const val PIP_SKIP_BACK_MS = 10_000L
+        private const val PIP_SKIP_FORWARD_MS = 30_000L
+        private val PIP_ACTIONS = setOf(
+            ACTION_PIP_PLAY,
+            ACTION_PIP_PAUSE,
+            ACTION_PIP_SKIP_BACK,
+            ACTION_PIP_SKIP_FORWARD,
+        )
     }
 
     private val playerFactory: SiloPlayerFactory by inject()
@@ -464,6 +477,33 @@ class SiloPlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (handlePictureInPictureAction(intent?.action)) {
+            return START_STICKY
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun handlePictureInPictureAction(action: String?): Boolean {
+        val player = activePlayer ?: mediaSession?.player ?: return action in PIP_ACTIONS
+        when (action) {
+            ACTION_PIP_PLAY -> {
+                player.playWhenReady = true
+                player.play()
+            }
+            ACTION_PIP_PAUSE -> player.pause()
+            ACTION_PIP_SKIP_BACK -> player.seekTo(
+                (player.currentPosition - PIP_SKIP_BACK_MS).coerceAtLeast(0L),
+            )
+            ACTION_PIP_SKIP_FORWARD -> {
+                val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+                player.seekTo((player.currentPosition + PIP_SKIP_FORWARD_MS).coerceAtMost(duration))
+            }
+            else -> return false
+        }
+        return true
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Silo is a video player — when the user swipes the app away

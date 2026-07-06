@@ -25,12 +25,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.DownloadForOffline
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -110,7 +114,7 @@ fun DownloadsScreen(
                     ),
                 )
             }
-            state.isEmpty -> {
+            state.isEmpty && state.subscriptions.isEmpty() -> {
                 val online = rememberOnlineState()
                 DownloadsEmptyState(
                     isOnline = online,
@@ -138,6 +142,25 @@ fun DownloadsScreen(
                         )
                     }
 
+                    item(contentType = "downloads-actions") {
+                        DownloadsActionRow(
+                            hasMonitoredDownloads = state.subscriptions.isNotEmpty(),
+                            isRunningMonitoredDownloads = state.isRunningMonitoredDownloads,
+                            isReclaiming = state.isReclaiming,
+                            showReclaimWatched = !state.keepWatchedDownloads,
+                            onRunMonitoredDownloads = viewModel::runMonitoredDownloadsNow,
+                            onReclaimWatched = viewModel::calculateReclaimWatched,
+                        )
+                    }
+
+                    item(contentType = "downloads-monitored") {
+                        MonitoredDownloadsCard(
+                            subscriptions = state.subscriptions,
+                            isRunning = state.isRunningMonitoredDownloads,
+                            onRunNow = viewModel::runMonitoredDownloadsNow,
+                        )
+                    }
+
                     state.sections.forEach { section ->
                         renderSection(
                             section = section,
@@ -158,6 +181,35 @@ fun DownloadsScreen(
                 }
             }
         }
+    }
+
+    state.reclaimPlan?.let { plan ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearReclaimPlan,
+            title = { Text("Reclaim Watched") },
+            text = {
+                Text(
+                    if (plan.count == 0) {
+                        "No watched downloads are ready to reclaim."
+                    } else {
+                        "Delete ${plan.count} watched download${if (plan.count == 1) "" else "s"} and free ${formatBytes(plan.totalBytes)}?"
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = plan.count > 0 && !state.isReclaiming,
+                    onClick = viewModel::reclaimWatched,
+                ) {
+                    Text("Reclaim")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::clearReclaimPlan) {
+                    Text(if (plan.count == 0) "Close" else "Cancel")
+                }
+            },
+        )
     }
 }
 
@@ -200,6 +252,104 @@ private fun DownloadsTotalCard(
             fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
         )
+    }
+}
+
+@Composable
+private fun DownloadsActionRow(
+    hasMonitoredDownloads: Boolean,
+    isRunningMonitoredDownloads: Boolean,
+    isReclaiming: Boolean,
+    showReclaimWatched: Boolean,
+    onRunMonitoredDownloads: () -> Unit,
+    onReclaimWatched: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        OutlinedButton(
+            onClick = onRunMonitoredDownloads,
+            enabled = hasMonitoredDownloads && !isRunningMonitoredDownloads,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(if (isRunningMonitoredDownloads) "Checking..." else "Check Monitored")
+        }
+        if (showReclaimWatched) {
+            Button(
+                onClick = onReclaimWatched,
+                enabled = !isReclaiming,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(if (isReclaiming) "Reclaiming..." else "Reclaim Watched")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonitoredDownloadsCard(
+    subscriptions: List<DownloadSubscriptionUiItem>,
+    isRunning: Boolean,
+    onRunNow: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Monitored",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                )
+                Text(
+                    text = if (subscriptions.isEmpty()) {
+                        "No monitored downloads yet"
+                    } else {
+                        "${subscriptions.size} active monitor${if (subscriptions.size == 1) "" else "s"}"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                )
+            }
+            TextButton(
+                onClick = onRunNow,
+                enabled = subscriptions.isNotEmpty() && !isRunning,
+            ) {
+                Text(if (isRunning) "Checking..." else "Check Now")
+            }
+        }
+
+        subscriptions.take(3).forEach { subscription ->
+            Column {
+                Text(
+                    text = subscription.title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+                Text(
+                    text = subscription.lastError ?: subscription.subtitle,
+                    color = if (subscription.lastError == null) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 

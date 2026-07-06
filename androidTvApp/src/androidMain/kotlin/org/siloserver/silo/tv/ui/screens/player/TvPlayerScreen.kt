@@ -4,6 +4,7 @@ package org.siloserver.silo.tv.ui.screens.player
 
 import android.app.Activity
 import android.content.ComponentName
+import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -52,6 +53,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.zIndex
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -91,6 +94,9 @@ import org.siloserver.silo.common.player.SessionState
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.common.player.SubtitleManager
 import org.siloserver.silo.common.player.VideoPlayerMediaSpec
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
+import org.siloserver.silo.common.pip.SiloPictureInPicturePlaybackState
+import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.player.backend.PlaybackEngineCommand
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendRequest
@@ -101,11 +107,19 @@ import org.siloserver.silo.common.player.mpv.MpvVideoScaleMode
 import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
 import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
 import org.siloserver.silo.common.player.video.isMpvPreferredOriginalPlaybackContainer
+import org.siloserver.silo.cast.SiloCastPlaybackState
+import org.siloserver.silo.cast.SiloCastQualityOption
+import org.siloserver.silo.cast.SiloCastTrack
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.settings.SubtitleAppearance
+import org.siloserver.silo.model.settings.SubtitlePositionPreset
+import org.siloserver.silo.model.settings.legacyPosition
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
 import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
 import org.siloserver.silo.tv.R
+import org.siloserver.silo.tv.cast.TvSiloCastPlayerAdapter
+import org.siloserver.silo.tv.cast.TvSiloCastReceiver
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import com.google.common.util.concurrent.MoreExecutors
@@ -117,6 +131,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 
 private const val CONTROLS_AUTO_HIDE_MS = 5_000L
 // Skip back is 10s; skip forward is 30s, matching tvOS (gobackward.10 /
@@ -175,8 +190,13 @@ fun TvPlayerScreen(
     audioCapabilityManager: AudioCapabilityManager = koinInject(),
     capabilityDetector: PlaybackCapabilityDetector = koinInject(),
     activePlayerHolder: ActivePlayerHolder = koinInject(),
+    pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject(),
+    playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore = koinInject(),
+    siloCastReceiver: TvSiloCastReceiver = koinInject(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
+    val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     // The real session player (ExoPlayer/MpvPlayer) the service publishes. The
     // PlayerView surface must bind to THIS, not the MediaController, so the
     // surface gets correct lifecycle callbacks (esp. MPV) and re-binds on engine
@@ -204,6 +224,11 @@ fun TvPlayerScreen(
     val aiTranslate by viewModel.aiTranslate.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestOnExit by rememberUpdatedState(onExit)
+    val latestSiloCastState by rememberUpdatedState(state)
+    val latestSiloCastPlaybackSpeed by rememberUpdatedState(playbackSpeed)
+    val latestSiloCastSubtitleDelayMs by rememberUpdatedState(subtitleDelayMs)
+    val latestSiloCastHdrEnabled by rememberUpdatedState(hdrEnabled)
+    val latestSiloCastSubtitleAppearance by rememberUpdatedState(subtitleAppearance)
     val context = LocalContext.current
     val hdrDisplayController = remember { HdrDisplayController() }
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
@@ -225,6 +250,9 @@ fun TvPlayerScreen(
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     var transportFocusRequest by remember { mutableStateOf(0) }
     val startupStallDetector = remember { PlaybackStartupStallDetector() }
+    var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
+    var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
+    var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -308,6 +336,68 @@ fun TvPlayerScreen(
             viewModel.onBackendCapabilities(backend.capabilities)
         }
     }
+    val latestSiloCastMediaController by rememberUpdatedState(mediaController)
+    val latestSiloCastSessionPlayer by rememberUpdatedState(sessionPlayer)
+    DisposableEffect(siloCastReceiver, viewModel, contentId) {
+        val adapter = TvSiloCastPlayerAdapter(
+            play = {
+                viewModel.setPaused(false)
+                latestSiloCastMediaController?.play()
+            },
+            pause = {
+                viewModel.setPaused(true)
+                latestSiloCastMediaController?.pause()
+            },
+            playPause = viewModel::onPlayPause,
+            seek = { seconds ->
+                viewModel.seekImmediate(seconds)
+                latestSiloCastMediaController?.seekTo((seconds * 1_000).toLong())
+            },
+            stop = viewModel::remoteStop,
+            selectAudio = { index -> viewModel.remoteSelectAudio(index.toInt()) },
+            selectSubtitle = { index -> viewModel.remoteSelectSubtitle(index?.toInt() ?: -1) },
+            setPlaybackSpeed = { speed ->
+                viewModel.onSetPlaybackSpeed(speed)
+                latestSiloCastMediaController?.playbackParameters = PlaybackParameters(speed.toFloat())
+            },
+            setQuality = { qualityId ->
+                val player = latestSiloCastMediaController ?: latestSiloCastSessionPlayer
+                if (player != null && selectVideoQuality(player, qualityId)) {
+                    val resolution = latestSiloCastState.videoQualities
+                        .firstOrNull { it.id == qualityId }
+                        ?.resolution
+                    viewModel.onVideoQualitySelectionApplied(resolution)
+                }
+            },
+            setVideoGravity = { value ->
+                viewModel.onVideoFillModeChanged(value.toSiloCastVideoFillMode())
+            },
+            setHdrEnabled = viewModel::onSetHdrEnabled,
+            setSubtitleSyncMs = viewModel::onSubtitleDelayChanged,
+            setSubtitlePosition = { value ->
+                viewModel.onSetSubtitleAppearance(
+                    latestSiloCastSubtitleAppearance.copy(position = value.toSiloCastSubtitlePosition()),
+                )
+            },
+            setVolume = { volume ->
+                latestSiloCastMediaController?.volume = volume.toFloat().coerceIn(0f, 1f)
+            },
+            setMuted = { muted ->
+                latestSiloCastMediaController?.volume = if (muted) 0f else 1f
+            },
+            playNext = viewModel::playNextEpisodeNow,
+        )
+        val registration = siloCastReceiver.registerPlayer(adapter) {
+            latestSiloCastState.toSiloCastPlaybackState(
+                contentId = contentId,
+                playbackSpeed = latestSiloCastPlaybackSpeed,
+                hdrEnabled = latestSiloCastHdrEnabled,
+                subtitleDelayMs = latestSiloCastSubtitleDelayMs,
+                subtitleAppearance = latestSiloCastSubtitleAppearance,
+            )
+        }
+        onDispose { registration.close() }
+    }
     val stopPlaybackAndExit = {
         if (!exitRequested) {
             exitRequested = true
@@ -351,7 +441,9 @@ fun TvPlayerScreen(
         viewModel.onManualSubtitleSelectionIntent()
         viewModel.onSubtitleSelectionApplied(idx)
         if (dismiss) viewModel.closeSubtitleMenu()
-        if (videoBackend?.selectSubtitle(selectedTrack) != true) {
+        if (videoBackend?.selectSubtitle(selectedTrack) == true) {
+            viewModel.persistSubtitleSelection(idx)
+        } else {
             Log.w(TAG, "Subtitle selection deferred or failed for index=$idx")
         }
     }
@@ -597,11 +689,11 @@ fun TvPlayerScreen(
     }
 
     // Lifecycle pausing — send pause to the service when we're backgrounded.
-    DisposableEffect(lifecycleOwner, mediaController) {
+    DisposableEffect(lifecycleOwner, mediaController, isInPictureInPictureMode) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> mediaController?.pause()
-                Lifecycle.Event.ON_STOP -> mediaController?.pause()
+                Lifecycle.Event.ON_PAUSE -> if (!isInPictureInPictureMode) mediaController?.pause()
+                Lifecycle.Event.ON_STOP -> if (!isInPictureInPictureMode) mediaController?.pause()
                 else -> Unit
             }
         }
@@ -675,6 +767,8 @@ fun TvPlayerScreen(
                             if (mg.length > 0) mg.getFormat(0).frameRate else 0f
                         } ?: 0f
                     if (videoSize.width > 0 && videoSize.height > 0) {
+                        pictureInPictureVideoWidth = videoSize.width
+                        pictureInPictureVideoHeight = videoSize.height
                         hdrDisplayController.applyForMedia(
                             videoWidth = videoSize.width,
                             videoHeight = videoSize.height,
@@ -929,13 +1023,46 @@ fun TvPlayerScreen(
 
     // Apply user subtitle styling whenever the PlayerView mounts or the
     // appearance flow emits a new value. Mirrors the phone PlayerScreen.
-    LaunchedEffect(playerViewRef, subtitleAppearance) {
+    LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, state.videoFillMode) {
         val pv = playerViewRef ?: return@LaunchedEffect
         subtitleManager.applyAppearance(pv, subtitleAppearance)
     }
 
     LaunchedEffect(sessionPlayer, state.videoFillMode) {
         applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)
+    }
+
+    LaunchedEffect(
+        context,
+        mediaController,
+        pictureInPictureEnabled,
+        state.streamUrl,
+        state.isLoading,
+        state.error,
+        state.isPlaying,
+        state.isPaused,
+        pictureInPictureVideoWidth,
+        pictureInPictureVideoHeight,
+        pictureInPictureSourceRect,
+    ) {
+        pictureInPictureCoordinator.updatePlaybackState(
+            activity = context as? Activity,
+            surface = SiloPictureInPictureSurface.Tv,
+            state = SiloPictureInPicturePlaybackState(
+                enabled = pictureInPictureEnabled,
+                videoActive = state.streamUrl != null && !state.isLoading && state.error == null,
+                isPlaying = state.isPlaying && !state.isPaused,
+                videoWidth = pictureInPictureVideoWidth,
+                videoHeight = pictureInPictureVideoHeight,
+                sourceRectHint = pictureInPictureSourceRect,
+            ),
+        )
+    }
+
+    DisposableEffect(context) {
+        onDispose {
+            pictureInPictureCoordinator.clearPlaybackState(context as? Activity, SiloPictureInPictureSurface.Tv)
+        }
     }
 
     // Ensure the outer Box owns focus when the overlay is hidden so the first
@@ -988,7 +1115,20 @@ fun TvPlayerScreen(
                 val controller = mediaController
                 if (controller != null) {
                     AndroidView(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.boundsInWindow()
+                                val next = Rect(
+                                    bounds.left.roundToInt(),
+                                    bounds.top.roundToInt(),
+                                    bounds.right.roundToInt(),
+                                    bounds.bottom.roundToInt(),
+                                )
+                                if (pictureInPictureSourceRect != next) {
+                                    pictureInPictureSourceRect = next
+                                }
+                            },
                         factory = { ctx ->
                             val parent = FrameLayout(ctx)
                             (LayoutInflater.from(ctx).inflate(
@@ -1013,11 +1153,12 @@ fun TvPlayerScreen(
                             view.player = sessionPlayer
                             applyPlayerViewVideoFillMode(view, state.videoFillMode)
                             applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)
+                            subtitleManager.syncSubtitleVideoBounds(view)
                         },
                     )
                 }
 
-                if (state.showControls && !state.hudOpen && !state.showNextUp) {
+                if (!isInPictureInPictureMode && state.showControls && !state.hudOpen && !state.showNextUp) {
                     // In a room, transport authority gates what the local
                     // member may drive: a guest who can't seek gets a disabled
                     // scrubber + skip; play/pause only under guest_play_pause.
@@ -1120,7 +1261,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.hudOpen) {
+                if (!isInPictureInPictureMode && state.hudOpen) {
                     // Floating top-center card — no full-screen scrim so video
                     // stays visible behind it. Mirrors tvOS TVPlayerInfoHUD.
                     Box(
@@ -1147,6 +1288,7 @@ fun TvPlayerScreen(
                                     ?.toVideoTrackEntry()
                                 if (selectedTrack != null) {
                                     videoBackend?.selectAudioTrack(selectedTrack)
+                                    viewModel.onAudioSelectionApplied(idx)
                                 }
                             },
                             onSelectVideoQuality = { id ->
@@ -1214,7 +1356,7 @@ fun TvPlayerScreen(
                     }
                 }
 
-                if (showQuickSubtitlePicker) {
+                if (!isInPictureInPictureMode && showQuickSubtitlePicker) {
                     TvQuickSubtitlePicker(
                         tracks = state.subtitleTracks,
                         onSelect = { idx ->
@@ -1226,7 +1368,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showSubtitleSearchDialog) {
+                if (!isInPictureInPictureMode && state.showSubtitleSearchDialog) {
                     TvSubtitleSearchDialog(
                         state = subtitleSearch,
                         onLanguageChanged = viewModel::setSubtitleSearchLanguage,
@@ -1236,7 +1378,7 @@ fun TvPlayerScreen(
                     )
                 }
 
-                if (state.showAiTranslateDialog) {
+                if (!isInPictureInPictureMode && state.showAiTranslateDialog) {
                     // Translate sources = the session's sidecar subtitle list,
                     // filtered with mobile/web parity (isTranslatableSource):
                     // embedded → any non-bitmap codec (ffmpeg-extractable);
@@ -1264,18 +1406,20 @@ fun TvPlayerScreen(
 
         // Lifecycle-driven notice toast (top-start). Slides in for outage
         // recovery, fades out when the lifecycle clears the notice.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 32.dp, start = 32.dp),
-            contentAlignment = Alignment.TopStart,
-        ) {
-            TvPlayerNoticeOverlay(notice = notice)
+        if (!isInPictureInPictureMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 32.dp, start = 32.dp),
+                contentAlignment = Alignment.TopStart,
+            ) {
+                TvPlayerNoticeOverlay(notice = notice)
+            }
         }
 
         // Remote-control "display_message" toast (top-center), shown a few
         // seconds regardless of controls visibility.
-        remoteMessage?.let { message ->
+        if (!isInPictureInPictureMode) remoteMessage?.let { message ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1305,7 +1449,7 @@ fun TvPlayerScreen(
         // members…" pill while the room is on the wait barrier, and the join
         // code for the host. Only shown while the idle overlay is up.
         val snapshot = roomSnapshot
-        if (roomController != null && snapshot != null && state.showControls && !state.hudOpen) {
+        if (!isInPictureInPictureMode && roomController != null && snapshot != null && state.showControls && !state.hudOpen) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1322,7 +1466,7 @@ fun TvPlayerScreen(
 
         // Host close-confirm dialog. Closing tears the room down for everyone
         // (server emits room_closed → every member exits). Cancel resumes.
-        if (showLeaveDialog && roomController != null) {
+        if (!isInPictureInPictureMode && showLeaveDialog && roomController != null) {
             TvRoomCloseConfirmDialog(
                 onClose = {
                     showLeaveDialog = false
@@ -1337,18 +1481,20 @@ fun TvPlayerScreen(
         // watching?" dialog: a 16:9 mini-player (the still-playing video,
         // visible behind a bordered frame) beside a next-episode panel with
         // Play Now / Keep Watching / Back and an auto-play countdown ring.
-        if (state.showNextUp) {
-            TvPlayerNextUpOverlay(
-                nextEpisode = state.nextEpisode,
-                videoEnded = state.nextUpVideoEnded,
-                countdownSeconds = state.nextUpCountdownSeconds,
-                countdownTotalSeconds = state.nextUpCountdownTotalSeconds,
-                autoPlayEnabled = autoPlayNextEnabled,
-                onPlayNow = viewModel::playNextEpisodeNow,
-                onKeepWatching = viewModel::dismissNextUp,
-                onToggleAutoPlay = { viewModel.onSetAutoPlayNext(!autoPlayNextEnabled) },
-                onBack = { stopPlaybackAndExit() },
-            )
+        if (!isInPictureInPictureMode) {
+            if (state.showNextUp) {
+                TvPlayerNextUpOverlay(
+                    nextEpisode = state.nextEpisode,
+                    videoEnded = state.nextUpVideoEnded,
+                    countdownSeconds = state.nextUpCountdownSeconds,
+                    countdownTotalSeconds = state.nextUpCountdownTotalSeconds,
+                    autoPlayEnabled = autoPlayNextEnabled,
+                    onPlayNow = viewModel::playNextEpisodeNow,
+                    onKeepWatching = viewModel::dismissNextUp,
+                    onToggleAutoPlay = { viewModel.onSetAutoPlayNext(!autoPlayNextEnabled) },
+                    onBack = { stopPlaybackAndExit() },
+                )
+            }
         }
 
         // Intro auto-skip banner (bottom-end, above the transport cluster).
@@ -1356,18 +1502,20 @@ fun TvPlayerScreen(
         // Center routes directly to [handleSkipIntroNow] while the manual prompt
         // is active, so the viewer does not need a first click just to reveal UI.
         // Bottom inset (200dp) clears the transport cluster + scrubber column.
-        if (!state.hudOpen && !state.showNextUp) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 200.dp, end = 32.dp),
-                contentAlignment = Alignment.BottomEnd,
-            ) {
-                TvIntroAutoSkipBanner(
-                    state = introSkipState,
-                    onSkipNow = { handleSkipIntroNow() },
-                    onCancelCountdown = viewModel::onCancelIntroAutoSkip,
-                )
+        if (!isInPictureInPictureMode) {
+            if (!state.hudOpen && !state.showNextUp) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 200.dp, end = 32.dp),
+                    contentAlignment = Alignment.BottomEnd,
+                ) {
+                    TvIntroAutoSkipBanner(
+                        state = introSkipState,
+                        onSkipNow = { handleSkipIntroNow() },
+                        onCancelCountdown = viewModel::onCancelIntroAutoSkip,
+                    )
+                }
             }
         }
 
@@ -2065,7 +2213,7 @@ internal fun extractTrackEntries(tracks: Tracks, type: Int): List<PlayerTrackEnt
                 val label = format.label.orEmpty().ifBlank { format.language?.uppercase() ?: "" }
                 val codecOrMime = format.subtitleCodecOrMime()
                 val forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0
-                val hearingImpaired = label.isHearingImpairedSubtitleLabel()
+                val hearingImpaired = label.indicatesHearingImpairedSubtitle()
                 result.add(
                     PlayerTrackEntry(
                         index = media3FlatTextIndex,
@@ -2111,15 +2259,6 @@ private fun Format.subtitleCodecOrMime(): String? =
     } else {
         sampleMimeType ?: codecs
     }
-
-private fun String.isHearingImpairedSubtitleLabel(): Boolean {
-    val lower = lowercase()
-    return lower.contains("sdh") ||
-        lower.contains("hearing") ||
-        lower.contains("hearing impaired") ||
-        lower.contains("(hi)") ||
-        lower == "hi"
-}
 
 /**
  * A selectable video quality variant. Unlike [extractTrackEntries] (which
@@ -2244,6 +2383,96 @@ internal fun applyMpvVideoScaleMode(player: Player?, mode: VideoFillMode) {
         VideoFillMode.Stretch -> MpvVideoScaleMode.Stretch
     }
     mpvPlayer.setVideoScaleMode(mpvMode)
+}
+
+private fun TvPlayerViewModel.UiState.toSiloCastPlaybackState(
+    contentId: String,
+    playbackSpeed: Double,
+    hdrEnabled: Boolean,
+    subtitleDelayMs: Int,
+    subtitleAppearance: SubtitleAppearance,
+): SiloCastPlaybackState {
+    val activeQualityId = videoQualities.firstOrNull { it.isSelected }?.id ?: VIDEO_QUALITY_AUTO_ID
+    return SiloCastPlaybackState(
+        contentId = contentId,
+        sessionId = sessionId,
+        title = title,
+        subtitle = listOfNotNull(
+            seasonNumber?.let { "S$it" },
+            episodeNumber?.let { "E$it" },
+        ).joinToString(" ").ifBlank { null },
+        isPlaying = isPlaying && !isPaused,
+        isLoading = isLoading,
+        isBuffering = isBuffering,
+        currentTime = position,
+        duration = duration,
+        audioTracks = audioTracks.map { it.toSiloCastTrack() },
+        subtitleTracks = subtitleTracks.map { it.toSiloCastTrack() },
+        selectedAudioTrackId = audioTracks.firstOrNull { it.isSelected }?.index?.toString(),
+        selectedSubtitleTrackId = subtitleTracks.firstOrNull { it.isSelected }?.index?.toString(),
+        qualityOptions = videoQualities.map { it.toSiloCastQualityOption() },
+        activeQualityId = activeQualityId,
+        isQualitySwitching = false,
+        playbackSpeed = playbackSpeed,
+        videoGravity = videoFillMode.name.lowercase(),
+        hdrEnabled = hdrEnabled,
+        supportsVideoGravity = true,
+        supportsHDRToggle = true,
+        subtitleSyncMs = subtitleDelayMs,
+        subtitlePosition = subtitleAppearance.position.legacyPosition.toDouble(),
+        supportsSubtitleDelay = true,
+        supportsSubtitlePosition = true,
+        volume = 1.0,
+        isMuted = false,
+        hasNextEpisode = nextEpisode != null,
+        nextEpisodeTitle = nextEpisode?.title,
+        error = error,
+    )
+}
+
+private fun PlayerTrackEntry.toSiloCastTrack(): SiloCastTrack =
+    SiloCastTrack(
+        id = index.toString(),
+        label = displayLabel.ifBlank { label },
+        language = language,
+        isForced = isForced,
+    )
+
+private fun VideoQualityOption.toSiloCastQualityOption(): SiloCastQualityOption =
+    SiloCastQualityOption(
+        id = id,
+        label = label,
+        isAuto = id == VIDEO_QUALITY_AUTO_ID,
+        height = resolution?.removeSuffix("p")?.toIntOrNull(),
+    )
+
+private fun String.toSiloCastVideoFillMode(): VideoFillMode =
+    when (trim().lowercase()) {
+        "zoom", "crop", "fill" -> VideoFillMode.Zoom
+        "stretch" -> VideoFillMode.Stretch
+        else -> VideoFillMode.Fit
+    }
+
+private fun String.toSiloCastSubtitlePosition(): SubtitlePositionPreset {
+    when (trim().lowercase()) {
+        "top" -> return SubtitlePositionPreset.Top
+        "lower-third", "lower_third", "lowerthird" -> return SubtitlePositionPreset.LowerThird
+        "bottom" -> return SubtitlePositionPreset.Bottom
+    }
+    val numeric = toDoubleOrNull() ?: return SubtitlePositionPreset.Bottom
+    return if (numeric <= 1.0) {
+        when {
+            numeric <= 0.33 -> SubtitlePositionPreset.Top
+            numeric <= 0.75 -> SubtitlePositionPreset.LowerThird
+            else -> SubtitlePositionPreset.Bottom
+        }
+    } else {
+        when {
+            numeric <= 33.0 -> SubtitlePositionPreset.Top
+            numeric <= 80.0 -> SubtitlePositionPreset.LowerThird
+            else -> SubtitlePositionPreset.Bottom
+        }
+    }
 }
 
 private data class EngineSwitchResult(

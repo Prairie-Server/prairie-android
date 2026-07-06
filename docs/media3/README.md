@@ -51,6 +51,12 @@ cases; this document suite remains the Media3 reference.
   Playback Core v2 spec for Android TV: Media3/MPV first-class route planning,
   direct-play-first fallbacks, server/client contract changes, and validation
   gates for 4K, HDR, Dolby Vision, Atmos, passthrough, and subtitles.
+- **[10 - Reference player comparison](10-reference-player-comparison.md)** -
+  July 2026 code survey of jellyfin-androidtv, Findroid, jellyfin-android,
+  Streamyfin, NextPlayer, Just Player, and mpv-android against the Silo stack:
+  DV P5/7/8 strategies, passthrough handling, error-recovery ladders, and the
+  changes adopted from the survey (mobile recovery parity, DV P7 direct play,
+  mpv passthrough AO fix, direct-first hwdec, TS extractor hardening).
 
 ## Quick answers
 
@@ -59,8 +65,9 @@ cases; this document suite remains the Media3 reference.
   `DefaultMediaSourceFactory`. For HLS fallback also add `media3-exoplayer-hls`.
 - **"Why doesn't Dolby Vision work on my TV?"** Check the profile and selected
   route. DV Profile 5 needs a decoder **and** a DV-capable HDMI link; Profile 7
-  is not a launch-safe Android TV DV direct-play claim and needs the fallback
-  policy in **09**.
+  direct-plays only when the decoder advertises dual-layer support with the
+  multi-instance HEVC gate; otherwise the route falls through the mpv/server
+  recovery policy in **09** and **10**.
 - **"Why is Atmos silent on my AVR?"** Passthrough gate failed. Read **04 §4** on
   `AudioCapabilities.supportsEncoding(...)` and **05 §1** on what has to match for
   TrueHD / E-AC-3 JOC to leave the device as a bitstream. Common causes: eARC not
@@ -73,10 +80,12 @@ cases; this document suite remains the Media3 reference.
   3:2 pulldown judder. Turn on refresh-rate matching — **06 §1.3** — and enable
   tunneling — **05 §2**. If the AVR adds fixed latency, tunneling is also what gives
   you frame-accurate sync without estimating the latency in app code.
-- **"How do I handle DV Profile 7 sources?"** Do not advertise P7 as Android TV
-  Dolby Vision direct play for launch. Use HDR10 base-layer playback, Profile 8.1
-  normalization/remux, or transcode with metadata-loss warnings. **09** is the
-  current route-planning source of truth.
+- **"How do I handle DV Profile 7 sources?"** P7 direct-plays on the Media3
+  route only when the decoder claims a dual-layer DV profile with
+  multi-instance HEVC (`MediaCodecCapabilitiesProbe.supportsDvProfile7`);
+  otherwise `PlaybackRecoveryPlanner` prefers the mpv engine (HDR10 base-layer
+  playback) before conceding a transcode. See **10 §4** for the policy change
+  and **09** for the route-planning contract.
 - **"Where does the `AnalyticsListener` go?"** **08 §8**. Minimum set: decoder init
   name, dropped-frames count, audio underruns. Pair with Media3's built-in
   `EventLogger` under `BuildConfig.DEBUG` for bring-up.

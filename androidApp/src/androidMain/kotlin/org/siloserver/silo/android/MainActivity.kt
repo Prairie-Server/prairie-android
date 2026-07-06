@@ -2,6 +2,7 @@ package org.siloserver.silo.android
 
 import android.Manifest
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -21,12 +22,19 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import org.siloserver.silo.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import org.siloserver.silo.android.downloads.hasLegacyPublicDownloadPermission
+import org.siloserver.silo.android.push.PushNotificationPresenter
 import org.siloserver.silo.android.ui.navigation.AppNavigation
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
+import org.siloserver.silo.android.ui.navigation.notificationNavigationRouteOrNull
+import org.siloserver.silo.android.ui.navigation.shouldStartOnDownloads
 import org.siloserver.silo.android.ui.theme.SiloTheme
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
+import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
 import org.siloserver.silo.common.startup.warmAuthenticatedStartup
 import org.siloserver.silo.common.ui.components.StartupSplashVideo
 import org.siloserver.silo.network.ServerRegistry
@@ -52,7 +60,7 @@ class MainActivity : ComponentActivity() {
         private var hasShownColdSplash = false
     }
 
-    private val incomingDeviceLoginRoutes = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    private val incomingExternalRoutes = MutableSharedFlow<String>(extraBufferCapacity = 1)
 
     // POST_NOTIFICATIONS is required on Android 13+ for any notification —
     // download progress / completion notifications silently never appear
@@ -76,10 +84,13 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 val route = resolveStartDestination()
                 startRoute = route
+                if (route.isAuthenticatedStartRoute()) {
+                    notificationRouteOrNull(intent)?.let { pendingExternalRoute = it }
+                }
                 launchAuthenticatedStartupWarmup(route)
             }
             LaunchedEffect(Unit) {
-                incomingDeviceLoginRoutes.collect { route ->
+                incomingExternalRoutes.collect { route ->
                     pendingExternalRoute = route
                 }
             }
@@ -106,12 +117,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.startForeground()
+        lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        deviceLoginPairRouteOrNull(intent.dataString)?.let { route ->
-            incomingDeviceLoginRoutes.tryEmit(route)
-        }
+        val route = deviceLoginPairRouteOrNull(intent.dataString)
+            ?: notificationRouteOrNull(intent)
+        route?.let { incomingExternalRoutes.tryEmit(it) }
     }
 
     /**
@@ -123,8 +142,25 @@ class MainActivity : ComponentActivity() {
      */
     override fun onStop() {
         super.onStop()
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.stopForeground()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
+            .enterPictureInPictureIfEligible(this, SiloPictureInPictureSurface.Mobile)
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
+            .setInPictureInPictureMode(isInPictureInPictureMode)
     }
 
     private fun maybeRequestNotificationPermission() {
@@ -138,6 +174,14 @@ class MainActivity : ComponentActivity() {
         if (hasLegacyPublicDownloadPermission(this)) return
         requestLegacyPublicDownloadPermission.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
     }
+
+    private fun notificationRouteOrNull(intent: Intent?): String? =
+        notificationNavigationRouteOrNull(
+            intent?.getStringExtra(PushNotificationPresenter.EXTRA_NAV_ROUTE),
+        )
+
+    private fun String.isAuthenticatedStartRoute(): Boolean =
+        this == Route.Home.route || this == Route.Downloads.route
 
     /**
      * Decides which auth-flow screen to land on.
@@ -169,11 +213,24 @@ class MainActivity : ComponentActivity() {
         val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
         if (profileId.isNullOrBlank()) return Route.ProfileSelection.route
 
-        // Offline-with-downloads fast path: if the device has no network AND
-        // we have downloaded media on disk, land directly on the Downloads
-        // tab so the user isn't greeted with HomeScreen's "Something went
-        // wrong / Check your connection" error. Online flows are unchanged.
-        if (!isOnline() && hasLocalDownloads(activeEntry.id, profileId)) {
+        // Offline-with-downloads fast path: if local media exists and either
+        // the device has no network OR the configured Silo server fails the
+        // authoritative health probe, land directly on Downloads instead of
+        // greeting the user with a dead Home request.
+        val hasDownloads = hasLocalDownloads(activeEntry.id, profileId)
+        val online = isOnline()
+        val canUseServer = if (hasDownloads && online) {
+            get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java).retryNow().canUseServer
+        } else {
+            online
+        }
+        if (
+            shouldStartOnDownloads(
+                hasLocalDownloads = hasDownloads,
+                isDeviceOnline = online,
+                canUseServer = canUseServer,
+            )
+        ) {
             return Route.Downloads.route
         }
 

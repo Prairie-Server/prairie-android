@@ -148,6 +148,43 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun localPlaybackProgressForContentReturnsFurthestPositionWithFileId() = runTest {
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 120.0, durationSeconds = 3600.0)
+        repo.recordPosition("c1", fileId = 8, positionSeconds = 480.0, durationSeconds = 3700.0)
+        repo.recordPosition("c2", fileId = 9, positionSeconds = 90.0, durationSeconds = null)
+
+        val progress = repo.localPlaybackProgressForContent(listOf("c1", "c2", "missing"))
+
+        assertEquals(2, progress.size)
+        assertEquals(8, progress["c1"]?.fileId)
+        assertEquals(480.0, progress["c1"]?.positionSeconds)
+        assertEquals(3700.0, progress["c1"]?.durationSeconds)
+        assertEquals(9, progress["c2"]?.fileId)
+        assertEquals(90.0, progress["c2"]?.positionSeconds)
+        assertEquals(null, progress["c2"]?.durationSeconds)
+    }
+
+    @Test
+    fun recordTrackSelectionsWritesFileProjectionWithoutOutbox() = runTest {
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 456.0, durationSeconds = 3600.0)
+        repo.recordAudioTrackSelection("c1", fileId = 7, audioFingerprint = "1|eng|eac3|5.1|false")
+        repo.recordSubtitleTrackSelection("c1", fileId = 7, subtitleFingerprint = "off")
+
+        val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
+        assertEquals(456.0, row?.positionSeconds)
+        assertEquals("1|eng|eac3|5.1|false", row?.audioFingerprint)
+        assertEquals("off", row?.subtitleFingerprint)
+        assertEquals(
+            org.siloserver.silo.repository.port.LocalTrackSelection(
+                audioFingerprint = "1|eng|eac3|5.1|false",
+                subtitleFingerprint = "off",
+            ),
+            repo.localTrackSelection("c1", fileId = 7),
+        )
+        assertEquals(1, db.dirtyOperationDao().count(), "track selections are local-only; position op is unchanged")
+    }
+
+    @Test
     fun recordEbookProgressWritesProjectionOpAndReadsBack() = runTest {
         repo.recordEbookProgress("c1", fileId = 7, location = "epubcfi(/6/4!/4)", progress = 0.42)
         val back = repo.localEbookProgress("c1", fileId = 7)

@@ -27,6 +27,7 @@ val networkModule = module {
     single { EbookReaderApi(get()) }
     single<SubtitlesApi> { DefaultSubtitlesApi(get()) }
     single<NotificationsApi> { DefaultNotificationsApi(get()) }
+    single<PushRegistrationApi> { DefaultPushRegistrationApi(get()) }
     single<AdminApi> { DefaultAdminApi(get()) }
     single<WatchTogetherApi> { DefaultWatchTogetherApi(get()) }
 }

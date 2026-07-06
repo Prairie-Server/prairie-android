@@ -3,9 +3,21 @@
 package org.siloserver.silo.android.di
 
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
+import org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorFactory
+import org.siloserver.silo.common.downloads.DownloadSubscriptionWorker
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
 import org.siloserver.silo.common.downloads.DownloadStorage
 import org.siloserver.silo.common.downloads.DownloadWorker
+import org.siloserver.silo.common.cast.SiloCastNsdBrowser
+import org.siloserver.silo.common.pairing.PairingDeviceId
+import org.siloserver.silo.common.pairing.CompanionDeviceLoginApprover
+import org.siloserver.silo.common.pairing.CompanionPairingCoordinator
+import org.siloserver.silo.common.pairing.CompanionPairingNsdBrowser
+import org.siloserver.silo.common.pairing.CompanionPairingServerStore
+import org.siloserver.silo.common.pairing.CompanionPairingTransportFactory
+import org.siloserver.silo.common.pairing.RegistryCompanionPairingServerStore
+import org.siloserver.silo.common.pairing.RepositoryCompanionDeviceLoginApprover
+import org.siloserver.silo.common.pairing.TlsPskPairingClientTransport
 import org.siloserver.silo.common.player.AudioCapabilityManager
 import org.siloserver.silo.common.player.AudioTrackManager
 import org.siloserver.silo.common.player.SiloPlayerFactory
@@ -23,6 +35,11 @@ import org.siloserver.silo.network.EncryptedTokenManagerImpl
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.createSecureSharedPrefs
+import org.siloserver.silo.android.push.AndroidPushRegistrar
+import org.siloserver.silo.android.push.AndroidPushTokenProvider
+import org.siloserver.silo.android.push.FirebaseAndroidPushTokenProvider
+import org.siloserver.silo.android.push.PushMessageHandler
+import org.siloserver.silo.android.push.PushNotificationPresenter
 import org.siloserver.silo.android.ui.screens.admin.AdminEntryViewModel
 import org.siloserver.silo.android.ui.screens.admin.AdminLogsViewModel
 import org.siloserver.silo.android.ui.screens.admin.AdminScansViewModel
@@ -63,6 +80,7 @@ import org.siloserver.silo.android.ui.screens.player.PlayerViewModel
 import org.siloserver.silo.android.ui.screens.reading.ReadingHubViewModel
 import org.siloserver.silo.android.ui.screens.search.SearchViewModel
 import org.siloserver.silo.android.ui.screens.settings.SettingsViewModel
+import org.siloserver.silo.android.cast.SiloCastController
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
@@ -128,6 +146,9 @@ val androidModule = module {
     single<org.siloserver.silo.repository.port.DownloadDeletionPort> {
         org.siloserver.silo.common.data.repository.RoomDownloadDeletionStore(db = get())
     }
+    single<org.siloserver.silo.repository.DownloadSubscriptionRepository> {
+        org.siloserver.silo.common.data.repository.RoomDownloadSubscriptionRepository(db = get())
+    }
     single {
         val tokenManager: TokenManager = get()
         org.siloserver.silo.common.data.sync.SyncEngine(
@@ -143,6 +164,40 @@ val androidModule = module {
     single<org.siloserver.silo.network.DeviceMetadataProvider> {
         AndroidDeviceMetadataProvider(androidContext(), platform = "android")
     }
+    single { SiloCastNsdBrowser(androidContext()) }
+    single { CompanionPairingNsdBrowser(androidContext()) }
+    single<CompanionPairingServerStore> { RegistryCompanionPairingServerStore(get()) }
+    single<CompanionDeviceLoginApprover> { RepositoryCompanionDeviceLoginApprover(get()) }
+    single<CompanionPairingTransportFactory> {
+        CompanionPairingTransportFactory { target ->
+            TlsPskPairingClientTransport.connect(target.host, target.port)
+        }
+    }
+    single { CompanionPairingCoordinator(get(), get(), get()) }
+    single {
+        SiloCastController(
+            browser = get(),
+            deviceNameProvider = {
+                android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android Phone"
+            },
+            deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
+        )
+    }
+    single<AndroidPushTokenProvider> { FirebaseAndroidPushTokenProvider(androidContext()) }
+    single {
+        AndroidPushRegistrar(
+            tokenProvider = get(),
+            repository = get(),
+            deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
+        )
+    }
+    single {
+        PushNotificationPresenter(
+            context = androidContext(),
+            notificationsRepository = get(),
+        )
+    }
+    single { PushMessageHandler(presenter = get()) }
 
     // Player infrastructure
     single { SubtitleManager() }
@@ -193,6 +248,7 @@ val androidModule = module {
     single { org.siloserver.silo.common.downloads.LegacyDownloadImporter(androidContext().filesDir, get()) }
     single { OfflineMediaResolver(get(), get(), get()) }
     single { DownloadEnqueuer(androidContext(), get(), get(), get(), get(), get(), get(), get()) }
+    single { DownloadSubscriptionEvaluatorFactory(get(), get(), get()) }
     // CoroutineWorker constructed by Koin's WorkerFactory — see
     // SiloApplication.onCreate `workManagerFactory()` call.
     worker {
@@ -203,6 +259,14 @@ val androidModule = module {
             storage = get(),
             metadataStore = get(),
             httpClient = get(),
+        )
+    }
+    worker {
+        DownloadSubscriptionWorker(
+            appContext = androidContext(),
+            params = get(),
+            repository = get(),
+            evaluatorFactory = get(),
         )
     }
     // Kept for consistency, but DEAD AT RUNTIME: Koin's WorkManager factory
@@ -222,6 +286,7 @@ val androidModule = module {
             videoPlaybackCoordinator = get(),
             catalogRepository = get(),
             playbackSessionManager = get(),
+            playbackAnalytics = get(),
             profileRepository = get(),
             personalDataRepository = get(),
             capabilityDetector = get(),
@@ -295,7 +360,8 @@ val androidModule = module {
     viewModel { AdminSessionsViewModel(get()) }
     viewModel { AdminLogsViewModel(get()) }
     viewModel { AdminScansViewModel(get(), get()) }
-    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { org.siloserver.silo.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
     viewModel { ServerSetupViewModel(get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }

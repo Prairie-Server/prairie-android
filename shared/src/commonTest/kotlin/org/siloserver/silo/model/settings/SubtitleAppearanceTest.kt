@@ -21,7 +21,27 @@ class SubtitleAppearanceTest {
     }
 
     @Test
-    fun defaultSubtitleAppearanceUsesNoBackground() {
-        assertEquals(SubtitleBackgroundStylePreset.None, SubtitleAppearance.DEFAULT.backgroundStyle)
+    fun defaultSubtitleAppearanceUsesBoxBackground() {
+        assertEquals(SubtitleBackgroundStylePreset.Box, SubtitleAppearance.DEFAULT.backgroundStyle)
+    }
+
+    @Test
+    fun decodingMissingBackgroundStyleUsesBoxDefault() {
+        val decoded = SubtitleAppearance.decode(
+            """
+            {
+              "fontSize": "large",
+              "fontFamily": "sans-serif",
+              "fontColor": "#ffffff",
+              "backgroundColor": "#000000",
+              "backgroundOpacity": 75,
+              "textOutline": false,
+              "textOutlineColor": "#000000",
+              "position": "bottom"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(SubtitleBackgroundStylePreset.Box, decoded.backgroundStyle)
     }
 }

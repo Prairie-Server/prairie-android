@@ -54,9 +54,8 @@ class TvSignupViewModel(
             return
         }
 
+        _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
             when (
                 val result = authRepository.signup(
                     username = current.username,

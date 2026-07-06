@@ -12,12 +12,14 @@ import org.siloserver.silo.common.player.PlaybackRecoveryPlanner
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.PlayerNotice
+import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SessionState
 import org.siloserver.silo.common.player.SleepTimerController
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.common.player.StartParams
 import org.siloserver.silo.common.player.isBitmapSubtitleCodecOrMime
 import org.siloserver.silo.common.player.backend.VideoBackendCapabilities
+import org.siloserver.silo.common.player.reducePlayerStats
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
@@ -43,9 +45,11 @@ import org.siloserver.silo.model.subtitles.SubtitleDownloadRequest
 import org.siloserver.silo.model.subtitles.SubtitleResult
 import org.siloserver.silo.model.subtitles.SubtitleSearchRequest
 import org.siloserver.silo.model.subtitles.SubtitleTranslateRequest
+import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.errorMessage
 import org.siloserver.silo.playback.nextEpisodeAfter
+import org.siloserver.silo.playback.trackSelectionFingerprint
 import org.siloserver.silo.repository.SubtitlesRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,6 +87,25 @@ data class PlayerTrackEntry(
     val isForced: Boolean = false,
     val isHearingImpaired: Boolean = false,
 )
+
+private val hearingImpairedSubtitleTokenRegex = Regex(
+    pattern = """(^|[^a-z0-9])(cc|sdh|hi)([^a-z0-9]|$)""",
+    option = RegexOption.IGNORE_CASE,
+)
+
+internal fun String.indicatesHearingImpairedSubtitle(): Boolean {
+    val lower = lowercase()
+    return lower.contains("closed caption") ||
+        lower.contains("hearing impaired") ||
+        lower.contains("hearing-impaired") ||
+        lower.contains("hearing") ||
+        hearingImpairedSubtitleTokenRegex.containsMatchIn(this)
+}
+
+private fun PlayerTrackEntry.isEffectivelyHearingImpaired(): Boolean =
+    isHearingImpaired ||
+        label.indicatesHearingImpairedSubtitle() ||
+        displayLabel.indicatesHearingImpairedSubtitle()
 
 internal fun subtitleTracksWithSelection(
     tracks: List<PlayerTrackEntry>,
@@ -196,10 +219,10 @@ private fun bestAutoSubtitleTrack(
     if (pool.isEmpty()) return null
 
     if (preferForced) {
-        pool.firstOrNull { it.isForced && !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+        pool.firstOrNull { it.isForced && !it.isEffectivelyHearingImpaired() && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
             ?.let { return it }
     }
-    pool.firstOrNull { !it.isForced && !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+    pool.firstOrNull { !it.isForced && !it.isEffectivelyHearingImpaired() && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
         ?.let { return it }
     pool.firstOrNull { !it.isForced && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
         ?.let { return it }
@@ -219,9 +242,9 @@ private fun bestForcedAutoSubtitleTrack(
     }.filter { it.isForced }
     if (pool.isEmpty()) return null
 
-    pool.firstOrNull { !it.isHearingImpaired && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
+    pool.firstOrNull { !it.isEffectivelyHearingImpaired() && !isBitmapSubtitleCodecOrMime(it.codecOrMime) }
         ?.let { return it }
-    pool.firstOrNull { !it.isHearingImpaired }
+    pool.firstOrNull { !it.isEffectivelyHearingImpaired() }
         ?.let { return it }
     return pool.first()
 }
@@ -351,91 +374,6 @@ data class TvPlayerLaunchArgs(
 
 /** Emitted to ask the screen to navigate to the next episode (auto-advance / Continue). */
 data class PlayNextRequest(val contentId: String, val autoAdvanceCount: Int, val preferredQuality: String?)
-
-/**
- * Snapshot of player statistics surfaced in the HUD's Stats pane.
- * Built by [reducePlayerStats] from a stream of [PlaybackAnalyticsListener.Event]s.
- *
- * All fields nullable — fields populate as events arrive; rendering should
- * tolerate any subset being null. `droppedFrames` and `audioUnderruns` are
- * cumulative counters since the snapshot was created.
- */
-data class PlayerStatsSnapshot(
-    val backendKind: String? = null,
-    val backendDisplayName: String? = null,
-    val backendRoute: String? = null,
-    val subtitleRendering: String? = null,
-    val hardContainers: String? = null,
-    val videoDecoderName: String? = null,
-    val audioDecoderName: String? = null,
-    val videoCodec: String? = null,
-    val audioCodec: String? = null,
-    val resolution: String? = null,            // e.g. "1920x1080"
-    val frameRate: Float? = null,
-    val hdrMode: String? = null,               // e.g. "Dolby Vision", "HDR10", "SDR"
-    val bitrateBps: Long? = null,
-    val droppedFrames: Int = 0,                // cumulative since session start
-    val audioUnderruns: Int = 0,               // cumulative
-)
-
-/**
- * Pure event-to-snapshot reducer. Used by the ViewModel; tested in isolation.
- * Does NOT clear state on unrelated events (e.g. a DroppedFrames event leaves
- * format/decoder fields untouched).
- */
-internal fun reducePlayerStats(
-    current: PlayerStatsSnapshot,
-    event: PlaybackAnalyticsListener.Event,
-): PlayerStatsSnapshot = when (event) {
-    is PlaybackAnalyticsListener.Event.VideoDecoderInitialized ->
-        current.copy(videoDecoderName = event.decoderName)
-    is PlaybackAnalyticsListener.Event.AudioDecoderInitialized ->
-        current.copy(audioDecoderName = event.decoderName)
-    is PlaybackAnalyticsListener.Event.VideoFormatChanged -> current.copy(
-        videoCodec = event.format.codecs ?: event.format.sampleMimeType,
-        resolution = if (event.format.width > 0 && event.format.height > 0) {
-            "${event.format.width}x${event.format.height}"
-        } else current.resolution,
-        frameRate = if (event.format.frameRate > 0f) event.format.frameRate else current.frameRate,
-        hdrMode = describeHdrMode(event.format) ?: current.hdrMode,
-    )
-    is PlaybackAnalyticsListener.Event.AudioFormatChanged ->
-        current.copy(audioCodec = event.format.codecs ?: event.format.sampleMimeType)
-    is PlaybackAnalyticsListener.Event.DroppedFrames ->
-        current.copy(droppedFrames = current.droppedFrames + event.count)
-    is PlaybackAnalyticsListener.Event.AudioUnderrun ->
-        current.copy(audioUnderruns = current.audioUnderruns + 1)
-    is PlaybackAnalyticsListener.Event.BandwidthEstimate ->
-        current.copy(bitrateBps = event.bitrateBps)
-    is PlaybackAnalyticsListener.Event.LoadError ->
-        current // load errors don't mutate the stats snapshot
-    is PlaybackAnalyticsListener.Event.PlayerError ->
-        current // player errors are logged separately and don't mutate the stats snapshot
-    is PlaybackAnalyticsListener.Event.TrackSnapshot ->
-        current // diagnostic-only; keep on-screen stats stable
-}
-
-/**
- * Describe the HDR mode of a video [androidx.media3.common.Format].
- *
- * Dolby Vision detection is by codec string (`dvh1`, `dvhe`) and runs BEFORE
- * the `colorTransfer` switch because DV bitstreams can carry varying color
- * transfers and Apple's reference treats DV as its own mode. Returns `null`
- * if no HDR signal is present (caller keeps the prior value).
- */
-private fun describeHdrMode(format: androidx.media3.common.Format): String? {
-    val codecs = format.codecs.orEmpty()
-    if (codecs.contains("dvh", ignoreCase = true) || codecs.contains("dvhe", ignoreCase = true)) {
-        return "Dolby Vision"
-    }
-    val colorInfo = format.colorInfo ?: return null
-    return when (colorInfo.colorTransfer) {
-        androidx.media3.common.C.COLOR_TRANSFER_ST2084 -> "HDR10"
-        androidx.media3.common.C.COLOR_TRANSFER_HLG -> "HLG"
-        androidx.media3.common.C.COLOR_TRANSFER_SDR -> "SDR"
-        else -> null
-    }
-}
 
 /**
  * Subtitle provider search/download state backing the TV subtitle search
@@ -573,6 +511,8 @@ class TvPlayerViewModel(
     // later user track change isn't overridden.
     private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
     private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
+    private var pendingPersistedAudioFingerprint: String? = null
+    private var pendingPersistedSubtitleFingerprint: String? = null
     private var autoTextSubtitleSelectionAttempted = false
     private var manualSubtitleSelectionApplied = false
     private val recoveryPlanner = PlaybackRecoveryPlanner()
@@ -910,6 +850,19 @@ class TvPlayerViewModel(
                     ),
                 )) {
                     is VideoPlayerUiState.Ready -> {
+                        val localTrackSelection = result.fileId
+                            ?.takeIf { initialAudioTrackIndex == null || launchArgs.initialSubtitleTrackIndex == null }
+                            ?.let { fileId -> userItemStatePort.localTrackSelection(contentId, fileId) }
+                        pendingPersistedAudioFingerprint = if (initialAudioTrackIndex == null) {
+                            localTrackSelection?.audioFingerprint
+                        } else {
+                            null
+                        }
+                        pendingPersistedSubtitleFingerprint = if (launchArgs.initialSubtitleTrackIndex == null) {
+                            localTrackSelection?.subtitleFingerprint
+                        } else {
+                            null
+                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -1514,6 +1467,7 @@ class TvPlayerViewModel(
      */
     fun onTracksChanged(audio: List<PlayerTrackEntry>, subtitle: List<PlayerTrackEntry>) {
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
+        resolvePendingPersistedTrackSelection(audio, subtitle)
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
         resolveAutoPreferredTextSubtitle(audio, subtitle)
@@ -1533,9 +1487,39 @@ class TvPlayerViewModel(
                 videoQualities = videoQualities,
             )
         }
+        resolvePendingPersistedTrackSelection(audio, subtitle)
         resolvePendingSubtitleSelection(subtitle)
         resolvePendingInitialSubtitle(subtitle)
         resolveAutoPreferredTextSubtitle(audio, subtitle)
+    }
+
+    private fun resolvePendingPersistedTrackSelection(
+        audio: List<PlayerTrackEntry>,
+        subtitle: List<PlayerTrackEntry>,
+    ) {
+        pendingPersistedAudioFingerprint?.let { fingerprint ->
+            if (audio.isNotEmpty()) {
+                pendingPersistedAudioFingerprint = null
+                audio.firstOrNull { it.selectionFingerprint() == fingerprint }
+                    ?.let { _pendingRemoteAudioIndex.value = it.index }
+            }
+        }
+
+        pendingPersistedSubtitleFingerprint?.let { fingerprint ->
+            if (fingerprint == SUBTITLE_OFF_FINGERPRINT) {
+                pendingPersistedSubtitleFingerprint = null
+                manualSubtitleSelectionApplied = true
+                _subtitleSelectRequests.tryEmit(-1)
+                return
+            }
+            if (subtitle.isEmpty()) return
+            pendingPersistedSubtitleFingerprint = null
+            subtitle.firstOrNull { it.selectionFingerprint() == fingerprint }
+                ?.let {
+                    manualSubtitleSelectionApplied = true
+                    _subtitleSelectRequests.tryEmit(it.index)
+                }
+        }
     }
 
     private fun resolveAutoPreferredTextSubtitle(
@@ -1596,6 +1580,32 @@ class TvPlayerViewModel(
     fun onSubtitleSelectionApplied(index: Int) {
         _uiState.update {
             it.copy(subtitleTracks = subtitleTracksWithSelection(it.subtitleTracks, index))
+        }
+    }
+
+    fun persistSubtitleSelection(index: Int) {
+        persistSubtitleTrackSelection(index)
+    }
+
+    fun onAudioSelectionApplied(index: Int) {
+        val state = _uiState.value
+        val fileId = state.selectedFileId ?: state.mediaFileId ?: return
+        val fingerprint = state.audioTracks.firstOrNull { it.index == index }?.selectionFingerprint() ?: return
+        viewModelScope.launch {
+            userItemStatePort.recordAudioTrackSelection(contentId, fileId, fingerprint)
+        }
+    }
+
+    private fun persistSubtitleTrackSelection(index: Int) {
+        val state = _uiState.value
+        val fileId = state.selectedFileId ?: state.mediaFileId ?: return
+        val fingerprint = if (index == -1) {
+            SUBTITLE_OFF_FINGERPRINT
+        } else {
+            state.subtitleTracks.firstOrNull { it.index == index }?.selectionFingerprint() ?: return
+        }
+        viewModelScope.launch {
+            userItemStatePort.recordSubtitleTrackSelection(contentId, fileId, fingerprint)
         }
     }
 
@@ -2185,3 +2195,12 @@ class TvPlayerViewModel(
     }
 
 }
+
+private fun PlayerTrackEntry.selectionFingerprint(): String =
+    trackSelectionFingerprint(
+        index = index,
+        language = language,
+        codec = codecOrMime,
+        title = label,
+        forced = isForced,
+    )

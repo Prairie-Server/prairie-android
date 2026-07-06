@@ -78,6 +78,18 @@ class AndroidPlayerSettingsStoreTest {
     }
 
     @Test
+    fun `picture in picture defaults on and stays local`() = runTest {
+        val store = newStore()
+        assertEquals(true, store.pictureInPictureEnabledFlow.first())
+        store.setPictureInPictureEnabled(false)
+        assertEquals(false, store.pictureInPictureEnabledFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.PictureInPictureEnabled },
+            "PiP is platform-local and must never flush an unknown setting key to the server",
+        )
+    }
+
+    @Test
     fun `setSubtitleAppearance round-trips through JSON`() = runTest {
         val store = newStore()
         val custom = SubtitleAppearance.DEFAULT.copy(
@@ -105,10 +117,12 @@ class AndroidPlayerSettingsStoreTest {
         assertEquals(false, store.autoSkipIntroFlow.first())
         assertEquals(true, store.autoPlayNextFlow.first())
         assertEquals(true, store.hdrEnabledFlow.first())
+        assertEquals(true, store.pictureInPictureEnabledFlow.first())
         assertEquals(1.0, store.playbackSpeedFlow.first(), 0.0)
         assertEquals(0, store.audioSyncMsFlow.first())
         assertEquals(30, store.nextUpPromptSecondsFlow.first())
         assertEquals("auto", store.preferredQualityFlow.first())
+        assertEquals("original", store.defaultDownloadQualityFlow.first())
         assertEquals("", store.audioLanguageFlow.first())
         assertEquals("fit", store.videoGravityFlow.first())
         assertEquals(SubtitleAppearance.DEFAULT, store.subtitleAppearanceFlow.first())
@@ -146,6 +160,50 @@ class AndroidPlayerSettingsStoreTest {
         assertTrue(calls.any { it.key == PlaybackSettingsKeys.PreferredQuality && it.value == "720p" })
         assertTrue(calls.any { it.key == PlaybackSettingsKeys.PlaybackSpeed && it.value == "1.5" })
         assertTrue(calls.all { it.profileId == activeProfileId })
+    }
+
+    @Test
+    fun `default download quality is local-only and constrained to supported presets`() = runTest {
+        val store = newStore()
+        assertEquals("original", store.defaultDownloadQualityFlow.first())
+
+        store.setDefaultDownloadQuality("10mbps")
+        assertEquals("10mbps", store.defaultDownloadQualityFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.DefaultDownloadQuality },
+            "Download quality is a local client queue preference until the server exposes a synced setting.",
+        )
+
+        store.setDefaultDownloadQuality("1080p")
+        assertEquals("original", store.defaultDownloadQualityFlow.first())
+    }
+
+    @Test
+    fun `downloads wifi only is local-only`() = runTest {
+        val store = newStore()
+        assertEquals(true, store.downloadsWifiOnlyFlow.first())
+
+        store.setDownloadsWifiOnly(false)
+
+        assertEquals(false, store.downloadsWifiOnlyFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.DownloadsWifiOnly },
+            "Downloads Wi-Fi-only controls WorkManager constraints and must not flush an unknown server key.",
+        )
+    }
+
+    @Test
+    fun `keep watched downloads is local-only`() = runTest {
+        val store = newStore()
+        assertEquals(false, store.keepWatchedDownloadsFlow.first())
+
+        store.setKeepWatchedDownloads(true)
+
+        assertEquals(true, store.keepWatchedDownloadsFlow.first())
+        assertFalse(
+            fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.KeepWatchedDownloads },
+            "Keep-watched cleanup preference is local and must not flush an unknown server key.",
+        )
     }
 
     @Test

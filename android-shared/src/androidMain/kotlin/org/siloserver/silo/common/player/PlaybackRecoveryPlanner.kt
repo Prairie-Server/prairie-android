@@ -12,8 +12,18 @@ class PlaybackRecoveryPlanner {
         attemptedEngines: Set<PlaybackEngineKind> = emptySet(),
     ): PlaybackRecoveryAction =
         when (reason) {
-            is Playability.UnsupportedDvProfile -> PlaybackRecoveryAction.ServerTranscode(
+            // An unsupported DV profile on the current (Media3) engine is not
+            // the end of direct play: mpv decodes the HDR10 base layer of
+            // P7/P8 and tone-maps P5 via gpu-next, so prefer an alternate
+            // direct engine from the plan before conceding a transcode. A
+            // remux is excluded for the same reason as unsupported audio —
+            // it copies the DV video stream verbatim, re-sending exactly what
+            // the decoder just rejected.
+            is Playability.UnsupportedDvProfile -> serverFallbackFromPlan(
+                currentPlan,
                 errorClass = "unsupported_dolby_vision_profile",
+                attemptedEngines = attemptedEngines,
+                allowRemux = false,
             )
             // An unsupported audio codec / channel layout cannot be fixed by a
             // REMUX — REMUX copies the audio stream verbatim, re-sending the exact

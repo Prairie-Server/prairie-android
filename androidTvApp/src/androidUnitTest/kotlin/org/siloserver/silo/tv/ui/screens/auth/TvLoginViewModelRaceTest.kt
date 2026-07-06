@@ -12,12 +12,13 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.siloserver.silo.model.auth.DeviceLoginDecisionResponse
 import org.siloserver.silo.model.auth.DeviceLoginLookupResponse
 import org.siloserver.silo.model.auth.DeviceLoginPollResponse
@@ -37,7 +38,7 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TvLoginViewModelRaceTest {
-    private val dispatcher = UnconfinedTestDispatcher()
+    private val dispatcher = StandardTestDispatcher()
 
     @BeforeTest
     fun setUp() {
@@ -69,7 +70,7 @@ class TvLoginViewModelRaceTest {
         viewModel.onPasswordChanged("Amsterdam123!")
         viewModel.onLoginClick()
         advanceUntilIdle()
-        withTimeout(1_000) { credentialLoginStarted.await() }
+        awaitCredentialLoginStarted(credentialLoginStarted)
 
         deviceApi.completePoll(
             DeviceLoginPollResponse(
@@ -107,6 +108,12 @@ class TvLoginViewModelRaceTest {
         }
         install(ContentNegotiation) { json(SiloJson) }
         install(SiloAuthPlugin) { this.tokenManager = tokenManager }
+    }
+}
+
+private suspend fun awaitCredentialLoginStarted(started: CompletableDeferred<Unit>) {
+    withContext(Dispatchers.Default) {
+        withTimeout(1_000) { started.await() }
     }
 }
 

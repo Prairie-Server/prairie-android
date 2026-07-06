@@ -51,9 +51,8 @@ class TvSetupViewModel(
             return
         }
 
+        _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
             when (val result = authRepository.setup(current.username, current.email, current.password)) {
                 is ApiResult.Success -> {
                     _uiState.update { it.copy(isLoading = false, setupSuccess = true) }

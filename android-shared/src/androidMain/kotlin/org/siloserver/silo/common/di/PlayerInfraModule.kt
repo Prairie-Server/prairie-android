@@ -1,5 +1,7 @@
 package org.siloserver.silo.common.di
 
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
 import org.siloserver.silo.common.player.ActivePlayerHolder
 import org.siloserver.silo.common.player.AudiobookSettingsStore
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
@@ -11,6 +13,7 @@ import org.siloserver.silo.common.settings.DefaultServerSettingsFlusher
 import org.siloserver.silo.common.settings.LibraryPlaybackPrefsStore
 import org.siloserver.silo.common.settings.OverlayPrefsStore
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
 import org.siloserver.silo.common.settings.ServerSettingsFlusher
 import org.siloserver.silo.domain.player.IntroAutoSkipController
 import org.siloserver.silo.network.DeviceMetadataProvider
@@ -40,6 +43,8 @@ val playerInfraModule = module {
     // Shares the active session Player with the in-process UI so the video
     // SurfaceView can bind directly to it (proper surface lifecycle for MPV).
     single { ActivePlayerHolder() }
+
+    single { SiloPictureInPictureCoordinator() }
 
     // Long-lived application-scope flusher: debounced server writes survive
     // ViewModel teardown. Uses Dispatchers.IO since flushOne does network work.
@@ -95,6 +100,27 @@ val playerInfraModule = module {
         DefaultOverlayPrefsStore(
             repository = get<SettingsRepository>(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+        )
+    }
+
+    single {
+        ServerDrivenConfigRefresher(
+            overlayPrefsStore = get(),
+            libraryPlaybackPrefsStore = get(),
+            playerSettingsStore = get(),
+            hasAuthenticatedProfile = {
+                !get<ProfileRepository>().getActiveProfileId().isNullOrBlank()
+            },
+        )
+    }
+
+    single {
+        ServerReachabilityMonitor(
+            healthApi = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            onServerReconnected = {
+                get<ServerDrivenConfigRefresher>().forceRefresh()
+            },
         )
     }
 

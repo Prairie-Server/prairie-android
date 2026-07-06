@@ -30,6 +30,17 @@ interface UserItemStateDao {
     )
     suspend fun getByContent(serverId: String, profileId: String, contentId: String): List<UserItemStateEntity>
 
+    @Query(
+        "SELECT * FROM user_item_state " +
+            "WHERE serverId = :serverId AND profileId = :profileId " +
+            "AND contentId IN (:contentIds) AND positionSeconds > 0",
+    )
+    suspend fun progressForContentIds(
+        serverId: String,
+        profileId: String,
+        contentIds: List<String>,
+    ): List<UserItemStateEntity>
+
     /**
      * Resume scan: most-recently-touched rows with real progress, newest first.
      * Drives the Continue Watching / Up Next row without a server round-trip.

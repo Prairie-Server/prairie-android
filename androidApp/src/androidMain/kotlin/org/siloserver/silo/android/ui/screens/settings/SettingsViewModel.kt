@@ -9,6 +9,7 @@ import org.siloserver.silo.model.admin.shouldShowClientAdminSurface
 import org.siloserver.silo.model.auth.AuthSession
 import org.siloserver.silo.model.auth.User
 import org.siloserver.silo.model.auth.isActingAdmin
+import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.notifications.NotificationPreferencesUpdate
 import org.siloserver.silo.model.profile.UpdateProfileRequest
 import org.siloserver.silo.network.ApiResult
@@ -50,6 +51,11 @@ data class SettingsUiState(
     val audioLanguage: String = "Default",
     val autoSkipIntro: Boolean = false,
     val autoSkipCredits: Boolean = false,
+    val pictureInPictureEnabled: Boolean = true,
+    // Up Next card: auto-play the next episode at countdown expiry, and how
+    // many seconds before the end to surface the card (0 = only at end).
+    val autoPlayNext: Boolean = true,
+    val nextUpPromptSeconds: Int = 30,
     // Seconds to skip back on resume (0 = off); consecutive auto-advances
     // before the "Still watching?" prompt (0 = off).
     val resumeRewindSeconds: Int = 7,
@@ -57,6 +63,8 @@ data class SettingsUiState(
 
     // Downloads
     val downloadsWifiOnly: Boolean = true,
+    val keepWatchedDownloads: Boolean = false,
+    val defaultDownloadQuality: String = DownloadQuality.Original.label,
 
     // Subtitles
     val subtitleLanguage: String = "Off",
@@ -137,7 +145,6 @@ class SettingsViewModel(
         val audioLanguage: String,
         val autoSkipIntro: Boolean,
         val autoSkipCredits: Boolean,
-        val downloadsWifiOnly: Boolean,
     )
 
     private fun observePlayerSettings() {
@@ -146,7 +153,6 @@ class SettingsViewModel(
             playerSettingsStore.audioLanguageFlow,
             playerSettingsStore.autoSkipIntroFlow,
             playerSettingsStore.autoSkipCreditsFlow,
-            playerSettingsStore.downloadsWifiOnlyFlow,
             ::PlayerSettingsSnapshot,
         ).onEach { snap ->
             _uiState.update {
@@ -155,9 +161,20 @@ class SettingsViewModel(
                     audioLanguage = audioLanguageLabel(snap.audioLanguage),
                     autoSkipIntro = snap.autoSkipIntro,
                     autoSkipCredits = snap.autoSkipCredits,
-                    downloadsWifiOnly = snap.downloadsWifiOnly,
                 )
             }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.downloadsWifiOnlyFlow.onEach { wifiOnly ->
+            _uiState.update { it.copy(downloadsWifiOnly = wifiOnly) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.keepWatchedDownloadsFlow.onEach { keepWatched ->
+            _uiState.update { it.copy(keepWatchedDownloads = keepWatched) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.defaultDownloadQualityFlow.onEach { quality ->
+            _uiState.update { it.copy(defaultDownloadQuality = downloadQualityLabel(quality)) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.pictureInPictureEnabledFlow.onEach { enabled ->
+            _uiState.update { it.copy(pictureInPictureEnabled = enabled) }
         }.launchIn(viewModelScope)
     }
 
@@ -165,21 +182,46 @@ class SettingsViewModel(
         viewModelScope.launch { playerSettingsStore.setDownloadsWifiOnly(value) }
     }
 
+    fun setKeepWatchedDownloads(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setKeepWatchedDownloads(value) }
+    }
+
+    fun setDefaultDownloadQuality(value: String) {
+        viewModelScope.launch {
+            playerSettingsStore.setDefaultDownloadQuality(downloadQualityWireValue(value))
+        }
+    }
+
     // Separate from observePlayerSettings() because combine() has no typed
-    // overload past 5 flows — these two local-only Int settings get their own.
+    // overload past 5 flows — these behavior settings get their own.
     private fun observePlaybackBehaviorSettings() {
         combine(
             playerSettingsStore.resumeRewindSecondsFlow,
             playerSettingsStore.passOutThresholdFlow,
-        ) { rewind, threshold -> rewind to threshold }
-            .onEach { (rewind, threshold) ->
-                _uiState.update { it.copy(resumeRewindSeconds = rewind, passOutThreshold = threshold) }
+            playerSettingsStore.autoPlayNextFlow,
+            playerSettingsStore.nextUpPromptSecondsFlow,
+        ) { rewind, threshold, autoPlayNext, nextUpPrompt ->
+            _uiState.update {
+                it.copy(
+                    resumeRewindSeconds = rewind,
+                    passOutThreshold = threshold,
+                    autoPlayNext = autoPlayNext,
+                    nextUpPromptSeconds = nextUpPrompt,
+                )
             }
-            .launchIn(viewModelScope)
+        }.launchIn(viewModelScope)
     }
 
     fun setResumeRewindSeconds(value: Int) {
         viewModelScope.launch { playerSettingsStore.setResumeRewindSeconds(value) }
+    }
+
+    fun setAutoPlayNext(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setAutoPlayNext(value) }
+    }
+
+    fun setNextUpPromptSeconds(value: Int) {
+        viewModelScope.launch { playerSettingsStore.setNextUpPromptSeconds(value) }
     }
 
     fun setPassOutThreshold(value: Int) {
@@ -320,6 +362,10 @@ class SettingsViewModel(
         viewModelScope.launch { playerSettingsStore.setAutoSkipCredits(enabled) }
     }
 
+    fun setPictureInPictureEnabled(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setPictureInPictureEnabled(enabled) }
+    }
+
     fun resetPlaybackOverrides() {
         viewModelScope.launch { playerSettingsStore.resetAllDeviceSettings() }
     }
@@ -374,6 +420,12 @@ class SettingsViewModel(
             "4K" -> "2160p"
             else -> value.lowercase()
         }
+
+    private fun downloadQualityLabel(value: String): String =
+        DownloadQuality.fromWire(value).label
+
+    private fun downloadQualityWireValue(value: String): String =
+        DownloadQuality.entries.firstOrNull { it.label == value }?.wire ?: DownloadQuality.Original.wire
 
     private fun audioLanguageLabel(value: String): String =
         value.ifBlank { "Default" }

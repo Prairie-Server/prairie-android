@@ -11,6 +11,8 @@ import org.siloserver.silo.common.data.sync.revertForTerminalOp
 import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.repository.port.EbookLocalProgress
 import org.siloserver.silo.repository.port.LocalContentState
+import org.siloserver.silo.repository.port.LocalPlaybackProgress
+import org.siloserver.silo.repository.port.LocalTrackSelection
 import org.siloserver.silo.repository.port.OutboxHandle
 import org.siloserver.silo.repository.port.UserItemStatePort
 import org.siloserver.silo.repository.port.WriteOutcome
@@ -136,11 +138,60 @@ class RoomUserItemStateRepository(
     }
 
     override suspend fun localPositionForContent(contentId: String): Double? {
+        return localPlaybackProgress(contentId)?.positionSeconds
+    }
+
+    override suspend fun localPlaybackProgress(contentId: String): LocalPlaybackProgress? {
         val snapshot = snapshotProvider() ?: return null
         val profileId = snapshot.profileId ?: return null
         return userStateDao.getByContent(snapshot.serverId, profileId, contentId)
-            .mapNotNull { it.positionSeconds.takeIf { p -> p > 0.0 } }
-            .maxOrNull()
+            .furthestProgress()
+    }
+
+    override suspend fun localPlaybackProgressForContent(contentIds: List<String>): Map<String, LocalPlaybackProgress> {
+        if (contentIds.isEmpty()) return emptyMap()
+        val snapshot = snapshotProvider() ?: return emptyMap()
+        val profileId = snapshot.profileId ?: return emptyMap()
+        return userStateDao.progressForContentIds(snapshot.serverId, profileId, contentIds.distinct())
+            .groupBy { it.contentId }
+            .mapValues { (_, rows) -> rows.furthestProgress() }
+            .filterValues { it != null }
+            .mapValues { (_, value) -> value!! }
+    }
+
+    override suspend fun recordAudioTrackSelection(
+        contentId: String,
+        fileId: Int,
+        audioFingerprint: String?,
+    ) {
+        recordTrackSelection(
+            contentId = contentId,
+            fileId = fileId,
+            update = { it.copy(audioFingerprint = audioFingerprint?.trim()?.takeIf { value -> value.isNotBlank() }) },
+        )
+    }
+
+    override suspend fun recordSubtitleTrackSelection(
+        contentId: String,
+        fileId: Int,
+        subtitleFingerprint: String?,
+    ) {
+        recordTrackSelection(
+            contentId = contentId,
+            fileId = fileId,
+            update = { it.copy(subtitleFingerprint = subtitleFingerprint?.trim()?.takeIf { value -> value.isNotBlank() }) },
+        )
+    }
+
+    override suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? {
+        val snapshot = snapshotProvider() ?: return null
+        val profileId = snapshot.profileId ?: return null
+        val row = userStateDao.get(snapshot.serverId, profileId, contentId, fileId) ?: return null
+        if (row.audioFingerprint == null && row.subtitleFingerprint == null) return null
+        return LocalTrackSelection(
+            audioFingerprint = row.audioFingerprint,
+            subtitleFingerprint = row.subtitleFingerprint,
+        )
     }
 
     override suspend fun recordEbookProgress(
@@ -271,4 +322,49 @@ class RoomUserItemStateRepository(
         }
         return OutboxHandle(opId, snapshot)
     }
+
+    private suspend fun recordTrackSelection(
+        contentId: String,
+        fileId: Int,
+        update: (UserItemStateEntity) -> UserItemStateEntity,
+    ) {
+        if (contentId.isBlank()) return
+        val snapshot = snapshotProvider() ?: return
+        val serverId = snapshot.serverId
+        val profileId = snapshot.profileId ?: return
+        val nowMs = now()
+
+        db.withTransaction {
+            val existing = userStateDao.get(serverId, profileId, contentId, fileId)
+            val row = existing ?: UserItemStateEntity(
+                serverId = serverId,
+                profileId = profileId,
+                contentId = contentId,
+                fileId = fileId,
+                positionSeconds = 0.0,
+                durationSeconds = null,
+                audioFingerprint = null,
+                subtitleFingerprint = null,
+                cfi = null,
+                readProgress = null,
+                clientUpdatedAtMs = nowMs,
+                serverUpdatedAtMs = null,
+            )
+            userStateDao.upsert(update(row).copy(clientUpdatedAtMs = nowMs))
+        }
+    }
 }
+
+private fun List<UserItemStateEntity>.furthestProgress(): LocalPlaybackProgress? =
+    filter { it.positionSeconds.isFinite() && it.positionSeconds > 0.0 }
+        .maxWithOrNull(
+            compareBy<UserItemStateEntity> { it.positionSeconds }
+                .thenBy { it.clientUpdatedAtMs },
+        )
+        ?.let {
+            LocalPlaybackProgress(
+                fileId = it.fileId,
+                positionSeconds = it.positionSeconds,
+                durationSeconds = it.durationSeconds,
+            )
+        }

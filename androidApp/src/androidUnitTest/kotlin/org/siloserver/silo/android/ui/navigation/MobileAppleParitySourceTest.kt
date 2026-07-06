@@ -109,5 +109,21 @@ class MobileAppleParitySourceTest {
             searchBar.contains("text = \"Search Silo\""),
             "The Search field placeholder should describe app-wide search instead of only library search.",
         )
+        assertTrue(
+            search.contains("RequestsFeatureStore"),
+            "Search should gate Apple's Available to request section through the shared Requests capability.",
+        )
+        assertTrue(
+            search.contains("RequestSearchSection("),
+            "Search should embed Apple's Available to request section when Requests are enabled.",
+        )
+        assertTrue(
+            File("$root/ui/screens/search/RequestSearchSection.kt").readText().contains("RequestSearchFeedback("),
+            "Request search should expose loading, empty, and error states instead of silently disappearing.",
+        )
+        assertTrue(
+            appNavigation.contains("onRequestMediaClick = { item ->"),
+            "Global Search request cards should navigate to the existing request-detail route.",
+        )
     }
 }

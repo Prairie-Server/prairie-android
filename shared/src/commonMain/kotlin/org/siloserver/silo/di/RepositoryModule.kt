@@ -3,6 +3,7 @@ package org.siloserver.silo.di
 import org.siloserver.silo.domain.GetHomeDataUseCase
 import org.siloserver.silo.domain.ManagePlaybackUseCase
 import org.siloserver.silo.domain.MediaActionsCoordinator
+import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.repository.AdminRepository
 import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.CalendarRepository
@@ -17,6 +18,7 @@ import org.siloserver.silo.repository.NotificationsRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.PlaybackRepository
 import org.siloserver.silo.repository.ProfileRepository
+import org.siloserver.silo.repository.PushRegistrationRepository
 import org.siloserver.silo.repository.RecommendationRepository
 import org.siloserver.silo.repository.RequestsRepository
 import org.siloserver.silo.repository.SectionRepository
@@ -59,12 +61,14 @@ val repositoryModule = module {
     single { SectionRepository(get(), getOrNull<org.siloserver.silo.repository.port.CatalogCachePort>() ?: org.siloserver.silo.repository.port.NoOpCatalogCachePort) }
     single { RecommendationRepository(get()) }
     single { RequestsRepository(get()) }
+    single { RequestsFeatureStore(get()) }
     single { SettingsRepository(get()) }
     single { LibraryPlaybackPrefsRepository(get()) }
     single { DownloadsRepository(get(), getOrNull<org.siloserver.silo.repository.port.DownloadDeletionPort>() ?: org.siloserver.silo.repository.port.NoOpDownloadDeletionPort) }
     single { EbookReaderRepository(get()) }
     single { SubtitlesRepository(get()) }
     single { AdminRepository(get()) }
+    single { PushRegistrationRepository(get()) }
 
     // REST-backed inbox state plus a realtime factory that builds the default
     // websocket client from the shared HttpClient + NotificationsApi. The

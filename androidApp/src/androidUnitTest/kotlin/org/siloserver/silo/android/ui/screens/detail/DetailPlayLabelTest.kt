@@ -26,6 +26,44 @@ class DetailPlayLabelTest {
     }
 
     @Test
+    fun playedEpisodeWithRewatchProgressShowsResumeLabel() {
+        val detail = ItemDetail(
+            contentId = "episode-1",
+            type = "episode",
+            title = "The Thief",
+            seriesTitle = "The Rookie",
+            seasonNumber = 6,
+            episodeNumber = 4,
+            userData = LeafItemUserData(
+                played = true,
+                positionSeconds = 318.0,
+                durationSeconds = 3600.0,
+            ),
+        )
+
+        assertEquals("Resume 5:18", computePlayLabel(detail))
+    }
+
+    @Test
+    fun episodeWithStaleCompletedPositionShowsSeasonEpisodeLabel() {
+        val detail = ItemDetail(
+            contentId = "episode-1",
+            type = "episode",
+            title = "The Thief",
+            seriesTitle = "The Rookie",
+            seasonNumber = 6,
+            episodeNumber = 4,
+            userData = LeafItemUserData(
+                played = true,
+                positionSeconds = 3600.0,
+                durationSeconds = 3600.0,
+            ),
+        )
+
+        assertEquals("Play S6·E4", computePlayLabel(detail))
+    }
+
+    @Test
     fun episodeWithoutProgressShowsSeasonEpisodeLabel() {
         val detail = ItemDetail(
             contentId = "episode-1",

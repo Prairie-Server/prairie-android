@@ -74,13 +74,14 @@ A condensed tour. For the exhaustive, per-feature checklist (with phone/TV cover
 Not currently exposed on Android phone or Android TV. Shared sync infrastructure and design notes may exist in the repository, but users cannot create or join Watch Together sessions from the apps on this branch.
 
 ### ⬇️ Offline & Downloads (phone)
-WorkManager-backed downloads of video, audiobooks, and books to public device storage (scoped `MediaStore` on API 30+), preserving original filenames/formats so other apps can discover and open them. Metadata lives in Room, local playback/read paths work without a server session, and the app can boot straight to Downloads when launched offline.
+WorkManager-backed downloads of video, audiobooks, and books to public device storage (scoped `MediaStore` on API 30+), preserving original filenames/formats so other apps can discover and open them. Metadata lives in Room, local playback/read paths work without a server session, and the app can boot straight to Downloads when launched offline. Download monitoring supports subscription-style queues and **Reclaim Watched** cleanup for completed items that have been watched/read/listened.
 
 ### 📚 Library, browse & discovery (phone + TV)
 - **Phone navigation** — Home, Libraries, For You, Calendar, and Downloads when the active profile has downloads. Video / Audio / Reading are library modes, not bottom-nav tabs.
 - **TV navigation** — Home, visible media-type tabs derived from server libraries (Movies/TV/Music/Audiobooks), and Calendar. Reading/ebooks are intentionally excluded from TV.
 - **Home** with Continue Watching, Recently Added/Released, and server-curated recommendation rows.
-- **Browse** with genre/rating filters, sorting, and infinite-scroll grids; **collections**; rich **item detail** (movies, series → seasons → episodes, multi-version files, cast/crew).
+- **Browse** with genre/rating filters, sorting, and infinite-scroll grids; **collections** are browse-only in the Android clients, while collection authoring/management remains web-only.
+- **Item detail** for movies and series includes seasons → episodes, multi-version files, cast/crew, local download controls, and phone-to-TV playback handoff.
 - **Search** scoped by media type, debounced and paginated.
 - **Not exposed** — Requests, Admin, and Watch Together are not reachable app surfaces today.
 
@@ -88,8 +89,11 @@ WorkManager-backed downloads of video, audiobooks, and books to public device st
 - **Ebook reader (phone only)** — EPUB, PDF, CBZ (comics), TXT/Markdown, FB2/FBZ, plus MOBI/AZW/AZW3 when the server can convert to EPUB; CBR and unsupported originals can be downloaded/opened externally. Themes, text size, margins, table of contents, bookmarks, and progress are supported.
 - **Audiobook player (phone + TV)** — cover/metadata, chapters, resume, playback speed, sleep timer (incl. end-of-chapter), and bookmarks, sharing the same Media3 engine as video. TV has a dedicated ten-foot audiobook detail/player flow.
 
+### SiloControl (phone + TV)
+Android phone can discover Android TV receivers on the local network, launch movies/episodes on TV with the selected file/track/resume context, and act as a lightweight remote for play/pause, seek, quality, audio, and subtitle changes. TV advertises the local SiloCast receiver only while authenticated and foregrounded.
+
 ### 🔔 Personalization & engagement (phone + TV)
-Multiple **household profiles** per account (PINs, child profiles, content-rating limits, per-profile language/subtitle prefs), favorites & watchlist, ratings, a release **calendar**, and an in-app **notifications inbox** with realtime updates. TV mirrors continue-watching into the system **Watch Next** row.
+Multiple **household profiles** per account (PINs, child profiles, content-rating limits, per-profile language/subtitle prefs), favorites & watchlist, ratings, a release **calendar**, and an in-app **notifications inbox** with realtime updates. Android push has a guarded client-side registration/data-message path, but real FCM delivery requires server provider support plus Firebase configuration in the phone app. TV mirrors continue-watching into the system **Watch Next** row.
 
 ### 🌐 Multi-server & accounts (phone + TV)
 Add and switch between multiple Silo servers (encrypted per-server token slots), use username/password or device/QR sign-in, and manage household profiles. Admin screens are not currently exposed in the Android apps.

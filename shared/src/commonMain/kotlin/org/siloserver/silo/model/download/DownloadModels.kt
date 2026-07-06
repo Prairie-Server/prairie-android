@@ -37,6 +37,30 @@ data class DownloadsListResponse(
 )
 
 /**
+ * Client-side download quality presets. "Original" preserves the source file
+ * and its public/discoverable filename. Bitrate presets prepare the client
+ * contract for server-side transcoded downloads; until the server supports
+ * them, older servers ignore these additive request fields.
+ */
+enum class DownloadQuality(
+    val wire: String,
+    val label: String,
+    val targetBitrateKbps: Int?,
+) {
+    Original("original", "Original", null),
+    Mbps20("20mbps", "20 Mbps", 20_000),
+    Mbps10("10mbps", "10 Mbps", 10_000),
+    Mbps5("5mbps", "5 Mbps", 5_000),
+    Mbps2("2mbps", "2 Mbps", 2_000),
+    Mbps1("1mbps", "1 Mbps", 1_000);
+
+    companion object {
+        fun fromWire(value: String?): DownloadQuality =
+            entries.firstOrNull { it.wire == value?.lowercase()?.trim() } ?: Original
+    }
+}
+
+/**
  * POST /api/v1/downloads body. Either `episodeId` or `fileId` is set on
  * top of the always-required `contentId`. `series = true` requests batch
  * download of all episodes for a series content id (server expands and
@@ -48,6 +72,8 @@ data class DownloadRequest(
     @SerialName("episode_id") val episodeId: String? = null,
     @SerialName("file_id") val fileId: Int? = null,
     val series: Boolean = false,
+    val quality: String? = null,
+    @SerialName("target_bitrate_kbps") val targetBitrateKbps: Int? = null,
 )
 
 /**

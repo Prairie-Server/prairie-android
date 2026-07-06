@@ -2,6 +2,7 @@ package org.siloserver.silo.tv
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
@@ -23,7 +24,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.lifecycle.lifecycleScope
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
+import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
+import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
 import org.siloserver.silo.common.startup.warmAuthenticatedStartup
 import org.siloserver.silo.common.ui.components.StartupSplashVideo
 import org.siloserver.silo.common.ui.components.StartupSplashResizeMode
@@ -34,6 +39,7 @@ import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.SectionRepository
 import org.siloserver.silo.repository.port.HomeCachePort
+import org.siloserver.silo.tv.cast.TvSiloCastReceiver
 import org.siloserver.silo.tv.ui.navigation.TvAppNavigation
 import org.siloserver.silo.tv.ui.navigation.TvRoute
 import org.siloserver.silo.tv.ui.screens.player.TvPlayerRemoteKeyBridge
@@ -121,6 +127,19 @@ class MainTvActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.startForeground()
+        lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (isAuthenticatedForCast()) {
+                get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).start()
+            }
+        }
+    }
+
     /**
      * Warm-launch deep links arrive here while the Activity is already alive
      * (singleTop / singleTask). Forward to [handleIntent] and update the
@@ -161,8 +180,26 @@ class MainTvActivity : ComponentActivity() {
      */
     override fun onStop() {
         super.onStop()
+        val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
+        monitor.stopForeground()
+        get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).stop()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
+            .enterPictureInPictureIfEligible(this, SiloPictureInPictureSurface.Tv)
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
+            .setInPictureInPictureMode(isInPictureInPictureMode)
     }
 
     /**
@@ -191,6 +228,7 @@ class MainTvActivity : ComponentActivity() {
     private fun launchAuthenticatedStartupWarmup(startRoute: String) {
         if (startRoute != TvRoute.Main.route) return
         lifecycleScope.launch(Dispatchers.IO) {
+            get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).start()
             warmAuthenticatedStartup(
                 authRepository = get(AuthRepository::class.java),
                 profileRepository = get(ProfileRepository::class.java),
@@ -199,5 +237,13 @@ class MainTvActivity : ComponentActivity() {
                 homeCache = get(HomeCachePort::class.java),
             )
         }
+    }
+
+    private suspend fun isAuthenticatedForCast(): Boolean {
+        val registry = get<ServerRegistry>(ServerRegistry::class.java)
+        val tokenManager = get<TokenManager>(TokenManager::class.java)
+        return registry.activeEntry.value != null &&
+            !tokenManager.getAccessToken().isNullOrBlank() &&
+            !tokenManager.getProfileId().isNullOrBlank()
     }
 }

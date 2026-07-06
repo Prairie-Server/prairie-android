@@ -1,5 +1,6 @@
 package org.siloserver.silo.android.ui.screens.detail
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,8 +30,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +66,7 @@ fun EpisodeList(
     onEpisodeDetailClick: (String) -> Unit,
     onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
     episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
+    blurUnwatchedEpisodeStills: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -72,6 +80,7 @@ fun EpisodeList(
                 onDetailClick = { onEpisodeDetailClick(episode.contentId) },
                 onDownloadClick = onEpisodeDownloadClick?.let { cb -> { cb(episode) } },
                 downloadState = episodeDownloadState(episode),
+                blurUnwatchedEpisodeStills = blurUnwatchedEpisodeStills,
             )
         }
     }
@@ -84,17 +93,17 @@ private fun EpisodeRow(
     onDetailClick: () -> Unit,
     onDownloadClick: (() -> Unit)? = null,
     downloadState: DetailDownloadState = DetailDownloadState(),
+    blurUnwatchedEpisodeStills: Boolean = false,
 ) {
     val overlayState = LocalCardOverlayUiState.current
     val userData = episode.userData
     val isPlayed = userData?.played == true
-    val pos = userData?.positionSeconds
-    val dur = userData?.durationSeconds
-    val progress = if (pos != null && dur != null && dur > 0 && !isPlayed) {
-        (pos / dur).toFloat().coerceIn(0f, 1f)
-    } else {
-        null
-    }
+    var isStillRevealed by rememberSaveable(episode.contentId) { mutableStateOf(false) }
+    val shouldHideStill = blurUnwatchedEpisodeStills && !isPlayed && !isStillRevealed
+    val progress = episodeProgressFraction(
+        positionSeconds = userData?.positionSeconds,
+        durationSeconds = userData?.durationSeconds,
+    )
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -110,7 +119,15 @@ private fun EpisodeRow(
                 url = episode.stillUrl,
                 thumbhash = episode.stillThumbhash,
                 contentDescription = episode.title,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (shouldHideStill && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            Modifier.blur(12.dp)
+                        } else {
+                            Modifier
+                        },
+                    ),
             )
 
             // Card-overlay badge layer (resolution / codec / HDR, etc.).
@@ -122,6 +139,35 @@ private fun EpisodeRow(
                     variant = CardOverlayVariant.Wide,
                     modifier = Modifier.fillMaxSize(),
                 )
+            }
+
+            if (shouldHideStill) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.62f)),
+                )
+                Text(
+                    text = "Spoiler hidden",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.86f),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 10.dp, bottom = 8.dp),
+                )
+                IconButton(
+                    onClick = { isStillRevealed = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(34.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Visibility,
+                        contentDescription = "Reveal episode still",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
 
             Box(
@@ -246,6 +292,13 @@ private fun EpisodeRow(
             }
         }
     }
+}
+
+internal fun episodeProgressFraction(positionSeconds: Double?, durationSeconds: Double?): Float? {
+    val position = positionSeconds?.takeIf { it.isFinite() && it > 0 } ?: return null
+    val duration = durationSeconds?.takeIf { it.isFinite() && it > 0 } ?: return null
+    if (position >= duration) return null
+    return (position / duration).toFloat().coerceIn(0f, 1f)
 }
 
 private fun episodeNumberText(episode: EpisodeListItem): String {

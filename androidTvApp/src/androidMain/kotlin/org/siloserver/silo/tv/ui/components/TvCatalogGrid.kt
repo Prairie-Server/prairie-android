@@ -73,6 +73,7 @@ fun TvCatalogGrid(
     },
     onBrowseItemClick: ((BrowseItem) -> Unit)? = null,
     header: (@Composable () -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null,
     emptyState: (@Composable () -> Unit)? = null,
 ) {
     val gridState: LazyGridState = rememberLazyGridState()
@@ -148,6 +149,12 @@ fun TvCatalogGrid(
                     overlay = OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )
+            }
+        }
+
+        if (footer != null) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                footer()
             }
         }
 

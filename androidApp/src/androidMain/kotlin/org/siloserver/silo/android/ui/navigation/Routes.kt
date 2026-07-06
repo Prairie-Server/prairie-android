@@ -71,6 +71,7 @@ sealed class Route(val route: String) {
     data object Home : Route("home")
     data object Libraries : Route("libraries")
     data object Recommendations : Route("recommendations")
+    data object Inbox : Route("inbox")
 
     // --- Requests ---
     data object Requests : Route("requests")
@@ -122,7 +123,9 @@ sealed class Route(val route: String) {
         }
     }
 
-    // --- Player (fullscreen, no system bars) ---
+    // --- Player / casting (fullscreen or hidden shell routes, no menu entries) ---
+    data object SiloCastRemote : Route("silocast/remote")
+
     data class Player(
         val contentId: String,
         val fileId: Int? = null,

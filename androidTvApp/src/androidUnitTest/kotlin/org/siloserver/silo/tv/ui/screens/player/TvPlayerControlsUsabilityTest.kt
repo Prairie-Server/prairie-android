@@ -60,16 +60,15 @@ class TvPlayerControlsUsabilityTest {
     @Test
     fun hudIsAdaptiveTopCenterCardInsteadOfRightDrawer() {
         assertTrue(screenSource.contains("Alignment.TopCenter"))
-        assertTrue(hudSource.contains("private val HudMaxWidth = 600.dp"))
-        assertTrue(hudSource.contains("private val HudMinHeight = 250.dp"))
-        assertTrue(hudSource.contains("private val HudMaxHeight = 310.dp"))
-        assertTrue(hudSource.contains(".fillMaxWidth(0.66f)"))
+        assertTrue(hudSource.contains("private val HudMaxWidth = 680.dp"))
+        assertTrue(hudSource.contains("private val HudMinHeight = 290.dp"))
+        assertTrue(hudSource.contains("private val HudMaxHeight = 360.dp"))
+        assertTrue(hudSource.contains(".fillMaxWidth(0.72f)"))
         assertTrue(hudSource.contains(".heightIn(min = HudMinHeight, max = HudMaxHeight)"))
         assertFalse(hudSource.contains(".height(190.dp)"))
-        assertFalse(hudSource.contains("private val HudMaxWidth = 720.dp"))
-        assertFalse(hudSource.contains("private val HudMaxWidth = 640.dp"))
+        assertFalse(hudSource.contains("private val HudMaxWidth = 600.dp"))
         assertFalse(hudSource.contains(".fillMaxWidth(0.8f)"))
-        assertFalse(hudSource.contains(".fillMaxWidth(0.72f)"))
+        assertFalse(hudSource.contains(".fillMaxWidth(0.66f)"))
         assertFalse(hudSource.contains("PlayerSidePanel"))
         assertFalse(hudSource.contains(".width(560.dp)"))
     }
@@ -118,12 +117,12 @@ class TvPlayerControlsUsabilityTest {
 
     @Test
     fun chapterRowsUseReadableHudTypography() {
-        assertTrue(hudSource.contains(".padding(horizontal = 12.dp, vertical = 7.dp)"))
-        assertTrue(hudSource.contains("fontSize = 13.sp"))
-        assertTrue(hudSource.contains("lineHeight = 16.sp"))
+        assertTrue(hudSource.contains(".padding(horizontal = 14.dp, vertical = 9.dp)"))
+        assertTrue(hudSource.contains("fontSize = HudBodyTextSize"))
+        assertTrue(hudSource.contains("lineHeight = HudBodyLineHeight"))
+        assertFalse(hudSource.contains("fontSize = 13.sp"))
         assertFalse(hudSource.contains("fontSize = 10.sp"))
         assertFalse(hudSource.contains("lineHeight = 12.sp"))
-        assertFalse(hudSource.contains(".padding(horizontal = 16.dp, vertical = 10.dp)"))
     }
 
     @Test
@@ -132,9 +131,9 @@ class TvPlayerControlsUsabilityTest {
             .substringAfter("private fun HudStatsPane")
             .substringBefore("private val PLAYBACK_SPEED_OPTIONS")
 
-        assertTrue(statsBlock.contains("fontSize = 13.sp"))
-        assertTrue(statsBlock.contains("lineHeight = 16.sp"))
-        assertTrue(statsBlock.contains("verticalArrangement = Arrangement.spacedBy(2.dp)"))
+        assertTrue(statsBlock.contains("fontSize = HudBodyTextSize"))
+        assertTrue(statsBlock.contains("lineHeight = HudBodyLineHeight"))
+        assertTrue(statsBlock.contains("verticalArrangement = Arrangement.spacedBy(4.dp)"))
         assertFalse(statsBlock.contains("style = MaterialTheme.typography.bodyMedium,"))
     }
 

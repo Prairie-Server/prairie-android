@@ -50,6 +50,7 @@ fun SearchResults(
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val gridState = rememberLazyGridState()
 
@@ -103,6 +104,12 @@ fun SearchResults(
                 overlay = org.siloserver.silo.overlays.OverlayDataExtractor.fromBrowseItem(item),
                 actions = actions,
             )
+        }
+
+        if (footer != null) {
+            item(span = { GridItemSpan(maxLineSpan) }, contentType = "search-footer") {
+                footer()
+            }
         }
 
         // Loading indicator

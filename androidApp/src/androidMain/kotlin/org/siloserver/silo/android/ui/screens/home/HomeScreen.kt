@@ -20,16 +20,22 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -44,16 +50,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.components.SiloWordmark
 import org.siloserver.silo.android.ui.components.EmptyStateView
 import org.siloserver.silo.android.ui.components.ErrorView
 import org.siloserver.silo.android.ui.components.MediaRowSkeleton
 import org.siloserver.silo.android.ui.components.rememberShimmerProgress
+import org.siloserver.silo.android.ui.screens.pairing.CompanionPairingViewModel
 import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
+import org.siloserver.silo.common.pairing.CompanionPairingApproval
+import org.siloserver.silo.common.pairing.CompanionPairingStatus
+import org.siloserver.silo.common.pairing.CompanionPairingTarget
 import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.section.splitFeatured
 import org.siloserver.silo.viewmodel.HomeViewModel
+import org.koin.compose.viewmodel.koinViewModel
 
 private const val ChromeFadeDistanceDp = 72f
 
@@ -77,14 +89,18 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
-    onCalendarClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val companionPairingViewModel = koinViewModel<CompanionPairingViewModel>()
+    val companionTargets by companionPairingViewModel.targets.collectAsState()
+    val companionStatus by companionPairingViewModel.status.collectAsState()
+    val companionApproval by companionPairingViewModel.pendingApproval.collectAsState()
     val sections = state.sections
     // iOS Home excludes `featured` sections entirely (HomeViewModel.regularSections)
     // — Home renders only the configured rows, never a hero billboard.
@@ -145,6 +161,17 @@ fun HomeScreen(
                         )
                     }
 
+                    if (shouldShowCompanionPairingCard(companionTargets, companionStatus)) {
+                        item(key = "companionPairing", contentType = { "companion-pairing" }) {
+                            CompanionPairingCard(
+                                target = companionTargets.firstOrNull(),
+                                status = companionStatus,
+                                onPair = { target -> companionPairingViewModel.pair(target) },
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
+                    }
+
                     items(
                         items = regularSections,
                         key = { it.id },
@@ -178,13 +205,116 @@ fun HomeScreen(
             scrollProgress = scrollProgress,
             activeProfile = activeProfile,
             onSearchClick = onSearchClick,
-            onPersonalListsClick = onPersonalListsClick,
-            onCalendarClick = onCalendarClick,
+            onRequestsClick = onRequestsClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
+            onSignOutClick = onSignOutClick,
+        )
+
+        CompanionPairingApprovalDialog(
+            approval = companionApproval,
+            onApprove = companionPairingViewModel::approveMatchCode,
+            onCancel = companionPairingViewModel::cancelMatchCode,
         )
     }
+}
+
+private fun shouldShowCompanionPairingCard(
+    targets: List<CompanionPairingTarget>,
+    status: CompanionPairingStatus,
+): Boolean =
+    targets.isNotEmpty() || status !is CompanionPairingStatus.Idle
+
+@Composable
+private fun CompanionPairingCard(
+    target: CompanionPairingTarget?,
+    status: CompanionPairingStatus,
+    onPair: (CompanionPairingTarget) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val busy = status is CompanionPairingStatus.Connecting ||
+        status is CompanionPairingStatus.PushingServer ||
+        status is CompanionPairingStatus.AwaitingMatchConfirmation ||
+        status is CompanionPairingStatus.Approving
+    val title = when (status) {
+        is CompanionPairingStatus.Completed -> "TV setup complete"
+        is CompanionPairingStatus.Failed -> "TV setup needs attention"
+        else -> target?.let { "Set up ${it.name}" } ?: "Set up TV"
+    }
+    val subtitle = when (status) {
+        is CompanionPairingStatus.Connecting -> "Connecting to ${status.targetName}..."
+        is CompanionPairingStatus.PushingServer -> "Sending ${status.serverName} to ${status.targetName}..."
+        is CompanionPairingStatus.AwaitingMatchConfirmation -> "Confirm the match code to finish."
+        is CompanionPairingStatus.Approving -> "Approving ${status.targetName}..."
+        is CompanionPairingStatus.SignedIn -> "${status.serverName} signed in."
+        is CompanionPairingStatus.Completed -> "Your TV can continue from profile selection."
+        is CompanionPairingStatus.Failed -> status.message
+        is CompanionPairingStatus.Idle -> "A Silo TV app is waiting on your network."
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        ),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Smartphone,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (target != null && !busy) {
+                Button(onClick = { onPair(target) }) {
+                    Text("Set up TV")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompanionPairingApprovalDialog(
+    approval: CompanionPairingApproval?,
+    onApprove: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    if (approval == null) return
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Confirm TV setup") },
+        text = {
+            Text(
+                "Make sure ${approval.targetName} shows ${approval.serverMatchCode} before approving ${approval.serverName}.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onApprove) {
+                Text("Approve")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable
@@ -210,11 +340,11 @@ private fun HomeFloatingChrome(
     scrollProgress: Float,
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
-    onPersonalListsClick: () -> Unit,
-    onCalendarClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
     // iOS chrome: translucent glass fill plus a bottom hairline that strengthens
@@ -257,11 +387,11 @@ private fun HomeFloatingChrome(
 
                 HomeProfileMenu(
                     activeProfile = activeProfile,
-                    onPersonalListsClick = onPersonalListsClick,
-                    onCalendarClick = onCalendarClick,
+                    onRequestsClick = onRequestsClick,
                     onSettingsClick = onSettingsClick,
                     onSwitchProfileClick = onSwitchProfileClick,
                     onSwitchServerClick = onSwitchServerClick,
+                    onSignOutClick = onSignOutClick,
                 )
             }
         }
@@ -301,11 +431,11 @@ private fun HomeChromeButton(
 @Composable
 private fun HomeProfileMenu(
     activeProfile: Profile?,
-    onPersonalListsClick: () -> Unit,
-    onCalendarClick: () -> Unit,
+    onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
+    onSignOutClick: () -> Unit,
 ) {
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     Box {
@@ -337,26 +467,16 @@ private fun HomeProfileMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
-            DropdownMenuItem(
-                text = { Text("Favorites & Watchlist") },
-                onClick = {
-                    menuExpanded = false
-                    onPersonalListsClick()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Calendar") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.CalendarMonth,
-                        contentDescription = null,
-                    )
-                },
-                onClick = {
-                    menuExpanded = false
-                    onCalendarClick()
-                },
-            )
+            if (onRequestsClick != null) {
+                DropdownMenuItem(
+                    text = { Text("Requests") },
+                    onClick = {
+                        menuExpanded = false
+                        onRequestsClick()
+                    },
+                )
+                HorizontalDivider()
+            }
             DropdownMenuItem(
                 text = { Text("Settings") },
                 onClick = {
@@ -376,6 +496,18 @@ private fun HomeProfileMenu(
                 onClick = {
                     menuExpanded = false
                     onSwitchServerClick()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Sign Out",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onSignOutClick()
                 },
             )
         }
