@@ -58,10 +58,12 @@ fun PlayerOverlay(
     state: PlayerViewModel.PlayerUiState,
     viewModel: PlayerViewModel,
     roomSnapshot: RoomSnapshot? = null,
+    isFastForwardHoldActive: Boolean = false,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Double) -> Unit,
     onToggleControls: () -> Unit,
+    onFastForwardHold: (Boolean) -> Unit = {},
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectVersion: (Int) -> Unit,
@@ -99,6 +101,7 @@ fun PlayerOverlay(
     }
     val gatedSeek: (Double) -> Unit = { pos -> if (seekEnabled) onSeek(pos) }
     val gatedPlayPause: () -> Unit = { if (playPauseEnabled) onPlayPause() }
+    val gatedFastForwardHold: (Boolean) -> Unit = if (!inRoom) onFastForwardHold else { _: Boolean -> }
 
     // Orientation lock — toggled from the top-bar lock icon (iOS parity).
     // Default false: respect system rotation lock (PlayerScreen sets the
@@ -143,6 +146,7 @@ fun PlayerOverlay(
                 onSeek = gatedSeek,
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+                onFastForwardHold = gatedFastForwardHold,
                 modifier = Modifier.zIndex(0f),
             )
         }
@@ -158,6 +162,28 @@ fun PlayerOverlay(
                 color = Color.White,
                 strokeWidth = 3.dp,
             )
+        }
+
+        AnimatedVisibility(
+            visible = isFastForwardHoldActive,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 64.dp)
+                .zIndex(3f),
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.72f),
+                shape = RoundedCornerShape(999.dp),
+            ) {
+                Text(
+                    text = "2x",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                )
+            }
         }
 
         // Notice overlay (top-left). Driven by PlaybackSessionLifecycle.notice — surfaces

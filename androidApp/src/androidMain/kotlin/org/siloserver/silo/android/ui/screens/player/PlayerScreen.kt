@@ -140,6 +140,7 @@ fun PlayerScreen(
     var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
     var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
+    var fastForwardHoldActive by remember { mutableStateOf(false) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -302,6 +303,7 @@ fun PlayerScreen(
     }
 
     val hdrEnabled by viewModel.hdrEnabled.collectAsState()
+    val preferredPlaybackSpeed by viewModel.playbackSpeed.collectAsState()
 
     // Apply capability-aware track selection presets. Re-runs on capability
     // or profile-language change so a mid-session HDMI hot-plug / Bluetooth
@@ -327,13 +329,16 @@ fun PlayerScreen(
         )
     }
 
-    // Mirror the user's preferred playback speed onto the live MediaController.
-    // Re-runs whenever the controller binds (so the value is applied after
-    // service rebind) or the user picks a new speed in PlayerSettingsSheet.
-    LaunchedEffect(mediaController) {
+    // Mirror the user's preferred playback speed onto the live MediaController,
+    // with hold-to-2x as a transient override that never writes the setting.
+    // Re-runs whenever the controller binds, the setting changes, or the user
+    // presses/releases the phone player's fast-forward hold gesture.
+    LaunchedEffect(mediaController, preferredPlaybackSpeed, fastForwardHoldActive) {
         val controller = mediaController ?: return@LaunchedEffect
-        viewModel.playbackSpeed.collect { speed ->
-            controller.setPlaybackSpeed(speed.toFloat())
+        if (fastForwardHoldActive) {
+            controller.setPlaybackSpeed(2.0f)
+        } else {
+            controller.setPlaybackSpeed(preferredPlaybackSpeed.toFloat())
         }
     }
 
@@ -845,6 +850,7 @@ fun PlayerScreen(
                     state = uiState,
                     viewModel = viewModel,
                     roomSnapshot = roomSnapshot,
+                    isFastForwardHoldActive = fastForwardHoldActive,
                     onBack = {
                         // In-room exit: leave the room (host close confirm is handled
                         // by the overlay before this fires). The controller resets the
@@ -871,6 +877,7 @@ fun PlayerScreen(
                         }
                     },
                     onToggleControls = { viewModel.onToggleControls() },
+                    onFastForwardHold = { active -> fastForwardHoldActive = active },
                     onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
                     onSelectAudio = { viewModel.onSelectAudio(it) },
                     onSelectVersion = { viewModel.onSelectVersion(it) },

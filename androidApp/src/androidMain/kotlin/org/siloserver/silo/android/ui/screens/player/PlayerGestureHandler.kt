@@ -13,12 +13,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Gesture handler overlay for the video player.
@@ -27,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
  * - Single tap center: toggle controls visibility
  * - Double-tap left third: skip back 10 seconds
  * - Double-tap right third: skip forward 10 seconds
+ * - Hold: temporary 2x playback while held
  * - Vertical swipe on left half: brightness adjustment
  * - Vertical swipe on right half: volume adjustment
  * - Horizontal swipe: seek through the video
@@ -39,6 +44,7 @@ fun PlayerGestureHandler(
     onSeek: (Double) -> Unit,
     onSkipForward: () -> Unit,
     onSkipBackward: () -> Unit,
+    onFastForwardHold: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -52,14 +58,41 @@ fun PlayerGestureHandler(
 
     var seekDragStartPosition by remember { mutableDoubleStateOf(0.0) }
     var seekDragAccumulator by remember { mutableFloatStateOf(0f) }
+    var suppressTapAfterFastForwardHold by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { onToggleControls() },
+                    onPress = {
+                        var holdTriggered = false
+                        coroutineScope {
+                            val holdJob = launch {
+                                delay(500)
+                                holdTriggered = true
+                                onFastForwardHold(true)
+                            }
+                            try {
+                                tryAwaitRelease()
+                            } finally {
+                                holdJob.cancel()
+                                if (holdTriggered) {
+                                    suppressTapAfterFastForwardHold = true
+                                    onFastForwardHold(false)
+                                }
+                            }
+                        }
+                    },
+                    onTap = {
+                        if (suppressTapAfterFastForwardHold) {
+                            suppressTapAfterFastForwardHold = false
+                        } else {
+                            onToggleControls()
+                        }
+                    },
                     onDoubleTap = { offset ->
+                        suppressTapAfterFastForwardHold = false
                         val thirdWidth = size.width / 3f
                         when {
                             offset.x < thirdWidth -> onSkipBackward()
