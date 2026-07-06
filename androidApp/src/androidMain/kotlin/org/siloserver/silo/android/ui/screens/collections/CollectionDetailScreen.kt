@@ -13,21 +13,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.CollectionsBookmark
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,20 +27,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.siloserver.silo.android.ui.components.SiloTopBar
+import org.koin.compose.viewmodel.koinViewModel
 import org.siloserver.silo.android.ui.components.EmptyStateView
 import org.siloserver.silo.android.ui.components.ErrorView
 import org.siloserver.silo.android.ui.components.LoadingIndicator
 import org.siloserver.silo.android.ui.components.MediaGridDefaults
+import org.siloserver.silo.android.ui.components.SiloTopBar
 import org.siloserver.silo.android.ui.screens.personal.MediaGridItem
-import org.koin.compose.viewmodel.koinViewModel
 
-/**
- * Detail screen for a single collection.
- *
- * Shows items in a grid with edit (rename) and delete actions in the top bar.
- * Long-press on an item (via the standard item actions) removes it from the collection.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CollectionDetailScreen(
@@ -64,13 +48,6 @@ fun CollectionDetailScreen(
 
     LaunchedEffect(collectionId) {
         viewModel.initialize(collectionId)
-    }
-
-    // Navigate back after deletion
-    LaunchedEffect(state.deleted) {
-        if (state.deleted) {
-            onBackClick()
-        }
     }
 
     val shouldLoadMore by remember {
@@ -92,22 +69,6 @@ fun CollectionDetailScreen(
             SiloTopBar(
                 title = state.title,
                 onBackClick = onBackClick,
-                actions = {
-                    if (state.canManage) {
-                        IconButton(onClick = viewModel::showRenameDialog) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Rename collection",
-                            )
-                        }
-                        IconButton(onClick = viewModel::showDeleteConfirm) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete collection",
-                            )
-                        }
-                    }
-                },
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -126,17 +87,13 @@ fun CollectionDetailScreen(
             state.items.isEmpty() && !state.isLoading -> {
                 EmptyStateView(
                     title = "Collection is empty",
-                    subtitle = if (state.canManage) {
-                        "Add items from their detail pages"
-                    } else {
-                        "This collection does not have any items yet."
-                    },
+                    subtitle = "This collection does not have any items yet.",
                     icon = Icons.Outlined.CollectionsBookmark,
                     modifier = Modifier.padding(padding),
                 )
             }
             else -> {
-                PullToRefreshBox(
+                androidx.compose.material3.pulltorefresh.PullToRefreshBox(
                     isRefreshing = state.isRefreshing,
                     onRefresh = viewModel::refresh,
                     modifier = Modifier
@@ -179,74 +136,5 @@ fun CollectionDetailScreen(
                 }
             }
         }
-    }
-
-    // Rename dialog
-    if (state.canManage && state.showRenameDialog) {
-        AlertDialog(
-            onDismissRequest = viewModel::hideRenameDialog,
-            title = { Text("Rename Collection") },
-            text = {
-                OutlinedTextField(
-                    value = state.renameText,
-                    onValueChange = viewModel::onRenameTextChanged,
-                    label = { Text("Name") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = viewModel::renameCollection,
-                    enabled = !state.isRenaming && state.renameText.isNotBlank(),
-                ) {
-                    if (state.isRenaming) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text("Rename")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::hideRenameDialog) {
-                    Text("Cancel")
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-
-    // Delete confirmation dialog
-    if (state.canManage && state.showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = viewModel::hideDeleteConfirm,
-            title = { Text("Delete Collection") },
-            text = {
-                Text("Are you sure you want to delete \"${state.collection?.name}\"? This action cannot be undone.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = viewModel::deleteCollection,
-                    enabled = !state.isDeleting,
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::hideDeleteConfirm) {
-                    Text("Cancel")
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface,
-        )
     }
 }
