@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -26,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +77,7 @@ fun SeriesDetailContent(
 ) {
     val dominantColor by rememberDominantColor(detail.backdropUrl, fallback = SiloBackground)
     var showRatingSheet by remember { mutableStateOf(false) }
+    var hideUnwatchedEpisodeStills by rememberSaveable(detail.contentId) { mutableStateOf(true) }
 
     val eyebrow = HeroMetadata.seriesEyebrow(detail)
     val sourceTokens = HeroMetadata.seriesSourceTokens(detail)
@@ -153,6 +157,27 @@ fun SeriesDetailContent(
                         trailingText = episodeCountSubtitle,
                         modifier = Modifier.weight(1f),
                     )
+                    IconButton(
+                        onClick = { hideUnwatchedEpisodeStills = !hideUnwatchedEpisodeStills },
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (hideUnwatchedEpisodeStills) {
+                                Icons.Outlined.VisibilityOff
+                            } else {
+                                Icons.Outlined.Visibility
+                            },
+                            contentDescription = if (hideUnwatchedEpisodeStills) {
+                                "Show episode spoilers"
+                            } else {
+                                "Hide episode spoilers"
+                            },
+                            tint = DetailPrimaryText,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                     // "Download season N" — only when a season is selected
                     // AND the parent screen wired the callback.
                     val seasonNumberForDownload = selectedSeason?.seasonNumber
@@ -225,6 +250,7 @@ fun SeriesDetailContent(
                             onEpisodeDetailClick = onEpisodeDetailClick,
                             onEpisodeDownloadClick = onEpisodeDownloadClick,
                             episodeDownloadState = episodeDownloadState,
+                            blurUnwatchedEpisodeStills = hideUnwatchedEpisodeStills,
                         )
                     }
                 }
