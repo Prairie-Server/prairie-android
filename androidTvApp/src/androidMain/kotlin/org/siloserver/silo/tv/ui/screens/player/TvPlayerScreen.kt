@@ -138,6 +138,8 @@ private const val CONTROLS_AUTO_HIDE_MS = 5_000L
 // Skip back is 10s; skip forward is 30s, matching tvOS (gobackward.10 /
 // goforward.30).
 private const val SKIP_BACK_MS = 10_000L
+// How long the transient skip indicator stays up after the last D-pad skip.
+private const val SKIP_FEEDBACK_HIDE_MS = 1_200L
 private const val SKIP_FORWARD_MS = 30_000L
 
 /**
@@ -250,6 +252,17 @@ fun TvPlayerScreen(
     // the phone PlayerScreen's `playerViewRef` pattern.
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     var transportFocusRequest by remember { mutableStateOf(0) }
+    // Hidden-controls D-pad skip feedback: a transient chip + progress line so
+    // the seek isn't invisible. Kept OUTSIDE showControls on purpose — showing
+    // the transport would flip Left/Right from discrete skips into scrubber
+    // nudges mid-sequence (dpadHorizontalSeek gates on !showControls).
+    var skipSeekFeedback by remember { mutableStateOf<SkipSeekFeedback?>(null) }
+    LaunchedEffect(skipSeekFeedback?.nonce) {
+        if (skipSeekFeedback != null) {
+            kotlinx.coroutines.delay(SKIP_FEEDBACK_HIDE_MS)
+            skipSeekFeedback = null
+        }
+    }
     val startupStallDetector = remember { PlaybackStartupStallDetector() }
     var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
     var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
@@ -494,7 +507,17 @@ fun TvPlayerScreen(
         } else {
             controller.seekTo(target)
         }
-        if (revealControls) viewModel.setControlsVisible(true)
+        if (revealControls) {
+            viewModel.setControlsVisible(true)
+        } else {
+            // Silent seek: surface the transient skip indicator instead.
+            skipSeekFeedback = SkipSeekFeedback(
+                deltaSeconds = (deltaMs / 1000).toInt(),
+                targetSec = target / 1000.0,
+                durationSec = if (duration > 0L) duration / 1000.0 else 0.0,
+                nonce = (skipSeekFeedback?.nonce ?: 0) + 1,
+            )
+        }
         return true
     }
 
@@ -1442,6 +1465,29 @@ fun TvPlayerScreen(
                             initialTab = requestedHudTab,
                             onPickerOpenChanged = { hudPickerOpen = it },
                         )
+                    }
+                }
+
+                // Transient skip feedback for hidden-controls D-pad seeks.
+                // Suppressed while the transport, HUD, or Up Next own the
+                // screen (they provide their own position feedback) and in PiP.
+                if (!isInPictureInPictureMode && !state.showControls &&
+                    !state.hudOpen && !state.showNextUp
+                ) {
+                    // Align the transient line with the REAL scrubber track's
+                    // position inside the idle overlay, which stacks (bottom-up):
+                    // 40dp overlay padding + 33dp transport cluster + 16dp gap +
+                    // 8dp spacer + 16dp gap = 113dp to the scrubber COLUMN's
+                    // bottom — plus ~6dp because the 3.5dp track is centered in
+                    // the column's lower box (41dp minus label row), not flush
+                    // with its bottom. Horizontal 80dp matches the track width.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = 80.dp, end = 80.dp, bottom = 119.dp),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        TvSkipSeekIndicator(feedback = skipSeekFeedback)
                     }
                 }
 
