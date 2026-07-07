@@ -228,6 +228,49 @@ class TvItemDetailViewModel(
         }
     }
 
+    /**
+     * Quiet refresh for returning to an already-loaded detail screen (e.g.
+     * backing out of playback): re-reads userData so the Play button's resume
+     * label, the episode rail, and next-up reflect the session that just
+     * ended. Deliberately NOT [loadAll] — no loading flashes, and the user's
+     * season selection is preserved.
+     */
+    fun refreshOnReturn() {
+        val current = _uiState.value.detail ?: return
+        viewModelScope.launch {
+            // Local overlay first: the player's final position write is already
+            // on disk, so the label corrects before the server round-trip.
+            val overlaid = withLocalProgress(current)
+            if (overlaid != current) {
+                _uiState.update { it.copy(detail = overlaid) }
+            }
+            when (val result = catalogRepository.getItemDetail(contentId)) {
+                is ApiResult.Success -> {
+                    val detail = withLocalProgress(result.data)
+                    if (!isTvHiddenMediaType(detail.type)) {
+                        _uiState.update {
+                            it.copy(
+                                detail = detail,
+                                userRating = detail.userRating,
+                                isWatched = detail.userData?.played == true,
+                            )
+                        }
+                    }
+                }
+                // Quiet refresh: on failure keep showing what we have.
+                is ApiResult.Error,
+                is ApiResult.NetworkError -> Unit
+            }
+        }
+        val seriesId = when (current.type.lowercase()) {
+            "series" -> current.contentId
+            "season", "episode" -> current.seriesId?.takeIf { it.isNotBlank() }
+            else -> null
+        }
+        val season = _uiState.value.selectedSeason
+        if (seriesId != null && season != null) loadEpisodes(seriesId, season)
+    }
+
     fun onToggleFavorite() {
         val current = _uiState.value
         if (current.isTogglingFavorite) return

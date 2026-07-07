@@ -124,6 +124,24 @@ fun TvItemDetailScreen(
 
     BackHandler(enabled = true) { onBack() }
 
+    // Refresh on return (e.g. backing out of the player): the ViewModel loads
+    // once in init, so without this the Play button keeps the resume label
+    // computed before playback. Fires on every ON_RESUME (like TvHomeScreen);
+    // no first-entry guard — the composable is recreated on back-stack pop, so
+    // any effect-local "skip the first" flag would reset and swallow exactly
+    // the resume we care about. refreshOnReturn() no-ops while detail is still
+    // null, which covers the initial load.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshOnReturn()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(state.detail?.contentId, seasonNumber, state.seasons, state.selectedSeason) {
         val detail = state.detail ?: return@LaunchedEffect
         if (detail.type != "series" || seasonNumber == null) return@LaunchedEffect
