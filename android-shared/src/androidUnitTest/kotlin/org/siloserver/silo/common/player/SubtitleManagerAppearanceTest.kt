@@ -147,6 +147,49 @@ class SubtitleManagerAppearanceTest {
         assertEquals(SubtitleVideoRect(left = 0, top = 0, width = 1080, height = 2400), rect)
     }
 
+    @Test
+    fun contentFrameRectUsesSubtitleParentLocalBounds() {
+        val rect = displayedSubtitleContentFrameRect(
+            viewWidth = 1920,
+            viewHeight = 1080,
+            frameLeft = 0,
+            frameTop = 140,
+            frameWidth = 1920,
+            frameHeight = 800,
+        )
+
+        assertEquals(SubtitleVideoRect(left = 0, top = 0, width = 1920, height = 800), rect)
+    }
+
+    @Test
+    fun clippedContentFrameRectUsesSubtitleParentLocalIntersection() {
+        val rect = displayedSubtitleContentFrameRect(
+            viewWidth = 1920,
+            viewHeight = 1080,
+            frameLeft = -100,
+            frameTop = -50,
+            frameWidth = 2120,
+            frameHeight = 1180,
+        )
+
+        assertEquals(SubtitleVideoRect(left = 100, top = 50, width = 1920, height = 1080), rect)
+    }
+
+    @Test
+    fun invalidContentFrameRectFallsBackToComputedBounds() {
+        assertEquals(
+            null,
+            displayedSubtitleContentFrameRect(
+                viewWidth = 1920,
+                viewHeight = 1080,
+                frameLeft = 0,
+                frameTop = 0,
+                frameWidth = 0,
+                frameHeight = 0,
+            ),
+        )
+    }
+
     private fun captionStyleFor(appearance: SubtitleAppearance): CaptionStyleCompat {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "buildCaptionStyle",

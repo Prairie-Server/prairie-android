@@ -337,18 +337,36 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
-    fun subtitleSelectionUpdatesUiBeforeBackendTrackApply() {
+    fun subtitleSelectionUpdatesUiAfterBackendTrackApply() {
         val selectionBlock = screenSource
             .substringAfter("val applyTvSubtitleSelection")
             .substringBefore("DisposableEffect(context)")
         val uiUpdateIndex = selectionBlock.indexOf("viewModel.onSubtitleSelectionApplied(idx)")
-        val backendIndex = selectionBlock.indexOf("videoBackend?.selectSubtitle(selectedTrack)")
+        val backendIndex = selectionBlock.indexOf("backend.selectSubtitle(selectedTrack)")
+        val missingTrackGuardIndex = selectionBlock.indexOf("if (idx >= 0 && selectedTrack == null)")
 
-        assertTrue(uiUpdateIndex >= 0, "selection should optimistically update the checkmark")
+        assertTrue(missingTrackGuardIndex >= 0, "unknown positive subtitle indexes must not be treated as Off")
+        assertTrue(uiUpdateIndex >= 0, "selection should update the checkmark after the backend accepts it")
         assertTrue(backendIndex >= 0, "selection should still apply the Media3 subtitle track")
         assertTrue(
-            uiUpdateIndex < backendIndex,
-            "UI state must not wait for Media3 track selection to succeed",
+            backendIndex < uiUpdateIndex,
+            "UI state must not advance until Media3 accepts the same subtitle track",
+        )
+    }
+
+    @Test
+    fun hiddenLeftRightDpadSkipsInsteadOfRevealingOverlay() {
+        assertTrue(screenSource.contains("TvPlayerRemoteKeyAction.SkipBack"))
+        assertTrue(screenSource.contains("TvPlayerRemoteKeyAction.SkipForward"))
+        assertTrue(screenSource.contains("performRelativeSeek(-SKIP_BACK_MS"))
+        assertTrue(screenSource.contains("performRelativeSeek(SKIP_FORWARD_MS"))
+        assertTrue(
+            screenSource.contains("tvPlayerIdleOverlayRemoteKeyAction("),
+            "Visible idle overlay must use the tested remote-key mapping too.",
+        )
+        assertFalse(
+            screenSource.contains("event.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_BACK &&\n                    !state.showControls"),
+            "Hidden controls must not treat every non-Back key as a chrome reveal; left/right are transport keys.",
         )
     }
 

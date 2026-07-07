@@ -116,6 +116,7 @@ import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.siloserver.silo.model.settings.legacyPosition
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
+import org.siloserver.silo.model.watchtogether.RoomSnapshot
 import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
 import org.siloserver.silo.tv.R
 import org.siloserver.silo.tv.cast.TvSiloCastPlayerAdapter
@@ -434,14 +435,23 @@ fun TvPlayerScreen(
             onPlayNext(req.contentId, req.autoAdvanceCount, req.preferredQuality)
         }
     }
-    val applyTvSubtitleSelection: (Int, Boolean) -> Unit = { idx, dismiss ->
+    val applyTvSubtitleSelection: (Int, Boolean) -> Unit = selection@{ idx, dismiss ->
         val selectedTrack = state.subtitleTracks
             .firstOrNull { it.index == idx }
             ?.toVideoTrackEntry()
-        viewModel.onManualSubtitleSelectionIntent()
-        viewModel.onSubtitleSelectionApplied(idx)
-        if (dismiss) viewModel.closeSubtitleMenu()
-        if (videoBackend?.selectSubtitle(selectedTrack) == true) {
+        if (idx >= 0 && selectedTrack == null) {
+            Log.w(TAG, "Subtitle selection ignored: index=$idx not found")
+            return@selection
+        }
+        val backend = videoBackend
+        if (backend == null) {
+            Log.w(TAG, "Subtitle selection deferred or failed for index=$idx: backend unavailable")
+            return@selection
+        }
+        if (backend.selectSubtitle(selectedTrack)) {
+            viewModel.onManualSubtitleSelectionIntent()
+            viewModel.onSubtitleSelectionApplied(idx)
+            if (dismiss) viewModel.closeSubtitleMenu()
             viewModel.persistSubtitleSelection(idx)
         } else {
             Log.w(TAG, "Subtitle selection deferred or failed for index=$idx")
@@ -459,6 +469,31 @@ fun TvPlayerScreen(
             val soloTarget = viewModel.onSkipIntroNow() ?: return false
             mediaController?.seekTo((soloTarget * 1000).toLong())
         }
+        return true
+    }
+
+    fun performRelativeSeek(
+        deltaMs: Long,
+        snapshot: RoomSnapshot?,
+        revealControls: Boolean,
+    ): Boolean {
+        val controller = mediaController ?: return true
+        if (roomController != null &&
+            tvRoomTransportGate(snapshot, TvTransportIntent.Seek) != TransportGate.Send
+        ) {
+            return true
+        }
+        val duration = controller.duration
+        val upperBound = if (duration > 0L) duration else Long.MAX_VALUE
+        val target = (controller.currentPosition + deltaMs)
+            .coerceAtLeast(0L)
+            .coerceAtMost(upperBound)
+        if (roomController != null) {
+            roomController.onUserSeek(target / 1000.0)
+        } else {
+            controller.seekTo(target)
+        }
+        if (revealControls) viewModel.setControlsVisible(true)
         return true
     }
 
@@ -598,6 +633,10 @@ fun TvPlayerScreen(
                     transportFocusRequest++
                     true
                 }
+                TvPlayerRemoteKeyAction.SkipBack ->
+                    performRelativeSeek(-SKIP_BACK_MS, latestRoomSnapshot, revealControls = false)
+                TvPlayerRemoteKeyAction.SkipForward ->
+                    performRelativeSeek(SKIP_FORWARD_MS, latestRoomSnapshot, revealControls = false)
                 TvPlayerRemoteKeyAction.OpenHud -> {
                     requestedHudTab = HudTab.Info
                     viewModel.openHUD()
@@ -944,12 +983,14 @@ fun TvPlayerScreen(
     LaunchedEffect(videoBackend) {
         val backend = videoBackend ?: return@LaunchedEffect
         viewModel.subtitleSelectRequests.collect { idx ->
+            if (idx == -1) {
+                if (backend.selectSubtitle(null)) viewModel.onSubtitleSelectionApplied(idx)
+                return@collect
+            }
             val selectedTrack = viewModel.uiState.value.subtitleTracks
                 .firstOrNull { it.index == idx }
                 ?.toVideoTrackEntry()
-            // idx == -1 (disable) yields a null track, which selectSubtitle treats
-            // as "turn off"; an unknown idx also yields null and is a safe no-op.
-            if (backend.selectSubtitle(selectedTrack)) {
+            if (selectedTrack != null && backend.selectSubtitle(selectedTrack)) {
                 viewModel.onSubtitleSelectionApplied(idx)
             }
         }
@@ -1096,8 +1137,34 @@ fun TvPlayerScreen(
             .focusRequester(rootFocus)
             .focusable()
             .onPreviewKeyEvent { event ->
+                if (!state.showControls) {
+                    when (
+                        tvPlayerRemoteKeyAction(
+                            keyCode = event.nativeKeyEvent.keyCode,
+                            action = event.nativeKeyEvent.action,
+                            repeatCount = event.nativeKeyEvent.repeatCount,
+                        )
+                    ) {
+                        TvPlayerRemoteKeyAction.SkipBack ->
+                            return@onPreviewKeyEvent performRelativeSeek(
+                                -SKIP_BACK_MS,
+                                roomSnapshot,
+                                revealControls = false,
+                            )
+                        TvPlayerRemoteKeyAction.SkipForward ->
+                            return@onPreviewKeyEvent performRelativeSeek(
+                                SKIP_FORWARD_MS,
+                                roomSnapshot,
+                                revealControls = false,
+                            )
+                        TvPlayerRemoteKeyAction.ConsumeOnly -> return@onPreviewKeyEvent true
+                        else -> Unit
+                    }
+                }
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
                     event.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_BACK &&
+                    event.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_DPAD_LEFT &&
+                    event.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_DPAD_RIGHT &&
                     !state.showControls
                 ) {
                     viewModel.setControlsVisible(true)
@@ -1192,29 +1259,22 @@ fun TvPlayerScreen(
                         transportEnabled = canSeekInRoom,
                         playPauseEnabled = canPlayPauseInRoom,
                         onSkipBack = {
-                            val c = mediaController ?: return@TvPlayerIdleOverlay
-                            if (!canSeekInRoom) return@TvPlayerIdleOverlay
-                            val target = (c.currentPosition - SKIP_BACK_MS)
-                                .coerceAtLeast(0L)
-                            if (roomController != null) {
-                                roomController.onUserSeek(target / 1000.0)
-                            } else {
-                                c.seekTo(target)
+                            if (canSeekInRoom) {
+                                performRelativeSeek(
+                                    -SKIP_BACK_MS,
+                                    roomSnapshot,
+                                    revealControls = true,
+                                )
                             }
-                            viewModel.setControlsVisible(true)
                         },
                         onSkipForward = {
-                            val c = mediaController ?: return@TvPlayerIdleOverlay
-                            if (!canSeekInRoom) return@TvPlayerIdleOverlay
-                            val dur = c.duration.coerceAtLeast(0L)
-                            val target = (c.currentPosition + SKIP_FORWARD_MS)
-                                .coerceAtMost(dur)
-                            if (roomController != null) {
-                                roomController.onUserSeek(target / 1000.0)
-                            } else {
-                                c.seekTo(target)
+                            if (canSeekInRoom) {
+                                performRelativeSeek(
+                                    SKIP_FORWARD_MS,
+                                    roomSnapshot,
+                                    revealControls = true,
+                                )
                             }
-                            viewModel.setControlsVisible(true)
                         },
                         onBeginScrub = { viewModel.beginScrub() },
                         onUpdateScrub = { sec -> viewModel.updateScrubPreview(sec) },
@@ -1589,7 +1649,7 @@ private fun TvPlayerIdleOverlay(
             .fillMaxSize()
             .onPreviewKeyEvent { event ->
                 when (
-                    tvPlayerRemoteKeyAction(
+                    tvPlayerIdleOverlayRemoteKeyAction(
                         keyCode = event.nativeKeyEvent.keyCode,
                         action = event.nativeKeyEvent.action,
                         repeatCount = event.nativeKeyEvent.repeatCount,
@@ -1601,6 +1661,14 @@ private fun TvPlayerIdleOverlay(
                     }
                     TvPlayerRemoteKeyAction.FocusTransport -> {
                         runCatching { playPauseFocus.requestFocus() }
+                        true
+                    }
+                    TvPlayerRemoteKeyAction.SkipBack -> {
+                        onSkipBack()
+                        true
+                    }
+                    TvPlayerRemoteKeyAction.SkipForward -> {
+                        onSkipForward()
                         true
                     }
                     TvPlayerRemoteKeyAction.OpenHud -> {
