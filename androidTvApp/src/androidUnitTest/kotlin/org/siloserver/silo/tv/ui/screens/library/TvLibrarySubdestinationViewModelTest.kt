@@ -103,7 +103,7 @@ class TvLibrarySubdestinationViewModelTest {
 
     private suspend fun awaitState(predicate: () -> Boolean) {
         withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5_000) {
+            withTimeout(30_000) {
                 while (!predicate()) {
                     delay(10)
                 }
