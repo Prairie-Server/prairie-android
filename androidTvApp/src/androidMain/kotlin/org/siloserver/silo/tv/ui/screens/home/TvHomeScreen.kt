@@ -13,10 +13,8 @@ import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import org.siloserver.silo.tv.ui.components.TvMediaCardActions
-import org.siloserver.silo.tv.ui.components.TvRowStyle
 import org.siloserver.silo.tv.ui.components.TvSkylineSectionFeed
 import org.siloserver.silo.tv.ui.components.isTvProgressRow
-import org.siloserver.silo.tv.ui.util.visibleOnTv
 import org.siloserver.silo.viewmodel.HomeViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -36,7 +34,7 @@ fun TvHomeScreen(
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val visibleSections = remember(state.sections) { state.sections.visibleOnTv() }
+    val visibleSections = remember(state.sections) { state.sections.normalizeTvHomeSections() }
 
     when {
         state.isLoading && state.sections.isEmpty() -> TvLoadingScreen(
@@ -93,7 +91,7 @@ private fun TvHomeContent(
             section.isTvProgressRow()
         },
         styleForSection = { section ->
-            if (section.isTvProgressRow()) TvRowStyle.Backdrop else TvRowStyle.Poster
+            section.tvHomeRowStyle()
         },
         cardActions = { section, item ->
             val isProgressRow = section.isTvProgressRow()

@@ -84,6 +84,70 @@ class TvPlayerRemoteKeyActionTest {
     }
 
     @Test
+    fun leftAndRightSeekDuringPlaybackInsteadOfOpeningChrome() {
+        assertEquals(
+            TvPlayerRemoteKeyAction.SkipBack,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_LEFT,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 0,
+            ),
+        )
+        assertEquals(
+            TvPlayerRemoteKeyAction.SkipForward,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 0,
+            ),
+        )
+        assertEquals(
+            TvPlayerRemoteKeyAction.ConsumeOnly,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_LEFT,
+                action = KeyEvent.ACTION_UP,
+                repeatCount = 0,
+            ),
+        )
+        assertEquals(
+            TvPlayerRemoteKeyAction.ConsumeOnly,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 1,
+            ),
+        )
+    }
+
+    @Test
+    fun visibleIdleOverlayLeftAndRightUseSkipActions() {
+        assertEquals(
+            TvPlayerRemoteKeyAction.SkipBack,
+            tvPlayerIdleOverlayRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_LEFT,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 0,
+            ),
+        )
+        assertEquals(
+            TvPlayerRemoteKeyAction.SkipForward,
+            tvPlayerIdleOverlayRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 0,
+            ),
+        )
+        assertEquals(
+            TvPlayerRemoteKeyAction.ConsumeOnly,
+            tvPlayerIdleOverlayRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
+                action = KeyEvent.ACTION_UP,
+                repeatCount = 0,
+            ),
+        )
+    }
+
+    @Test
     fun nonMatchingActionsAndUnhandledKeysFallThrough() {
         assertNull(
             tvPlayerRemoteKeyAction(

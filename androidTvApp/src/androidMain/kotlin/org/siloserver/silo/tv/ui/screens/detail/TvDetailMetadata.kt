@@ -43,7 +43,11 @@ internal object TvDetailMetadata {
     fun ratingChip(detail: ItemDetail): String? =
         detail.contentRating?.trim()?.takeIf { it.isNotEmpty() }
 
-    fun factsLine(detail: ItemDetail, preferredQuality: String? = null): List<TvHeroFactToken> {
+    fun factsLine(
+        detail: ItemDetail,
+        preferredQuality: String? = null,
+        selectedFileId: Int? = null,
+    ): List<TvHeroFactToken> {
         val tokens = mutableListOf<TvHeroFactToken>()
         if (detail.year > 0) tokens += TvHeroFactToken.TextToken(detail.year.toString())
         when {
@@ -57,7 +61,7 @@ internal object TvDetailMetadata {
         detail.ratingImdb?.let {
             tokens += TvHeroFactToken.TextToken("★ ${formatOneDecimal(it)}")
         }
-        tokens += qualityTokens(detail, preferredQuality)
+        tokens += qualityTokens(detail, preferredQuality, selectedFileId)
         return tokens
     }
 
@@ -125,8 +129,12 @@ internal object TvDetailMetadata {
         return "$whole.$tenths"
     }
 
-    private fun qualityTokens(detail: ItemDetail, preferredQuality: String?): List<TvHeroFactToken> {
-        val version = preferredVersion(detail, preferredQuality) ?: return emptyList()
+    private fun qualityTokens(
+        detail: ItemDetail,
+        preferredQuality: String?,
+        selectedFileId: Int?,
+    ): List<TvHeroFactToken> {
+        val version = preferredVersion(detail, preferredQuality, selectedFileId) ?: return emptyList()
         val tokens = mutableListOf<TvHeroFactToken>()
         resolutionLabel(version.resolution)?.let { tokens += TvHeroFactToken.Chip(it) }
         if (version.hdr) tokens += TvHeroFactToken.Chip(dolbyVisionLabel(version) ?: "HDR")
@@ -135,10 +143,14 @@ internal object TvDetailMetadata {
         return tokens
     }
 
-    private fun preferredVersion(detail: ItemDetail, preferredQuality: String?): FileVersion? {
+    private fun preferredVersion(
+        detail: ItemDetail,
+        preferredQuality: String?,
+        selectedFileId: Int?,
+    ): FileVersion? {
         return selectTvDetailDisplayVersion(
             versions = detail.versions,
-            selectedFileId = null,
+            selectedFileId = selectedFileId,
             lastFileId = detail.userData?.lastFileId,
             preferredQuality = preferredQuality,
         )

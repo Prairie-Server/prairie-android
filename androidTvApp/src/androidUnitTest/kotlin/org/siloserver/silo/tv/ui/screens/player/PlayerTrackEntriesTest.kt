@@ -43,7 +43,7 @@ class PlayerTrackEntriesTest {
     }
 
     @Test
-    fun subtitleSelectionStateUpdatesOptimistically() {
+    fun subtitleSelectionStateMarksOnlyTheAppliedTrack() {
         val tracks = listOf(
             PlayerTrackEntry(index = 0, label = "English", language = "en", isSelected = false),
             PlayerTrackEntry(index = 1, label = "Dutch", language = "nl", isSelected = false),

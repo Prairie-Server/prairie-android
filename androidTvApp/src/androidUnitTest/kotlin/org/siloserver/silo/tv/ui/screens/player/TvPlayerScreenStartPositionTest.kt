@@ -56,7 +56,8 @@ class TvPlayerScreenStartPositionTest {
     @Test
     fun tvPlayerRoutesTrackSelectionThroughBackend() {
         assertTrue(
-            source.contains("videoBackend?.selectSubtitle("),
+            source.contains("backend.selectSubtitle(") ||
+                source.contains("videoBackend?.selectSubtitle("),
             "TV subtitle selection must go through the mounted backend",
         )
         assertTrue(

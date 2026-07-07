@@ -194,6 +194,11 @@ private fun TvDetailContent(
             emptyList()
         }
     }
+    val heroSelectedFileId = if (detail.type == "series" || detail.type == "season") {
+        state.selectedNextUpFileId
+    } else {
+        state.selectedFileId
+    }
     var chaptersDialogOpen by remember(detail.contentId) { mutableStateOf(false) }
 
     // The first focusable body rail (episode rail, else cast). An Up press from
@@ -240,7 +245,11 @@ private fun TvDetailContent(
                             ratingChip = TvDetailMetadata.ratingChip(detail),
                             overview = detail.overview,
                             tagline = detail.tagline,
-                            factsLine = TvDetailMetadata.factsLine(detail, state.preferredQuality),
+                            factsLine = TvDetailMetadata.factsLine(
+                                detail = detail,
+                                preferredQuality = state.preferredQuality,
+                                selectedFileId = heroSelectedFileId,
+                            ),
                             starringText = TvDetailMetadata.starringText(detail),
                             actions = {
                                 HeroActionRow(

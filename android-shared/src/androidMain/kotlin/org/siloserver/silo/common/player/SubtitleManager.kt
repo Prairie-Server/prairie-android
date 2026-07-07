@@ -381,6 +381,30 @@ internal fun displayedSubtitleVideoRect(
     )
 }
 
+internal fun displayedSubtitleContentFrameRect(
+    viewWidth: Int,
+    viewHeight: Int,
+    frameLeft: Int,
+    frameTop: Int,
+    frameWidth: Int,
+    frameHeight: Int,
+): SubtitleVideoRect? {
+    if (viewWidth <= 0 || viewHeight <= 0 || frameWidth <= 0 || frameHeight <= 0) {
+        return null
+    }
+    val visibleLeft = frameLeft.coerceAtLeast(0)
+    val visibleTop = frameTop.coerceAtLeast(0)
+    val visibleRight = (frameLeft + frameWidth).coerceAtMost(viewWidth)
+    val visibleBottom = (frameTop + frameHeight).coerceAtMost(viewHeight)
+    if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return null
+    return SubtitleVideoRect(
+        left = visibleLeft - frameLeft,
+        top = visibleTop - frameTop,
+        width = visibleRight - visibleLeft,
+        height = visibleBottom - visibleTop,
+    )
+}
+
 @UnstableApi
 private class SubtitleVideoRectSync(playerView: PlayerView) :
     View.OnLayoutChangeListener,
@@ -439,14 +463,15 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     private fun applyRect(playerView: PlayerView) {
         val subtitleView = playerView.subtitleView ?: return
         val videoSize = playerView.player?.videoSize ?: VideoSize.UNKNOWN
-        val rect = displayedSubtitleVideoRect(
-            viewWidth = playerView.width,
-            viewHeight = playerView.height,
-            videoWidth = videoSize.width,
-            videoHeight = videoSize.height,
-            videoPixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
-            resizeMode = playerView.resizeMode,
-        )
+        val rect = playerView.contentFrameSubtitleRect()
+            ?: displayedSubtitleVideoRect(
+                viewWidth = playerView.width,
+                viewHeight = playerView.height,
+                videoWidth = videoSize.width,
+                videoHeight = videoSize.height,
+                videoPixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
+                resizeMode = playerView.resizeMode,
+            )
         val current = subtitleView.layoutParams as? FrameLayout.LayoutParams
         val params = current ?: FrameLayout.LayoutParams(rect.width, rect.height)
         val gravity = Gravity.TOP or Gravity.START
@@ -477,6 +502,20 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
         playerView?.removeOnAttachStateChangeListener(this)
         isDisposed = true
     }
+}
+
+private fun PlayerView.contentFrameSubtitleRect(): SubtitleVideoRect? {
+    val frame = findViewById<AspectRatioFrameLayout>(
+        androidx.media3.ui.R.id.exo_content_frame
+    ) ?: return null
+    return displayedSubtitleContentFrameRect(
+        viewWidth = width,
+        viewHeight = height,
+        frameLeft = frame.left,
+        frameTop = frame.top,
+        frameWidth = frame.width,
+        frameHeight = frame.height,
+    )
 }
 
 internal fun resolveSubtitleUrl(serverUrl: String, url: String): String =

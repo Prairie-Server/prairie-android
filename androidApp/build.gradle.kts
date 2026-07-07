@@ -17,7 +17,7 @@ if (file("google-services.json").isFile) {
 val siloVersionName = providers
     .gradleProperty("siloVersionName")
     .orElse(providers.environmentVariable("SILO_VERSION_NAME"))
-    .orElse("1.0.0")
+    .orElse("0.2.6")
 
 val siloVersionCode = providers
     .gradleProperty("siloVersionCode")
@@ -33,9 +33,9 @@ val siloVersionCode = providers
         }
         code
     }
-    // Bump this per release. base -> phone = base*2, TV = base*2+1. base 5 was
-    // the 10/11 build; base 6 -> phone 12, TV 13.
-    .orElse(6)
+    // Bump this per release. base -> phone = base*2, TV = base*2+1. base 6 was
+    // the 12/13 build; base 7 -> phone 14, TV 15.
+    .orElse(7)
 
 // APK ABI splits (below) are incompatible with the App Bundle build:
 // PerModuleBundleTask.getResourcesFile() expects a single processed-resources
