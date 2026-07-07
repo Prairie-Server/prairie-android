@@ -75,9 +75,12 @@ fun subtitleAppearanceToMpvProperties(
     }
 
     props["sub-pos"] = a.position.legacyPosition.toString()
-    // Bottom drops into the letterbox bar when margins are usable (Apple's
-    // ass_set_use_margins analog).
-    props["sub-use-margins"] = if (a.position == org.siloserver.silo.model.settings.SubtitlePositionPreset.Bottom) "yes" else "no"
+    // Subtitles anchor to the VISIBLE VIDEO frame, never the letterbox bars —
+    // deliberate deviation from Apple (whose Bottom preset drops into the
+    // tvOS letterbox via ass_set_use_margins): position presets should mean
+    // top/bottom of the movie, not of the screen. Also matches MpvPlayer's
+    // init default (sub-use-margins=no).
+    props["sub-use-margins"] = "no"
     return props
 }
 
