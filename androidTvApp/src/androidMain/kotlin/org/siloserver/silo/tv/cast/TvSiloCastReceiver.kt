@@ -13,6 +13,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -86,6 +87,25 @@ class TvSiloCastReceiver(
             )
             Log.i(TAG, "SiloCast listening on ${socket.localPort} for ${SiloCastProtocol.serviceType}")
             acceptLoop(socket)
+        }
+        // Keep the Bonjour TXT record in sync with the active server while the
+        // receiver runs (it stays up across server switches until onStop), and
+        // drop the live controller session — its hello was authorized against
+        // the previous server, so keeping it would let an old-server remote
+        // drive playback on the new one.
+        newScope.launch {
+            serverRegistry.activeEntry.drop(1).collect { entry ->
+                closePreviousController()
+                val port = synchronized(this@TvSiloCastReceiver) { serverSocket?.localPort }
+                if (port != null) {
+                    advertiser.start(
+                        port = port,
+                        serverId = entry?.id,
+                        serverName = entry?.displayName,
+                        playing = activePlayer != null,
+                    )
+                }
+            }
         }
     }
 
