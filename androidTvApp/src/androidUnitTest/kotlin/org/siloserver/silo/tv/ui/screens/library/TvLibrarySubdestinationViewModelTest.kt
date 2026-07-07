@@ -9,8 +9,10 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -92,11 +94,19 @@ class TvLibrarySubdestinationViewModelTest {
         assertEquals(null, viewModel.uiState.value.selectedAudiobookGroup)
     }
 
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
     private fun runLibraryTest(block: suspend () -> Unit) = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             block()
         } finally {
+            // Cancel viewModelScope coroutines BEFORE resetting Main: they
+            // dispatch on Dispatchers.Main, and one still alive when a later
+            // test calls setMain throws IllegalStateException from
+            // TestMainDispatcher — the CI-only flake on this class.
+            createdViewModels.forEach { it.viewModelScope.cancel() }
+            createdViewModels.clear()
             Dispatchers.resetMain()
         }
     }
@@ -204,7 +214,7 @@ class TvLibrarySubdestinationViewModelTest {
             libraryId = 7,
             libraryTitle = "Library",
             libraryType = libraryType,
-        )
+        ).also { createdViewModels += it }
     }
 
     private fun MockRequestHandleScope.respondJson(body: String) = respond(

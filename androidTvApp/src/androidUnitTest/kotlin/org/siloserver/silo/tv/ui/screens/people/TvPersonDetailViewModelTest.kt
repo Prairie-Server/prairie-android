@@ -12,8 +12,10 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -31,7 +33,7 @@ class TvPersonDetailViewModelTest {
     @Test
     fun loadMoreAppendsSecondPageUsingSnapshotAndRawOffset() = runPersonTest {
         val queries = mutableListOf<Map<String, String?>>()
-        val viewModel = TvPersonDetailViewModel(repositoryFor(queries), personId = 7)
+        val viewModel = createViewModel(queries)
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems && it.items.size == 59 }
 
         viewModel.loadMoreIfNeeded()
@@ -50,7 +52,7 @@ class TvPersonDetailViewModelTest {
     @Test
     fun filterChangeResetsItemsSnapshotAndOffset() = runPersonTest {
         val queries = mutableListOf<Map<String, String?>>()
-        val viewModel = TvPersonDetailViewModel(repositoryFor(queries), personId = 7)
+        val viewModel = createViewModel(queries)
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems && it.items.size == 59 }
 
         viewModel.loadMoreIfNeeded()
@@ -69,7 +71,7 @@ class TvPersonDetailViewModelTest {
 
     @Test
     fun tvFiltersExcludeReadingSurface() = runPersonTest {
-        val viewModel = TvPersonDetailViewModel(repositoryFor(mutableListOf()), personId = 7)
+        val viewModel = createViewModel()
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems }
 
         assertEquals(
@@ -79,11 +81,25 @@ class TvPersonDetailViewModelTest {
         assertFalse(viewModel.uiState.value.availableFilters.any { it.title == "Reading" })
     }
 
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun createViewModel(
+        queries: MutableList<Map<String, String?>> = mutableListOf(),
+    ): TvPersonDetailViewModel =
+        TvPersonDetailViewModel(repositoryFor(queries), personId = 7)
+            .also { createdViewModels += it }
+
     private fun runPersonTest(block: suspend () -> Unit) = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             block()
         } finally {
+            // Cancel viewModelScope coroutines BEFORE resetting Main: they
+            // dispatch on Dispatchers.Main, and one still alive when a later
+            // test calls setMain throws IllegalStateException from
+            // TestMainDispatcher — the CI-only flake on this class.
+            createdViewModels.forEach { it.viewModelScope.cancel() }
+            createdViewModels.clear()
             Dispatchers.resetMain()
         }
     }
