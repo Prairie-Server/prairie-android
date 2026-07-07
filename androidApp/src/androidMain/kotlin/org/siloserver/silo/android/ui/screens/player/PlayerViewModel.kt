@@ -874,7 +874,9 @@ class PlayerViewModel(
                 sessionId = sessionId,
                 userId = 0,
                 profileId = null,
-                mediaFileId = version.fileId,
+                mediaFileId = version.fileId.also {
+                    org.siloserver.silo.common.player.ActivePlaybackFile.set(it)
+                },
                 playMethod = state.playMethod ?: PlayMethod.DIRECT,
                 position = state.position,
                 isPaused = state.isPaused,
@@ -1263,15 +1265,25 @@ class PlayerViewModel(
                 is ApiResult.Success -> {
                     val response = result.data
                     persistAudioTrackSelection(response.audioTrackIndex)
-                    // If the server provided a new stream URL, update the state
+                    // If the server provided a new stream URL (the switch forced
+                    // a transcode), update the state. The remount is keyed on
+                    // streamUrl, so startPosition must move to the playhead the
+                    // server cut at — leaving the original start makes playback
+                    // jump backwards after the switch. The plan is kept: nulling
+                    // it degraded any later recovery straight to full transcode.
                     if (response.streamUrl != currentState.streamUrl) {
+                        // The switch request carried currentState.position as
+                        // the cut point; the response has no position field,
+                        // so resume exactly there.
+                        val resumeAt = currentState.position
                         _uiState.update {
                             it.copy(
                                 streamUrl = response.streamUrl,
                                 playMethod = response.playMethod,
-                                playbackPlan = null,
                                 delivery = null,
                                 selectedAudioIndex = response.audioTrackIndex,
+                                startPosition = resumeAt,
+                                position = resumeAt,
                             )
                         }
                     }
@@ -2159,6 +2171,7 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        org.siloserver.silo.common.player.ActivePlaybackFile.clear(currentFileId())
         resetPlaybackRecoveryState()
         super.onCleared()
         // Guarantee the final resume position is persisted on teardown. onExit's

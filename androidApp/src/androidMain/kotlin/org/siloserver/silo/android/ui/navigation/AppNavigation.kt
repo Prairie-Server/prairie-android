@@ -100,12 +100,28 @@ fun AppNavigation(
         }
     }
 
+    // Keyed on the route so a notification arriving later restarts the
+    // collection; currentBackStackEntryFlow emits the current entry
+    // immediately on collect, so both "route arrives while on Main" and
+    // "Main arrives with route queued" are covered.
     LaunchedEffect(pendingExternalRoute) {
-        val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        navController.navigate(route) {
-            launchSingleTop = true
+        // Consume only while the main (authenticated) graph is showing —
+        // a notification tapped pre-sign-in stays queued until auth lands,
+        // instead of pushing its target over Login. The back-stack flow makes
+        // this re-fire when Main arrives with the route still pending.
+        navController.currentBackStackEntryFlow.collect { entry ->
+            val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@collect
+            val authRoutes = setOf(
+                Route.Login.route,
+                Route.ServerSetup.route,
+                Route.ProfileSelection.route,
+            )
+            if (entry.destination.route in authRoutes) return@collect
+            navController.navigate(route) {
+                launchSingleTop = true
+            }
+            onExternalRouteConsumed()
         }
-        onExternalRouteConsumed()
     }
 
     // Re-read the authenticated profile id whenever the current destination

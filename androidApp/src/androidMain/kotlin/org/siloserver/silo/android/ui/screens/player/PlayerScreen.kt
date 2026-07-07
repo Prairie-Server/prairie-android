@@ -811,7 +811,7 @@ fun PlayerScreen(
             // appearance flow emits a new value. The PlayerView's `subtitleView`
             // is a child added on first inflation, so the apply must happen at
             // least once after the AndroidView factory runs.
-            LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, resizeMode) {
+            LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, resizeMode, uiState.selectedSubtitleIndex) {
                 // MPV renders subtitles itself (libass on its own surface) —
                 // push the same appearance into it; authored ASS stays intact.
                 (sessionPlayer as? org.siloserver.silo.common.player.mpv.MpvSubtitleStyleController)

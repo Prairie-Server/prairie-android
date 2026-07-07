@@ -1409,10 +1409,20 @@ class MpvPlayer(
 
     override fun onAudioFocusChange(focusChange: Int) {
         when (focusChange) {
-            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                // Permanent loss (another app claimed playback): pause and do
+                // NOT arm auto-resume — regaining focus later must not blast
+                // audio the user stopped expecting.
+                audioFocusCallback = {}
+                playWhenReady = false
+            }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                // Capture BEFORE pausing: reading playWhenReady inside the
+                // GAIN callback always saw the false we are about to write,
+                // so playback never resumed after a notification sound.
+                val wasPlaying = getPlayWhenReady()
                 audioFocusCallback = {
-                    if (getPlayWhenReady()) {
+                    if (wasPlaying) {
                         playWhenReady = true
                     }
                     audioFocusCallback = {}

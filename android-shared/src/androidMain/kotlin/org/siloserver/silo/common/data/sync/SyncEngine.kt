@@ -87,7 +87,20 @@ class SyncEngine(
             for (op in batch) {
                 if (dao.claim(op.id) != 1) continue // lost the claim; skip
 
-                when (dispatch(op, scope)) {
+                val outcome = try {
+                    dispatch(op, scope)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    // A malformed payload (rows predating input validation, or
+                    // written by another code path) must not rethrow: the
+                    // worker would retry forever and every other op for the
+                    // scope would never drain again. Treat it as a terminal
+                    // rejection — drop the op and revert its projection.
+                    android.util.Log.w("SyncEngine", "op ${op.id} (${op.opKind}) failed to dispatch; dropping", t)
+                    WriteOutcome.TERMINAL
+                }
+                when (outcome) {
                     WriteOutcome.SYNCED -> {
                         dao.deleteById(op.id)
                         synced++

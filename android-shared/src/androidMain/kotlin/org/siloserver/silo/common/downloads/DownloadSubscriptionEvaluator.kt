@@ -1,5 +1,6 @@
 package org.siloserver.silo.common.downloads
 
+import kotlinx.coroutines.sync.withLock
 import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.download.DownloadSubscription
 import org.siloserver.silo.model.download.DownloadSubscriptionMediaKind
@@ -26,7 +27,17 @@ class DownloadSubscriptionEvaluator(
     private val enqueue: suspend (DownloadSubscriptionCandidate, DownloadQuality) -> Unit,
     private val allowReading: Boolean = true,
 ) {
-    suspend fun evaluate(subscription: DownloadSubscription): Int {
+    suspend fun evaluate(subscription: DownloadSubscription): Int = evaluationMutex.withLock {
+        evaluateLocked(subscription)
+    }
+
+    /**
+     * Serialized globally: the periodic worker and the Downloads screen's
+     * "run now" use different WorkManager namespaces (one-time vs periodic
+     * unique names never collide), so without this two evaluations could
+     * snapshot the same `existingFileIds` and enqueue the same episode twice.
+     */
+    private suspend fun evaluateLocked(subscription: DownloadSubscription): Int {
         if (!subscription.enabled) return 0
         if (!allowReading && subscription.mediaKind == DownloadSubscriptionMediaKind.Reading) return 0
 
@@ -44,5 +55,9 @@ class DownloadSubscriptionEvaluator(
             if (queued >= limit) break
         }
         return queued
+    }
+
+    private companion object {
+        val evaluationMutex = kotlinx.coroutines.sync.Mutex()
     }
 }

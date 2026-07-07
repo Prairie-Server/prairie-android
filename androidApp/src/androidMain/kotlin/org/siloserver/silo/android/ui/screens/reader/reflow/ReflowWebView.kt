@@ -85,6 +85,7 @@ fun ReflowWebView(
 
     DisposableEffect(webView) {
         val mainHandler = Handler(Looper.getMainLooper())
+        var disposed = false
         var readyDelivered = false
         val density = context.resources.displayMetrics.density
         val tapDetector = GestureDetector(
@@ -127,6 +128,10 @@ fun ReflowWebView(
                 val event = decodeReflowEvent(message) ?: return
                 // JS interface callbacks arrive on a background thread; hop to main.
                 mainHandler.post {
+                    // The JS bridge can deliver after dispose destroyed the
+                    // WebView; invoking callbacks against torn-down state is
+                    // pointless at best.
+                    if (disposed) return@post
                     if (event is ReflowEvent.Ready && !readyDelivered) {
                         readyDelivered = true
                         currentOnReady(ReflowController(webView))
@@ -164,6 +169,7 @@ fun ReflowWebView(
         webView.loadUrl("file:///android_asset/reader/reflow/reader.html")
 
         onDispose {
+            disposed = true
             webView.setOnTouchListener(null)
             webView.removeOnLayoutChangeListener(layoutListener)
             webView.removeJavascriptInterface("AndroidReflow")

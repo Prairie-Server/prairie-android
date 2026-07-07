@@ -1077,7 +1077,17 @@ fun TvPlayerScreen(
 
     // Apply user subtitle styling whenever the PlayerView mounts or the
     // appearance flow emits a new value. Mirrors the phone PlayerScreen.
-    LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, state.videoFillMode) {
+    // Also keyed on the selected subtitle track: MPV decides native-ASS vs
+    // forced styling from the ACTIVE track's codec, so an ASS<->SRT switch
+    // must re-evaluate (else SRT keeps ass-override=no, or force clobbers
+    // authored ASS).
+    LaunchedEffect(
+        playerViewRef,
+        subtitleAppearance,
+        sessionPlayer,
+        state.videoFillMode,
+        state.subtitleTracks.firstOrNull { it.isSelected }?.index,
+    ) {
         // MPV renders subtitles itself (libass on its own surface) — push the
         // same appearance into it; authored ASS stays intact.
         (sessionPlayer as? org.siloserver.silo.common.player.mpv.MpvSubtitleStyleController)

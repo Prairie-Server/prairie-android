@@ -52,6 +52,16 @@ class DownloadSubscriptionWorker(
         val evaluator = evaluatorFactory.create()
 
         repository.active(serverId, profileId).forEach { subscription ->
+            // A server/profile switch mid-run would make the enqueue tail file
+            // downloads under the NEW scope while the dedup snapshot belongs
+            // to the old one — stop; the next periodic fire covers the rest.
+            val liveServer = serverRegistry.activeServerId.value
+            val liveProfile = profileRepository.getActiveProfileId()
+            if (inputData.getString(KEY_SERVER_ID) == null &&
+                (liveServer != serverId || liveProfile != profileId)
+            ) {
+                return Result.success()
+            }
             runCatching {
                 evaluator.evaluate(subscription)
                 repository.updateEvaluation(serverId, profileId, subscription.id, now, null, now)

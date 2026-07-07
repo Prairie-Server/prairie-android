@@ -68,6 +68,11 @@ class TvSiloCastReceiver(
     private var scope: CoroutineScope? = null
     private var serverSocket: ServerSocket? = null
     private var activeSession: ControllerSession? = null
+
+    /** Bumped whenever the active-controller slot is force-cleared (new accept,
+     *  server switch, stop). Handshakes started before the bump must not
+     *  register — they belong to the previous epoch. */
+    private var sessionEpoch: Long = 0
     private var activePlayer: ActivePlayer? = null
     private var launchHandler: ((SiloCastLaunchRequest) -> Unit)? = null
 
@@ -144,10 +149,20 @@ class TvSiloCastReceiver(
 
     @Synchronized
     fun closePreviousController() {
-        activeSession?.let { session ->
-            session.enqueueGoodbyeAndClose()
-        }
+        val session = activeSession ?: return
         activeSession = null
+        // Newest-wins epoch: any handshake still in flight when this ran
+        // belongs to the old world and must not register (see
+        // runControllerSession).
+        sessionEpoch += 1
+        val owner = scope
+        if (owner != null) {
+            // Goodbye + teardown off the monitor — a blocking write to a
+            // half-open peer must not stall registerPlayer/stop/accept.
+            owner.launch { session.goodbyeAndClose() }
+        } else {
+            session.close()
+        }
     }
 
     private suspend fun acceptLoop(socket: ServerSocket) {
@@ -173,6 +188,7 @@ class TvSiloCastReceiver(
     }
 
     private suspend fun runControllerSession(client: Socket) {
+        val epochAtAccept = synchronized(this) { sessionEpoch }
         val tls = try {
             withContext(Dispatchers.IO) { SiloCastTls.accept(client) }
         } catch (t: Throwable) {
@@ -181,7 +197,23 @@ class TvSiloCastReceiver(
             return
         }
         val session = ControllerSession(socket = client, tls = tls, json = json)
-        synchronized(this) { activeSession = session }
+        val registered = synchronized(this) {
+            if (sessionEpoch != epochAtAccept) {
+                // A server switch / newer controller / stop() happened while
+                // this handshake was in flight — this session lost.
+                false
+            } else {
+                // Newest wins: a session that finished handshaking after us in
+                // the same epoch would have replaced us here; close any loser.
+                activeSession?.close()
+                activeSession = session
+                true
+            }
+        }
+        if (!registered) {
+            session.close()
+            return
+        }
         try {
             coroutineScope {
                 session.job = coroutineContext[Job]
@@ -212,7 +244,7 @@ class TvSiloCastReceiver(
                     delay(AUTH_GRACE_MS)
                     if (!session.isAuthorized) {
                         Log.i(TAG, "SiloCast controller never authorized; closing")
-                        session.enqueueGoodbyeAndClose()
+                        session.goodbyeAndClose()
                     }
                 }
 
@@ -252,7 +284,7 @@ class TvSiloCastReceiver(
                             ),
                         ),
                     )
-                    session.enqueueGoodbyeAndClose()
+                    session.goodbyeAndClose()
                     return false
                 }
                 session.isAuthorized = true
@@ -394,16 +426,17 @@ class TvSiloCastReceiver(
         /**
          * Best-effort `close` goodbye ahead of the FIN, then teardown. The
          * goodbye lets the peer distinguish a deliberate disconnect from a
-         * dropped link (Apple auto-reconnects on bare EOF).
+         * dropped link (Apple auto-reconnects on bare EOF). The write goes
+         * through the same mutex as every other frame so a mid-flight state
+         * push can't interleave with it; the whole thing runs suspending so
+         * callers holding the receiver monitor don't block on a dead peer's
+         * TCP buffers.
          */
-        fun enqueueGoodbyeAndClose() {
-            val payload = json.encodeToString(
-                SiloCastMessage.serializer(),
-                SiloCastMessage.Close(),
-            ).encodeToByteArray()
+        suspend fun goodbyeAndClose() {
             runCatching {
-                tls.output.write(SiloCastFrame.encode(payload))
-                tls.output.flush()
+                kotlinx.coroutines.withTimeout(GOODBYE_TIMEOUT_MS) {
+                    send(SiloCastMessage.Close())
+                }
             }
             close()
         }
@@ -428,5 +461,6 @@ class TvSiloCastReceiver(
         const val HEARTBEAT_INTERVAL_MS = 3_000L
         const val MAX_MISSED_HEARTBEATS = 3
         const val AUTH_GRACE_MS = 5_000L
+        const val GOODBYE_TIMEOUT_MS = 1_000L
     }
 }

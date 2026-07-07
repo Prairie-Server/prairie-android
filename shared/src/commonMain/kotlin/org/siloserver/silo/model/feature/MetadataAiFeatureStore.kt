@@ -21,6 +21,9 @@ class MetadataAiFeatureStore(
     private val _status = MutableStateFlow(MetadataAiStatus())
     val status: StateFlow<MetadataAiStatus> = _status.asStateFlow()
 
+    // Written on the UI dispatcher (reset) and read after IO resumption
+    // (refresh); Volatile gives the stale-response guard a happens-before.
+    @kotlin.concurrent.Volatile
     private var generation: Int = 0
 
     suspend fun refresh() {

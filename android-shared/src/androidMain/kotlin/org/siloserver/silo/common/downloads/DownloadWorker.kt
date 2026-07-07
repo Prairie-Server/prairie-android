@@ -58,7 +58,19 @@ class DownloadWorker(
     private val storage: DownloadStorage,
     private val metadataStore: DownloadMetadataStore,
     private val httpClient: HttpClient,
+    // Scope guard for the in-memory UI pushes: `repository` only mirrors the
+    // ACTIVE scope's records, and record lookup is by mediaFileId alone — a
+    // worker running for a background scope with a colliding fileId would
+    // paint progress/Failed onto the wrong scope's card. Null = legacy call
+    // sites keep the old (unguarded) behavior.
+    private val activeScope: (suspend () -> Pair<String?, String?>)? = null,
 ) : CoroutineWorker(appContext, params) {
+
+    private suspend fun uiPushAllowed(serverId: String, profileId: String): Boolean {
+        val scope = activeScope ?: return true
+        val (activeServer, activeProfile) = scope()
+        return activeServer == serverId && activeProfile == profileId
+    }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val downloadId = inputData.getString(KEY_DOWNLOAD_ID)
@@ -180,7 +192,7 @@ class DownloadWorker(
                                 // Push progress into the shared repo so any
                                 // currently-foregrounded UI re-renders without
                                 // a round-trip GET /downloads.
-                                repository.recordForFile(fileId)?.let { existing ->
+                                if (uiPushAllowed(serverId, profileId)) repository.recordForFile(fileId)?.let { existing ->
                                     repository.upsertLocal(
                                         existing.copy(
                                             bytesSent = written,
@@ -247,7 +259,7 @@ class DownloadWorker(
             // even if this attempt failed before activeUri was assigned.
             runCatching { storage.delete(serverId, profileId, fileId) }
             // Best-effort: publish failed state into the repo + sidecar.
-            val record = repository.recordForFile(fileId)
+            val record = if (uiPushAllowed(serverId, profileId)) repository.recordForFile(fileId) else null
             if (record != null) {
                 repository.upsertLocal(record.copy(status = DownloadStatus.Failed.wire))
             }

@@ -280,7 +280,14 @@ fun TvMainShell(
         profileRepository,
         activeServerEntry,
     ) {
-        val user = (authRepository.getCurrentUser() as? ApiResult.Success)?.data
+        val userResult = authRepository.getCurrentUser()
+        if (userResult !is ApiResult.Success) {
+            // Transient /me failure (offline blip, server restart): keep the
+            // previous snapshot instead of blanking it — otherwise the Admin
+            // row and account header flicker out on every hiccup.
+            return@produceState
+        }
+        val user = userResult.data
         val activeProfile = profileRepository.getActiveProfile()
         // Subtitle mirrors tvOS §5.8: role when known, falling back to username.
         val subtitle = user?.role?.takeIf { it.isNotBlank() }

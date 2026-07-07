@@ -833,6 +833,7 @@ class TvPlayerViewModel(
         manualSubtitleSelectionApplied = false
         // Fresh content: forget engines attempted for the previous item.
         attemptedEngines.clear()
+        engineSwitchFallbackAttempted = false
 
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
@@ -2125,8 +2126,14 @@ class TvPlayerViewModel(
         }
     }
 
+    private var engineSwitchFallbackAttempted = false
+
     fun onEngineSwitchFailed(message: String) {
         val state = _uiState.value
+        // One-shot per playback (phone parity): repeated SET_ENGINE failures
+        // otherwise re-enter the ladder and emit duplicate route events.
+        if (engineSwitchFallbackAttempted) return
+        engineSwitchFallbackAttempted = true
         if (state.sessionId != null) {
             // Don't blindly remux: prefer another direct engine, then fall through
             // the plan's remux/transcode ladder. A transcode-only source can't be

@@ -362,7 +362,10 @@ internal fun List<UserItemStateEntity>.latestProgress(): LocalPlaybackProgress? 
     filter { it.positionSeconds.isFinite() && it.positionSeconds > 0.0 }
         .maxWithOrNull(
             compareBy<UserItemStateEntity> { it.clientUpdatedAtMs }
-                .thenBy { it.positionSeconds },
+                .thenBy { it.positionSeconds }
+                // Deterministic final tiebreak so equal-stamped rows across
+                // file versions can't flip-flop between reads.
+                .thenBy { it.fileId },
         )
         ?.let {
             LocalPlaybackProgress(

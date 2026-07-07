@@ -9,19 +9,19 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.siloserver.silo.repository.HomeRealtimeCoordinator
-import org.siloserver.silo.repository.NotificationsRepository
+import org.siloserver.silo.repository.ProfileRepository
 
 /**
  * Drives the [HomeRealtimeCoordinator] socket off the app's foreground
  * lifecycle, mirroring NotificationsForegroundStarter: ON_START opens the
  * socket, ON_STOP tears it down, and each profile-switch reset signal
- * (shared with notifications — there is no observable active-profile flow)
+ * (ProfileRepository.profileSwitches)
  * reconnects so the coordinator's profile filter tracks the new session.
  * REST stays the source of truth; a dead socket just means pull behavior.
  */
 class HomeRealtimeForegroundStarter(
     private val coordinator: HomeRealtimeCoordinator,
-    private val notificationsRepository: NotificationsRepository,
+    private val profileRepository: ProfileRepository,
 ) : DefaultLifecycleObserver {
 
     private var realtimeScope: CoroutineScope? = null
@@ -59,7 +59,7 @@ class HomeRealtimeForegroundStarter(
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         foregroundScope = scope
         scope.launch {
-            notificationsRepository.resetSignals.collect {
+            profileRepository.profileSwitches.collect {
                 stopRealtime()
                 startRealtime()
             }

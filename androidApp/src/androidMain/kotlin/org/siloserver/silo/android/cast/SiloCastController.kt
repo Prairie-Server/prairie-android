@@ -63,6 +63,11 @@ class SiloCastController(
         ignoreUnknownKeys = true
     }
     private val sendMutex = Mutex()
+
+    // Serializes ensureConnected/closeConnection: rapid taps on different
+    // targets otherwise interleave connect/teardown across IO coroutines and
+    // tear the session vars.
+    private val connectionMutex = Mutex()
     private val clock = SiloCastPlaybackClock()
 
     private val _state = MutableStateFlow(SiloCastControllerState())
@@ -149,9 +154,9 @@ class SiloCastController(
         }
     }
 
-    private suspend fun ensureConnected(target: SiloCastTarget) {
-        if (_state.value.connectedTarget?.deviceId == target.deviceId && session?.isConnected == true) return
-        closeConnection()
+    private suspend fun ensureConnected(target: SiloCastTarget) = connectionMutex.withLock {
+        if (_state.value.connectedTarget?.deviceId == target.deviceId && session?.isConnected == true) return@withLock
+        closeConnectionLocked()
         _state.update { it.copy(isConnecting = true, error = null) }
         val newSession = withContext(Dispatchers.IO) {
             SiloCastTls.connect(target.host, target.port, CONNECT_TIMEOUT_MS)
@@ -161,6 +166,7 @@ class SiloCastController(
         _state.update { it.copy(connectedTarget = target, isConnecting = false, error = null) }
         send(SiloCastMessage.Hello(makeHello()))
         readJob = scope.launch { readLoop(newSession) }
+        Unit
     }
 
     private fun makeHello(): SiloCastHello {
@@ -230,7 +236,9 @@ class SiloCastController(
         }
     }
 
-    private fun closeConnection() {
+    private suspend fun closeConnection() = connectionMutex.withLock { closeConnectionLocked() }
+
+    private fun closeConnectionLocked() {
         runCatching { session?.close() }
         session = null
         output = null
@@ -241,7 +249,7 @@ class SiloCastController(
 
     fun close() {
         browser.stop()
-        closeConnection()
+        closeConnectionLocked()
         scope.cancel()
     }
 

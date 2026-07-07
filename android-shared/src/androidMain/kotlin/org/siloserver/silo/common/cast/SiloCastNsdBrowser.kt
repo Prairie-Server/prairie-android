@@ -17,6 +17,10 @@ data class SiloCastTarget(
     val host: String,
     val port: Int,
     val version: Int,
+    /** The mDNS instance name (may carry conflict decorations like " (2)").
+     *  onServiceLost only reports this, so removal must match on it — the
+     *  display name comes from the TXT record and can collide/diverge. */
+    val serviceName: String = name,
 )
 
 class SiloCastNsdBrowser(context: Context) {
@@ -37,13 +41,16 @@ class SiloCastNsdBrowser(context: Context) {
             }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                if (serviceInfo.serviceType != SiloCastProtocol.serviceType) return
+                // Android frequently reports the discovered type with a
+                // trailing dot ("_silocast._tcp."); exact equality would
+                // silently reject every receiver.
+                if (serviceInfo.serviceType.trimEnd('.') != SiloCastProtocol.serviceType.trimEnd('.')) return
                 resolve(serviceInfo)
             }
 
             override fun onServiceLost(serviceInfo: NsdServiceInfo) {
                 val lostName = serviceInfo.serviceName
-                _targets.update { targets -> targets.filterNot { it.name == lostName } }
+                _targets.update { targets -> targets.filterNot { it.serviceName == lostName } }
             }
 
             override fun onDiscoveryStopped(serviceType: String) {
@@ -95,9 +102,11 @@ class SiloCastNsdBrowser(context: Context) {
         val host = this.host?.hostAddress ?: return null
         val port = port.takeIf { it > 0 } ?: return null
         val name = attributes.string("name") ?: serviceName
+        val mdnsName = serviceName
         val deviceId = attributes.string("deviceId") ?: attributes.string("id") ?: "$host:$port"
         val version = attributes.string("v")?.toIntOrNull() ?: SiloCastProtocol.version
         return SiloCastTarget(
+            serviceName = mdnsName,
             deviceId = deviceId,
             name = name,
             host = host,

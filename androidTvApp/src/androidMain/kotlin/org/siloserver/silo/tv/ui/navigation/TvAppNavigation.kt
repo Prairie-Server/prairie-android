@@ -73,7 +73,10 @@ fun TvAppNavigation(
     // point the existing destination is rendered and this collector fires.
     // No special queueing path — the flow IS the queue.
     LaunchedEffect(Unit) {
-        pendingDeepLink.collect { uri ->
+        kotlinx.coroutines.flow.combine(
+            pendingDeepLink,
+            navController.currentBackStackEntryFlow,
+        ) { uri, entry -> uri to entry }.collect { (uri, entry) ->
             if (uri == null) return@collect
             // Device-pairing links (`silo://device?token=…` / `?code=…`) carry no
             // path segment — route on the query params instead of a contentId.
@@ -93,6 +96,17 @@ fun TvAppNavigation(
                 pendingDeepLink.value = null
                 return@collect
             }
+            // Content links need an authenticated session: consuming them
+            // while the auth chain is still on Login/ProfileSelection pushes
+            // a 401 detail screen over the auth flow (launcher Watch-Next
+            // tiles after session expiry hit exactly this). Leave the link
+            // queued — this collector re-runs when the value is still set and
+            // the graph reaches Main. Pairing links above stay ungated: they
+            // ARE the sign-in path.
+            // The combine with currentBackStackEntryFlow makes this re-fire
+            // when the graph lands on Main with the link still queued.
+            val onMainShell = entry.destination.route == TvRoute.Main.route
+            if (!onMainShell) return@collect
             val contentId = uri.pathSegments.lastOrNull() ?: run {
                 pendingDeepLink.value = null
                 return@collect

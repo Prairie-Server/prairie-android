@@ -10,7 +10,7 @@ class AndroidAppPackagingTest {
         val buildFile = File("build.gradle.kts").readText()
 
         assertTrue(
-            buildFile.contains("excludes += \"/META-INF/versions/9/OSGI-INF/MANIFEST.MF\""),
+            buildFile.contains("excludes += \"/META-INF/versions/*/OSGI-INF/MANIFEST.MF\""),
             "androidApp should mirror androidTvApp's packaging exclusion for duplicate BouncyCastle/jspecify multi-release OSGi manifests.",
         )
     }

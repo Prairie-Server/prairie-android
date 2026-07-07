@@ -72,7 +72,18 @@ open class ProfileRepository(
         }
         notificationsRepository?.reset()
         requestsRepository?.reset()
+        _profileSwitches.tryEmit(Unit)
     }
+
+    private val _profileSwitches = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /**
+     * Fires on every [selectProfile]. Consumers that must react to profile
+     * switches (realtime socket reconnects, scope-sensitive caches) observe
+     * this directly instead of piggybacking on another feature's reset
+     * signal.
+     */
+    val profileSwitches: kotlinx.coroutines.flow.SharedFlow<Unit> = _profileSwitches
 
     /** Returns the currently active profile ID, if any. */
     open suspend fun getActiveProfileId(): String? =
