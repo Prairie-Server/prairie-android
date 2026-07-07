@@ -82,6 +82,23 @@ fun ItemDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+
+    // Refresh on return (e.g. backing out of the player): the ViewModel loads
+    // once in init, so without this the Play button keeps the resume label
+    // computed before playback. Skips the initial ON_RESUME — loadDetail() is
+    // already in flight when the screen first lands.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        var firstResume = true
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (firstResume) firstResume = false else viewModel.refreshOnReturn()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val downloadStorage: DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
