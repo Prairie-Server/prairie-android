@@ -76,6 +76,7 @@ fun SeriesDetailContent(
     playOnDeviceLabel: String = "Play on device",
     onPlayOnDevice: (() -> Unit)? = null,
     onWatchTogether: (() -> Unit)? = null,
+    translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val dominantColor by rememberDominantColor(detail.backdropUrl, fallback = SiloBackground)
@@ -107,6 +108,7 @@ fun SeriesDetailContent(
                 sourceTokens = sourceTokens,
                 factsLine = factsLine,
                 dominantColor = dominantColor,
+                translation = translation,
             ) {
                 HeroActionStack(
                     primaryLabel = computePlayLabel(detail, nextEpisodeLabel),

@@ -15,8 +15,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Admin client surfaces are disabled for now. Acting-admin still matters
- * server-side, but this ViewModel must keep the mobile admin hub hidden.
+ * The admin stats dashboard is visible to acting admins (Apple parity);
+ * everything still folds through the gateProvider seam.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminEntryViewModelTest {
@@ -33,24 +33,12 @@ class AdminEntryViewModelTest {
     private fun vm(@Suppress("UNUSED_PARAMETER") user: User?, @Suppress("UNUSED_PARAMETER") profile: Profile?) =
         AdminEntryViewModel(gateProvider = { true })
 
-    @Test fun `admin role with primary profile is hidden while client admin is disabled`() = runTest(dispatcher) {
-        assertFalse(vm(user("admin"), profile(true)).uiState.value.isAdminVisible)
+    @Test fun `acting admin gate makes the surface visible`() = runTest(dispatcher) {
+        assertTrue(AdminEntryViewModel(gateProvider = { true }).uiState.value.isAdminVisible)
     }
 
-    @Test fun `admin role with non-primary profile is hidden`() = runTest(dispatcher) {
-        assertFalse(vm(user("admin"), profile(false)).uiState.value.isAdminVisible)
-    }
-
-    @Test fun `non-admin role is hidden even on primary profile`() = runTest(dispatcher) {
-        assertFalse(vm(user("user"), profile(true)).uiState.value.isAdminVisible)
-    }
-
-    @Test fun `admin with no active profile is hidden while client admin is disabled`() = runTest(dispatcher) {
-        assertFalse(vm(user("admin"), null).uiState.value.isAdminVisible)
-    }
-
-    @Test fun `null user is hidden`() = runTest(dispatcher) {
-        assertFalse(vm(null, profile(true)).uiState.value.isAdminVisible)
+    @Test fun `non-admin gate keeps the surface hidden`() = runTest(dispatcher) {
+        assertFalse(AdminEntryViewModel(gateProvider = { false }).uiState.value.isAdminVisible)
     }
 
     @Test fun `not loading after refresh`() = runTest(dispatcher) {

@@ -47,6 +47,16 @@ class SiloTvApplication : Application(), Configuration.Provider, SingletonImageL
         }.onFailure {
             android.util.Log.w("SiloTvApplication", "Notifications realtime starter failed", it)
         }
+        // Live-home socket (Apple realtime-updates spec). Guarded — a dead
+        // socket just means Home refreshes on open only.
+        runCatching {
+            org.siloserver.silo.tv.home.HomeRealtimeForegroundStarter(
+                coordinator = koinApp.koin.get(),
+                profileRepository = koinApp.koin.get(),
+            ).register()
+        }.onFailure {
+            android.util.Log.w("SiloTvApplication", "Home realtime starter init failed", it)
+        }
         // The androidx.startup WorkManagerInitializer is opted out in the
         // manifest; force-initialise explicitly with TvWorkerFactory now
         // that Koin is up. runCatching guards the "already initialised"

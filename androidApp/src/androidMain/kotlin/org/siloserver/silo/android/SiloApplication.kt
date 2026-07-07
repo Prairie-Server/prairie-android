@@ -67,6 +67,16 @@ class SiloApplication : Application(), Configuration.Provider, SingletonImageLoa
         }.onFailure {
             android.util.Log.w("SiloApplication", "WorkManager.initialize failed (already initialised?)", it)
         }
+        // Live-home socket (Apple realtime-updates spec). Guarded — a dead
+        // socket degrades to pull-to-refresh behavior.
+        runCatching {
+            org.siloserver.silo.android.home.HomeRealtimeForegroundStarter(
+                coordinator = koinApp.koin.get(),
+                profileRepository = koinApp.koin.get(),
+            ).register()
+        }.onFailure {
+            android.util.Log.w("SiloApplication", "Home realtime starter init failed", it)
+        }
         // Drain the user-state outbox (Track B) on launch + when connectivity
         // returns. Guarded — never load-bearing for cold start.
         runCatching {
@@ -90,6 +100,15 @@ class SiloApplication : Application(), Configuration.Provider, SingletonImageLoa
             }
         }.onFailure {
             android.util.Log.w("SiloApplication", "Legacy download importer init failed", it)
+        }
+        // Keep monitored-download subscriptions evaluated in the background.
+        // The periodic request carries no scope input, so the worker follows
+        // whatever server/profile is active when it fires. Guarded — never
+        // load-bearing for cold start.
+        runCatching {
+            org.siloserver.silo.common.downloads.DownloadSubscriptionWorker.enqueuePeriodic(this)
+        }.onFailure {
+            android.util.Log.w("SiloApplication", "Download subscription periodic enqueue failed", it)
         }
         registerDownloadsNotificationChannel()
     }

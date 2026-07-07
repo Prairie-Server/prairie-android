@@ -134,7 +134,13 @@ class MainTvActivity : ComponentActivity() {
         monitor.startForeground()
         lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
         lifecycleScope.launch(Dispatchers.IO) {
-            if (isAuthenticatedForCast()) {
+            // The auth check suspends; a quick background could run onStop's
+            // stop() first (a no-op — nothing started) and THEN this start(),
+            // leaving the receiver advertising while backgrounded. Re-check
+            // the lifecycle after the suspension.
+            if (isAuthenticatedForCast() &&
+                lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+            ) {
                 get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).start()
             }
         }
@@ -166,9 +172,9 @@ class MainTvActivity : ComponentActivity() {
      */
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        // `silo` is the current app scheme; `silo` is kept for legacy
-        // Watch Next and pairing links created by older builds.
-        if (data.scheme == "silo" || data.scheme == "silo") {
+        // `silo` is the only scheme the manifest registers; anything else is
+        // an unrelated launch intent and must not clobber a queued URI.
+        if (data.scheme == "silo") {
             pendingDeepLink.value = data
         }
     }

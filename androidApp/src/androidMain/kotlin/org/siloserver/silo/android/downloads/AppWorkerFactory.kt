@@ -50,6 +50,10 @@ class AppWorkerFactory : WorkerFactory() {
                     storage = koin.get<DownloadStorage>(),
                     metadataStore = koin.get<org.siloserver.silo.common.downloads.DownloadMetadataStore>(),
                     httpClient = koin.get<HttpClient>(),
+                    activeScope = {
+                        koin.get<org.siloserver.silo.network.ServerRegistry>().activeServerId.value to
+                            koin.get<org.siloserver.silo.repository.ProfileRepository>().getActiveProfileId()
+                    },
                 )
             }
             DownloadSubscriptionWorker::class.java.name -> {
@@ -59,6 +63,8 @@ class AppWorkerFactory : WorkerFactory() {
                     params = workerParameters,
                     repository = koin.get<DownloadSubscriptionRepository>(),
                     evaluatorFactory = koin.get<DownloadSubscriptionEvaluatorFactory>(),
+                    serverRegistry = koin.get<org.siloserver.silo.network.ServerRegistry>(),
+                    profileRepository = koin.get<org.siloserver.silo.repository.ProfileRepository>(),
                 )
             }
             SyncWorker::class.java.name -> {

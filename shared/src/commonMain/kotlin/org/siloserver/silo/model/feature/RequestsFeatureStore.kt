@@ -20,6 +20,9 @@ class RequestsFeatureStore(
     private val _isEnabled = MutableStateFlow(false)
     val isEnabled: StateFlow<Boolean> = _isEnabled.asStateFlow()
 
+    // Written on the UI dispatcher (reset) and read after IO resumption
+    // (refresh); Volatile gives the stale-response guard a happens-before.
+    @kotlin.concurrent.Volatile
     private var generation: Int = 0
 
     suspend fun refresh() {

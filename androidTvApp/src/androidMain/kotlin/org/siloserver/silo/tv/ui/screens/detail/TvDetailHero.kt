@@ -93,6 +93,9 @@ internal fun TvDetailHero(
     starringText: String?,
     actions: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    // Optional description-translation affordance (Apple tvOS parity),
+    // rendered as its own focus stop directly under the synopsis.
+    translation: (@Composable () -> Unit)? = null,
 ) {
     // heroHeight = 980 of a 1080-pt tvOS canvas ≈ 0.907 × viewport height.
     // The TV theme keeps dp geometry at device density, so screenHeightDp maps
@@ -207,6 +210,7 @@ internal fun TvDetailHero(
                 tagline = tagline,
                 factsLine = factsLine,
                 contentMaxWidth = contentMaxWidth,
+                translation = translation,
             )
 
             // Full-width, leading-aligned focus container for the action +
@@ -236,6 +240,7 @@ private fun EditorialColumn(
     tagline: String?,
     factsLine: List<TvHeroFactToken>,
     contentMaxWidth: androidx.compose.ui.unit.Dp,
+    translation: (@Composable () -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier.widthIn(max = contentMaxWidth),
@@ -263,6 +268,7 @@ private fun EditorialColumn(
         overview?.takeIf { it.isNotBlank() }?.let { line ->
             TvExpandableSynopsis(overview = line, tagline = tagline)
         }
+        translation?.invoke()
 
         if (factsLine.isNotEmpty()) {
             FactsRow(tokens = factsLine)

@@ -145,7 +145,7 @@ class RoomUserItemStateRepository(
         val snapshot = snapshotProvider() ?: return null
         val profileId = snapshot.profileId ?: return null
         return userStateDao.getByContent(snapshot.serverId, profileId, contentId)
-            .furthestProgress()
+            .latestProgress()
     }
 
     override suspend fun localPlaybackProgressForContent(contentIds: List<String>): Map<String, LocalPlaybackProgress> {
@@ -154,7 +154,7 @@ class RoomUserItemStateRepository(
         val profileId = snapshot.profileId ?: return emptyMap()
         return userStateDao.progressForContentIds(snapshot.serverId, profileId, contentIds.distinct())
             .groupBy { it.contentId }
-            .mapValues { (_, rows) -> rows.furthestProgress() }
+            .mapValues { (_, rows) -> rows.latestProgress() }
             .filterValues { it != null }
             .mapValues { (_, value) -> value!! }
     }
@@ -355,11 +355,17 @@ class RoomUserItemStateRepository(
     }
 }
 
-private fun List<UserItemStateEntity>.furthestProgress(): LocalPlaybackProgress? =
+// Newest local write wins — NOT the furthest position. Picking the max
+// position made a deliberate backward seek (or an old row for a different
+// file version) permanently shadow the real resume point.
+internal fun List<UserItemStateEntity>.latestProgress(): LocalPlaybackProgress? =
     filter { it.positionSeconds.isFinite() && it.positionSeconds > 0.0 }
         .maxWithOrNull(
-            compareBy<UserItemStateEntity> { it.positionSeconds }
-                .thenBy { it.clientUpdatedAtMs },
+            compareBy<UserItemStateEntity> { it.clientUpdatedAtMs }
+                .thenBy { it.positionSeconds }
+                // Deterministic final tiebreak so equal-stamped rows across
+                // file versions can't flip-flop between reads.
+                .thenBy { it.fileId },
         )
         ?.let {
             LocalPlaybackProgress(

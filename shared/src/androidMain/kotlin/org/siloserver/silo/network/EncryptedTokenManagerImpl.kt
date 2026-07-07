@@ -77,8 +77,31 @@ class EncryptedTokenManagerImpl(
 
     // ---- Token reads/writes (always against the active server) ----
 
-    override suspend fun getAccessToken(): String? = mutex.withLock { accessToken }
-    override suspend fun getRefreshToken(): String? = mutex.withLock { refreshToken }
+    override suspend fun getAccessToken(): String? = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        accessToken
+    }
+    override suspend fun getRefreshToken(): String? = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        refreshToken
+    }
+
+    /**
+     * The registry observer flushes the cache asynchronously; between a
+     * direct `ServerRegistry.switchTo()` and that collector running there is
+     * a window where `getServerUrl()` already answers with the NEW server
+     * while the cached credentials still belong to the OLD one — the auth
+     * plugin would then send server A's bearer/profile headers to server B.
+     * Reads therefore verify the cache against the live registry id and
+     * reload synchronously (under the same mutex) when they diverge.
+     */
+    private suspend fun ensureCacheMatchesRegistryLocked() {
+        val liveId = registry.activeServerId.value
+        if (liveId != activeServerId) {
+            activeServerId = liveId
+            reloadCacheUnsynchronized()
+        }
+    }
 
     override suspend fun saveTokens(accessToken: String, refreshToken: String, expiresIn: Long) {
         mutex.withLock {
@@ -120,7 +143,10 @@ class EncryptedTokenManagerImpl(
         _sessionExpired.tryEmit(Unit)
     }
 
-    override suspend fun getProfileId(): String? = mutex.withLock { profileId }
+    override suspend fun getProfileId(): String? = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        profileId
+    }
 
     override suspend fun setProfileId(profileId: String?) {
         mutex.withLock {
@@ -134,7 +160,10 @@ class EncryptedTokenManagerImpl(
         }
     }
 
-    override suspend fun getProfileToken(): String? = mutex.withLock { profileToken }
+    override suspend fun getProfileToken(): String? = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        profileToken
+    }
 
     override suspend fun setProfileToken(token: String?) {
         mutex.withLock {

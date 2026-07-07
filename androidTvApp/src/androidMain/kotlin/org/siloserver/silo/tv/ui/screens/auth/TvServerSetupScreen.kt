@@ -408,6 +408,13 @@ private fun ManualEntryCard(
                 style = TvServerSetupTextStyles.Error,
                 color = MaterialTheme.colorScheme.error,
             )
+        } else if (state.usesCleartext) {
+            Text(
+                text = "This server uses unencrypted HTTP. Fine on a trusted home network; " +
+                    "avoid it on public Wi-Fi.",
+                style = TvServerSetupTextStyles.Error,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Box(

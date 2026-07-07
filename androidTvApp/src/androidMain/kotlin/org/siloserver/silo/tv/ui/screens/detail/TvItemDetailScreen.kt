@@ -97,6 +97,11 @@ import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+import org.koin.compose.koinInject
+import androidx.compose.runtime.LaunchedEffect
+import org.siloserver.silo.metadata.DescriptionTranslationPhase
+import org.siloserver.silo.model.feature.MetadataAiFeatureStore
+import org.siloserver.silo.model.metadata.MetadataAiOnView
 import org.koin.core.parameter.parametersOf
 
 @Composable
@@ -213,6 +218,33 @@ private fun TvDetailContent(
         true
     }
 
+    val metadataAiStore: MetadataAiFeatureStore = koinInject()
+    val metadataAiStatus by metadataAiStore.status.collectAsState()
+    val translationPhase by viewModel.translationPhase.collectAsState()
+    // `auto` on-view mode fires once per (content, language); the
+    // controller latches so recompositions can't re-queue jobs.
+    LaunchedEffect(detail.contentId, detail.pendingTranslationLanguage, metadataAiStatus.onView) {
+        if (metadataAiStatus.onView == MetadataAiOnView.Auto &&
+            detail.pendingTranslationLanguage != null
+        ) {
+            viewModel.translateDescription(auto = true)
+        }
+    }
+    val translationSlot: (@Composable () -> Unit)? =
+        if (detail.pendingTranslationLanguage != null &&
+            (metadataAiStatus.onView == MetadataAiOnView.Button ||
+                translationPhase != DescriptionTranslationPhase.Idle)
+        ) {
+            {
+                TvDescriptionTranslationSection(
+        phase = translationPhase,
+        onTranslate = { viewModel.translateDescription() },
+                )
+            }
+        } else {
+            null
+        }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -251,6 +283,7 @@ private fun TvDetailContent(
                                 selectedFileId = heroSelectedFileId,
                             ),
                             starringText = TvDetailMetadata.starringText(detail),
+                            translation = translationSlot,
                             actions = {
                                 HeroActionRow(
                                     detail = detail,

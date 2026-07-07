@@ -53,7 +53,10 @@ import org.siloserver.silo.android.ui.components.SiloTopBar
 import org.siloserver.silo.android.ui.screens.downloads.DownloadsViewModel
 import org.siloserver.silo.android.ui.util.formatBytes
 import org.siloserver.silo.model.download.DownloadQuality
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import org.siloserver.silo.model.feature.MetadataAiFeatureStore
+import org.siloserver.silo.model.metadata.MetadataAiOnView
 
 /**
  * Main settings screen organized in grouped sections.
@@ -71,7 +74,6 @@ fun SettingsScreen(
     onLoggedOut: () -> Unit,
     onNavigateToServers: () -> Unit = {},
     onPairDevice: () -> Unit = {},
-    onNavigateToRequests: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToFavorites: () -> Unit = {},
@@ -132,7 +134,6 @@ fun SettingsScreen(
                     isAdminVisible = state.isAdminVisible,
                     onManageSessions = viewModel::loadSessions,
                     onPairDevice = onPairDevice,
-                    onRequests = onNavigateToRequests,
                     onAdmin = onNavigateToAdmin,
                     onSignOut = viewModel::logout,
                 )
@@ -175,6 +176,8 @@ fun SettingsScreen(
             }
 
             item {
+                val metadataAiStore: MetadataAiFeatureStore = koinInject()
+                val metadataAiStatus by metadataAiStore.status.collectAsState()
                 SubtitleSettings(
                     subtitleLanguage = state.subtitleLanguage,
                     subtitleMode = state.subtitleMode,
@@ -182,6 +185,10 @@ fun SettingsScreen(
                     onLanguageChanged = viewModel::setSubtitleLanguage,
                     onModeChanged = viewModel::setSubtitleMode,
                     onForcedSubtitlesChanged = viewModel::setShowForcedSubtitles,
+                    metadataLanguageEnabled = metadataAiStatus.enabled &&
+                        metadataAiStatus.onView != MetadataAiOnView.Off,
+                    metadataLanguage = state.metadataLanguage,
+                    onMetadataLanguageChanged = viewModel::setMetadataLanguage,
                 )
             }
 

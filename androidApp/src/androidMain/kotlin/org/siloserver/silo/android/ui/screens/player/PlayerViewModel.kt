@@ -173,6 +173,7 @@ class PlayerViewModel(
         val delivery: PlaybackDelivery? = null,
         val streamUrl: String? = null,
         val container: String? = null,
+        val softwareOnlyVideoCodec: Boolean = false,
         val serverUrl: String = "",
         val accessToken: String = "",
         val startPosition: Double = 0.0,
@@ -403,6 +404,17 @@ class PlayerViewModel(
     private var resolveNextEpisodeJob: Job? = null
 
     init {
+        // Reclaim-Watched must never delete the file the player is using
+        // (reachable via PiP -> Downloads). Mirror the currently-playing file
+        // id — from EVERY load path, incl. offline — into the process-wide
+        // marker; the previous single set() sat only in the recovery fallback
+        // and left the guard inert during normal/offline playback.
+        viewModelScope.launch {
+            _uiState
+                .map { it.mediaFileId }
+                .distinctUntilChanged()
+                .collect { org.siloserver.silo.common.player.ActivePlaybackFile.set(it) }
+        }
         // Mirror lifecycle Failed state into the UI error field so the user sees a
         // notice when outage recovery times out or the session fails to start. The
         // notice flow is intentionally *not* surfaced here — that's Phase 3 work.
@@ -623,6 +635,7 @@ class PlayerViewModel(
                 delivery = playbackState.delivery,
                 streamUrl = playbackState.streamUrl,
                 container = playbackState.container,
+                softwareOnlyVideoCodec = playbackState.softwareOnlyVideoCodec,
                 serverUrl = playbackState.serverUrl,
                 accessToken = playbackState.accessToken,
                 startPosition = playbackState.startPositionSeconds,
@@ -1261,15 +1274,25 @@ class PlayerViewModel(
                 is ApiResult.Success -> {
                     val response = result.data
                     persistAudioTrackSelection(response.audioTrackIndex)
-                    // If the server provided a new stream URL, update the state
+                    // If the server provided a new stream URL (the switch forced
+                    // a transcode), update the state. The remount is keyed on
+                    // streamUrl, so startPosition must move to the playhead the
+                    // server cut at — leaving the original start makes playback
+                    // jump backwards after the switch. The plan is kept: nulling
+                    // it degraded any later recovery straight to full transcode.
                     if (response.streamUrl != currentState.streamUrl) {
+                        // The switch request carried currentState.position as
+                        // the cut point; the response has no position field,
+                        // so resume exactly there.
+                        val resumeAt = currentState.position
                         _uiState.update {
                             it.copy(
                                 streamUrl = response.streamUrl,
                                 playMethod = response.playMethod,
-                                playbackPlan = null,
                                 delivery = null,
                                 selectedAudioIndex = response.audioTrackIndex,
+                                startPosition = resumeAt,
+                                position = resumeAt,
                             )
                         }
                     }
@@ -2157,6 +2180,7 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
         resetPlaybackRecoveryState()
         super.onCleared()
         // Guarantee the final resume position is persisted on teardown. onExit's

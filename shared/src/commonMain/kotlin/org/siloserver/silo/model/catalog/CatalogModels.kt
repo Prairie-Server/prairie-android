@@ -140,6 +140,9 @@ data class ItemDetail(
     @SerialName("show_status") val showStatus: String? = null,
     val year: Int = 0,
     val overview: String? = null,
+    // Non-null while a viewer-facing description translation job is queued or
+    // running for this item; clears when the translated overview lands.
+    @SerialName("pending_translation_language") val pendingTranslationLanguage: String? = null,
     val tagline: String? = null,
     val runtime: Int = 0,
     @SerialName("content_rating") val contentRating: String? = null,

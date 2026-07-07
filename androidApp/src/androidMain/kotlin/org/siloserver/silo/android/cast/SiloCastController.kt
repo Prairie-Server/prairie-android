@@ -1,6 +1,7 @@
 package org.siloserver.silo.android.cast
 
 import android.util.Log
+import java.io.OutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,20 +16,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.siloserver.silo.cast.SiloCastControlCommand
+import org.siloserver.silo.cast.SiloCastHello
 import org.siloserver.silo.cast.SiloCastLaunchRequest
 import org.siloserver.silo.cast.SiloCastMessage
+import org.siloserver.silo.cast.SiloCastPeerRole
 import org.siloserver.silo.cast.SiloCastPlaybackClock
 import org.siloserver.silo.cast.SiloCastPlaybackState
+import org.siloserver.silo.cast.SiloCastProtocol
 import org.siloserver.silo.common.cast.SiloCastFrame
 import org.siloserver.silo.common.cast.SiloCastFrameBuffer
 import org.siloserver.silo.common.cast.SiloCastNsdBrowser
 import org.siloserver.silo.common.cast.SiloCastTarget
-import java.io.OutputStream
-import java.net.InetSocketAddress
-import java.net.Socket
+import org.siloserver.silo.common.lan.SiloCastTls
+import org.siloserver.silo.common.lan.SiloCastTlsClientSession
+import org.siloserver.silo.network.ServerRegistry
 
 data class SiloCastControllerState(
     val targets: List<SiloCastTarget> = emptyList(),
@@ -40,8 +43,17 @@ data class SiloCastControllerState(
     val isConnected: Boolean get() = connectedTarget != null
 }
 
+/**
+ * Phone-side SiloCast controller. Wire-compatible with silo-apple's
+ * SiloControlClient/TVControlReceiver: TLS-PSK transport ([SiloCastTls]),
+ * a `hello` carrying role=phone and the active serverId (the receiver
+ * authorizes only a matching server), pong replies to receiver pings, and a
+ * `close` goodbye on deliberate disconnect so the receiver doesn't treat it
+ * as a dropped link.
+ */
 class SiloCastController(
     private val browser: SiloCastNsdBrowser,
+    private val serverRegistry: ServerRegistry,
     private val deviceNameProvider: () -> String,
     private val deviceIdProvider: () -> String,
 ) {
@@ -51,12 +63,17 @@ class SiloCastController(
         ignoreUnknownKeys = true
     }
     private val sendMutex = Mutex()
+
+    // Serializes ensureConnected/closeConnection: rapid taps on different
+    // targets otherwise interleave connect/teardown across IO coroutines and
+    // tear the session vars.
+    private val connectionMutex = Mutex()
     private val clock = SiloCastPlaybackClock()
 
     private val _state = MutableStateFlow(SiloCastControllerState())
     val state: StateFlow<SiloCastControllerState> = _state.asStateFlow()
 
-    private var socket: Socket? = null
+    private var session: SiloCastTlsClientSession? = null
     private var output: OutputStream? = null
     private var readJob: Job? = null
 
@@ -91,7 +108,7 @@ class SiloCastController(
 
     fun disconnect() {
         scope.launch {
-            runCatching { send(SiloCastMessage.Close(reason = "client_disconnect")) }
+            runCatching { send(SiloCastMessage.Close()) }
             closeConnection()
         }
     }
@@ -106,16 +123,16 @@ class SiloCastController(
         clock.setOptimisticTime(seconds, nowMs())
     }
 
-    fun selectAudioTrack(trackId: String) {
+    fun selectAudioTrack(trackId: Long) {
         sendControl(SiloCastControlCommand.selectAudioTrack(trackId))
     }
 
-    fun selectSubtitleTrack(trackId: String?) {
+    fun selectSubtitleTrack(trackId: Long?) {
         sendControl(SiloCastControlCommand.selectSubtitleTrack(trackId))
     }
 
     fun selectQuality(qualityId: String) {
-        sendControl(SiloCastControlCommand.selectQuality(qualityId))
+        sendControl(SiloCastControlCommand.setQuality(qualityId))
     }
 
     fun setPlaybackSpeed(speed: Double) {
@@ -123,7 +140,7 @@ class SiloCastController(
     }
 
     fun playNext() {
-        sendControl(SiloCastControlCommand.nextEpisode())
+        sendControl(SiloCastControlCommand.playNext())
     }
 
     fun displayTime(): Double = clock.displayTime(nowMs())
@@ -137,30 +154,36 @@ class SiloCastController(
         }
     }
 
-    private suspend fun ensureConnected(target: SiloCastTarget) {
-        if (_state.value.connectedTarget?.deviceId == target.deviceId && socket?.isConnected == true) return
-        closeConnection()
+    private suspend fun ensureConnected(target: SiloCastTarget) = connectionMutex.withLock {
+        if (_state.value.connectedTarget?.deviceId == target.deviceId && session?.isConnected == true) return@withLock
+        closeConnectionLocked()
         _state.update { it.copy(isConnecting = true, error = null) }
-        val newSocket = withContext(Dispatchers.IO) {
-            Socket().apply { connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS) }
+        val newSession = withContext(Dispatchers.IO) {
+            SiloCastTls.connect(target.host, target.port, CONNECT_TIMEOUT_MS)
         }
-        socket = newSocket
-        output = withContext(Dispatchers.IO) { newSocket.getOutputStream() }
+        session = newSession
+        output = newSession.output
         _state.update { it.copy(connectedTarget = target, isConnecting = false, error = null) }
-        send(
-            SiloCastMessage.Hello(
-                deviceId = deviceIdProvider(),
-                deviceName = deviceNameProvider(),
-                deviceModel = android.os.Build.MODEL,
-                appVersion = null,
-            ),
-        )
-        readJob = scope.launch { readLoop(newSocket) }
+        send(SiloCastMessage.Hello(makeHello()))
+        readJob = scope.launch { readLoop(newSession) }
+        Unit
     }
 
-    private suspend fun readLoop(activeSocket: Socket) {
+    private fun makeHello(): SiloCastHello {
+        val server = serverRegistry.activeEntry.value
+        return SiloCastHello(
+            role = SiloCastPeerRole.Phone,
+            deviceName = deviceNameProvider(),
+            deviceId = deviceIdProvider(),
+            serverId = server?.id,
+            serverName = server?.displayName,
+            supportedVersions = listOf(SiloCastProtocol.version),
+        )
+    }
+
+    private suspend fun readLoop(activeSession: SiloCastTlsClientSession) {
         val frameBuffer = SiloCastFrameBuffer()
-        val input = withContext(Dispatchers.IO) { activeSocket.getInputStream() }
+        val input = activeSession.input
         val chunk = ByteArray(8 * 1024)
         try {
             while (true) {
@@ -174,9 +197,14 @@ class SiloCastController(
             throw e
         } catch (t: Throwable) {
             Log.w(TAG, "SiloCast read loop ended", t)
-            _state.update { it.copy(error = t.message) }
+            // Guard like closeConnection() below: the old session's read loop
+            // can outlive a reconnect and must not clobber the fresh
+            // session's state with its stale error.
+            if (session === activeSession) {
+                _state.update { it.copy(error = t.message) }
+            }
         } finally {
-            if (socket === activeSocket) {
+            if (session === activeSession) {
                 closeConnection()
             }
         }
@@ -184,12 +212,13 @@ class SiloCastController(
 
     private suspend fun handleMessage(message: SiloCastMessage) {
         when (message) {
+            is SiloCastMessage.Hello -> Unit // receiver identity; nothing to act on
             is SiloCastMessage.State -> {
                 clock.ingest(message.state, nowMs())
                 _state.update { it.copy(playbackState = message.state, error = null) }
             }
             is SiloCastMessage.Error -> _state.update { it.copy(error = message.error.message) }
-            is SiloCastMessage.Ping -> send(SiloCastMessage.Pong(message.id))
+            is SiloCastMessage.Ping -> send(SiloCastMessage.Pong())
             is SiloCastMessage.Pong -> Unit
             is SiloCastMessage.Close -> closeConnection()
             else -> Unit
@@ -207,9 +236,11 @@ class SiloCastController(
         }
     }
 
-    private fun closeConnection() {
-        runCatching { socket?.close() }
-        socket = null
+    private suspend fun closeConnection() = connectionMutex.withLock { closeConnectionLocked() }
+
+    private fun closeConnectionLocked() {
+        runCatching { session?.close() }
+        session = null
         output = null
         readJob?.cancel()
         readJob = null
@@ -218,7 +249,7 @@ class SiloCastController(
 
     fun close() {
         browser.stop()
-        closeConnection()
+        closeConnectionLocked()
         scope.cancel()
     }
 

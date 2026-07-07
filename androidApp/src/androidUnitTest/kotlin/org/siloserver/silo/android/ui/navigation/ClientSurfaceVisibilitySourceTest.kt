@@ -52,8 +52,9 @@ class ClientSurfaceVisibilitySourceTest {
         assertFalse(mainAppTopBar.contains("Favorites & Watchlist"))
         assertFalse(homeScreen.contains("Text(\"Calendar\")"))
         assertFalse(mainAppTopBar.contains("Text(\"Calendar\")"))
-        assertFalse(settingsScreen.contains("isRequestsVisible = requestsEnabled"))
-        assertTrue(accountSection.contains("isRequestsVisible: Boolean = false"))
+        // Requests is a profile-menu action (Apple parity), never a Settings row.
+        assertFalse(settingsScreen.contains("onNavigateToRequests"))
+        assertFalse(accountSection.contains("isRequestsVisible"))
         assertFalse(accountSection.contains("title = \"Requests\",\n                    icon = Icons.Default.Movie"))
     }
 

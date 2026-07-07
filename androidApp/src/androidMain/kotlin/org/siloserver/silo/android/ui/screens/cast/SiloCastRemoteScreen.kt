@@ -112,9 +112,9 @@ fun SiloCastRemoteScreen(
                 CastChipGroup("Audio") {
                     tracks.forEach { track ->
                         FilterChip(
-                            selected = playback.selectedAudioTrackId == track.id,
-                            onClick = { track.id?.let(controller::selectAudioTrack) },
-                            label = { Text(track.label) },
+                            selected = playback.selectedAudioTrackId == track.trackId,
+                            onClick = { controller.selectAudioTrack(track.trackId) },
+                            label = { Text(track.title) },
                         )
                     }
                 }
@@ -129,9 +129,9 @@ fun SiloCastRemoteScreen(
                     )
                     tracks.forEach { track ->
                         FilterChip(
-                            selected = playback.selectedSubtitleTrackId == track.id,
-                            onClick = { controller.selectSubtitleTrack(track.id) },
-                            label = { Text(track.label) },
+                            selected = playback.selectedSubtitleTrackId == track.trackId,
+                            onClick = { controller.selectSubtitleTrack(track.trackId) },
+                            label = { Text(track.title) },
                         )
                     }
                 }
@@ -150,7 +150,11 @@ fun SiloCastRemoteScreen(
             }
 
             state.error?.let {
-                AssistChip(onClick = {}, label = { Text(it) })
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

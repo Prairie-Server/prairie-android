@@ -16,7 +16,16 @@ object ConflictPolicy {
      * equal-stamped server echo).
      */
     fun localWins(localUpdatedMs: Long, serverUpdatedMs: Long?): Boolean =
-        serverUpdatedMs == null || localUpdatedMs >= serverUpdatedMs
+        serverUpdatedMs == null || localUpdatedMs >= serverUpdatedMs - CLOCK_SKEW_TOLERANCE_MS
+
+    /**
+     * Local and server timestamps come from DIFFERENT clocks (device vs
+     * server); a backward-skewed device would otherwise always lose and see
+     * its own just-made edits reverted on the next refresh. The tolerance
+     * biases toward the user's own action; a real fix is a server-issued
+     * monotonic version, which the mutation APIs don't expose yet.
+     */
+    private const val CLOCK_SKEW_TOLERANCE_MS: Long = 5 * 60 * 1000L
 
     /** Monotonic furthest for continue-watching ranking / furthest-read. */
     fun furthest(localSeconds: Double, serverSeconds: Double): Double =

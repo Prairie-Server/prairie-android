@@ -106,6 +106,9 @@ fun DetailHero(
     factsLine: List<String>,
     modifier: Modifier = Modifier,
     dominantColor: Color = SiloBackground,
+    // Optional viewer-facing description-translation affordance, rendered
+    // directly under the overview (Apple parity: DescriptionTranslationView).
+    translation: (@Composable () -> Unit)? = null,
     actions: @Composable () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -139,6 +142,7 @@ fun DetailHero(
             if (!overview.isNullOrBlank()) {
                 OverviewBlock(text = overview)
             }
+            translation?.invoke()
             if (factsLine.isNotEmpty()) {
                 FactsRow(tokens = factsLine)
             }

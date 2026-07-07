@@ -98,7 +98,18 @@ fun TvSkylineSectionFeed(
     }
 
     val rowBandState = rememberLazyListState()
-    var focusedRowIndex by remember(rows) { mutableIntStateOf(-1) }
+    // NOT keyed on `rows`: a quiet realtime/on-resume refetch emits a new
+    // sections list, and resetting the focused-row index to -1 made the next
+    // D-pad Up hand focus to the menu bar (the up-fallback treats <=0 as "top
+    // row"). Cards are keyed by contentId + focusRestorer, so visual focus is
+    // retained across the swap; the index must survive too. It's clamped into
+    // the new bounds below in case rows were added/removed.
+    var focusedRowIndex by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(rows) {
+        if (focusedRowIndex >= rows.size) {
+            focusedRowIndex = (rows.size - 1).coerceAtLeast(-1)
+        }
+    }
     val focusManager = LocalFocusManager.current
     val rowBandScope = rememberCoroutineScope()
     // Skyline matches tvOS' view-aligned row stack: vertical motion is owned by

@@ -92,6 +92,22 @@ class SyncEngineTest {
     }
 
     @Test
+    fun malformedPayloadIsDroppedTerminallyInsteadOfBrickingTheDrain() = runTest {
+        // A payload that fails to decode (pre-validation rows, foreign
+        // writers) must not rethrow out of drainOnce: SyncWorker would retry
+        // forever and every other op for the scope would never sync again.
+        db.dirtyOperationDao().insert(op(idempotencyKey = "poison", payload = "{not json"))
+        db.dirtyOperationDao().insert(op(idempotencyKey = "healthy", coalesceKey = "s1|p1|c2|SET_WATCHED"))
+        status = HttpStatusCode.OK
+
+        val result = engine().drainOnce()
+
+        assertEquals(1, result.dropped)
+        assertEquals(1, result.synced)
+        assertEquals(0, db.dirtyOperationDao().count())
+    }
+
+    @Test
     fun retriableKeepsOpAndBacksOff() = runTest {
         db.dirtyOperationDao().insert(op(idempotencyKey = "i1"))
         status = HttpStatusCode.InternalServerError

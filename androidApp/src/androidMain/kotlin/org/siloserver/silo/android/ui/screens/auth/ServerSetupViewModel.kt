@@ -20,7 +20,12 @@ data class ServerSetupUiState(
     val error: String? = null,
     /** Destination after successful server validation. */
     val navigateTo: ServerSetupDestination? = null,
-)
+) {
+    /** True when the entered address will connect over unencrypted HTTP.
+     *  Informational only — does not block connecting to LAN/IP servers. */
+    val usesCleartext: Boolean
+        get() = serverSetupUsesCleartext(serverUrl, selectedScheme, port)
+}
 
 enum class ServerSetupScheme(val label: String, val urlScheme: String?) {
     Auto("Auto", null),
@@ -148,6 +153,29 @@ class ServerSetupViewModel(
     fun onNavigationConsumed() {
         _uiState.update { it.copy(navigateTo = null) }
     }
+}
+
+/**
+ * True when the address WILL connect over plaintext HTTP: an explicit `http`
+ * scheme selection, or an `http://` prefix in the input. Auto mode is not
+ * flagged pre-connect — it tries HTTPS first and only falls back to HTTP.
+ * Informational only (does not block connecting to LAN/IP servers).
+ */
+internal fun serverSetupUsesCleartext(
+    rawInput: String,
+    selectedScheme: ServerSetupScheme,
+    port: String,
+): Boolean {
+    if (rawInput.isBlank()) return false
+    if (selectedScheme == ServerSetupScheme.Http) return true
+    if (selectedScheme == ServerSetupScheme.Https) return false
+    return runCatching {
+        buildServerSetupCandidateUrls(rawInput, selectedScheme, port)
+    }.getOrNull()?.let { candidates ->
+        // Auto with an explicit http:// input resolves to a single http
+        // candidate; a bare host yields https first, so no pre-warning.
+        candidates.size == 1 && candidates.first().startsWith("http://")
+    } ?: false
 }
 
 internal fun buildServerSetupCandidateUrls(

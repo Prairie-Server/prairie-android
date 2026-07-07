@@ -50,6 +50,7 @@ import org.siloserver.silo.android.ui.screens.recommendations.RecommendationsScr
 import org.siloserver.silo.model.navigation.MediaMode
 import org.siloserver.silo.model.navigation.MediaModeCapabilities
 import org.siloserver.silo.model.navigation.mobileMediaModeCapabilities
+import org.siloserver.silo.model.feature.MetadataAiFeatureStore
 import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.network.ServerReachabilityStatus
@@ -98,6 +99,7 @@ fun MainScreen(
     val authRepository: AuthRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val metadataAiFeatureStore: MetadataAiFeatureStore = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
     val reachabilityScope = rememberCoroutineScope()
@@ -164,12 +166,15 @@ fun MainScreen(
     LaunchedEffect(activeEntry?.id, activeEntry?.profileId, headerState.activeProfile?.id) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
+        metadataAiFeatureStore.reset()
+        metadataAiFeatureStore.refresh()
     }
 
     fun signOutFromProfileMenu() {
         reachabilityScope.launch {
             authRepository.logout()
             requestsFeatureStore.reset()
+            metadataAiFeatureStore.reset()
             navController.navigate(Route.Login.route) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true

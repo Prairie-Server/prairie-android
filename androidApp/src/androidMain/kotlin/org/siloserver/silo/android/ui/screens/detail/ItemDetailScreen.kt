@@ -16,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,7 @@ import org.siloserver.silo.android.ui.screens.cast.SiloCastTargetPickerSheet
 import org.siloserver.silo.android.ui.screens.downloads.openDownloadTargetInExternalApp
 import org.siloserver.silo.android.ui.util.playbackResumePosition
 import org.siloserver.silo.cast.SiloCastLaunchRequest
+import org.siloserver.silo.cast.SiloCastPlaybackRequest
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.common.downloads.DownloadOpenTarget
 import org.siloserver.silo.common.downloads.DownloadStorage
@@ -48,6 +50,9 @@ import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.siloserver.silo.network.ServerRegistry
 import org.koin.compose.koinInject
+import org.siloserver.silo.metadata.DescriptionTranslationPhase
+import org.siloserver.silo.model.feature.MetadataAiFeatureStore
+import org.siloserver.silo.model.metadata.MetadataAiOnView
 
 private const val PLAY_ON_DEVICE_LABEL = "Play on device"
 
@@ -147,6 +152,9 @@ fun ItemDetailScreen(
         }
     }
 
+    // Launch shape mirrors Apple's SiloControlLaunchRequest: serverId +
+    // nested playback request. A missing active server produces no request —
+    // the receiver would reject it as a server mismatch anyway.
     fun videoCastRequest(
         contentId: String,
         title: String,
@@ -155,18 +163,20 @@ fun ItemDetailScreen(
         audioTrackIndex: Int? = null,
         subtitleTrackIndex: Int? = null,
         resumePositionSeconds: Double? = null,
-    ): SiloCastLaunchRequest =
-        SiloCastLaunchRequest(
-            serverId = serverRegistry.activeServerId.value,
-            contentId = contentId,
-            fileId = fileId?.toString(),
-            mediaKind = "video",
-            title = title,
-            subtitle = subtitle,
-            resumeTime = resumePositionSeconds,
-            audioTrackId = audioTrackIndex?.toString(),
-            subtitleTrackId = subtitleTrackIndex?.toString(),
+    ): SiloCastLaunchRequest? {
+        val serverId = serverRegistry.activeServerId.value ?: return null
+        return SiloCastLaunchRequest(
+            serverId = serverId,
+            playback = SiloCastPlaybackRequest(
+                contentId = contentId,
+                fileId = fileId,
+                audioTrackIndex = audioTrackIndex,
+                subtitleTrackIndex = subtitleTrackIndex,
+                startFromBeginning = resumePositionSeconds == null,
+                resumePosition = resumePositionSeconds,
+            ),
         )
+    }
 
     Box(
         modifier = modifier
@@ -187,6 +197,33 @@ fun ItemDetailScreen(
 
             state.detail != null -> {
                 val detail = state.detail!!
+                val metadataAiStore: MetadataAiFeatureStore = koinInject()
+                val metadataAiStatus by metadataAiStore.status.collectAsState()
+                val translationPhase by viewModel.translationPhase.collectAsState()
+                val translationEligible = metadataAiStatus.onView != MetadataAiOnView.Off &&
+                    detail.pendingTranslationLanguage != null
+                // `auto` on-view mode fires once per (content, language); the
+                // controller latches so recompositions can't re-queue jobs.
+                LaunchedEffect(detail.contentId, detail.pendingTranslationLanguage, metadataAiStatus.onView) {
+                    if (metadataAiStatus.onView == MetadataAiOnView.Auto &&
+                        detail.pendingTranslationLanguage != null
+                    ) {
+                        viewModel.translateDescription(auto = true)
+                    }
+                }
+                val translationSlot: (@Composable () -> Unit)? = if (translationEligible &&
+                    (metadataAiStatus.onView == MetadataAiOnView.Button ||
+                        translationPhase != DescriptionTranslationPhase.Idle)
+                ) {
+                    {
+                        DescriptionTranslationSection(
+                            phase = translationPhase,
+                            onTranslate = { viewModel.translateDescription() },
+                        )
+                    }
+                } else {
+                    null
+                }
                 val effectiveSelectedVersionIndex = if (state.hasExplicitVersionSelection) {
                     state.selectedVersionIndex
                 } else {
@@ -378,6 +415,7 @@ fun ItemDetailScreen(
                         }
 
                         SeriesDetailContent(
+                            translation = translationSlot,
                             detail = detail,
                             seasons = state.seasons,
                             selectedSeasonNumber = state.selectedSeasonNumber,
@@ -485,6 +523,7 @@ fun ItemDetailScreen(
                         )
 
                         MovieDetailContent(
+                            translation = translationSlot,
                             detail = detail,
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,

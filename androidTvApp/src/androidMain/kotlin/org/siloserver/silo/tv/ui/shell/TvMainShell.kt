@@ -175,6 +175,7 @@ fun TvMainShell(
     val profileRepository: ProfileRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val metadataAiFeatureStore: org.siloserver.silo.model.feature.MetadataAiFeatureStore = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
@@ -241,6 +242,8 @@ fun TvMainShell(
     LaunchedEffect(activeServerEntry?.id, activeServerEntry?.profileId) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
+        metadataAiFeatureStore.reset()
+        metadataAiFeatureStore.refresh()
     }
 
     val focusManager = LocalFocusManager.current
@@ -277,7 +280,14 @@ fun TvMainShell(
         profileRepository,
         activeServerEntry,
     ) {
-        val user = (authRepository.getCurrentUser() as? ApiResult.Success)?.data
+        val userResult = authRepository.getCurrentUser()
+        if (userResult !is ApiResult.Success) {
+            // Transient /me failure (offline blip, server restart): keep the
+            // previous snapshot instead of blanking it — otherwise the Admin
+            // row and account header flicker out on every hiccup.
+            return@produceState
+        }
+        val user = userResult.data
         val activeProfile = profileRepository.getActiveProfile()
         // Subtitle mirrors tvOS §5.8: role when known, falling back to username.
         val subtitle = user?.role?.takeIf { it.isNotBlank() }
@@ -755,13 +765,12 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.Browse.route)
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
-                        onNavigateToRequests = {
-                            navigateToSecondary(TvMainRoute.Requests.route)
-                            moveFocusToContent(TvMainRoute.Requests.route)
-                        },
                         onNavigateToAdmin = {
-                            navigateToSecondary(TvMainRoute.AdminHub.route)
-                            moveFocusToContent(TvMainRoute.AdminHub.route)
+                            // Apple parity: the stats dashboard is the whole
+                            // admin surface. The hub (users/sessions/logs/
+                            // scans) stays compiled but unlinked.
+                            navigateToSecondary(TvMainRoute.AdminDashboard.route)
+                            moveFocusToContent(TvMainRoute.AdminDashboard.route)
                         },
                         onManageSessions = { navigateToSecondary(TvMainRoute.ManageSessions.route) },
                         onPairDevice = onPairDevice,

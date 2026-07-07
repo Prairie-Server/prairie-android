@@ -78,7 +78,10 @@ class PlaybackRecoveryPlannerTest {
     }
 
     @Test
-    fun unsupportedDvProfileWithoutAlternateEngineTranscodesInsteadOfRemuxing() {
+    fun unsupportedDvProfile7WithoutAlternateEngineTranscodesInsteadOfRemuxing() {
+        // Client-only policy: a stock server remuxes the DV stream verbatim,
+        // leaving dangling P7 RPUs — so the remux rung stays closed for DV
+        // until servers advertise strip support.
         val plan = PlaybackExecutionPlan(
             planId = "s1",
             delivery = PlaybackDelivery.ORIGINAL_HTTP,
@@ -96,6 +99,30 @@ class PlaybackRecoveryPlannerTest {
         val action = PlaybackRecoveryPlanner().planForPlayability(
             currentPlan = plan,
             reason = Playability.UnsupportedDvProfile(7),
+        )
+
+        assertIs<PlaybackRecoveryAction.ServerTranscode>(action)
+    }
+
+    @Test
+    fun unsupportedDvProfile5WithoutAlternateEngineTranscodesInsteadOfRemuxing() {
+        val plan = PlaybackExecutionPlan(
+            planId = "s1",
+            delivery = PlaybackDelivery.ORIGINAL_HTTP,
+            engine = PlaybackEngineKind.MEDIA3_DIRECT,
+            routeFamily = PlaybackRouteFamily.PLATFORM_NATIVE,
+            fallbacks = listOf(
+                PlaybackFallbackCandidate(
+                    delivery = PlaybackDelivery.SERVER_REMUX_HLS,
+                    engine = PlaybackEngineKind.MEDIA3_HLS,
+                    reason = "container_adaptation",
+                ),
+            ),
+        )
+
+        val action = PlaybackRecoveryPlanner().planForPlayability(
+            currentPlan = plan,
+            reason = Playability.UnsupportedDvProfile(5),
         )
 
         assertIs<PlaybackRecoveryAction.ServerTranscode>(action)

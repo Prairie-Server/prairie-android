@@ -42,6 +42,9 @@ class HomeViewModel(
     // Track B: local optimistic user-state, overlaid onto cards so an offline
     // mark-watched/favorite shows immediately instead of a stale cached badge.
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
+    // Live-home accelerator (Apple realtime-updates spec). Null keeps
+    // commonMain/tests network-only; the apps inject the shared coordinator.
+    private val homeRealtime: org.siloserver.silo.repository.HomeRealtimeCoordinator? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -49,6 +52,30 @@ class HomeViewModel(
 
     init {
         loadSections()
+        homeRealtime?.let { coordinator ->
+            viewModelScope.launch {
+                coordinator.refreshSignals.collect { refreshFromRealtime() }
+            }
+        }
+    }
+
+    private var realtimeRefreshInFlight = false
+
+    /**
+     * Debounced realtime refetch: quiet (no spinner) and single-flight —
+     * an in-flight realtime or manual refresh already delivers the fresh
+     * sections, so overlapping signals are dropped rather than raced.
+     */
+    fun refreshFromRealtime() {
+        if (realtimeRefreshInFlight || _uiState.value.isRefreshing) return
+        realtimeRefreshInFlight = true
+        viewModelScope.launch {
+            try {
+                fetchSections()
+            } finally {
+                realtimeRefreshInFlight = false
+            }
+        }
     }
 
     fun loadSections() {

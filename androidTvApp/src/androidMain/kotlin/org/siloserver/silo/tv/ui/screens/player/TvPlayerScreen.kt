@@ -327,6 +327,7 @@ fun TvPlayerScreen(
                     hasHardContainer = state.playMethod == org.siloserver.silo.model.playback.PlayMethod.DIRECT &&
                         isHardPlaybackContainer(state.container),
                     hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
+                    hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
                     isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(state.streamUrl),
                 ),
             )
@@ -574,7 +575,17 @@ fun TvPlayerScreen(
                 keyCode = event.keyCode,
                 action = event.action,
                 repeatCount = event.repeatCount,
+                // With the transport overlay or Up Next on screen, Left/Right
+                // belong to Compose focus navigation, not seeking.
+                dpadHorizontalSeek = !playerState.showControls && !playerState.showNextUp,
             )
+            // Apple parity (TVPlayerControls.rearmAutoHideOnFocusMove): any key
+            // activity while the overlay is up re-arms the 5s auto-hide so the
+            // menu can't vanish out from under the user mid-navigation. Bumps
+            // the visibility nonce only — the event still falls through.
+            if (event.action == KeyEvent.ACTION_DOWN && playerState.showControls) {
+                viewModel.setControlsVisible(true)
+            }
             if (latestShowQuickSubtitlePicker ||
                 playerState.hudOpen || playerState.showSubtitleMenu ||
                 playerState.showSubtitleStyleDialog || latestShowLeaveDialog ||
@@ -913,6 +924,7 @@ fun TvPlayerScreen(
             hasHardContainer = method == org.siloserver.silo.model.playback.PlayMethod.DIRECT &&
                 isHardPlaybackContainer(state.container),
             hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
+            hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
         val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -964,6 +976,7 @@ fun TvPlayerScreen(
             hasHardContainer = method == org.siloserver.silo.model.playback.PlayMethod.DIRECT &&
                 isHardPlaybackContainer(state.container),
             hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
+            hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
         val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -1064,7 +1077,21 @@ fun TvPlayerScreen(
 
     // Apply user subtitle styling whenever the PlayerView mounts or the
     // appearance flow emits a new value. Mirrors the phone PlayerScreen.
-    LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, state.videoFillMode) {
+    // Also keyed on the selected subtitle track: MPV decides native-ASS vs
+    // forced styling from the ACTIVE track's codec, so an ASS<->SRT switch
+    // must re-evaluate (else SRT keeps ass-override=no, or force clobbers
+    // authored ASS).
+    LaunchedEffect(
+        playerViewRef,
+        subtitleAppearance,
+        sessionPlayer,
+        state.videoFillMode,
+        state.subtitleTracks.firstOrNull { it.isSelected }?.index,
+    ) {
+        // MPV renders subtitles itself (libass on its own surface) — push the
+        // same appearance into it; authored ASS stays intact.
+        (sessionPlayer as? org.siloserver.silo.common.player.mpv.MpvSubtitleStyleController)
+            ?.applySubtitleAppearance(subtitleAppearance)
         val pv = playerViewRef ?: return@LaunchedEffect
         subtitleManager.applyAppearance(pv, subtitleAppearance)
     }
@@ -1137,7 +1164,9 @@ fun TvPlayerScreen(
             .focusRequester(rootFocus)
             .focusable()
             .onPreviewKeyEvent { event ->
-                if (!state.showControls) {
+                // Up Next is a focus-owning child of this Box; previewing its
+                // Left/Right here would seek underneath the overlay's buttons.
+                if (!state.showControls && !state.showNextUp) {
                     when (
                         tvPlayerRemoteKeyAction(
                             keyCode = event.nativeKeyEvent.keyCode,
@@ -2474,10 +2503,10 @@ private fun TvPlayerViewModel.UiState.toSiloCastPlaybackState(
         isBuffering = isBuffering,
         currentTime = position,
         duration = duration,
-        audioTracks = audioTracks.map { it.toSiloCastTrack() },
-        subtitleTracks = subtitleTracks.map { it.toSiloCastTrack() },
-        selectedAudioTrackId = audioTracks.firstOrNull { it.isSelected }?.index?.toString(),
-        selectedSubtitleTrackId = subtitleTracks.firstOrNull { it.isSelected }?.index?.toString(),
+        audioTracks = audioTracks.map { it.toSiloCastTrack(kind = "audio") },
+        subtitleTracks = subtitleTracks.map { it.toSiloCastTrack(kind = "subtitle") },
+        selectedAudioTrackId = audioTracks.firstOrNull { it.isSelected }?.index?.toLong(),
+        selectedSubtitleTrackId = subtitleTracks.firstOrNull { it.isSelected }?.index?.toLong(),
         qualityOptions = videoQualities.map { it.toSiloCastQualityOption() },
         activeQualityId = activeQualityId,
         isQualitySwitching = false,
@@ -2487,7 +2516,7 @@ private fun TvPlayerViewModel.UiState.toSiloCastPlaybackState(
         supportsVideoGravity = true,
         supportsHDRToggle = true,
         subtitleSyncMs = subtitleDelayMs,
-        subtitlePosition = subtitleAppearance.position.legacyPosition.toDouble(),
+        subtitlePosition = subtitleAppearance.position.toSiloCastPositionValue(),
         supportsSubtitleDelay = true,
         supportsSubtitlePosition = true,
         volume = 1.0,
@@ -2498,21 +2527,27 @@ private fun TvPlayerViewModel.UiState.toSiloCastPlaybackState(
     )
 }
 
-private fun PlayerTrackEntry.toSiloCastTrack(): SiloCastTrack =
+private fun PlayerTrackEntry.toSiloCastTrack(kind: String): SiloCastTrack =
     SiloCastTrack(
-        id = index.toString(),
-        label = displayLabel.ifBlank { label },
-        language = language,
-        isForced = isForced,
+        kind = kind,
+        trackId = index.toLong(),
+        title = displayLabel.ifBlank { label },
+        detail = language,
     )
 
 private fun VideoQualityOption.toSiloCastQualityOption(): SiloCastQualityOption =
     SiloCastQualityOption(
         id = id,
         label = label,
-        isAuto = id == VIDEO_QUALITY_AUTO_ID,
-        height = resolution?.removeSuffix("p")?.toIntOrNull(),
+        detail = resolution,
     )
+
+// Apple SubtitlePositionPreset raw values: "bottom", "lower-third", "top".
+private fun SubtitlePositionPreset.toSiloCastPositionValue(): String = when (this) {
+    SubtitlePositionPreset.Top -> "top"
+    SubtitlePositionPreset.LowerThird -> "lower-third"
+    SubtitlePositionPreset.Bottom -> "bottom"
+}
 
 private fun String.toSiloCastVideoFillMode(): VideoFillMode =
     when (trim().lowercase()) {

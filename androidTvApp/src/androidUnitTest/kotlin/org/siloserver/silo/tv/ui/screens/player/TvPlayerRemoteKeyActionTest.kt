@@ -120,27 +120,71 @@ class TvPlayerRemoteKeyActionTest {
     }
 
     @Test
-    fun visibleIdleOverlayLeftAndRightUseSkipActions() {
+    fun visibleIdleOverlayLeftAndRightFallThroughToFocusNavigation() {
+        // With the transport overlay visible, Left/Right must reach Compose
+        // focus navigation (scrubber ticks, transport-cluster movement) —
+        // never seek or get swallowed at the overlay level.
+        listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT).forEach { keyCode ->
+            assertNull(
+                tvPlayerIdleOverlayRemoteKeyAction(
+                    keyCode = keyCode,
+                    action = KeyEvent.ACTION_DOWN,
+                    repeatCount = 0,
+                ),
+            )
+            assertNull(
+                tvPlayerIdleOverlayRemoteKeyAction(
+                    keyCode = keyCode,
+                    action = KeyEvent.ACTION_UP,
+                    repeatCount = 0,
+                ),
+            )
+            assertNull(
+                tvPlayerIdleOverlayRemoteKeyAction(
+                    keyCode = keyCode,
+                    action = KeyEvent.ACTION_DOWN,
+                    repeatCount = 2,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun leftAndRightFallThroughWhenHorizontalSeekIsDisabled() {
+        listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT).forEach { keyCode ->
+            assertNull(
+                tvPlayerRemoteKeyAction(
+                    keyCode = keyCode,
+                    action = KeyEvent.ACTION_DOWN,
+                    repeatCount = 0,
+                    dpadHorizontalSeek = false,
+                ),
+            )
+            assertNull(
+                tvPlayerRemoteKeyAction(
+                    keyCode = keyCode,
+                    action = KeyEvent.ACTION_UP,
+                    repeatCount = 0,
+                    dpadHorizontalSeek = false,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun idleOverlayStillHandlesTransportAndHudKeys() {
         assertEquals(
-            TvPlayerRemoteKeyAction.SkipBack,
+            TvPlayerRemoteKeyAction.PlayPause,
             tvPlayerIdleOverlayRemoteKeyAction(
-                keyCode = KeyEvent.KEYCODE_DPAD_LEFT,
+                keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                 action = KeyEvent.ACTION_DOWN,
                 repeatCount = 0,
             ),
         )
         assertEquals(
-            TvPlayerRemoteKeyAction.SkipForward,
+            TvPlayerRemoteKeyAction.OpenHud,
             tvPlayerIdleOverlayRemoteKeyAction(
-                keyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
-                action = KeyEvent.ACTION_DOWN,
-                repeatCount = 0,
-            ),
-        )
-        assertEquals(
-            TvPlayerRemoteKeyAction.ConsumeOnly,
-            tvPlayerIdleOverlayRemoteKeyAction(
-                keyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
+                keyCode = KeyEvent.KEYCODE_MENU,
                 action = KeyEvent.ACTION_UP,
                 repeatCount = 0,
             ),

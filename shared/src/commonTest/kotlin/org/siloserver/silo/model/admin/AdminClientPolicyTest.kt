@@ -2,12 +2,15 @@ package org.siloserver.silo.model.admin
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class AdminClientPolicyTest {
 
     @Test
-    fun `client admin surfaces are disabled even for acting admins`() {
-        assertFalse(shouldShowClientAdminSurface(isActingAdmin = true))
+    fun `acting admins see the client admin surface`() {
+        // Product decision 2026-07-07: the stats dashboard (Apple parity
+        // surface) is exposed to acting admins.
+        assertTrue(shouldShowClientAdminSurface(isActingAdmin = true))
     }
 
     @Test

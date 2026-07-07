@@ -33,6 +33,7 @@ sealed interface VideoPlayerUiState {
         val playbackPlan: PlaybackExecutionPlan? = null,
         val delivery: PlaybackDelivery? = null,
         val container: String? = null,
+        val softwareOnlyVideoCodec: Boolean = false,
         val title: String,
         val subtitle: String?,
         val artworkUrl: String?,

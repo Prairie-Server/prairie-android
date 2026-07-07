@@ -19,7 +19,11 @@ data class TvServerSetupUiState(
     val error: String? = null,
     /** Destination after a successful server probe; consumed by the screen. */
     val navigateTo: TvServerSetupDestination? = null,
-)
+) {
+    /** True when the entered address will connect over unencrypted HTTP.
+     *  Informational only — does not block LAN/IP connections. */
+    val usesCleartext: Boolean get() = serverSetupUsesCleartext(serverUrl)
+}
 
 /**
  * Where the URL probe lands the user. Mirrors the phone's
@@ -176,6 +180,16 @@ internal suspend fun probeTvServerSetupCandidates(
     return TvServerSetupProbeResult.Failure(
         message = "Network error. Check the URL and try again.",
     )
+}
+
+/**
+ * True when the entered address will connect over unencrypted HTTP: the probe
+ * resolves to a single `http://` candidate (only when the user explicitly
+ * typed `http://`). Informational only — never blocks LAN/IP connections.
+ */
+internal fun serverSetupUsesCleartext(raw: String): Boolean {
+    val candidates = serverSetupUrlProbeCandidates(raw)
+    return candidates.size == 1 && candidates.first().startsWith("http://", ignoreCase = true)
 }
 
 internal fun serverSetupUrlProbeCandidates(raw: String): List<String> {

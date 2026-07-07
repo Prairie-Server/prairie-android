@@ -93,6 +93,11 @@ data class AudioPassthroughCapabilities(
 @Serializable
 data class ClientCodecCapabilities(
     @SerialName("codecs_video") val codecsVideo: List<String> = emptyList(),
+    // Hardware-decodable subset of codecsVideo. codecsVideo may additionally
+    // carry MPV software-tail codecs (Apple codec-tail parity); the client's
+    // backend selector uses this list to know when a DIRECT file needs MPV
+    // software decode. The server ignores this field.
+    @SerialName("codecs_video_hardware") val codecsVideoHardware: List<String> = emptyList(),
     @SerialName("codecs_audio") val codecsAudio: List<String> = emptyList(),
     val containers: List<String> = emptyList(),
     @SerialName("max_resolution") val maxResolution: String? = null,

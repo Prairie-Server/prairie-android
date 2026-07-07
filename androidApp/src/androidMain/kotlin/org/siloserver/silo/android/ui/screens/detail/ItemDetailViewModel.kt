@@ -14,7 +14,10 @@ import org.siloserver.silo.model.download.DownloadRecord
 import org.siloserver.silo.model.download.statusEnum
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.model.catalog.isBookLikeItemType
+import org.siloserver.silo.metadata.DescriptionTranslationController
+import org.siloserver.silo.metadata.DescriptionTranslationPhase
 import org.siloserver.silo.repository.CatalogRepository
+import org.siloserver.silo.repository.MetadataAiRepository
 import org.siloserver.silo.repository.DownloadsRepository
 import org.siloserver.silo.repository.EbookReaderRepository
 import org.siloserver.silo.repository.PersonalDataRepository
@@ -75,6 +78,7 @@ class ItemDetailViewModel(
     private val downloadsRepository: DownloadsRepository,
     private val downloadEnqueuer: DownloadEnqueuer,
     private val ebookReaderRepository: EbookReaderRepository,
+    metadataAiRepository: MetadataAiRepository,
     savedStateHandle: SavedStateHandle,
     private val userItemState: org.siloserver.silo.repository.port.UserItemStatePort =
         org.siloserver.silo.repository.port.NoOpUserItemStatePort,
@@ -95,6 +99,12 @@ class ItemDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private var watchedMutationGeneration = 0
+
+    private val descriptionTranslation = DescriptionTranslationController(
+        repository = metadataAiRepository,
+        delayMs = { kotlinx.coroutines.delay(it) },
+    )
+    val translationPhase: StateFlow<DescriptionTranslationPhase> = descriptionTranslation.phase
 
     init {
         // Refresh once so server-side records are visible when the user
@@ -538,6 +548,40 @@ class ItemDetailViewModel(
             it.copy(
                 selectedSubtitleIndex = index,
                 hasExplicitSubtitleSelection = true,
+            )
+        }
+    }
+
+
+    /**
+     * Fire (or auto-fire once, when [auto] is set) the description
+     * translation for the loaded item, then poll detail until the server
+     * clears `pending_translation_language` — the refetch delivers the
+     * translated overview into uiState.
+     */
+    fun translateDescription(auto: Boolean = false) {
+        val detail = _uiState.value.detail ?: return
+        val target = detail.pendingTranslationLanguage ?: return
+        if (auto) {
+            if (!descriptionTranslation.shouldAutoFire(detail.contentId, target)) return
+            descriptionTranslation.markAutoFired(detail.contentId, target)
+        }
+        descriptionTranslation.resetFailure()
+        viewModelScope.launch {
+            descriptionTranslation.translate(
+                contentId = detail.contentId,
+                targetLanguage = target,
+                refetchPendingLanguage = {
+                    when (val result = catalogRepository.getItemDetail(contentId)) {
+                        is ApiResult.Success -> {
+                            val refreshed = withLocalProgress(result.data)
+                            _uiState.update { it.copy(detail = refreshed) }
+                            refreshed.pendingTranslationLanguage
+                        }
+                        else -> target // transient refetch failure: keep polling
+                    }
+                },
+                onTranslated = { },
             )
         }
     }

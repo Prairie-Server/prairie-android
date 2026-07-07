@@ -68,6 +68,9 @@ data class SettingsUiState(
 
     // Subtitles
     val subtitleLanguage: String = "Off",
+    // Metadata AI: preferred description/metadata language.
+    // ISO 639-1 code; "" = inherit library metadata language.
+    val metadataLanguage: String = "",
     val subtitleMode: SubtitleMode = SubtitleMode.AUTO,
     val showForcedSubtitles: Boolean = true,
 
@@ -123,6 +126,7 @@ class SettingsViewModel(
                     _uiState.update {
                         it.copy(
                             subtitleLanguage = profile.subtitleLanguage?.ifBlank { "Off" } ?: "Off",
+                            metadataLanguage = profile.preferredMetadataLanguage.orEmpty(),
                             subtitleMode = subtitleModeFromServer(profile.subtitleMode),
                             showForcedSubtitles = profile.showForcedSubtitles ?: true,
                             isAdminVisible = shouldShowClientAdminSurface(isActingAdmin(it.user, profile)),
@@ -376,6 +380,17 @@ class SettingsViewModel(
     }
 
     // -- Subtitles --
+
+    fun setMetadataLanguage(code: String) {
+        _uiState.update { it.copy(metadataLanguage = code) }
+        viewModelScope.launch {
+            profileRepository.updateActiveProfile(
+                UpdateProfileRequest(
+                    preferredMetadataLanguage = code.ifBlank { null },
+                )
+            )
+        }
+    }
 
     fun setSubtitleLanguage(language: String) {
         _uiState.update { it.copy(subtitleLanguage = language) }

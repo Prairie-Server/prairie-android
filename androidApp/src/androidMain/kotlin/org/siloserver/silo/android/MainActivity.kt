@@ -84,9 +84,12 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 val route = resolveStartDestination()
                 startRoute = route
-                if (route.isAuthenticatedStartRoute()) {
-                    notificationRouteOrNull(intent)?.let { pendingExternalRoute = it }
-                }
+                // Capture unconditionally: a notification tapped while the
+                // user still has to sign in / pick a profile should land on
+                // its target after auth instead of being silently dropped.
+                // The pending route is only consumed once the main graph is
+                // showing, so pre-auth starts just hold it.
+                notificationRouteOrNull(intent)?.let { pendingExternalRoute = it }
                 launchAuthenticatedStartupWarmup(route)
             }
             LaunchedEffect(Unit) {
@@ -217,10 +220,17 @@ class MainActivity : ComponentActivity() {
         // the device has no network OR the configured Silo server fails the
         // authoritative health probe, land directly on Downloads instead of
         // greeting the user with a dead Home request.
-        val hasDownloads = hasLocalDownloads(activeEntry.id, profileId)
+        // Filesystem walk + health probe off the main dispatcher: this runs
+        // in a main-thread LaunchedEffect during cold start and would
+        // otherwise block first-frame work.
+        val hasDownloads = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            hasLocalDownloads(activeEntry.id, profileId)
+        }
         val online = isOnline()
         val canUseServer = if (hasDownloads && online) {
-            get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java).retryNow().canUseServer
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java).retryNow().canUseServer
+            }
         } else {
             online
         }

@@ -180,7 +180,7 @@ fun ServerSetupScreen(
                         label = "Port",
                         value = state.port,
                         onValueChange = viewModel::onPortChanged,
-                        placeholder = "8096",
+                        placeholder = "8090",
                         keyboardType = KeyboardType.Number,
                     )
                 }
@@ -188,6 +188,16 @@ fun ServerSetupScreen(
 
             state.error?.let { error ->
                 AuroraErrorLabel(error)
+            }
+
+            if (state.usesCleartext && state.error == null) {
+                androidx.compose.material3.Text(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    text = "This server uses unencrypted HTTP. Fine on a trusted home network; " +
+                        "avoid it on public Wi-Fi.",
+                    fontSize = 12.sp,
+                    color = org.siloserver.silo.android.ui.theme.SiloWarning,
+                )
             }
 
             AuroraPrimaryButton(

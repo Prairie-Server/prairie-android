@@ -53,8 +53,6 @@ fun AccountSection(
     isLoadingUser: Boolean,
     onManageSessions: () -> Unit,
     onPairDevice: () -> Unit,
-    isRequestsVisible: Boolean = false,
-    onRequests: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     isAdminVisible: Boolean = false,
@@ -128,6 +126,16 @@ fun AccountSection(
                 )
             }
 
+            // Apple-parity admin surface: stats dashboard only, role-gated.
+            if (isAdminVisible) {
+                SettingsRowLabel(
+                    title = "Admin",
+                    icon = Icons.Default.Security,
+                    badgeColor = SettingsBadgeGray,
+                    onClick = onAdmin,
+                    showChevron = true,
+                )
+            }
             SettingsRowLabel(
                 title = "Manage Sessions",
                 icon = Icons.Default.Security,

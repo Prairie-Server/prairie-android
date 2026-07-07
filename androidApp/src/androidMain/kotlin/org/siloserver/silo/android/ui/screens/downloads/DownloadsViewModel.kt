@@ -568,7 +568,12 @@ class DownloadsViewModel(
                 updatedAtMs = sidecar.updatedAtMs,
             )
         }
-        return DownloadReclaimPlanner().plan(rows)
+        // Never plan the file the player is currently using (reachable via
+        // PiP -> Downloads): deleting it yanks the bytes out from under a live
+        // offline playback.
+        val activeFileId = org.siloserver.silo.common.player.ActivePlaybackFile.fileId.value
+        val safeRows = if (activeFileId != null) rows.filterNot { it.mediaFileId == activeFileId } else rows
+        return DownloadReclaimPlanner().plan(safeRows)
     }
 
     /** One filesystem walk loads both lookup maps. Call on Dispatchers.IO. */

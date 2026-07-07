@@ -100,12 +100,37 @@ fun AppNavigation(
         }
     }
 
+    // Keyed on the route so a notification arriving later restarts the
+    // collection; currentBackStackEntryFlow emits the current entry
+    // immediately on collect, so both "route arrives while on Main" and
+    // "Main arrives with route queued" are covered.
     LaunchedEffect(pendingExternalRoute) {
-        val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        navController.navigate(route) {
-            launchSingleTop = true
+        // Consume only while the main (authenticated) graph is showing —
+        // a notification tapped pre-sign-in stays queued until auth lands,
+        // instead of pushing its target over Login. The back-stack flow makes
+        // this re-fire when Main arrives with the route still pending.
+        navController.currentBackStackEntryFlow.collect { entry ->
+            val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@collect
+            // Every pre-auth / onboarding destination — a notification tapped
+            // on any of these stays queued until the authenticated graph
+            // shows, instead of pushing a content route that would 401.
+            val authRoutes = setOf(
+                Route.Login.route,
+                Route.ServerSetup.route,
+                Route.ServerList.route,
+                Route.Setup.route,
+                Route.Signup.route,
+                Route.ProfileSelection.route,
+                Route.CreateProfile.route,
+                Route.EditProfile.ROUTE,
+                Route.PairDevice.ROUTE,
+            )
+            if (entry.destination.route in authRoutes) return@collect
+            navController.navigate(route) {
+                launchSingleTop = true
+            }
+            onExternalRouteConsumed()
         }
-        onExternalRouteConsumed()
     }
 
     // Re-read the authenticated profile id whenever the current destination
@@ -340,8 +365,8 @@ fun AppNavigation(
                 onPairDevice = {
                     navController.navigate(Route.PairDevice().route)
                 },
-                onNavigateToRequests = {
-                    navController.navigate(Route.Requests.route)
+                onNavigateToAdmin = {
+                    navController.navigate(Route.Admin.route)
                 },
                 onNavigateToWatchlist = { navController.navigate(Route.Watchlist.route) },
                 onNavigateToFavorites = { navController.navigate(Route.Favorites.route) },
@@ -674,6 +699,11 @@ fun AppNavigation(
                 onItemClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
+            )
+        }
+        composable(Route.Admin.route) {
+            org.siloserver.silo.android.ui.screens.admin.AdminStatsScreen(
+                onBackClick = { navController.popBackStack() },
             )
         }
         composable(Route.Watchlist.route) {

@@ -67,6 +67,8 @@ class TvSettingsViewModel(
         val playbackQuality: PlaybackQuality = PlaybackQuality.Auto,
         val subtitleMode: SubtitleMode = SubtitleMode.Auto,
         val subtitleLanguage: String = "",
+        // Metadata AI: preferred description/metadata language ("" = server default).
+        val metadataLanguage: String = "",
         val audioLanguage: String = "",
         val subtitleSize: SubtitleSize = SubtitleSize.Medium,
         val showForcedSubtitles: Boolean = true,
@@ -163,6 +165,7 @@ class TvSettingsViewModel(
                         it.copy(
                             subtitleMode = SubtitleMode.fromWire(profile.subtitleMode),
                             subtitleLanguage = profile.subtitleLanguage.orEmpty(),
+                            metadataLanguage = profile.preferredMetadataLanguage.orEmpty(),
                             showForcedSubtitles = profile.showForcedSubtitles ?: true,
                         )
                     }
@@ -365,6 +368,25 @@ class TvSettingsViewModel(
         val previousState = _uiState.value
         _uiState.update { it.copy(subtitleMode = value) }
         persistProfileSubtitleSettings(previousState)
+    }
+
+    fun onMetadataLanguageChanged(value: String) {
+        val previous = _uiState.value.metadataLanguage
+        _uiState.update { it.copy(metadataLanguage = value) }
+        viewModelScope.launch {
+            when (
+                profileRepository.updateActiveProfile(
+                    UpdateProfileRequest(preferredMetadataLanguage = value.ifBlank { null })
+                )
+            ) {
+                is ApiResult.Success -> Unit
+                is ApiResult.Error, is ApiResult.NetworkError -> {
+                    _uiState.update { current ->
+                        if (current.metadataLanguage == value) current.copy(metadataLanguage = previous) else current
+                    }
+                }
+            }
+        }
     }
 
     fun onSubtitleLanguageChanged(value: String) {

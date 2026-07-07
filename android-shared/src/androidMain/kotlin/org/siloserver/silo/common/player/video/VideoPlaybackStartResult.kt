@@ -17,6 +17,9 @@ sealed interface VideoPlaybackStartResult {
         val playbackPlan: PlaybackExecutionPlan? = null,
         val delivery: PlaybackDelivery? = null,
         val container: String? = null,
+        // DIRECT file whose video codec has no hardware decoder here but MPV
+        // can software-decode (Apple codec-tail parity) — routes to MPV.
+        val softwareOnlyVideoCodec: Boolean = false,
         val title: String,
         val subtitle: String?,
         val artworkUrl: String?,

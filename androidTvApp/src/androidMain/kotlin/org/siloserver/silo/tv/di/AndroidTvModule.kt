@@ -292,7 +292,18 @@ val androidTvModule = module {
         )
     }
     single { SiloCastNsdAdvertiser(androidContext()) }
-    single { TvSiloCastReceiver(get()) }
+    single {
+        TvSiloCastReceiver(
+            advertiser = get(),
+            serverRegistry = get(),
+            deviceNameProvider = {
+                android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android TV"
+            },
+            deviceIdProvider = {
+                org.siloserver.silo.common.pairing.PairingDeviceId.stable(androidContext())
+            },
+        )
+    }
 
     // Auth ViewModels
     viewModel { TvServerSetupViewModel(get()) }
@@ -330,7 +341,7 @@ val androidTvModule = module {
     }
 
     // Content ViewModels
-    viewModel { HomeViewModel(get(), get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull()) }
     viewModel { org.siloserver.silo.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { RequestsViewModel(get()) }
@@ -376,6 +387,7 @@ val androidTvModule = module {
             catalogRepository = get(),
             personalDataRepository = get(),
             playerSettingsStore = get(),
+            metadataAiRepository = get(),
             contentId = params.get(),
             userItemState = getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>()
                 ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,

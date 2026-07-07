@@ -7,9 +7,19 @@ import kotlin.test.assertTrue
 
 class ConflictPolicyTest {
     @Test
-    fun lastWriteWinsByTimestamp() {
+    fun lastWriteWinsByTimestampBeyondSkewTolerance() {
         assertTrue(ConflictPolicy.localWins(localUpdatedMs = 200L, serverUpdatedMs = 100L))
-        assertFalse(ConflictPolicy.localWins(localUpdatedMs = 100L, serverUpdatedMs = 200L))
+        // Local and server clocks differ; within the tolerance window the
+        // user's own edit wins so a skewed device doesn't see its changes
+        // reverted on refresh.
+        assertTrue(ConflictPolicy.localWins(localUpdatedMs = 100L, serverUpdatedMs = 200L))
+        // A server value clearly newer than any plausible skew wins.
+        assertFalse(
+            ConflictPolicy.localWins(
+                localUpdatedMs = 100L,
+                serverUpdatedMs = 100L + 6 * 60 * 1000L,
+            ),
+        )
     }
 
     @Test

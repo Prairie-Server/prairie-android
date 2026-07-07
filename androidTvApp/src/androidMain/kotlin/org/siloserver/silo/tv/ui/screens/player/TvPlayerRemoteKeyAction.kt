@@ -18,6 +18,10 @@ internal fun tvPlayerRemoteKeyAction(
     keyCode: Int,
     action: Int,
     repeatCount: Int,
+    // Left/Right = seek is only safe while no focus-owning surface (transport
+    // overlay, HUD, Up Next) is on screen. When one is, Left/Right must fall
+    // through so Compose focus navigation keeps moving the selection.
+    dpadHorizontalSeek: Boolean = true,
 ): TvPlayerRemoteKeyAction? = when (keyCode) {
     KeyEvent.KEYCODE_MEDIA_PLAY,
     KeyEvent.KEYCODE_MEDIA_PAUSE,
@@ -32,17 +36,17 @@ internal fun tvPlayerRemoteKeyAction(
         if (action == KeyEvent.ACTION_DOWN) TvPlayerRemoteKeyAction.FocusTransport else null
 
     KeyEvent.KEYCODE_DPAD_LEFT ->
-        if (action == KeyEvent.ACTION_DOWN && repeatCount == 0) {
-            TvPlayerRemoteKeyAction.SkipBack
-        } else {
-            TvPlayerRemoteKeyAction.ConsumeOnly
+        when {
+            !dpadHorizontalSeek -> null
+            action == KeyEvent.ACTION_DOWN && repeatCount == 0 -> TvPlayerRemoteKeyAction.SkipBack
+            else -> TvPlayerRemoteKeyAction.ConsumeOnly
         }
 
     KeyEvent.KEYCODE_DPAD_RIGHT ->
-        if (action == KeyEvent.ACTION_DOWN && repeatCount == 0) {
-            TvPlayerRemoteKeyAction.SkipForward
-        } else {
-            TvPlayerRemoteKeyAction.ConsumeOnly
+        when {
+            !dpadHorizontalSeek -> null
+            action == KeyEvent.ACTION_DOWN && repeatCount == 0 -> TvPlayerRemoteKeyAction.SkipForward
+            else -> TvPlayerRemoteKeyAction.ConsumeOnly
         }
 
     KeyEvent.KEYCODE_MENU,
@@ -52,6 +56,9 @@ internal fun tvPlayerRemoteKeyAction(
     else -> null
 }
 
+// The idle overlay is a focus-owning surface: the scrubber handles its own
+// Left/Right skips when focused, and the transport cluster needs Left/Right
+// for moving between buttons — so horizontal seek mapping stays off here.
 internal fun tvPlayerIdleOverlayRemoteKeyAction(
     keyCode: Int,
     action: Int,
@@ -61,4 +68,5 @@ internal fun tvPlayerIdleOverlayRemoteKeyAction(
         keyCode = keyCode,
         action = action,
         repeatCount = repeatCount,
+        dpadHorizontalSeek = false,
     )
