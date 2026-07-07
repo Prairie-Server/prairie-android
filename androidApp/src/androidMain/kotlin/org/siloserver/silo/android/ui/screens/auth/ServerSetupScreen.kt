@@ -180,7 +180,7 @@ fun ServerSetupScreen(
                         label = "Port",
                         value = state.port,
                         onValueChange = viewModel::onPortChanged,
-                        placeholder = "8096",
+                        placeholder = "8090",
                         keyboardType = KeyboardType.Number,
                     )
                 }

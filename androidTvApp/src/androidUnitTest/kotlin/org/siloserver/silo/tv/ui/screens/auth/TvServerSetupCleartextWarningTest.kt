@@ -8,7 +8,7 @@ class TvServerSetupCleartextWarningTest {
 
     @Test
     fun explicitHttpPrefixWarns() {
-        assertTrue(serverSetupUsesCleartext("http://192.168.1.50:8096"))
+        assertTrue(serverSetupUsesCleartext("http://192.168.1.50:8090"))
     }
 
     @Test

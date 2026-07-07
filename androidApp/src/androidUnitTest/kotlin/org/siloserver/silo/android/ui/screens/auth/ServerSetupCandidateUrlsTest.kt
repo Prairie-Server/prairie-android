@@ -37,12 +37,12 @@ class ServerSetupCandidateUrlsTest {
     @Test
     fun typedSchemeIsRespectedInAutoMode() {
         val candidates = buildServerSetupCandidateUrls(
-            rawInput = "http://box.local:8096/base/",
+            rawInput = "http://box.local:8090/base/",
             selectedScheme = ServerSetupScheme.Auto,
             port = "",
         )
 
-        assertEquals(listOf("http://box.local:8096/base"), candidates)
+        assertEquals(listOf("http://box.local:8090/base"), candidates)
     }
 
     @Test

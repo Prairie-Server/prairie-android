@@ -11,7 +11,7 @@ class ServerSetupCleartextWarningTest {
 
     @Test
     fun explicitHttpSchemeWarns() {
-        assertTrue(warns("192.168.1.50:8096", ServerSetupScheme.Http))
+        assertTrue(warns("192.168.1.50:8090", ServerSetupScheme.Http))
     }
 
     @Test
