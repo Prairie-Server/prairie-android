@@ -190,6 +190,16 @@ fun ServerSetupScreen(
                 AuroraErrorLabel(error)
             }
 
+            if (state.usesCleartext && state.error == null) {
+                androidx.compose.material3.Text(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    text = "This server uses unencrypted HTTP. Fine on a trusted home network; " +
+                        "avoid it on public Wi-Fi.",
+                    fontSize = 12.sp,
+                    color = org.siloserver.silo.android.ui.theme.SiloWarning,
+                )
+            }
+
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Connecting…" else "Connect",
                 onClick = viewModel::onConnectClick,
