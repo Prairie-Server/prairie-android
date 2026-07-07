@@ -59,13 +59,23 @@ class HomeViewModel(
         }
     }
 
+    private var realtimeRefreshInFlight = false
+
     /**
      * Debounced realtime refetch: quiet (no spinner) and single-flight —
-     * an in-flight manual refresh already delivers the fresh sections.
+     * an in-flight realtime or manual refresh already delivers the fresh
+     * sections, so overlapping signals are dropped rather than raced.
      */
     fun refreshFromRealtime() {
-        if (_uiState.value.isRefreshing) return
-        viewModelScope.launch { fetchSections() }
+        if (realtimeRefreshInFlight || _uiState.value.isRefreshing) return
+        realtimeRefreshInFlight = true
+        viewModelScope.launch {
+            try {
+                fetchSections()
+            } finally {
+                realtimeRefreshInFlight = false
+            }
+        }
     }
 
     fun loadSections() {

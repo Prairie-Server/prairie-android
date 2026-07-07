@@ -79,6 +79,8 @@ class DefaultHomeRealtimeClient(
                 }
             }
             trySend(HomeRealtimeEvent.Closed())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             trySend(HomeRealtimeEvent.Closed(e.message))
         } finally {

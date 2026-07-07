@@ -66,6 +66,12 @@ object SiloCastTls {
                 flushOutput(protocol, rawOut)
             }
             flushOutput(protocol, rawOut)
+        } catch (t: Throwable) {
+            // A LAN listener accepts arbitrary connections; a failed handshake
+            // must not leak the fd or repeated probes exhaust descriptors.
+            runCatching { protocol.close() }
+            runCatching { socket.close() }
+            throw t
         } finally {
             runCatching { socket.soTimeout = previousSoTimeout }
         }
@@ -219,7 +225,9 @@ class SiloCastTlsSession(
     }
 
     fun close() {
-        runCatching { protocol.close() }
+        // Same lock discipline as the stream paths — BC's non-blocking engine
+        // must never be re-entered concurrently, including on teardown.
+        synchronized(protocol) { runCatching { protocol.close() } }
         runCatching { socket.close() }
     }
 

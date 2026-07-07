@@ -82,6 +82,25 @@ class DescriptionTranslationControllerTest {
     }
 
     @Test
+    fun throwingRefetchFailsInsteadOfStrandingTranslatingPhase() = runTest {
+        val controller = DescriptionTranslationController(
+            repository = MetadataAiRepository(FakeApi(ApiResult.Success(Unit))),
+            delayMs = { },
+        )
+
+        controller.translate(
+            contentId = "movie-1",
+            targetLanguage = "nl",
+            refetchPendingLanguage = { throw IllegalStateException("detail fetch blew up") },
+            onTranslated = { },
+        )
+
+        // A stuck Translating phase would block every future translate()
+        // call on this controller; failures must land on Failed.
+        assertEquals(DescriptionTranslationPhase.Failed, controller.phase.value)
+    }
+
+    @Test
     fun autoFireLatchesPerContentAndLanguage() {
         val controller = DescriptionTranslationController(
             repository = MetadataAiRepository(FakeApi(ApiResult.Success(Unit))),

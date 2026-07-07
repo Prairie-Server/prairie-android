@@ -55,16 +55,27 @@ class DescriptionTranslationController(
             }
         }
 
-        for (backoffSeconds in POLL_BACKOFF_SECONDS) {
-            delayMs(backoffSeconds * 1_000L)
-            val pending = refetchPendingLanguage()
-            if (pending == null) {
-                _phase.value = DescriptionTranslationPhase.Idle
-                onTranslated()
-                return
+        try {
+            for (backoffSeconds in POLL_BACKOFF_SECONDS) {
+                delayMs(backoffSeconds * 1_000L)
+                val pending = refetchPendingLanguage()
+                if (pending == null) {
+                    _phase.value = DescriptionTranslationPhase.Idle
+                    onTranslated()
+                    return
+                }
             }
+            _phase.value = DescriptionTranslationPhase.Failed
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Screen left mid-poll: release the single-flight latch so a
+            // fresh controller use can translate again, then propagate.
+            _phase.value = DescriptionTranslationPhase.Idle
+            throw e
+        } catch (_: Exception) {
+            // A throwing refetch/onTranslated must not strand the phase at
+            // Translating forever (resetFailure only clears Failed).
+            _phase.value = DescriptionTranslationPhase.Failed
         }
-        _phase.value = DescriptionTranslationPhase.Failed
     }
 
     /** `auto` on-view mode: fire at most once per (content, language) per session. */
