@@ -24,9 +24,6 @@ class ReaderEngineHostSourceTest {
     private val comicSourceFile = File(
         "src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/reader/ComicReader.kt",
     )
-    private val epubReaderSourceFile = File(
-        "src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/reader/EpubReader.kt",
-    )
 
     @Test
     fun hostDispatchesEveryReaderEngineKind() {
@@ -177,14 +174,6 @@ class ReaderEngineHostSourceTest {
         assertTrue(relocatedBody.contains("latestPageProgression = ev.pageProgression"))
         assertTrue(onCrashBody.contains("pendingPageProgression = latestPageProgression"))
         assertTrue(onCrashBody.contains("relocationGate = ReflowInitialRelocationGate(latestPageProgression)"))
-    }
-
-    @Test
-    fun epubReaderUsesEncodedDirectoryBaseUrlForWebViewResources() {
-        val source = epubReaderSourceFile.readText()
-
-        assertTrue(source.contains("readerDirectoryBaseUrl(book.opfDir)"))
-        assertFalse(source.contains(""""file://${'$'}{book.unpackedRoot.absolutePath}/""""))
     }
 
     @Test

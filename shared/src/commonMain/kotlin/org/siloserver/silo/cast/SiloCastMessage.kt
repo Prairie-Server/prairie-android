@@ -6,6 +6,17 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonClassDiscriminator
 
+/**
+ * Wire model for the `_silocast._tcp` phone→TV control channel.
+ *
+ * BYTE-COMPATIBLE WITH silo-apple's SiloControlMessage
+ * (iosApp/Control/SiloControlProtocol.swift) — Apple clients ship this exact
+ * schema and cannot be revved in lockstep, so every field name, casing, enum
+ * string, and envelope key here mirrors the Swift Codable output: camelCase
+ * payload fields, `{type, v, <kind>}` envelope with the payload nested under
+ * the kind key, payloadless ping/pong/close, and Int64 track ids. Change this
+ * file only together with silo-apple.
+ */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @JsonClassDiscriminator("type")
@@ -15,10 +26,7 @@ sealed class SiloCastMessage {
     @Serializable
     @SerialName("hello")
     data class Hello(
-        @SerialName("device_id") val deviceId: String,
-        @SerialName("device_name") val deviceName: String,
-        @SerialName("device_model") val deviceModel: String? = null,
-        @SerialName("app_version") val appVersion: String? = null,
+        val hello: SiloCastHello,
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = SiloCastProtocol.version,
     ) : SiloCastMessage()
 
@@ -32,7 +40,7 @@ sealed class SiloCastMessage {
     @Serializable
     @SerialName("control")
     data class Control(
-        @SerialName("control") val command: SiloCastControlCommand,
+        val control: SiloCastControlCommand,
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = SiloCastProtocol.version,
     ) : SiloCastMessage()
 
@@ -53,70 +61,145 @@ sealed class SiloCastMessage {
     @Serializable
     @SerialName("ping")
     data class Ping(
-        val id: String? = null,
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = SiloCastProtocol.version,
     ) : SiloCastMessage()
 
     @Serializable
     @SerialName("pong")
     data class Pong(
-        val id: String? = null,
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = SiloCastProtocol.version,
     ) : SiloCastMessage()
 
     @Serializable
     @SerialName("close")
     data class Close(
-        val reason: String? = null,
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = SiloCastProtocol.version,
     ) : SiloCastMessage()
 }
 
 @Serializable
-data class SiloCastLaunchRequest(
-    @SerialName("server_id") val serverId: String? = null,
-    @SerialName("content_id") val contentId: String,
-    @SerialName("file_id") val fileId: String? = null,
-    @SerialName("media_kind") val mediaKind: String,
-    val title: String,
-    val subtitle: String? = null,
-    @SerialName("resume_time") val resumeTime: Double? = null,
-    @SerialName("audio_track_id") val audioTrackId: String? = null,
-    @SerialName("subtitle_track_id") val subtitleTrackId: String? = null,
-    @SerialName("quality_id") val qualityId: String? = null,
+enum class SiloCastPeerRole {
+    @SerialName("phone")
+    Phone,
+
+    @SerialName("tv")
+    Tv,
+}
+
+/**
+ * Session handshake. Both peers send one immediately after connecting; the TV
+ * authorizes the controller only when [serverId] matches its own active
+ * server — that check (plus same-LAN discovery) is the trust anchor, the
+ * fixed TLS-PSK is confidentiality only.
+ */
+@Serializable
+data class SiloCastHello(
+    val role: SiloCastPeerRole,
+    val deviceName: String,
+    val deviceId: String,
+    val serverId: String? = null,
+    val serverName: String? = null,
+    val supportedVersions: List<Int>,
 )
 
 @Serializable
+data class SiloCastPlaybackRequest(
+    val contentId: String,
+    val fileId: Int? = null,
+    val audioTrackIndex: Int? = null,
+    val subtitleTrackIndex: Int? = null,
+    val startFromBeginning: Boolean,
+    val resumePosition: Double? = null,
+)
+
+@Serializable
+data class SiloCastLaunchRequest(
+    val serverId: String,
+    val playback: SiloCastPlaybackRequest,
+)
+
+@Serializable
+data class SiloCastTrack(
+    val kind: String,
+    val trackId: Long,
+    val title: String,
+    val detail: String? = null,
+)
+
+@Serializable
+data class SiloCastQualityOption(
+    val id: String,
+    val label: String,
+    val detail: String? = null,
+)
+
+@Serializable
+data class SiloCastPlaybackState(
+    val contentId: String? = null,
+    val sessionId: String? = null,
+    val title: String,
+    val subtitle: String? = null,
+    val isPlaying: Boolean,
+    val isLoading: Boolean,
+    val isBuffering: Boolean,
+    val currentTime: Double,
+    val duration: Double,
+    val audioTracks: List<SiloCastTrack>,
+    val subtitleTracks: List<SiloCastTrack>,
+    val selectedAudioTrackId: Long? = null,
+    val selectedSubtitleTrackId: Long? = null,
+    val qualityOptions: List<SiloCastQualityOption>,
+    val activeQualityId: String,
+    val isQualitySwitching: Boolean,
+    val playbackSpeed: Double,
+    val videoGravity: String,
+    val hdrEnabled: Boolean,
+    val supportsVideoGravity: Boolean,
+    val supportsHDRToggle: Boolean,
+    val subtitleSyncMs: Int? = null,
+    val subtitlePosition: String? = null,
+    val supportsSubtitleDelay: Boolean? = null,
+    val supportsSubtitlePosition: Boolean? = null,
+    val volume: Double,
+    val isMuted: Boolean,
+    val hasNextEpisode: Boolean,
+    val nextEpisodeTitle: String? = null,
+    val error: String? = null,
+)
+
+/**
+ * Command envelope: a [name] from Apple's closed Name enum plus the sparse
+ * argument fields. Apple's decoder REJECTS unknown names, so never send a
+ * string outside this set.
+ */
+@Serializable
 data class SiloCastControlCommand(
     val name: String,
-    val position: Double? = null,
     val seconds: Double? = null,
-    @SerialName("track_id") val trackId: String? = null,
-    @SerialName("quality_id") val qualityId: String? = null,
-    @SerialName("playback_speed") val playbackSpeed: Double? = null,
-    @SerialName("video_gravity") val videoGravity: String? = null,
-    val enabled: Boolean? = null,
-    @SerialName("delta_ms") val deltaMs: Int? = null,
+    val trackId: Long? = null,
+    val speed: Double? = null,
     val volume: Double? = null,
+    val value: String? = null,
+    val enabled: Boolean? = null,
+    val milliseconds: Int? = null,
 ) {
     companion object {
         const val Play = "play"
         const val Pause = "pause"
         const val PlayPause = "play_pause"
-        const val Stop = "stop"
         const val Seek = "seek"
-        const val Skip = "skip"
+        const val Stop = "stop"
         const val SelectAudioTrack = "select_audio_track"
         const val SelectSubtitleTrack = "select_subtitle_track"
-        const val SelectQuality = "select_quality"
         const val SetPlaybackSpeed = "set_playback_speed"
+        const val SetQuality = "set_quality"
         const val SetVideoGravity = "set_video_gravity"
         const val SetHdrEnabled = "set_hdr_enabled"
-        const val SetSubtitleDelay = "set_subtitle_delay"
+        const val SetSubtitleSyncMs = "set_subtitle_sync_ms"
         const val SetSubtitlePosition = "set_subtitle_position"
         const val SetVolume = "set_volume"
         const val SetMuted = "set_muted"
-        const val NextEpisode = "next_episode"
+        const val PlayNext = "play_next"
 
         fun play(): SiloCastControlCommand = SiloCastControlCommand(name = Play)
 
@@ -126,101 +209,45 @@ data class SiloCastControlCommand(
 
         fun stop(): SiloCastControlCommand = SiloCastControlCommand(name = Stop)
 
-        fun seek(position: Double): SiloCastControlCommand =
-            SiloCastControlCommand(name = Seek, position = position)
+        fun seek(seconds: Double): SiloCastControlCommand =
+            SiloCastControlCommand(name = Seek, seconds = seconds)
 
-        fun skip(seconds: Double): SiloCastControlCommand =
-            SiloCastControlCommand(name = Skip, seconds = seconds)
-
-        fun selectAudioTrack(trackId: String?): SiloCastControlCommand =
+        fun selectAudioTrack(trackId: Long): SiloCastControlCommand =
             SiloCastControlCommand(name = SelectAudioTrack, trackId = trackId)
 
-        fun selectSubtitleTrack(trackId: String?): SiloCastControlCommand =
+        fun selectSubtitleTrack(trackId: Long?): SiloCastControlCommand =
             SiloCastControlCommand(name = SelectSubtitleTrack, trackId = trackId)
 
-        fun selectQuality(qualityId: String): SiloCastControlCommand =
-            SiloCastControlCommand(name = SelectQuality, qualityId = qualityId)
-
         fun setPlaybackSpeed(speed: Double): SiloCastControlCommand =
-            SiloCastControlCommand(name = SetPlaybackSpeed, playbackSpeed = speed)
+            SiloCastControlCommand(name = SetPlaybackSpeed, speed = speed)
 
-        fun setVideoGravity(videoGravity: String): SiloCastControlCommand =
-            SiloCastControlCommand(name = SetVideoGravity, videoGravity = videoGravity)
+        fun setQuality(qualityId: String): SiloCastControlCommand =
+            SiloCastControlCommand(name = SetQuality, value = qualityId)
+
+        fun setVideoGravity(value: String): SiloCastControlCommand =
+            SiloCastControlCommand(name = SetVideoGravity, value = value)
 
         fun setHdrEnabled(enabled: Boolean): SiloCastControlCommand =
             SiloCastControlCommand(name = SetHdrEnabled, enabled = enabled)
 
-        fun setSubtitleDelay(deltaMs: Int): SiloCastControlCommand =
-            SiloCastControlCommand(name = SetSubtitleDelay, deltaMs = deltaMs)
+        fun setSubtitleSyncMs(milliseconds: Int): SiloCastControlCommand =
+            SiloCastControlCommand(name = SetSubtitleSyncMs, milliseconds = milliseconds)
 
-        fun setSubtitlePosition(position: Double): SiloCastControlCommand =
-            SiloCastControlCommand(name = SetSubtitlePosition, position = position)
+        fun setSubtitlePosition(value: String): SiloCastControlCommand =
+            SiloCastControlCommand(name = SetSubtitlePosition, value = value)
 
         fun setVolume(volume: Double): SiloCastControlCommand =
             SiloCastControlCommand(name = SetVolume, volume = volume)
 
-        fun setMuted(enabled: Boolean): SiloCastControlCommand =
-            SiloCastControlCommand(name = SetMuted, enabled = enabled)
+        fun setMuted(muted: Boolean): SiloCastControlCommand =
+            SiloCastControlCommand(name = SetMuted, enabled = muted)
 
-        fun nextEpisode(): SiloCastControlCommand = SiloCastControlCommand(name = NextEpisode)
+        fun playNext(): SiloCastControlCommand = SiloCastControlCommand(name = PlayNext)
     }
 }
-
-@Serializable
-data class SiloCastPlaybackState(
-    @SerialName("content_id") val contentId: String,
-    @SerialName("session_id") val sessionId: String? = null,
-    val title: String,
-    val subtitle: String? = null,
-    @SerialName("is_playing") val isPlaying: Boolean,
-    @SerialName("is_loading") val isLoading: Boolean,
-    @SerialName("is_buffering") val isBuffering: Boolean,
-    @SerialName("current_time") val currentTime: Double,
-    val duration: Double,
-    @SerialName("audio_tracks") val audioTracks: List<SiloCastTrack>,
-    @SerialName("subtitle_tracks") val subtitleTracks: List<SiloCastTrack>,
-    @SerialName("selected_audio_track_id") val selectedAudioTrackId: String? = null,
-    @SerialName("selected_subtitle_track_id") val selectedSubtitleTrackId: String? = null,
-    @SerialName("quality_options") val qualityOptions: List<SiloCastQualityOption>,
-    @SerialName("active_quality_id") val activeQualityId: String? = null,
-    @SerialName("is_quality_switching") val isQualitySwitching: Boolean,
-    @SerialName("playback_speed") val playbackSpeed: Double,
-    @SerialName("video_gravity") val videoGravity: String,
-    @SerialName("hdr_enabled") val hdrEnabled: Boolean,
-    @SerialName("supports_video_gravity") val supportsVideoGravity: Boolean,
-    @SerialName("supports_hdr_toggle") val supportsHDRToggle: Boolean,
-    @SerialName("subtitle_sync_ms") val subtitleSyncMs: Int? = null,
-    @SerialName("subtitle_position") val subtitlePosition: Double? = null,
-    @SerialName("supports_subtitle_delay") val supportsSubtitleDelay: Boolean,
-    @SerialName("supports_subtitle_position") val supportsSubtitlePosition: Boolean,
-    val volume: Double,
-    @SerialName("is_muted") val isMuted: Boolean,
-    @SerialName("has_next_episode") val hasNextEpisode: Boolean,
-    @SerialName("next_episode_title") val nextEpisodeTitle: String? = null,
-    val error: String? = null,
-)
-
-@Serializable
-data class SiloCastTrack(
-    val id: String? = null,
-    val label: String,
-    val language: String? = null,
-    @SerialName("is_default") val isDefault: Boolean = false,
-    @SerialName("is_forced") val isForced: Boolean = false,
-)
-
-@Serializable
-data class SiloCastQualityOption(
-    val id: String,
-    val label: String,
-    @SerialName("is_auto") val isAuto: Boolean = false,
-    @SerialName("height") val height: Int? = null,
-    @SerialName("bitrate") val bitrate: Long? = null,
-)
 
 @Serializable
 data class SiloCastError(
     val code: String,
     val message: String,
-    @SerialName("recoverable") val isRecoverable: Boolean = true,
 )

@@ -79,7 +79,8 @@ class MpvPlayer(
     private val hwDec: String = DefaultMpvHardwareDecoder,
     private val bufferSizeMb: Int = 64,
     private val httpHeaderFieldsProvider: () -> List<Pair<String, String>> = { emptyList() },
-) : BasePlayer(), MPVLib.EventObserver, AudioManager.OnAudioFocusChangeListener, MpvVideoScaleController {
+) : BasePlayer(), MPVLib.EventObserver, AudioManager.OnAudioFocusChangeListener, MpvVideoScaleController,
+    MpvSubtitleStyleController {
 
     val mpv: MPVLib
     private val audioManager: AudioManager by lazy { context.getSystemService()!! }
@@ -1091,6 +1092,23 @@ class MpvPlayer(
 
     fun setSubtitleDelayMs(delayMs: Int) {
         mpv.setPropertyDouble("sub-delay", delayMs / 1000.0)
+    }
+
+    /**
+     * Push the shared user subtitle appearance into libass. Authored ASS/SSA
+     * tracks keep their styling (`sub-ass-override=no`); everything else gets
+     * the user's font/color/box/position via `force`. Safe to call on every
+     * appearance change and after track switches — properties are idempotent.
+     */
+    override fun applySubtitleAppearance(appearance: org.siloserver.silo.model.settings.SubtitleAppearance) {
+        if (isReleased) return
+        val activeSubCodec = runCatching {
+            mpv.getPropertyString("current-tracks/sub/codec")
+        }.getOrNull()
+        val nativeAss = activeSubCodec?.lowercase() in setOf("ass", "ssa")
+        for ((name, value) in subtitleAppearanceToMpvProperties(appearance, nativeAssTrack = nativeAss)) {
+            runCatching { mpv.setPropertyString(name, value) }
+        }
     }
 
     override fun stop() {

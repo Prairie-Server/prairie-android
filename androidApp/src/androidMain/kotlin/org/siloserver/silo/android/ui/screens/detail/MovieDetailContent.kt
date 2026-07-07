@@ -76,6 +76,7 @@ fun MovieDetailContent(
     onDownloadTapped: (() -> Unit)? = null,
     onPlayOnDevice: (() -> Unit)? = null,
     onWatchTogether: (() -> Unit)? = null,
+    translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var showMediaInfo by remember { mutableStateOf(false) }
@@ -126,6 +127,7 @@ fun MovieDetailContent(
                 sourceTokens = sourceTokens,
                 factsLine = factsLine,
                 dominantColor = dominantColor,
+                translation = translation,
             ) {
                 HeroActionStack(
                     primaryLabel = computePlayLabel(detail),

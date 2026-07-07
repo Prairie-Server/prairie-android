@@ -59,6 +59,8 @@ class AppWorkerFactory : WorkerFactory() {
                     params = workerParameters,
                     repository = koin.get<DownloadSubscriptionRepository>(),
                     evaluatorFactory = koin.get<DownloadSubscriptionEvaluatorFactory>(),
+                    serverRegistry = koin.get<org.siloserver.silo.network.ServerRegistry>(),
+                    profileRepository = koin.get<org.siloserver.silo.repository.ProfileRepository>(),
                 )
             }
             SyncWorker::class.java.name -> {

@@ -83,7 +83,6 @@ fun TvSettingsScreen(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCollections: () -> Unit = {},
     onNavigateToBrowse: () -> Unit = {},
-    onNavigateToRequests: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
     onManageSessions: () -> Unit = {},
     onPairDevice: () -> Unit = {},
@@ -94,6 +93,9 @@ fun TvSettingsScreen(
     viewModel: TvSettingsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val metadataAiStore: org.siloserver.silo.model.feature.MetadataAiFeatureStore =
+        org.koin.compose.koinInject()
+    val metadataAiStatus by metadataAiStore.status.collectAsState()
     val context = LocalContext.current
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val firstActionFocusRequester = remember { FocusRequester() }
@@ -132,6 +134,7 @@ fun TvSettingsScreen(
         onPairDevice = onPairDevice,
         onManageServers = onManageServers,
         onRequestSignOut = { showSignOutConfirm = true },
+        onNavigateToAdmin = onNavigateToAdmin,
         onNavigateToBrowse = onNavigateToBrowse,
         onNavigateToFavorites = onNavigateToFavorites,
         onNavigateToWatchlist = onNavigateToWatchlist,
@@ -154,6 +157,8 @@ fun TvSettingsScreen(
         onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
         onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
         onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
+        onMetadataLanguageChanged = viewModel::onMetadataLanguageChanged,
+        metadataLanguageEnabled = metadataAiStatus.enabled && metadataAiStatus.onView != org.siloserver.silo.model.metadata.MetadataAiOnView.Off,
         onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
         onSubtitleFontSizeChanged = viewModel::setSubtitleFontSize,
         onSubtitleFontFamilyChanged = viewModel::setSubtitleFontFamily,
@@ -232,6 +237,7 @@ private fun SettingsSplitLayout(
     onPairDevice: () -> Unit,
     onManageServers: () -> Unit,
     onRequestSignOut: () -> Unit,
+    onNavigateToAdmin: () -> Unit,
     onNavigateToBrowse: () -> Unit,
     onNavigateToFavorites: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
@@ -254,6 +260,8 @@ private fun SettingsSplitLayout(
     onResetPlaybackOverrides: () -> Unit,
     onSubtitleModeChanged: (SubtitleMode) -> Unit,
     onSubtitleLanguageChanged: (String) -> Unit,
+    onMetadataLanguageChanged: (String) -> Unit,
+    metadataLanguageEnabled: Boolean,
     onShowForcedSubtitlesChanged: (Boolean) -> Unit,
     onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
     onSubtitleFontFamilyChanged: (String) -> Unit,
@@ -285,6 +293,7 @@ private fun SettingsSplitLayout(
             firstActionFocusRequester = firstActionFocusRequester,
             onCategorySelected = onCategorySelected,
             onSwitchProfile = onSwitchProfile,
+            onNavigateToAdmin = onNavigateToAdmin,
             onRequestSignOut = onRequestSignOut,
             modifier = Modifier.width(300.dp),
         )
@@ -317,6 +326,8 @@ private fun SettingsSplitLayout(
             onResetPlaybackOverrides = onResetPlaybackOverrides,
             onSubtitleModeChanged = onSubtitleModeChanged,
             onSubtitleLanguageChanged = onSubtitleLanguageChanged,
+            onMetadataLanguageChanged = onMetadataLanguageChanged,
+            metadataLanguageEnabled = metadataLanguageEnabled,
             onShowForcedSubtitlesChanged = onShowForcedSubtitlesChanged,
             onSubtitleFontSizeChanged = onSubtitleFontSizeChanged,
             onSubtitleFontFamilyChanged = onSubtitleFontFamilyChanged,
@@ -341,6 +352,7 @@ private fun SettingsRail(
     onCategorySelected: (TvSettingsCategory) -> Unit,
     onSwitchProfile: () -> Unit,
     onRequestSignOut: () -> Unit,
+    onNavigateToAdmin: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -371,6 +383,13 @@ private fun SettingsRail(
             )
         }
         Spacer(modifier = Modifier.weight(1f))
+        // Apple-parity admin surface: the stats dashboard only, role-gated.
+        if (state.adminVisible) {
+            SettingsActionRow(
+                label = "Admin",
+                onClick = onNavigateToAdmin,
+            )
+        }
         SettingsActionRow(
             label = "Sign Out",
             onClick = onRequestSignOut,
@@ -458,6 +477,8 @@ private fun SettingsDetailPane(
     onResetPlaybackOverrides: () -> Unit,
     onSubtitleModeChanged: (SubtitleMode) -> Unit,
     onSubtitleLanguageChanged: (String) -> Unit,
+    onMetadataLanguageChanged: (String) -> Unit,
+    metadataLanguageEnabled: Boolean,
     onShowForcedSubtitlesChanged: (Boolean) -> Unit,
     onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
     onSubtitleFontFamilyChanged: (String) -> Unit,
@@ -522,6 +543,8 @@ private fun SettingsDetailPane(
                 state = state,
                 onSubtitleModeChanged = onSubtitleModeChanged,
                 onSubtitleLanguageChanged = onSubtitleLanguageChanged,
+                onMetadataLanguageChanged = onMetadataLanguageChanged,
+                metadataLanguageEnabled = metadataLanguageEnabled,
                 onShowForcedSubtitlesChanged = onShowForcedSubtitlesChanged,
                 onSubtitleFontSizeChanged = onSubtitleFontSizeChanged,
                 onSubtitleFontFamilyChanged = onSubtitleFontFamilyChanged,
@@ -756,6 +779,8 @@ private fun TvSubtitleSettingsPane(
     state: TvSettingsViewModel.UiState,
     onSubtitleModeChanged: (SubtitleMode) -> Unit,
     onSubtitleLanguageChanged: (String) -> Unit,
+    onMetadataLanguageChanged: (String) -> Unit,
+    metadataLanguageEnabled: Boolean,
     onShowForcedSubtitlesChanged: (Boolean) -> Unit,
     onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
     onSubtitleFontFamilyChanged: (String) -> Unit,
@@ -788,6 +813,13 @@ private fun TvSubtitleSettingsPane(
                     value = subtitleLanguageLabel(state.subtitleLanguage),
                     onClick = { activePicker = SubtitlePicker.Language },
                 )
+                if (metadataLanguageEnabled) {
+                    SettingsValueRow(
+                        label = "Metadata Language",
+                        value = subtitleLanguageLabel(state.metadataLanguage),
+                        onClick = { activePicker = SubtitlePicker.MetadataLanguage },
+                    )
+                }
                 SettingsToggleRow(
                     label = "Show Forced Subtitles",
                     checked = state.showForcedSubtitles,
@@ -876,6 +908,13 @@ private fun TvSubtitleSettingsPane(
             options = SubtitleLanguages.map { PickerOption(it.first, it.second) },
             selectedId = state.subtitleLanguage,
             onSelect = { onSubtitleLanguageChanged(it); activePicker = null },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.MetadataLanguage -> TvSettingsPickerSheet(
+            title = "Metadata Language",
+            options = SubtitleLanguages.map { PickerOption(it.first, it.second) },
+            selectedId = state.metadataLanguage,
+            onSelect = { onMetadataLanguageChanged(it); activePicker = null },
             onDismiss = { activePicker = null },
         )
         SubtitlePicker.FontSize -> TvSettingsPickerSheet(
@@ -1020,6 +1059,7 @@ private enum class PlaybackPicker { Quality, AudioLanguage, NextUpPrompt, Resume
 private enum class SubtitlePicker {
     Mode,
     Language,
+    MetadataLanguage,
     FontSize,
     FontFamily,
     FontColor,

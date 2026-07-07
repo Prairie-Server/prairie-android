@@ -8,6 +8,14 @@ import android.util.Log
 import org.siloserver.silo.cast.SiloCastProtocol
 import org.siloserver.silo.common.pairing.PairingDeviceId
 
+/**
+ * Advertises the SiloCast receiver. TXT keys mirror silo-apple's
+ * TVControlReceiver Bonjour record (`v`, `name`, `id`, `server`,
+ * `serverName`, `playing`) so an iPhone browsing `_silocast._tcp` can filter
+ * an Android TV by server the same way it filters an Apple TV — and the
+ * Android browser can read Apple receivers. Android's NsdManager can't
+ * mutate a live TXT record, so [updatePlaying] re-registers.
+ */
 class SiloCastNsdAdvertiser(
     context: Context,
     private val nameProvider: () -> String = {
@@ -22,19 +30,46 @@ class SiloCastNsdAdvertiser(
         appContext.getSystemService(Context.NSD_SERVICE) as NsdManager
 
     private var registrationListener: NsdManager.RegistrationListener? = null
+    private var lastRegistration: Registration? = null
 
     @Synchronized
-    fun start(port: Int) {
-        stop()
+    fun start(port: Int, serverId: String?, serverName: String?, playing: Boolean = false) {
+        register(Registration(port, serverId, serverName, playing))
+    }
+
+    /** Re-advertise with an updated `playing` flag (no-op when not started). */
+    @Synchronized
+    fun updatePlaying(playing: Boolean) {
+        val current = lastRegistration ?: return
+        if (current.playing == playing) return
+        register(current.copy(playing = playing))
+    }
+
+    @Synchronized
+    fun stop() {
+        registrationListener?.let { listener ->
+            runCatching { nsdManager.unregisterService(listener) }
+        }
+        registrationListener = null
+        lastRegistration = null
+    }
+
+    private fun register(registration: Registration) {
+        registrationListener?.let { listener ->
+            runCatching { nsdManager.unregisterService(listener) }
+        }
+        registrationListener = null
         val name = nameProvider()
-        val deviceId = deviceIdProvider()
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = name
             serviceType = SiloCastProtocol.serviceType
-            this.port = port
+            port = registration.port
             setAttribute("v", SiloCastProtocol.version.toString())
             setAttribute("name", name)
-            setAttribute("deviceId", deviceId)
+            setAttribute("id", deviceIdProvider())
+            registration.serverId?.let { setAttribute("server", it) }
+            registration.serverName?.let { setAttribute("serverName", it) }
+            setAttribute("playing", if (registration.playing) "1" else "0")
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(info: NsdServiceInfo) {
@@ -54,16 +89,16 @@ class SiloCastNsdAdvertiser(
             }
         }
         registrationListener = listener
+        lastRegistration = registration
         nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
     }
 
-    @Synchronized
-    fun stop() {
-        registrationListener?.let { listener ->
-            runCatching { nsdManager.unregisterService(listener) }
-        }
-        registrationListener = null
-    }
+    private data class Registration(
+        val port: Int,
+        val serverId: String?,
+        val serverName: String?,
+        val playing: Boolean,
+    )
 
     private companion object {
         const val TAG = "SiloCastNsdAdvertiser"

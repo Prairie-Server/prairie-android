@@ -21,23 +21,26 @@ class TvSiloCastPlayerAdapter(
     private val playNext: () -> Unit,
 ) {
     fun handle(command: SiloCastControlCommand) {
+        // Field mapping follows Apple's SiloControlCommand exactly: seek uses
+        // `seconds`, quality/gravity/subtitle-position share `value`, subtitle
+        // delay is `milliseconds`, mute rides `enabled`.
         when (command.name) {
             SiloCastControlCommand.Play -> play()
             SiloCastControlCommand.Pause -> pause()
             SiloCastControlCommand.PlayPause -> playPause()
             SiloCastControlCommand.Stop -> stop()
-            SiloCastControlCommand.Seek -> command.position?.let(seek)
-            SiloCastControlCommand.SelectAudioTrack -> command.trackId?.toLongOrNull()?.let(selectAudio)
-            SiloCastControlCommand.SelectSubtitleTrack -> selectSubtitle(command.trackId?.toLongOrNull())
-            SiloCastControlCommand.SelectQuality -> command.qualityId?.let(setQuality)
-            SiloCastControlCommand.SetPlaybackSpeed -> command.playbackSpeed?.let(setPlaybackSpeed)
-            SiloCastControlCommand.SetVideoGravity -> command.videoGravity?.let(setVideoGravity)
+            SiloCastControlCommand.Seek -> command.seconds?.let(seek)
+            SiloCastControlCommand.SelectAudioTrack -> command.trackId?.let(selectAudio)
+            SiloCastControlCommand.SelectSubtitleTrack -> selectSubtitle(command.trackId)
+            SiloCastControlCommand.SetQuality -> command.value?.let(setQuality)
+            SiloCastControlCommand.SetPlaybackSpeed -> command.speed?.let(setPlaybackSpeed)
+            SiloCastControlCommand.SetVideoGravity -> command.value?.let(setVideoGravity)
             SiloCastControlCommand.SetHdrEnabled -> command.enabled?.let(setHdrEnabled)
-            SiloCastControlCommand.SetSubtitleDelay -> command.deltaMs?.let(setSubtitleSyncMs)
-            SiloCastControlCommand.SetSubtitlePosition -> command.position?.toString()?.let(setSubtitlePosition)
+            SiloCastControlCommand.SetSubtitleSyncMs -> command.milliseconds?.let(setSubtitleSyncMs)
+            SiloCastControlCommand.SetSubtitlePosition -> command.value?.let(setSubtitlePosition)
             SiloCastControlCommand.SetVolume -> command.volume?.let(setVolume)
             SiloCastControlCommand.SetMuted -> command.enabled?.let(setMuted)
-            SiloCastControlCommand.NextEpisode -> playNext()
+            SiloCastControlCommand.PlayNext -> playNext()
             else -> Unit
         }
     }

@@ -89,12 +89,21 @@ class TvItemDetailViewModel(
     private val catalogRepository: CatalogRepository,
     private val personalDataRepository: PersonalDataRepository,
     private val playerSettingsStore: PlayerSettingsStore,
+    metadataAiRepository: org.siloserver.silo.repository.MetadataAiRepository,
     private val contentId: String,
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvItemDetailUiState())
     val uiState: StateFlow<TvItemDetailUiState> = _uiState.asStateFlow()
+
+    private val descriptionTranslation =
+        org.siloserver.silo.metadata.DescriptionTranslationController(
+            repository = metadataAiRepository,
+            delayMs = { kotlinx.coroutines.delay(it) },
+        )
+    val translationPhase: StateFlow<org.siloserver.silo.metadata.DescriptionTranslationPhase> =
+        descriptionTranslation.phase
 
     init {
         observePreferredQuality()
@@ -495,6 +504,36 @@ class TvItemDetailViewModel(
                     )
                 }
             }
+        }
+    }
+
+
+    /** Mirror of the phone flow: fire (auto = once per content+language), then
+     *  poll detail until `pending_translation_language` clears. */
+    fun translateDescription(auto: Boolean = false) {
+        val detail = _uiState.value.detail ?: return
+        val target = detail.pendingTranslationLanguage ?: return
+        if (auto) {
+            if (!descriptionTranslation.shouldAutoFire(detail.contentId, target)) return
+            descriptionTranslation.markAutoFired(detail.contentId, target)
+        }
+        descriptionTranslation.resetFailure()
+        viewModelScope.launch {
+            descriptionTranslation.translate(
+                contentId = detail.contentId,
+                targetLanguage = target,
+                refetchPendingLanguage = {
+                    when (val result = catalogRepository.getItemDetail(contentId)) {
+                        is ApiResult.Success -> {
+                            val refreshed = withLocalProgress(result.data)
+                            _uiState.update { it.copy(detail = refreshed) }
+                            refreshed.pendingTranslationLanguage
+                        }
+                        else -> target // transient refetch failure: keep polling
+                    }
+                },
+                onTranslated = { },
+            )
         }
     }
 

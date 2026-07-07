@@ -128,6 +128,9 @@ class MobileDetailActionsSourceTest {
             downloadsRepository = DownloadsRepository(EmptyDownloadsApi()),
             downloadEnqueuer = unsafeInstance(),
             ebookReaderRepository = EbookReaderRepository(EbookReaderApi(dummyHttpClient())),
+            metadataAiRepository = org.siloserver.silo.repository.MetadataAiRepository(
+                org.siloserver.silo.network.api.DefaultMetadataAiApi(dummyHttpClient()),
+            ),
             savedStateHandle = SavedStateHandle(),
         )
 

@@ -15,10 +15,14 @@ class PlaybackRecoveryPlanner {
             // An unsupported DV profile on the current (Media3) engine is not
             // the end of direct play: mpv decodes the HDR10 base layer of
             // P7/P8 and tone-maps P5 via gpu-next, so prefer an alternate
-            // direct engine from the plan before conceding a transcode. A
-            // remux is excluded for the same reason as unsupported audio —
-            // it copies the DV video stream verbatim, re-sending exactly what
-            // the decoder just rejected.
+            // direct engine from the plan before conceding a transcode.
+            // Remux stays excluded for every DV profile: stock servers copy
+            // the DV video stream verbatim, so a P7 remux would carry
+            // dangling dual-layer RPUs (the enhancement layer is dropped) and
+            // a P5 base layer is unwatchable IPT color without its metadata.
+            // (Newer servers strip P7 RPUs during remux; enabling that rung
+            // client-side needs a server capability signal that does not
+            // exist yet — until then the ladder concedes a transcode.)
             is Playability.UnsupportedDvProfile -> serverFallbackFromPlan(
                 currentPlan,
                 errorClass = "unsupported_dolby_vision_profile",

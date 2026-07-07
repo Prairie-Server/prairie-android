@@ -217,7 +217,15 @@ open class PlaybackSessionManager(
             segmentDuration = 2,
             audioTrackIndex = audioTrackIndex,
             subtitleTrackIndex = subtitleTrackIndex,
-            subtitleBurnIn = false,
+            subtitleBurnIn = shouldBurnStyledSubtitle(
+                isRemux = isRemux,
+                subtitleTrackIndex = subtitleTrackIndex,
+                subtitleCodec = session.playbackPlan?.source?.subtitleCodec,
+                mpvSupportedOnDevice = org.siloserver.silo.common.player.backend.MpvDeviceFloor.isMpvSupported(
+                    sdkInt = android.os.Build.VERSION.SDK_INT,
+                    supportedAbis = android.os.Build.SUPPORTED_ABIS?.toList().orEmpty(),
+                ),
+            ),
         )
         Log.i(
             TAG,
@@ -335,3 +343,21 @@ internal fun ApiResult<*>.isPlaybackSessionMissingError(): Boolean {
     return error.code == 404 &&
         (error.error == "playback_session_not_found" || error.message == "Playback session not found")
 }
+
+/**
+ * G5 (Apple parity): devices below the MPV floor have no libass path, so a
+ * styled (ASS/SSA) source going through a FULL transcode only keeps its
+ * authored look via server burn-in. Strictly additive: remuxes have no video
+ * encode to burn into, MPV-capable devices keep client-side libass, and plain
+ * text tracks stay client-rendered so toggling them never needs a restart.
+ */
+internal fun shouldBurnStyledSubtitle(
+    isRemux: Boolean,
+    subtitleTrackIndex: Int?,
+    subtitleCodec: String?,
+    mpvSupportedOnDevice: Boolean,
+): Boolean =
+    !isRemux &&
+        subtitleTrackIndex != null &&
+        subtitleCodec?.trim()?.lowercase() in setOf("ass", "ssa") &&
+        !mpvSupportedOnDevice

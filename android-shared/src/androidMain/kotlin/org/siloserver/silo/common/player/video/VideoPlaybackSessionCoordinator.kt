@@ -14,6 +14,7 @@ class VideoPlaybackSessionCoordinator(
                 playbackPlan = result.playbackPlan,
                 delivery = result.delivery,
                 container = result.container,
+                softwareOnlyVideoCodec = result.softwareOnlyVideoCodec,
                 title = result.title,
                 subtitle = result.subtitle,
                 artworkUrl = result.artworkUrl,

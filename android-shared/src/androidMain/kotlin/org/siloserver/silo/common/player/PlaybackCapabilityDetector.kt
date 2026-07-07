@@ -156,8 +156,17 @@ class PlaybackCapabilityDetector(
             intersectedHdr.hlg ||
             intersectedHdr.dolbyVisionProfiles.isNotEmpty()
 
+        // Apple codec-tail parity: when MPV is available, also advertise the
+        // codecs its FFmpeg build software-decodes (AV1/VP9/legacy) so the
+        // server DIRECTs those files; the backend selector routes them to MPV.
+        val advertisedVideo = if (mpvSupported) {
+            (codecProbe.videoCodecs + org.siloserver.silo.common.player.video.mpvSoftwareVideoCodecs).distinct()
+        } else {
+            codecProbe.videoCodecs.toList()
+        }
         return ClientCodecCapabilities(
-            codecsVideo = codecProbe.videoCodecs.toList(),
+            codecsVideo = advertisedVideo,
+            codecsVideoHardware = codecProbe.videoCodecs.toList(),
             codecsAudio = mergedAudio,
             containers = directContainers,
             maxResolution = codecProbe.maxResolution,

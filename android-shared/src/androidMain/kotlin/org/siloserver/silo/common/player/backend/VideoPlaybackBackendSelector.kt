@@ -28,6 +28,10 @@ object VideoPlaybackBackendSelector {
                 // Fidelity: MPV for hard containers / styled subtitles on supported devices.
                 request.hasHardContainer -> VideoPlaybackBackendKind.Mpv
                 request.hasStyledSubtitles -> VideoPlaybackBackendKind.Mpv
+                // Codec floor: no hardware decoder for this codec, but MPV can
+                // software-decode it (Apple codec-tail parity) — without this
+                // the file would have been transcoded server-side.
+                request.hasSoftwareOnlyVideoCodec -> VideoPlaybackBackendKind.Mpv
                 else -> VideoPlaybackBackendKind.Media3
             }
         }

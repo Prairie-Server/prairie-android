@@ -36,6 +36,20 @@ fun TvHomeScreen(
     val state by viewModel.uiState.collectAsState()
     val visibleSections = remember(state.sections) { state.sections.normalizeTvHomeSections() }
 
+    // TV has no pull-to-refresh, so ON_RESUME is the only manual freshness
+    // path — refresh quietly whenever the user returns to Home (e.g. after
+    // finishing playback), complementing the realtime socket.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshFromRealtime()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     when {
         state.isLoading && state.sections.isEmpty() -> TvLoadingScreen(
             modifier = Modifier.background(MaterialTheme.colorScheme.background),

@@ -5,6 +5,15 @@ package org.siloserver.silo.model.playback
  * is an explicit command, so zero is valid there; stored detail progress only
  * counts when it represents a real resume point.
  */
+/**
+ * An explicit resume override of exactly 0.0 is "Start Over" (Apple's player
+ * route models this as `startFromBeginning`; Android encodes it as a 0.0
+ * override). It must behave like every other explicit override: no resume
+ * rewind, and honored verbatim after the server answers — otherwise a
+ * zero session position gets discarded and stale detail progress resumes.
+ */
+fun isExplicitStartOver(overridePosition: Double?): Boolean = overridePosition == 0.0
+
 fun resolvePlaybackStartRequestPosition(
     overridePosition: Double?,
     detailPosition: Double?,

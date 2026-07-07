@@ -9,7 +9,7 @@ A detailed inventory of what the Android **phone** and **TV** clients do today. 
 
 File pointers are repository-relative.
 
-> **Important exposure note:** Requests, Admin, and Watch Together are not currently accessible in the Android phone or Android TV apps. Some repositories, routes, tests, or legacy screens may still exist in the codebase, but there is no production user entry point for those surfaces on this branch.
+> **Important exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v1/requests/status`), and reached from the profile menu and search — matching the Apple clients. The admin stats dashboard is live for acting admins via Settings. The richer admin screens (users/sessions/logs/scans) and Watch Together remain inaccessible.
 
 ---
 
@@ -24,7 +24,7 @@ File pointers are repository-relative.
 | Runtime preflight fallback (undecodable track → transcode) | ✅ | ✅ | `PlaybackPreflightListener` |
 | Mid-stream audio-track switch | ✅ | ✅ | May trigger server re-mux |
 | Hardware decoder enumeration (H.264/HEVC/AV1/VP9/DV) | ✅ | ✅ | `MediaCodecCapabilitiesProbe` |
-| Dolby Vision profiles 5 / 8 | ✅ | ✅ | Profile 7 is blocked for launch until route validation exists. |
+| Dolby Vision profiles 5 / 7 / 8 | ✅ | ✅ | P7: native DV on multi-instance-HEVC hardware, MPV base-layer HDR10 elsewhere (recovery-planned); needs on-device route validation. Server P7→8.1 remux delivers true DV on non-DV-decoder devices. |
 | Panel HDR probe (HDR10, HDR10+, HLG, DV) + per-profile HDR toggle | ✅ | ✅ | `DisplayHdrProbe` |
 | Audio passthrough (E-AC3 JOC/Atmos, TrueHD, DTS-HD) | ✅ | ✅ | TV prioritizes passthrough; `AudioCapabilityManager` |
 | FFmpeg audio extension (lossless fallback) | ✅ | ✅ | Build-flag gated; `FfmpegAudioSupport` |
@@ -32,10 +32,11 @@ File pointers are repository-relative.
 | Optional MPV backend path | 🟡 | 🟡 | Auto-selected only for supported device/session cases; falls back to Media3 |
 | Refresh-rate matching | ✅ | ➖ | Phone display mode; TV defers to HDMI sink |
 | HDMI EDID-driven display mode | ➖ | ✅ | `HdrDisplayController` |
-| Subtitle selection + styling (font/bg/position) | ✅ | ✅ | `SubtitleManager` |
+| Subtitle selection + styling (font/bg/position) | ✅ | ✅ | `SubtitleManager` (Media3) + MPV `sub-*` translation; authored ASS renders as-authored |
 | Subtitle sync offset (±10s) / audio sync (±5s) | ✅ | ✅ | Per-profile |
 | Subtitle provider search + download | ✅ | ✅ | |
 | AI subtitle transcription / translation (quota-tracked) | ✅ | ✅ | TV: `TvAiTranslateDialog` |
+| AI description translation (on-view, server-gated) | ✅ | ✅ | `DescriptionTranslationController`; gated by `/api/v1/metadata/ai/status`; metadata-language setting in Settings |
 | Intro auto-skip (+ manual skip banner) | ✅ | ✅ | |
 | Chapters | ✅ | ✅ | Server-extracted; TV scrubber markers |
 | Sleep timer | ✅ | ✅ | Configurable default |
@@ -44,7 +45,7 @@ File pointers are repository-relative.
 | Lock-screen / notification / headset / Assistant controls | ✅ | ✅ | Via `MediaSession` |
 | D-pad transport, info HUD, chapter scrubber | ➖ | ✅ | `TvPlayerHud`, `TvPlayerScrubber` |
 | Landscape-on-play (auto-rotate aware) | 🚧 | ➖ | Implemented then reverted; pending re-apply |
-| Picture-in-Picture | 🚧 | ➖ | Not yet implemented |
+| Picture-in-Picture | ✅ | ✅ | `SiloPictureInPictureCoordinator`; enters on home-press during playback |
 
 ## Watch Together (not exposed)
 
@@ -80,8 +81,9 @@ File pointers are repository-relative.
 | Person detail from cast/crew | ✅ | ✅ | Long IDs supported; filmography rows filter per platform |
 | Search (scoped by media type, debounced, paginated) | ✅ | ✅ | |
 | Release calendar | ✅ | ✅ | Top-level mobile tab and TV top-menu tab |
+| Live home refresh (events websocket) | ✅ | ✅ | `HomeRealtimeCoordinator`: user_state/catalog channels, 2s debounce; TV also refreshes on resume |
 | System "Watch Next" row integration | ➖ | ✅ | `WatchNextRepository` (tvprovider) |
-| Requests | 🚧 | 🚧 | Not currently accessible in either Android app |
+| Requests | ✅ | ✅ | Server-gated by `requests_enabled`; profile menu + search entry points |
 
 ## Reading (ebooks)
 
@@ -152,6 +154,6 @@ File pointers are repository-relative.
 
 **TV** is a 10-foot, D-pad client focused on browsing and playback, including audiobooks, calendar, the subtitle suite, person detail, and system Watch Next integration. It intentionally omits ebooks/reading and downloads management.
 
-**Not currently exposed on either Android surface:** Requests, Admin, and Watch Together.
+**Not currently exposed on either Android surface:** full admin management (users/sessions/logs/scans) and Watch Together. The admin **stats dashboard** is exposed (Settings → Admin, acting admins only).
 
 Both apps share the same networking, auth, repositories, most ViewModels, and the entire Media3 playback/capability stack.

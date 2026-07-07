@@ -62,6 +62,9 @@ val repositoryModule = module {
     single { RecommendationRepository(get()) }
     single { RequestsRepository(get()) }
     single { RequestsFeatureStore(get()) }
+    single { org.siloserver.silo.repository.MetadataAiRepository(get()) }
+    single { org.siloserver.silo.model.feature.MetadataAiFeatureStore(get()) }
+    single { org.siloserver.silo.repository.HomeRealtimeCoordinator(get(), get()) }
     single { SettingsRepository(get()) }
     single { LibraryPlaybackPrefsRepository(get()) }
     single { DownloadsRepository(get(), getOrNull<org.siloserver.silo.repository.port.DownloadDeletionPort>() ?: org.siloserver.silo.repository.port.NoOpDownloadDeletionPort) }

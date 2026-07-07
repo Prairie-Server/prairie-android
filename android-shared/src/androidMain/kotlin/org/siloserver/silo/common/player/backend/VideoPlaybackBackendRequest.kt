@@ -18,6 +18,10 @@ data class VideoPlaybackBackendRequest(
     val preference: VideoPlaybackBackendPreference = VideoPlaybackBackendPreference.Auto,
     val hasHardContainer: Boolean = false,
     val hasStyledSubtitles: Boolean = false,
+    // True when the selected file's video codec has no hardware decoder on
+    // this device but MPV can software-decode it (Apple codec-tail parity).
+    // Only meaningful for DIRECT playback; the device floor still wins.
+    val hasSoftwareOnlyVideoCodec: Boolean = false,
     // True when the resolved playback URL is an adaptive HLS playlist. Some
     // legacy sessions arrive without a v2 playbackPlan/delivery even though the
     // URL is a master.m3u8; route those to Media3 up front instead of trying MPV

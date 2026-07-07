@@ -18,6 +18,10 @@ val mpvOriginalPlaybackContainers: List<String> =
         "mpeg-ts",
         "m2ts",
         "mts",
+        // Legacy Windows Media: Media3 cannot demux ASF at all, so MPV is the
+        // only direct path (Apple's codec-tail direct-plays these).
+        "asf",
+        "wmv",
     )
 
 val directOriginalPlaybackContainers: List<String> =
@@ -41,7 +45,8 @@ fun isMpvPreferredOriginalPlaybackContainer(container: String?): Boolean =
     when (normalizedPlaybackContainer(container)) {
         "avi",
         "mov", "qt",
-        "ts", "mpegts", "mpeg-ts", "m2ts", "mts" -> true
+        "ts", "mpegts", "mpeg-ts", "m2ts", "mts",
+        "asf", "wmv" -> true
         else -> false
     }
 

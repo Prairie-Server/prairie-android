@@ -2,8 +2,11 @@ name: Android Builds
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+  pull_request:
   workflow_dispatch:
     inputs:
       version_name:
@@ -19,8 +22,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
+            test \
+            --max-workers=2
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: unit-test-reports
+          path: |
+            **/build/reports/tests/**
+          if-no-files-found: ignore
+
   build-debug:
     name: ${{ matrix.name }}
+    # APKs are only assembled for releases (tags) and manual runs; PR and
+    # main pushes are gated by unit-tests alone.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    needs: unit-tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

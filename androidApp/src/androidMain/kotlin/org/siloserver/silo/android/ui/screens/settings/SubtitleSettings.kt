@@ -17,6 +17,10 @@ fun SubtitleSettings(
     onModeChanged: (SubtitleMode) -> Unit,
     onForcedSubtitlesChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    // Metadata AI description translation (server-gated; row hidden when off).
+    metadataLanguageEnabled: Boolean = false,
+    metadataLanguage: String = "Off",
+    onMetadataLanguageChanged: (String) -> Unit = {},
 ) {
     SettingsSectionCard(modifier = modifier) {
         SettingsSectionHeader("Subtitles")
@@ -42,5 +46,14 @@ fun SubtitleSettings(
             checked = showForcedSubtitles,
             onCheckedChange = onForcedSubtitlesChanged,
         )
+
+        if (metadataLanguageEnabled) {
+            SettingsDropdownRow(
+                label = "Metadata Language",
+                value = metadataLanguage,
+                options = subtitleLanguageOptions,
+                onOptionSelected = onMetadataLanguageChanged,
+            )
+        }
     }
 }

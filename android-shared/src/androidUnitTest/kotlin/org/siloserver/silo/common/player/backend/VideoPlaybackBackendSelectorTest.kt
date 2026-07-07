@@ -196,4 +196,31 @@ class VideoPlaybackBackendSelectorTest {
         )
         assertEquals(VideoPlaybackBackendKind.Media3, VideoPlaybackBackendSelector.select(request))
     }
+    @Test
+    fun autoRoutesSoftwareOnlyVideoCodecToMpv() {
+        assertEquals(
+            VideoPlaybackBackendKind.Mpv,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(
+                    playMethod = PlayMethod.DIRECT,
+                    hasSoftwareOnlyVideoCodec = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun softwareOnlyCodecNeverSelectsMpvBelowDeviceFloor() {
+        assertEquals(
+            VideoPlaybackBackendKind.Media3,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(
+                    playMethod = PlayMethod.DIRECT,
+                    hasSoftwareOnlyVideoCodec = true,
+                    mpvSupportedOnDevice = false,
+                ),
+            ),
+        )
+    }
+
 }

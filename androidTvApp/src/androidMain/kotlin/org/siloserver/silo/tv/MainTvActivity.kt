@@ -166,9 +166,9 @@ class MainTvActivity : ComponentActivity() {
      */
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        // `silo` is the current app scheme; `silo` is kept for legacy
-        // Watch Next and pairing links created by older builds.
-        if (data.scheme == "silo" || data.scheme == "silo") {
+        // `silo` is the only scheme the manifest registers; anything else is
+        // an unrelated launch intent and must not clobber a queued URI.
+        if (data.scheme == "silo") {
             pendingDeepLink.value = data
         }
     }

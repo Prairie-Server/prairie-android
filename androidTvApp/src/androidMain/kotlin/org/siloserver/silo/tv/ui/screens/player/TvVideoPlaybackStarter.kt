@@ -82,7 +82,8 @@ class TvVideoPlaybackStarter(
             // Suppressed for Start Over / retry (request flag) and Watch Together
             // (roomId); the one rewound value drives both the server seek and the
             // player start so a transcode cut and the player position never disagree.
-            val suppressRewind = request.suppressResumeRewind || request.roomId != null
+            val suppressRewind = request.suppressResumeRewind || request.roomId != null ||
+                org.siloserver.silo.model.playback.isExplicitStartOver(request.resumePositionOverride)
             // Per-profile setting (default 7; 0 = off). Read once per start.
             val rewindSeconds = playerSettingsStore.resumeRewindSecondsFlow.first().toDouble()
             fun rewound(position: Double?): Double? = position?.let {
@@ -219,6 +220,9 @@ class TvVideoPlaybackStarter(
                 playbackPlan = resolved.playbackPlan,
                 delivery = resolvedDelivery,
                 container = version.container,
+                softwareOnlyVideoCodec = resolved.playMethod == org.siloserver.silo.model.playback.PlayMethod.DIRECT &&
+                    org.siloserver.silo.common.player.video.isMpvSoftwareDecodableVideoCodec(version.codecVideo) &&
+                    version.codecVideo?.trim()?.lowercase() !in capabilities.codecsVideoHardware,
                 title = watchDetail.title,
                 subtitle = null,
                 artworkUrl = watchDetail.posterUrl?.takeIf { it.isNotBlank() }

@@ -340,8 +340,8 @@ fun AppNavigation(
                 onPairDevice = {
                     navController.navigate(Route.PairDevice().route)
                 },
-                onNavigateToRequests = {
-                    navController.navigate(Route.Requests.route)
+                onNavigateToAdmin = {
+                    navController.navigate(Route.Admin.route)
                 },
                 onNavigateToWatchlist = { navController.navigate(Route.Watchlist.route) },
                 onNavigateToFavorites = { navController.navigate(Route.Favorites.route) },
@@ -674,6 +674,11 @@ fun AppNavigation(
                 onItemClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
+            )
+        }
+        composable(Route.Admin.route) {
+            org.siloserver.silo.android.ui.screens.admin.AdminStatsScreen(
+                onBackClick = { navController.popBackStack() },
             )
         }
         composable(Route.Watchlist.route) {

@@ -4,9 +4,9 @@ Android **phone** and **Android TV** clients for the [Silo](https://github.com/S
 
 Built as a Kotlin Multiplatform project: one shared business-logic core, two Jetpack Compose apps (touch + 10-foot TV). This branch uses the full Silo namespace cut: Kotlin packages live under `org.siloserver.silo`, and both apps share a single application ID `org.siloserver.silo` so they publish as one Google Play listing (Play routes each build by manifest feature filtering). Installs under legacy IDs do not upgrade in place; users should expect a fresh app install, sign-in, and offline media download.
 
-> **Status:** Early WIP (`v0.1.0`). The architecture is solid and the feature surface is broad; some areas are intentionally "bones-level" and under active redesign (see [Roadmap](#roadmap)).
+> **Status:** WIP (`v0.2.x`). The architecture is solid and the feature surface is broad; some areas are intentionally "bones-level" and under active redesign (see [Roadmap](#roadmap)).
 >
-> **Current exposure note:** Requests, Admin, and Watch Together are not currently accessible in the Android phone or Android TV apps. Some shared repositories, routes, or older screen code may still exist, but there is no production user entry point for those surfaces on this branch.
+> **Current exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v1/requests/status`), and reached from the profile menu and search — matching the Apple clients. The admin stats dashboard is live for acting admins via Settings (Apple's dashboard design). The richer admin screens (users/sessions/logs/scans) and Watch Together remain inaccessible.
 
 ---
 
@@ -83,14 +83,14 @@ WorkManager-backed downloads of video, audiobooks, and books to public device st
 - **Browse** with genre/rating filters, sorting, and infinite-scroll grids; **collections** are browse-only in the Android clients, while collection authoring/management remains web-only.
 - **Item detail** for movies and series includes seasons → episodes, multi-version files, cast/crew, local download controls, and phone-to-TV playback handoff.
 - **Search** scoped by media type, debounced and paginated.
-- **Not exposed** — Requests, Admin, and Watch Together are not reachable app surfaces today.
+- **Requests** — live on phone and TV behind the server's `requests_enabled` flag (profile menu + search). **Admin** — stats dashboard only, role-gated in Settings. **Not exposed** — full admin management and Watch Together are not reachable app surfaces today.
 
 ### 📖 Reading & 🎧 Audio
 - **Ebook reader (phone only)** — EPUB, PDF, CBZ (comics), TXT/Markdown, FB2/FBZ, plus MOBI/AZW/AZW3 when the server can convert to EPUB; CBR and unsupported originals can be downloaded/opened externally. Themes, text size, margins, table of contents, bookmarks, and progress are supported.
 - **Audiobook player (phone + TV)** — cover/metadata, chapters, resume, playback speed, sleep timer (incl. end-of-chapter), and bookmarks, sharing the same Media3 engine as video. TV has a dedicated ten-foot audiobook detail/player flow.
 
 ### SiloControl (phone + TV)
-Android phone can discover Android TV receivers on the local network, launch movies/episodes on TV with the selected file/track/resume context, and act as a lightweight remote for play/pause, seek, quality, audio, and subtitle changes. TV advertises the local SiloCast receiver only while authenticated and foregrounded.
+Android phone can discover SiloCast receivers on the local network, launch movies/episodes on TV with the selected file/track/resume context, and act as a lightweight remote for play/pause, seek, quality, audio, and subtitle changes. TV advertises the local SiloCast receiver only while authenticated and foregrounded. The channel is TLS-PSK and wire-compatible with the Apple clients' SiloControl protocol (same `_silocast._tcp` service, hello/serverId authorization, heartbeat), so Android phones can cast to Apple TVs and iPhones to Android TVs.
 
 ### 🔔 Personalization & engagement (phone + TV)
 Multiple **household profiles** per account (PINs, child profiles, content-rating limits, per-profile language/subtitle prefs), favorites & watchlist, ratings, a release **calendar**, and an in-app **notifications inbox** with realtime updates. Android push has a guarded client-side registration/data-message path, but real FCM delivery requires server provider support plus Firebase configuration in the phone app. TV mirrors continue-watching into the system **Watch Next** row.
@@ -225,7 +225,7 @@ Active design work lives in `docs/superpowers/specs/` with phased plans in `docs
 - **Audiobook polish** — the phone and TV players have chapter-aware UI, speed, bookmarks, and sleep timers. Remaining work includes skip-silence, volume normalization, rich notification polish, Android Auto, and a phone widget.
 - **Ebook reader enhancements** — real paginated EPUB (page turns), in-text search, highlights & notes (with a coordinated server change), font/brightness controls, and reading-time estimates across all server formats.
 - **Picture-in-Picture** — not yet implemented on phone.
-- **Requests, Admin, Watch Together** — code/design work exists, but these are not currently exposed to users in the Android apps and need product/navigation decisions before being treated as live features.
+- **Admin management (users/sessions/logs/scans), Watch Together** — code/design work exists, but these are not currently exposed to users in the Android apps and need product/navigation decisions before being treated as live features.
 
 Known gaps the docs track: TV has no reader/ebooks and no downloads management by design; Requests/Admin/Watch Together are not accessible on either Android surface today.
 

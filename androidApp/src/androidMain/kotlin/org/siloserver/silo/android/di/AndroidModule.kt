@@ -177,6 +177,7 @@ val androidModule = module {
     single {
         SiloCastController(
             browser = get(),
+            serverRegistry = get(),
             deviceNameProvider = {
                 android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android Phone"
             },
@@ -267,6 +268,8 @@ val androidModule = module {
             params = get(),
             repository = get(),
             evaluatorFactory = get(),
+            serverRegistry = get(),
+            profileRepository = get(),
         )
     }
     // Kept for consistency, but DEAD AT RUNTIME: Koin's WorkManager factory
@@ -301,7 +304,7 @@ val androidModule = module {
             outboxSyncScheduler = get(),
         )
     }
-    viewModel { HomeViewModel(get(), get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull()) }
     viewModel { MainHeaderViewModel(get()) }
     viewModel {
         LibrariesViewModel(
@@ -321,7 +324,7 @@ val androidModule = module {
     }
     viewModel { params ->
         ItemDetailViewModel(
-            get(), get(), get(), get(), get(), params.get(),
+            get(), get(), get(), get(), get(), get(), params.get(),
             getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>() ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
         )
     }
