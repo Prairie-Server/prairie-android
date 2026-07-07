@@ -68,7 +68,12 @@ class DownloadWorker(
 
     private suspend fun uiPushAllowed(serverId: String, profileId: String): Boolean {
         val scope = activeScope ?: return true
-        val (activeServer, activeProfile) = scope()
+        // Resolving the active scope must never abort an otherwise-healthy
+        // download — this is called inside doWork()'s own catch block, where a
+        // throw would escape uncaught. A failure means "can't confirm this is
+        // the active scope", so skip the UI push (safe: the record just isn't
+        // repainted; the download itself is unaffected).
+        val (activeServer, activeProfile) = runCatching { scope() }.getOrNull() ?: return false
         return activeServer == serverId && activeProfile == profileId
     }
 

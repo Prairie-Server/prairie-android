@@ -68,7 +68,7 @@ data class SettingsUiState(
 
     // Subtitles
     val subtitleLanguage: String = "Off",
-    // Metadata AI: preferred description/metadata language ("Off" = server default).
+    // Metadata AI: preferred description/metadata language.
     // ISO 639-1 code; "" = inherit library metadata language.
     val metadataLanguage: String = "",
     val subtitleMode: SubtitleMode = SubtitleMode.AUTO,
