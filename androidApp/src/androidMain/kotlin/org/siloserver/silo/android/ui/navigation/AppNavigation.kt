@@ -111,10 +111,19 @@ fun AppNavigation(
         // this re-fire when Main arrives with the route still pending.
         navController.currentBackStackEntryFlow.collect { entry ->
             val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@collect
+            // Every pre-auth / onboarding destination — a notification tapped
+            // on any of these stays queued until the authenticated graph
+            // shows, instead of pushing a content route that would 401.
             val authRoutes = setOf(
                 Route.Login.route,
                 Route.ServerSetup.route,
+                Route.ServerList.route,
+                Route.Setup.route,
+                Route.Signup.route,
                 Route.ProfileSelection.route,
+                Route.CreateProfile.route,
+                Route.EditProfile.ROUTE,
+                Route.PairDevice.ROUTE,
             )
             if (entry.destination.route in authRoutes) return@collect
             navController.navigate(route) {

@@ -228,10 +228,14 @@ class SiloCastTlsSession(
     }
 
     fun close() {
-        // Same lock discipline as the stream paths — BC's non-blocking engine
-        // must never be re-entered concurrently, including on teardown.
-        synchronized(protocol) { runCatching { protocol.close() } }
+        // Close the socket FIRST: Java sockets have no write timeout, so a
+        // drainOutputLocked() write blocked on a peer that stopped reading
+        // holds the protocol monitor indefinitely. Taking that monitor here
+        // would deadlock teardown forever; closing the socket interrupts the
+        // blocked write and frees the monitor. Then best-effort close the
+        // engine.
         runCatching { socket.close() }
+        synchronized(protocol) { runCatching { protocol.close() } }
     }
 
     // Only touched inside synchronized(protocol) blocks, so a single shared

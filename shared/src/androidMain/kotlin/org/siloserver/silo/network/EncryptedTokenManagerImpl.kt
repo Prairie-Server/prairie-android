@@ -160,7 +160,10 @@ class EncryptedTokenManagerImpl(
         }
     }
 
-    override suspend fun getProfileToken(): String? = mutex.withLock { profileToken }
+    override suspend fun getProfileToken(): String? = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        profileToken
+    }
 
     override suspend fun setProfileToken(token: String?) {
         mutex.withLock {

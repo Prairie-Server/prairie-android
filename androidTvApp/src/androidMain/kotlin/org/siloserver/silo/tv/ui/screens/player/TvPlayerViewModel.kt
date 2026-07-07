@@ -777,6 +777,14 @@ class TvPlayerViewModel(
     private var pendingSubtitleSelectLabel: String? = null
 
     init {
+        // Keep the process-wide active-file marker in sync (phone parity), so
+        // Reclaim Watched never deletes bytes under a live player.
+        viewModelScope.launch {
+            _uiState
+                .map { it.selectedFileId ?: it.mediaFileId }
+                .distinctUntilChanged()
+                .collect { org.siloserver.silo.common.player.ActivePlaybackFile.set(it) }
+        }
         // Mirror lifecycle Failed state into the UI error field so the user
         // sees a notice if outage recovery times out or the lifecycle's
         // session fails to start. The phone VM does the same.
@@ -2171,6 +2179,9 @@ class TvPlayerViewModel(
     }
 
     override fun onCleared() {
+        org.siloserver.silo.common.player.ActivePlaybackFile.clear(
+            _uiState.value.selectedFileId ?: _uiState.value.mediaFileId,
+        )
         super.onCleared()
         // Guarantee the final resume position is persisted on teardown. The
         // periodic write runs in viewModelScope, which is cancelling here — so

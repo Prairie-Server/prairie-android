@@ -404,6 +404,17 @@ class PlayerViewModel(
     private var resolveNextEpisodeJob: Job? = null
 
     init {
+        // Reclaim-Watched must never delete the file the player is using
+        // (reachable via PiP -> Downloads). Mirror the currently-playing file
+        // id — from EVERY load path, incl. offline — into the process-wide
+        // marker; the previous single set() sat only in the recovery fallback
+        // and left the guard inert during normal/offline playback.
+        viewModelScope.launch {
+            _uiState
+                .map { it.mediaFileId }
+                .distinctUntilChanged()
+                .collect { org.siloserver.silo.common.player.ActivePlaybackFile.set(it) }
+        }
         // Mirror lifecycle Failed state into the UI error field so the user sees a
         // notice when outage recovery times out or the session fails to start. The
         // notice flow is intentionally *not* surfaced here — that's Phase 3 work.
@@ -874,9 +885,7 @@ class PlayerViewModel(
                 sessionId = sessionId,
                 userId = 0,
                 profileId = null,
-                mediaFileId = version.fileId.also {
-                    org.siloserver.silo.common.player.ActivePlaybackFile.set(it)
-                },
+                mediaFileId = version.fileId,
                 playMethod = state.playMethod ?: PlayMethod.DIRECT,
                 position = state.position,
                 isPaused = state.isPaused,
@@ -2171,7 +2180,7 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
-        org.siloserver.silo.common.player.ActivePlaybackFile.clear(currentFileId())
+        org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
         resetPlaybackRecoveryState()
         super.onCleared()
         // Guarantee the final resume position is persisted on teardown. onExit's

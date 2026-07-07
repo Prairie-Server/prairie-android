@@ -117,7 +117,14 @@ class TvSiloCastReceiver(
     @Synchronized
     fun stop() {
         advertiser.stop()
-        closePreviousController()
+        // Close the session directly (not via closePreviousController, which
+        // launches the goodbye on `scope` — the scope we cancel a line later,
+        // which would kill the goodbye before it writes). A direct close()
+        // sends the FIN; the goodbye frame is best-effort and the socket
+        // teardown below guarantees the peer disconnects regardless.
+        sessionEpoch += 1
+        activeSession?.close()
+        activeSession = null
         runCatching { serverSocket?.close() }
         serverSocket = null
         scope?.cancel()
@@ -149,12 +156,12 @@ class TvSiloCastReceiver(
 
     @Synchronized
     fun closePreviousController() {
+        // Bump the epoch unconditionally — a handshake in flight (not yet
+        // registered, so activeSession is still null) during a server switch
+        // must also be invalidated, else it registers into the new epoch.
+        sessionEpoch += 1
         val session = activeSession ?: return
         activeSession = null
-        // Newest-wins epoch: any handshake still in flight when this ran
-        // belongs to the old world and must not register (see
-        // runControllerSession).
-        sessionEpoch += 1
         val owner = scope
         if (owner != null) {
             // Goodbye + teardown off the monitor — a blocking write to a

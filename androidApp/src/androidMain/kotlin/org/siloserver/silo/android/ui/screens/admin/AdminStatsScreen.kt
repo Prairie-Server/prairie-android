@@ -43,6 +43,10 @@ import org.siloserver.silo.android.ui.theme.SiloSecondaryText
 import org.siloserver.silo.android.ui.theme.SiloSuccess
 import org.siloserver.silo.android.ui.theme.SiloSurface
 import org.siloserver.silo.android.ui.theme.SiloWarning
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import org.siloserver.silo.model.admin.AdminStats
 import org.siloserver.silo.viewmodel.AdminStatsViewModel
 import org.koin.compose.viewmodel.koinViewModel
@@ -54,9 +58,20 @@ fun AdminStatsScreen(
     viewModel: AdminStatsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // A refresh that fails while stats are already on screen otherwise just
+    // stops the spinner silently (ErrorView only shows for the empty state).
+    LaunchedEffect(state.error, state.stats) {
+        val message = state.error
+        if (message != null && state.stats != null) {
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     Scaffold(
         topBar = { SiloTopBar(title = "Admin", onBackClick = onBackClick) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         when {

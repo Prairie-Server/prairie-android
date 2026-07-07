@@ -14,9 +14,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import org.siloserver.silo.metadata.DescriptionTranslationPhase
 
 /**
- * TV description-translation affordance (Apple tvOS parity): a compact
- * focusable row under the synopsis. Translating renders as a non-focusable
- * status line so the focus graph only gains a stop while actionable.
+ * TV description-translation affordance (Apple tvOS parity): a focusable
+ * button under the synopsis. Translating keeps a disabled Button (not a bare
+ * Row) so pressing translate doesn't remove the focused node from the graph
+ * and bounce D-pad focus up to the hero.
  */
 @Composable
 internal fun TvDescriptionTranslationSection(
@@ -25,21 +26,26 @@ internal fun TvDescriptionTranslationSection(
     modifier: Modifier = Modifier,
 ) {
     when (phase) {
-        DescriptionTranslationPhase.Translating -> Row(
+        DescriptionTranslationPhase.Translating -> androidx.tv.material3.Button(
+            onClick = {},
+            enabled = false,
             modifier = modifier,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = Color.White,
-            )
-            Text(
-                text = "Translating description…",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.75f),
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+                Text(
+                    text = "Translating description…",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White.copy(alpha = 0.75f),
+                )
+            }
         }
         DescriptionTranslationPhase.Failed -> androidx.tv.material3.Button(
             onClick = onTranslate,

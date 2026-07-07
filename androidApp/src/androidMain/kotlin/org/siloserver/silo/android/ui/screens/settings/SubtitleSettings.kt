@@ -5,6 +5,22 @@ import androidx.compose.ui.Modifier
 
 private val subtitleLanguageOptions = listOf("Off", "English", "Spanish", "French", "German", "Japanese", "Korean", "Chinese", "Portuguese", "Italian", "Russian")
 
+// Metadata language stores ISO 639-1 codes (server contract; "" = inherit) —
+// display labels, persist codes. Kept in lockstep with the TV list.
+private val metadataLanguageOptions = listOf(
+    "" to "Off",
+    "en" to "English",
+    "es" to "Spanish",
+    "fr" to "French",
+    "de" to "German",
+    "ja" to "Japanese",
+    "ko" to "Korean",
+    "zh" to "Chinese",
+    "pt" to "Portuguese",
+    "it" to "Italian",
+    "ru" to "Russian",
+)
+
 /**
  * Subtitle settings section with language, display mode, and forced subtitles toggle.
  */
@@ -48,11 +64,16 @@ fun SubtitleSettings(
         )
 
         if (metadataLanguageEnabled) {
+            val selectedLabel = metadataLanguageOptions.firstOrNull { it.first == metadataLanguage }?.second ?: "Off"
             SettingsDropdownRow(
                 label = "Metadata Language",
-                value = metadataLanguage,
-                options = subtitleLanguageOptions,
-                onOptionSelected = onMetadataLanguageChanged,
+                value = selectedLabel,
+                options = metadataLanguageOptions.map { it.second },
+                onOptionSelected = { label ->
+                    metadataLanguageOptions.firstOrNull { it.second == label }?.let {
+                        onMetadataLanguageChanged(it.first)
+                    }
+                },
             )
         }
     }

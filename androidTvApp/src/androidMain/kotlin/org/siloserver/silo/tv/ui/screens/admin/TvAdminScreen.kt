@@ -62,6 +62,13 @@ fun TvAdminScreen(
                 onRetry = viewModel::load,
             )
             state.stats != null -> AdminStatsGrid(stats = state.stats!!)
+            // No stats, not loading, no error (e.g. a refresh cleared the
+            // error but returned nothing) — offer a retry rather than a blank
+            // dashboard with only Back to escape.
+            else -> TvErrorScreen(
+                message = "No admin stats available.",
+                onRetry = viewModel::load,
+            )
         }
     }
 }

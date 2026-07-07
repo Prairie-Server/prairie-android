@@ -150,7 +150,11 @@ fun SiloCastRemoteScreen(
             }
 
             state.error?.let {
-                AssistChip(onClick = {}, label = { Text(it) })
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
