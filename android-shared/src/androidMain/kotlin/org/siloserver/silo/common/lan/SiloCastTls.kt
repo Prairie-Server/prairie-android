@@ -185,13 +185,16 @@ class SiloCastTlsSession(
     val input: InputStream = object : InputStream() {
         private val one = ByteArray(1)
 
+        // Reused across reads: this stream has a single consumer (the
+        // receiver's read loop), so per-call 64KB allocations are pure churn.
+        private val chunk = ByteArray(64 * 1024)
+
         override fun read(): Int {
             val n = read(one, 0, 1)
             return if (n <= 0) -1 else one[0].toInt() and 0xff
         }
 
         override fun read(b: ByteArray, off: Int, len: Int): Int {
-            val chunk = ByteArray(64 * 1024)
             while (true) {
                 synchronized(protocol) {
                     if (protocol.availableInputBytes > 0) {
@@ -231,12 +234,15 @@ class SiloCastTlsSession(
         runCatching { socket.close() }
     }
 
+    // Only touched inside synchronized(protocol) blocks, so a single shared
+    // scratch buffer is safe and avoids a 64KB allocation per drain.
+    private val drainBuffer = ByteArray(64 * 1024)
+
     private fun drainOutputLocked() {
-        val out = ByteArray(64 * 1024)
         while (protocol.availableOutputBytes > 0) {
-            val read = protocol.readOutput(out, 0, out.size)
+            val read = protocol.readOutput(drainBuffer, 0, drainBuffer.size)
             if (read <= 0) break
-            rawOut.write(out, 0, read)
+            rawOut.write(drainBuffer, 0, read)
         }
         rawOut.flush()
     }

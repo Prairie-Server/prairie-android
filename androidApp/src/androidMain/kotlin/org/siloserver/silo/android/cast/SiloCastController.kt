@@ -191,7 +191,12 @@ class SiloCastController(
             throw e
         } catch (t: Throwable) {
             Log.w(TAG, "SiloCast read loop ended", t)
-            _state.update { it.copy(error = t.message) }
+            // Guard like closeConnection() below: the old session's read loop
+            // can outlive a reconnect and must not clobber the fresh
+            // session's state with its stale error.
+            if (session === activeSession) {
+                _state.update { it.copy(error = t.message) }
+            }
         } finally {
             if (session === activeSession) {
                 closeConnection()
