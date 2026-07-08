@@ -111,6 +111,7 @@ fun TvItemDetailScreen(
     seasonNumber: Int? = null,
     onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
+    onItemDetailReplace: (contentId: String) -> Unit = onItemDetail,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchTogether: (RoomSnapshot) -> Unit,
@@ -167,6 +168,7 @@ fun TvItemDetailScreen(
             viewModel = viewModel,
             onPlay = onPlay,
             onItemDetail = onItemDetail,
+            onItemDetailReplace = onItemDetailReplace,
             onSeriesClick = onSeriesClick,
             onSeasonClick = onSeasonClick,
             onOpenPerson = onOpenPerson,
@@ -182,6 +184,7 @@ private fun TvDetailContent(
     viewModel: TvItemDetailViewModel,
     onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
+    onItemDetailReplace: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onOpenPerson: (personId: Long) -> Unit,
@@ -396,6 +399,24 @@ private fun TvDetailContent(
                         }
 
                         if (showsEpisodeRail) {
+                            // Anchor the window when focus ENTERS the episodes
+                            // section (chips or cards): both land the body at
+                            // the same scroll offset, so focusing "Season N"
+                            // sits where an episode focus sits, and coming back
+                            // up from Cast & Crew restores the same position
+                            // (QA 2026-07-08).
+                            var episodesSectionHasFocus by remember { mutableStateOf(false) }
+                            Box(
+                                modifier = Modifier.onFocusChanged { focusState ->
+                                    val nowFocused = focusState.hasFocus
+                                    if (nowFocused && !episodesSectionHasFocus) {
+                                        coroutineScope.launch {
+                                            listState.animateScrollToItem(1)
+                                        }
+                                    }
+                                    episodesSectionHasFocus = nowFocused
+                                },
+                            ) {
                             EpisodesSection(
                                 detail = detail,
                                 state = state,
@@ -405,7 +426,11 @@ private fun TvDetailContent(
                                     if (detail.type == "series") {
                                         viewModel.onSeasonSelected(season.seasonNumber)
                                     } else if (season.contentId != detail.contentId) {
-                                        onItemDetail(season.contentId)
+                                        // Switching seasons REPLACES the nav entry
+                                        // (QA 2026-07-08): flipping through seasons
+                                        // must not stack pages — one Back returns
+                                        // to wherever the user came from.
+                                        onItemDetailReplace(season.contentId)
                                     }
                                 },
                                 // tvOS parity: OK navigates to the episode's own
@@ -415,6 +440,7 @@ private fun TvDetailContent(
                                     onItemDetail(episode.contentId)
                                 },
                             )
+                            }
                         }
 
                         if (showsCastSection) {
