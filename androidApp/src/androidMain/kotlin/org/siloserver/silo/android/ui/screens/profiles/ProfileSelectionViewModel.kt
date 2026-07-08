@@ -40,9 +40,14 @@ class ProfileSelectionViewModel(
         loadProfiles()
     }
 
-    fun loadProfiles() {
+    /**
+     * @param clearError false keeps an existing error banner (e.g. a failed
+     * delete's explanation) visible across the follow-up list refresh, which
+     * would otherwise silently swallow it.
+     */
+    fun loadProfiles(clearError: Boolean = true) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = if (clearError) null else it.error) }
 
             val activeId = profileRepository.getActiveProfileId()
             when (val result = profileRepository.listProfiles()) {
@@ -156,19 +161,26 @@ class ProfileSelectionViewModel(
         val profile = _uiState.value.deleteDialogProfile ?: return
         _uiState.update { it.copy(deleteDialogProfile = null) }
         viewModelScope.launch {
-            // Deleting the signed-in profile invalidates its profile token
-            // server-side; clear the local selection FIRST so the follow-up
-            // profile list reload doesn't ride dead credentials (previously
-            // this errored and rendered an empty list — "all profiles gone").
-            if (profile.id == _uiState.value.activeProfileId) {
-                profileRepository.clearProfile()
-                _uiState.update { it.copy(activeProfileId = null) }
-            }
-            when (profileRepository.deleteProfile(profile.id)) {
-                is ApiResult.Success -> loadProfiles()
-                is ApiResult.Error -> {
-                    _uiState.update { it.copy(error = "Failed to delete profile") }
+            // Order matters: the DELETE itself is authorized by the signed-in
+            // profile's X-Profile-Id/X-Profile-Token headers, so credentials
+            // must stay intact until the server has answered. Only after a
+            // successful delete of the signed-in profile do we clear the local
+            // selection — BEFORE reloading, so the list refresh doesn't ride
+            // the now-invalidated profile token (previously that errored and
+            // rendered an empty list — "all profiles gone").
+            when (val result = profileRepository.deleteProfile(profile.id)) {
+                is ApiResult.Success -> {
+                    if (profile.id == _uiState.value.activeProfileId) {
+                        profileRepository.clearProfile()
+                        _uiState.update { it.copy(activeProfileId = null) }
+                    }
                     loadProfiles()
+                }
+                is ApiResult.Error -> {
+                    _uiState.update {
+                        it.copy(error = result.message.ifBlank { "Failed to delete profile" })
+                    }
+                    loadProfiles(clearError = false)
                 }
                 is ApiResult.NetworkError -> {
                     _uiState.update { it.copy(error = "Network error") }
