@@ -92,7 +92,10 @@ class MainTvActivity : ComponentActivity() {
                 val resolvedRoute = startRoute
                 if (resolvedRoute == null || !splashPlaybackComplete) {
                     val splashFocus = remember { FocusRequester() }
-                    val splashBackground = Color(0xFF070509)
+                    // PURE black — the splash video's encoded black is #000000, and any
+                    // off-black (the old 0xFF070509) reads as a visible box
+                    // around the small video layer (QA 2026-07-08).
+                    val splashBackground = Color.Black
                     LaunchedEffect(Unit) { runCatching { splashFocus.requestFocus() } }
                     Box(
                         modifier = Modifier

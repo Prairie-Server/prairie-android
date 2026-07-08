@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
                                     .align(Alignment.Center)
                                     .width(videoWidth)
                                     .aspectRatio(16f / 9f),
+                                backgroundColor = Color.Black,
                                 onPlaybackComplete = {
                                     splashPlaybackComplete = true
                                     hasShownColdSplash = true
