@@ -107,7 +107,10 @@ class MainTvActivity : ComponentActivity() {
                                 modifier = Modifier
                                     .align(Alignment.Center)
                                     .fillMaxSize(),
-                                resizeMode = StartupSplashResizeMode.Crop,
+                                // Fit, not Crop — silo-apple's StartupSplashView uses
+                                // .resizeAspect; the asset is the same file, so
+                                // this renders the tvOS splash exactly.
+                                resizeMode = StartupSplashResizeMode.Fit,
                                 backgroundColor = splashBackground,
                                 minVisibleMillis = 5_200L,
                                 onPlaybackComplete = {
