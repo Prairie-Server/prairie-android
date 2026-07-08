@@ -222,10 +222,13 @@ fun TvTopMenuBar(
         if (focus is TvTopMenuFocus.Tab) {
             delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
             onDwell(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
-        } else if (focus is TvTopMenuFocus.ForYou) {
-            delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
-            onDwell(TvTopMenuPanel.Root(TvRootDestination.ForYou))
         } else {
+            // Deliberately NO dwell for the For You dropdown: after a cascade
+            // commit, focus can transiently fall back to the bar and land on
+            // this tab while the content composes — a dwell-preview then
+            // opened the focus-trapping dropdown over everything (QA
+            // 2026-07-08: "movies → browse lands in For You → Favorites").
+            // It opens only on an explicit d-pad-down / OK (enterPanel).
             onDwell(null)
         }
     }

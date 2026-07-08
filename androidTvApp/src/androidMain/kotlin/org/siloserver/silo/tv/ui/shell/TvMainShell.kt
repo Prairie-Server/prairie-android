@@ -939,7 +939,10 @@ fun TvMainShell(
         visibleRoots.forEach { dest ->
             if (dest is TvRootDestination.ForYou) {
                 val panel = TvTopMenuPanel.Root(dest)
-                val active = focusState.openPanel == panel
+                // Entered-only (unlike cascades, which support dwell PREVIEW):
+                // this dropdown focus-traps, so it must never become visible or
+                // focusable without a deliberate enter.
+                val active = focusState.openPanel == panel && focusState.panelEntersFocus
                 val anchor = tabAnchors[panel]
                 val panelAlpha by animateFloatAsState(
                     targetValue = if (active) 1f else 0f,
