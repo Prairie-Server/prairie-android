@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
 data class TvItemDetailUiState(
@@ -92,6 +94,7 @@ class TvItemDetailViewModel(
     metadataAiRepository: org.siloserver.silo.repository.MetadataAiRepository,
     private val contentId: String,
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
+    private val recommendationRepository: org.siloserver.silo.repository.RecommendationRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvItemDetailUiState())
@@ -107,7 +110,21 @@ class TvItemDetailViewModel(
 
     init {
         observePreferredQuality()
-        if (contentId.isNotBlank()) loadAll()
+        if (contentId.isNotBlank()) {
+            // Restore this title's pre-play track choices (QA 2026-07-08: a
+            // manual subtitle selection reset on every return to the page —
+            // season switches and detail re-entry build a fresh ViewModel).
+            TvDetailTrackSelectionSession.recall(contentId)?.let { saved ->
+                _uiState.update {
+                    it.copy(
+                        selectedFileId = saved.fileId,
+                        selectedAudioIndex = saved.audio,
+                        selectedSubtitleIndex = saved.subtitle,
+                    )
+                }
+            }
+            loadAll()
+        }
     }
 
     private fun observePreferredQuality() {
@@ -367,16 +384,21 @@ class TvItemDetailViewModel(
         _uiState.update {
             it.copy(selectedFileId = fileId, selectedAudioIndex = null, selectedSubtitleIndex = null)
         }
+        TvDetailTrackSelectionSession.remember(contentId, fileId, audio = null, subtitle = null)
     }
 
     /** Pre-select an audio track for the next Play (index into the version's audioTracks). */
     fun onAudioTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedAudioIndex = index) }
+        val state = _uiState.value
+        TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, index, state.selectedSubtitleIndex)
     }
 
     /** Pre-select a subtitle track for the next Play (-1 = Off, null = auto). */
     fun onSubtitleTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedSubtitleIndex = index) }
+        val state = _uiState.value
+        TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, state.selectedAudioIndex, index)
     }
 
     fun onSeasonSelected(seasonNumber: Int) {
@@ -599,43 +621,61 @@ class TvItemDetailViewModel(
     }
 
     private fun loadMoreLikeThis(detail: ItemDetail) {
-        val primaryGenre = detail.genres.firstOrNull { it.isNotBlank() }
-        val mediaType = detail.type.takeIf { it in setOf("movie", "series", "episode") || isAudiobookItemType(it) }
-        if (primaryGenre == null && mediaType == null) return
+        // Apple parity (PhoneSimilarRail + QA 2026-07-08): the shelf shows REAL
+        // engine recommendations from /recommendations/similar, and simply
+        // doesn't render when the server has recommendations/embeddings
+        // disabled (error or empty response). The previous genre browse sorted
+        // by rating was not a recommendation. Episodes never show the shelf —
+        // viewers want the next episode, not a tangent (Apple showsSimilarRail).
+        if (detail.type.lowercase() == "episode") return
+        val recommendations = recommendationRepository ?: return
 
         moreLikeThisJob?.cancel()
         moreLikeThisJob = viewModelScope.launch {
             // This shelf is secondary. Let the hero, seasons, and episode rail settle
-            // before starting another browse request during item-open.
+            // before starting more requests during item-open.
             delay(300)
             _uiState.update { it.copy(moreLikeThisLoading = true) }
-            when (val result = catalogRepository.browse(
-                mediaType = mediaType,
-                genre = primaryGenre,
-                sort = "rating_imdb",
-                order = "desc",
-                limit = 18,
-            )) {
-                is ApiResult.Success -> {
-                    val items = result.data.items
-                        .visibleOnTv()
-                        .filterNot { it.contentId == detail.contentId }
-                        .take(16)
-                        .map { it.toSectionItem() }
-                    _uiState.update {
-                        it.copy(
-                            moreLikeThisLoading = false,
-                            moreLikeThis = items,
-                        )
-                    }
+            val scored = recommendations.getSimilar(detail.contentId, limit = 12)
+            if (scored !is ApiResult.Success || scored.data.items.isEmpty()) {
+                _uiState.update { it.copy(moreLikeThisLoading = false, moreLikeThis = emptyList()) }
+                return@launch
+            }
+            // Resolve refs to renderable items in parallel, preserving the
+            // engine's ranking; failed resolutions drop silently (Apple's
+            // withTaskGroup + zip-back-to-index).
+            val resolved = scored.data.items.map { ref ->
+                async {
+                    (catalogRepository.getItemDetail(ref.mediaItemId) as? ApiResult.Success)?.data
                 }
-                else -> _uiState.update {
-                    it.copy(moreLikeThisLoading = false, moreLikeThis = emptyList())
-                }
+            }.awaitAll()
+            val items = resolved
+                .filterNotNull()
+                .filterNot { isTvHiddenMediaType(it.type) || it.contentId == detail.contentId }
+                .take(16)
+                .map { it.toSectionItem() }
+            _uiState.update {
+                it.copy(moreLikeThisLoading = false, moreLikeThis = items)
             }
         }
     }
 }
+
+private fun ItemDetail.toSectionItem(): SectionItem = SectionItem(
+    contentId = contentId,
+    type = type,
+    title = title,
+    year = year,
+    genres = genres,
+    status = status,
+    ratingImdb = ratingImdb,
+    contentRating = contentRating,
+    overview = overview,
+    posterUrl = posterUrl,
+    posterThumbhash = posterThumbhash,
+    backdropUrl = backdropUrl,
+    backdropThumbhash = backdropThumbhash,
+)
 
 private fun BrowseItem.toSectionItem(): SectionItem = SectionItem(
     contentId = contentId,
@@ -654,3 +694,23 @@ private fun BrowseItem.toSectionItem(): SectionItem = SectionItem(
     backdropThumbhash = backdropThumbhash,
     userState = userState,
 )
+
+/**
+ * Session-scoped memory of the detail page's pre-play track choices, keyed by
+ * contentId. The detail ViewModel is nav-entry scoped, so any navigation that
+ * rebuilds the entry (season switch, re-opening the item) silently dropped a
+ * manual audio/subtitle pre-selection (QA 2026-07-08). In-memory on purpose:
+ * durable per-playback preferences are recorded by the player itself.
+ */
+internal object TvDetailTrackSelectionSession {
+    internal data class Saved(val fileId: Int?, val audio: Int?, val subtitle: Int?)
+
+    private val byContent = HashMap<String, Saved>()
+
+    fun remember(contentId: String, fileId: Int?, audio: Int?, subtitle: Int?) {
+        if (contentId.isBlank()) return
+        byContent[contentId] = Saved(fileId, audio, subtitle)
+    }
+
+    fun recall(contentId: String): Saved? = byContent[contentId]
+}

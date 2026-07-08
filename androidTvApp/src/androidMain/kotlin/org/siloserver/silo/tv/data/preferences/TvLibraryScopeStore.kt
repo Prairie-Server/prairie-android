@@ -60,6 +60,25 @@ class TvLibraryScopeStore(
         return storeFor(profileId).data.first()[scopeKey(serverId, type)]
     }
 
+    /**
+     * tvOS navPrefs.showAudiobooks parity: whether the Audiobooks tab shows
+     * in the top menu when the server has an audiobook library. HIDDEN by
+     * default like Apple TV; device+profile local (never server-synced).
+     */
+    suspend fun getShowAudiobooksTab(): Boolean {
+        val profileId = tokenManager.getProfileId() ?: return false
+        val serverId = tokenManager.getCurrentServerId() ?: DEFAULT_SERVER_ID
+        return storeFor(profileId).data.first()[showAudiobooksKey(serverId)] ?: false
+    }
+
+    suspend fun setShowAudiobooksTab(show: Boolean) {
+        val profileId = tokenManager.getProfileId() ?: return
+        val serverId = tokenManager.getCurrentServerId() ?: DEFAULT_SERVER_ID
+        storeFor(profileId).edit { prefs ->
+            prefs[showAudiobooksKey(serverId)] = show
+        }
+    }
+
     /** Persist [id] as the scope for [type] under the active profile/server. */
     suspend fun setSelectedLibraryId(id: Int?, type: TvLibraryTabType) {
         val profileId = tokenManager.getProfileId() ?: return
@@ -116,6 +135,9 @@ class TvLibraryScopeStore(
 
         private fun scopeKey(serverId: String, type: TvLibraryTabType) =
             intPreferencesKey("scope_${serverId}_${type.name.lowercase()}")
+
+        private fun showAudiobooksKey(serverId: String) =
+            androidx.datastore.preferences.core.booleanPreferencesKey("show_audiobooks_$serverId")
 
         // Filename pattern aligns with [TvLibrarySelectionStore.fileNameFor].
         private fun fileNameFor(profileId: String): String =

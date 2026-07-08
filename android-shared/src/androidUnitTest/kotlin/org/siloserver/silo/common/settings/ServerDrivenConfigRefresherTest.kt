@@ -151,6 +151,11 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val autoPlayNextFlow: Flow<Boolean> = flowOf(true)
     override val hdrEnabledFlow: Flow<Boolean> = flowOf(true)
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> = flowOf(true)
+    override val dolbyVisionEnabledFlow: Flow<Boolean> = flowOf(true)
+    override val matchContentFrameRateFlow: Flow<Boolean> = flowOf(false)
+    override val subtitleMatchesDeviceFlow: Flow<Boolean> = flowOf(false)
+    override val effectiveSubtitleAppearanceFlow: Flow<org.siloserver.silo.model.settings.SubtitleAppearance> =
+        flowOf(org.siloserver.silo.model.settings.SubtitleAppearance.DEFAULT)
     override val pictureInPictureEnabledFlow: Flow<Boolean> = flowOf(true)
     override val downloadsWifiOnlyFlow: Flow<Boolean> = flowOf(true)
     override val keepWatchedDownloadsFlow: Flow<Boolean> = flowOf(false)
@@ -175,6 +180,9 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setAutoPlayNext(value: Boolean) = Unit
     override suspend fun setHdrEnabled(value: Boolean) = Unit
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) = Unit
+    override suspend fun setDolbyVisionEnabled(value: Boolean) = Unit
+    override suspend fun setMatchContentFrameRate(value: Boolean) = Unit
+    override suspend fun setSubtitleMatchesDevice(enabled: Boolean) = Unit
     override suspend fun setPictureInPictureEnabled(value: Boolean) = Unit
     override suspend fun setDownloadsWifiOnly(value: Boolean) = Unit
     override suspend fun setKeepWatchedDownloads(value: Boolean) = Unit

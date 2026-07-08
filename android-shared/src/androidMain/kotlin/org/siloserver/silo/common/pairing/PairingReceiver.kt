@@ -40,6 +40,15 @@ sealed class PairingReceiverStatus {
     /** A phone connected and is choosing servers on its end. */
     data object Connected : PairingReceiverStatus()
 
+    /**
+     * A phone pushed a server and the TV user must allow it before the
+     * device-login (and its pairing code) starts — tvOS-parity consent step.
+     */
+    data class ConsentRequested(
+        val serverURL: String,
+        val serverName: String,
+    ) : PairingReceiverStatus()
+
     /** Device-login started for a pushed server (interim). */
     data class Pairing(val serverURL: String, val serverName: String) : PairingReceiverStatus()
 
@@ -93,6 +102,19 @@ class PairingReceiver(
     /** True while a server's device-login is in flight; the protocol is one at a time. */
     private var pollingServerUrl: String? = null
 
+    /** Push held until the TV user allows it (tvOS consent parity). */
+    private var pendingPush: PairingMessage.PushServer? = null
+
+    /** Per-session: once the user allows one push, later pushes skip the ask. */
+    private var consented = false
+
+    /** Set on deny: a buffered PushServer must not re-open the consent prompt
+     *  while the Cancel/close is still in flight (CodeRabbit PR#44). */
+    private var sessionDenied = false
+
+    /** Session scope captured so [allowPendingServer] can launch the login. */
+    private var sessionScope: CoroutineScope? = null
+
     /** The in-flight device-login child job, so EOF/Cancel teardown can cancel it. */
     private var pushJob: Job? = null
 
@@ -117,6 +139,39 @@ class PairingReceiver(
     }
 
     /**
+     * TV user allowed the pending pushed server. Consent is per-session — the
+     * same phone may push more servers without being re-asked (tvOS parity:
+     * `ReceiverPairingCoordinator.allowPendingServer`).
+     */
+    fun allowPendingServer() {
+        val push = pendingPush ?: return
+        val transport = activeTransport ?: return
+        val scope = sessionScope ?: return
+        if (_status.value !is PairingReceiverStatus.ConsentRequested) return
+        consented = true
+        pendingPush = null
+        handlePushServer(push, transport, scope)
+    }
+
+    /**
+     * TV user declined the pending pushed server — tear the session down; the
+     * phone sees the connection end (tvOS sends Cancel("consent_denied")).
+     */
+    fun denyPendingServer() {
+        if (_status.value !is PairingReceiverStatus.ConsentRequested) return
+        sessionDenied = true
+        pendingPush = null
+        val transport = activeTransport
+        sessionScope?.launch {
+            runCatching {
+                transport?.send(PairingMessage.Cancel(reason = "consent_denied"))
+            }
+            runCatching { transport?.close() }
+        } ?: runCatching { transport?.close() }
+        _status.value = PairingReceiverStatus.Idle
+    }
+
+    /**
      * Drive one connection to completion. Returns when the peer finishes
      * (Done), cancels, the stream ends, or an error is thrown. Always closes the
      * [transport] before returning. Safe to cancel — cancellation propagates to
@@ -125,6 +180,9 @@ class PairingReceiver(
     suspend fun run(transport: PairingTransport) {
         pollingServerUrl = null
         pushJob = null
+        pendingPush = null
+        consented = false
+        sessionDenied = false
         activeTransport = transport
         signedInCount = 0
         signedInNames.clear()
@@ -148,11 +206,12 @@ class PairingReceiver(
             // collector) so a phone disconnect / Cancel / EOF mid-approval is still
             // observed promptly and tears the session down.
             coroutineScope {
-                val sessionScope = this
+                val scope = this
+                sessionScope = scope
                 transport.incoming.collectMessage { message ->
                     when (message) {
                         is PairingMessage.PushServer ->
-                            handlePushServer(message, transport, sessionScope)
+                            handlePushServer(message, transport, scope)
                         is PairingMessage.Done -> {
                             Log.i(TAG, "received pairing done")
                             pushJob?.cancelAndJoin()
@@ -186,6 +245,8 @@ class PairingReceiver(
         } finally {
             pushJob?.cancel()
             pushJob = null
+            pendingPush = null
+            sessionScope = null
             if (activeTransport === transport) {
                 activeTransport = null
             }
@@ -207,9 +268,18 @@ class PairingReceiver(
         sessionScope: CoroutineScope,
     ) {
         if (pollingServerUrl != null) return // one at a time; ignore overlap.
+        if (sessionDenied) return // denied: session is tearing down.
         val serverURL = message.serverURL
         val serverName = message.serverName?.takeIf { it.isNotBlank() } ?: serverURL
         Log.i(TAG, "received pushed server")
+        // tvOS parity: the first push of a session needs the TV user's consent
+        // before device-login starts (and before any pairing code shows). A
+        // newer push while consent is pending supersedes the earlier one.
+        if (!consented) {
+            pendingPush = message
+            _status.value = PairingReceiverStatus.ConsentRequested(serverURL, serverName)
+            return
+        }
         pollingServerUrl = serverURL
         // Run the device-login begin/await CONCURRENTLY with continued inbound
         // reading so Cancel/EOF can cancel this job and tear the session down.

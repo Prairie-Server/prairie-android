@@ -168,6 +168,13 @@ class PairingReceiverTest {
         yield()
 
         transport.deliver(PairingMessage.PushServer(serverURL = "https://srv.test", serverName = "Srv"))
+        repeat(5) { yield() }
+        // tvOS-parity consent: the first push waits for the TV user.
+        assertEquals(
+            PairingReceiverStatus.ConsentRequested("https://srv.test", "Srv"),
+            recv.status.value,
+        )
+        recv.allowPendingServer()
         // Let the receiver run setServerUrl + begin + observe Awaiting.
         repeat(10) { yield() }
 
@@ -216,6 +223,8 @@ class PairingReceiverTest {
         yield()
 
         transport.deliver(PairingMessage.PushServer(serverURL = "https://srv.test", serverName = null))
+        repeat(5) { yield() }
+        recv.allowPendingServer()
         repeat(10) { yield() }
 
         login.fail("denied-by-user")
@@ -245,5 +254,56 @@ class PairingReceiverTest {
         transport.deliver(PairingMessage.Cancel(reason = "user-bailed"))
         job.join()
         assertTrue(transport.closed)
+    }
+    @Test
+    fun denyPendingServerCancelsSessionWithoutStartingLogin() = runTest {
+        val transport = FakeTransport()
+        val auth = FakeAuthPort()
+        val login = FakeDeviceLogin()
+        val recv = receiver(auth, login)
+
+        val job = launch { recv.run(transport) }
+        yield()
+        transport.deliver(PairingMessage.PushServer(serverURL = "https://srv.test", serverName = "Srv"))
+        repeat(5) { yield() }
+        assertIs<PairingReceiverStatus.ConsentRequested>(recv.status.value)
+
+        recv.denyPendingServer()
+        repeat(10) { yield() }
+
+        // No login was started, no server was configured, the phone got a
+        // Cancel and the connection closed.
+        assertEquals(emptyList(), auth.setUrls)
+        assertEquals(null, login.beganWith)
+        val cancel = transport.sent.filterIsInstance<PairingMessage.Cancel>().single()
+        assertEquals("consent_denied", cancel.reason)
+        assertTrue(transport.closed)
+        job.join()
+    }
+
+    @Test
+    fun consentIsPerSessionSoSecondPushSkipsTheAsk() = runTest {
+        val transport = FakeTransport()
+        val auth = FakeAuthPort()
+        val login = FakeDeviceLogin()
+        val recv = receiver(auth, login)
+
+        val job = launch { recv.run(transport) }
+        yield()
+        transport.deliver(PairingMessage.PushServer(serverURL = "https://one.test", serverName = "One"))
+        repeat(5) { yield() }
+        recv.allowPendingServer()
+        repeat(10) { yield() }
+        login.approve()
+        repeat(10) { yield() }
+        assertEquals(PairingReceiverStatus.SignedIn(serverCount = 1), recv.status.value)
+
+        // Second push in the same session must NOT re-ask for consent.
+        transport.deliver(PairingMessage.PushServer(serverURL = "https://two.test", serverName = "Two"))
+        repeat(10) { yield() }
+        assertEquals(listOf("https://one.test", "https://two.test"), auth.setUrls)
+
+        transport.deliver(PairingMessage.Done)
+        job.join()
     }
 }

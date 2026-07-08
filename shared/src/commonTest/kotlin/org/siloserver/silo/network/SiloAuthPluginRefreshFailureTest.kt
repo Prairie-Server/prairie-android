@@ -52,6 +52,42 @@ class SiloAuthPluginRefreshFailureTest {
         assertEquals(null, tokenManager.getRefreshToken())
     }
 
+    @Test
+    fun signOutDuringRefreshIsNotOverwrittenBySuccessfulRefreshResponse() = runTest {
+        val tokenManager = activeTokenManager()
+        val client = HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("/auth/refresh")) {
+                    // Sign-out completes while the refresh round-trip is in
+                    // flight (logout revokes the access token server-side, so
+                    // 401-refreshes race sign-out deterministically).
+                    tokenManager.clearTokens()
+                    respond(
+                        content = """{"access_token":"fresh-access","refresh_token":"fresh-refresh","expires_in":3600}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                } else {
+                    respond(
+                        content = """{"error":"unauthorized","message":"expired"}""",
+                        status = HttpStatusCode.Unauthorized,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+            install(SiloAuthPlugin) { this.tokenManager = tokenManager }
+        }
+
+        client.get("/api/v1/catalog/home")
+
+        // The successful refresh response must NOT re-persist a session the
+        // user just signed out of.
+        assertEquals(null, tokenManager.getAccessToken())
+        assertEquals(null, tokenManager.getRefreshToken())
+    }
+
     private suspend fun activeTokenManager(): TokenManagerImpl =
         TokenManagerImpl().apply {
             setServerUrl("https://silo.example")

@@ -60,10 +60,34 @@ data class TvPersonDetailUiState(
 class TvPersonDetailViewModel(
     private val catalogRepository: CatalogRepository,
     private val personId: Long,
+    private val personalDataRepository: org.siloserver.silo.repository.PersonalDataRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvPersonDetailUiState())
     val uiState: StateFlow<TvPersonDetailUiState> = _uiState.asStateFlow()
+
+    init {
+        // Gate the filmography filter chips by the libraries this profile can
+        // actually see (QA 2026-07-08): a server with no audiobook/music
+        // libraries shouldn't offer Audiobooks/Music filters. All/Movies/TV
+        // always show; failures keep the full set (graceful degrade).
+        viewModelScope.launch {
+            val repo = personalDataRepository ?: return@launch
+            val result = repo.listUserLibraries()
+            if (result !is org.siloserver.silo.network.ApiResult.Success) return@launch
+            val types = result.data.map { it.type.lowercase() }.toSet()
+            val gated = TvPersonMediaFilters.filter { filter ->
+                when (filter) {
+                    TvPersonMediaFilter.Audiobooks ->
+                        types.any { org.siloserver.silo.model.navigation.isAudiobookLikeLibraryType(it) }
+                    TvPersonMediaFilter.Music ->
+                        types.any { it == "music" || it == "audio" }
+                    else -> true
+                }
+            }
+            _uiState.update { it.copy(availableFilters = gated) }
+        }
+    }
 
     init {
         if (personId > 0L) reload()

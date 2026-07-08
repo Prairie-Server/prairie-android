@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -675,17 +677,24 @@ private fun GenreChipCloud(
             style = MaterialTheme.typography.titleMedium,
             color = Color.White.copy(alpha = 0.74f),
         )
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
+        // One scrollable line, not a 3-row wall — the FlowRow cloud consumed
+        // half the viewport and read as clutter (QA 2026-07-08).
+        androidx.compose.foundation.lazy.LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            TvFilterChip(
-                text = "All",
-                selected = selectedGenre == null,
-                onClick = { onGenreChanged(null) },
-            )
-            genres.forEach { genre ->
+            item(key = "genre-all") {
+                TvFilterChip(
+                    text = "All",
+                    selected = selectedGenre == null,
+                    onClick = { onGenreChanged(null) },
+                )
+            }
+            // Server genre lists can contain duplicates — a repeated string
+            // would collide as a Lazy key and crash (CodeRabbit PR#44).
+            items(genres.distinct(), key = { it }) { genre ->
                 TvFilterChip(
                     text = genre,
                     selected = selectedGenre == genre,

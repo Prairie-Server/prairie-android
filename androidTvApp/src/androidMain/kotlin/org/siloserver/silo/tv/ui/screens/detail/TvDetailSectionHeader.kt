@@ -22,24 +22,32 @@ import androidx.tv.material3.Text
  */
 @Composable
 internal fun TvDetailSectionHeader(
-    eyebrow: String,
     title: String,
     modifier: Modifier = Modifier,
+    /**
+     * Optional tracked all-caps kicker ABOVE the title — only when it carries
+     * context the title doesn't (tvOS TVSectionHeader: "Season 2" over
+     * "Episodes"). Plain sections ("Cast & Crew", "Details") are single-line
+     * (QA 2026-07-08 / Apple parity).
+     */
+    eyebrow: String? = null,
 ) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(
-            text = eyebrow.uppercase(),
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                lineHeight = 15.sp,
-                letterSpacing = 1.5.sp,
-            ),
-            color = Color.White.copy(alpha = 0.55f),
-        )
+        if (!eyebrow.isNullOrBlank()) {
+            Text(
+                text = eyebrow.uppercase(),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    lineHeight = 15.sp,
+                    letterSpacing = 1.5.sp,
+                ),
+                color = Color.White.copy(alpha = 0.55f),
+            )
+        }
         Text(
             text = title,
             style = MaterialTheme.typography.displaySmall.copy(

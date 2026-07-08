@@ -51,10 +51,11 @@ class TvUsabilityGuardTest {
         assertTrue(destinations.contains("TvRootDestination.Home"))
         assertTrue(destinations.contains("TvRootDestination.LibraryType"))
         assertTrue(destinations.contains("TvRootDestination.Calendar"))
-        // Search / For You are no longer root tabs, and secondary utility
-        // surfaces never appear in the derived tab set.
+        // For You IS a root tab again (QA 2026-07-08, tvOS .recommendations
+        // parity, with its Watchlist/Favorites dropdown). Search stays a
+        // trailing icon, and secondary utility surfaces never become tabs.
+        assertTrue(destinations.contains("TvRootDestination.ForYou"))
         assertFalse(destinations.contains("TvRootDestination.Search"))
-        assertFalse(destinations.contains("TvRootDestination.ForYou"))
         assertFalse(destinations.contains("TvRootDestination.Requests"))
         assertFalse(destinations.contains("TvRootDestination.Settings"))
     }

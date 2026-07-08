@@ -103,6 +103,7 @@ object TvTopMenuLayout {
 private sealed class TvTopMenuFocus {
     data object Home : TvTopMenuFocus()
     data class Tab(val type: TvLibraryTabType) : TvTopMenuFocus()
+    data object ForYou : TvTopMenuFocus()
     data object Calendar : TvTopMenuFocus()
     data object Search : TvTopMenuFocus()
     data object Profile : TvTopMenuFocus()
@@ -160,6 +161,7 @@ fun TvTopMenuBar(
 ) {
     val homeFocusRequester = remember { FocusRequester() }
     val calendarFocusRequester = remember { FocusRequester() }
+    val forYouFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val profileFocusRequester = remember { FocusRequester() }
     // One requester per library-type tab; stable across recompositions so a
@@ -177,6 +179,7 @@ fun TvTopMenuBar(
         TvRootDestination.Home -> homeFocusRequester
         TvRootDestination.Calendar -> calendarFocusRequester
         is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
+        TvRootDestination.ForYou -> forYouFocusRequester
         null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
     }
 
@@ -220,6 +223,12 @@ fun TvTopMenuBar(
             delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
             onDwell(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
         } else {
+            // Deliberately NO dwell for the For You dropdown: after a cascade
+            // commit, focus can transiently fall back to the bar and land on
+            // this tab while the content composes — a dwell-preview then
+            // opened the focus-trapping dropdown over everything (QA
+            // 2026-07-08: "movies → browse lands in For You → Favorites").
+            // It opens only on an explicit d-pad-down / OK (enterPanel).
             onDwell(null)
         }
     }
@@ -256,14 +265,10 @@ fun TvTopMenuBar(
                 translationY = -size.height * (1f - visibility)
                 alpha = visibility * dimAlpha
             }
-            .background(
-                Brush.verticalGradient(
-                    0.00f to Color.Black.copy(alpha = 0.84f),
-                    0.58f to Color.Black.copy(alpha = 0.72f),
-                    0.88f to Color.Black.copy(alpha = 0.36f),
-                    1.00f to Color.Transparent,
-                ),
-            )
+            // No background band of its own: the SHELL draws a fixed top
+            // scrim behind the bar, so the focus dim below only affects the
+            // labels — content stays legibly scrimmed even while the bar is
+            // dimmed (QA 2026-07-08).
             .focusGroup()
             .focusProperties { enter = { barEntryRequester } }
             .onPreviewKeyEvent { event ->
@@ -275,6 +280,8 @@ fun TvTopMenuBar(
                         // Home/Calendar/Search keep the move-to-content behavior.
                         if (focus is TvTopMenuFocus.Tab) {
                             onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
+                        } else if (focus is TvTopMenuFocus.ForYou) {
+                            onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.ForYou))
                         } else {
                             onMoveDown()
                         }
@@ -356,6 +363,27 @@ fun TvTopMenuBar(
                                 .onGloballyPositioned { onTabAnchor(panel, it) },
                         )
                     }
+
+                    TvRootDestination.ForYou -> TvTopMenuTab(
+                        label = "For You",
+                        isSelected = selectedRoot == TvRootDestination.ForYou,
+                        isFocused = focusedButton == TvTopMenuFocus.ForYou,
+                        focusRequester = forYouFocusRequester,
+                        onFocusChanged = { hasFocus ->
+                            focusedButton = if (hasFocus) {
+                                TvTopMenuFocus.ForYou
+                            } else {
+                                focusedButton.takeUnless { it == TvTopMenuFocus.ForYou }
+                            }
+                        },
+                        onClick = { onSelectRoot(TvRootDestination.ForYou) },
+                        // Publishes its anchor so the shell can hang the
+                        // Watchlist/Favorites dropdown under it (tvOS
+                        // TVForYouDropdown).
+                        modifier = Modifier.onGloballyPositioned {
+                            onTabAnchor(TvTopMenuPanel.Root(TvRootDestination.ForYou), it)
+                        },
+                    )
 
                     TvRootDestination.Calendar -> TvTopMenuTab(
                         label = "Calendar",

@@ -41,6 +41,7 @@ import org.siloserver.silo.tv.ui.theme.tvPageContentPadding
 import org.siloserver.silo.tv.ui.theme.tvPageStartPadding
 import org.siloserver.silo.viewmodel.FavoritesViewModel
 import org.siloserver.silo.viewmodel.HistoryViewModel
+import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.viewmodel.PersonalListUiState
 import org.siloserver.silo.viewmodel.WatchlistViewModel
 import org.koin.compose.viewmodel.koinViewModel
@@ -150,7 +151,9 @@ private fun PersonalGrid(
             modifier = Modifier.padding(
                 start = startPadding,
                 end = Spacing.safeArea,
-                top = Spacing.xxl,
+                // Clear the floating top bar — Spacing.xxl left the header
+                // underneath the Silo wordmark (QA 2026-07-08).
+                top = TvTopMenuLayout.contentTopInset,
                 bottom = Spacing.sm,
             ),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -195,6 +198,10 @@ private fun PersonalGrid(
                 onItemClick = onItemClick,
                 onLoadMore = onLoadMore,
                 contentPadding = tvPageContentPadding(top = Spacing.lg),
+                // Match every other catalog grid (browse/person/collections):
+                // the adaptive default rendered ~5 oversized columns here
+                // (QA 2026-07-08).
+                fixedColumnCount = 6,
                 firstItemFocusRequester = firstItemFocusRequester,
             )
         }

@@ -61,6 +61,8 @@ fun PlayerSettingsSheet(
     onSetAutoPlayNext: (Boolean) -> Unit,
     hdrEnabled: Boolean,
     onSetHdrEnabled: (Boolean) -> Unit,
+    dolbyVisionEnabled: Boolean,
+    onSetDolbyVisionEnabled: (Boolean) -> Unit,
     onOpenSubtitleStyle: () -> Unit = {},
     onOpenSleepTimer: () -> Unit = {},
     onOpenChapters: () -> Unit = {},
@@ -139,6 +141,16 @@ fun PlayerSettingsSheet(
                     subtitle = null,
                     checked = hdrEnabled,
                     onCheckedChange = onSetHdrEnabled,
+                )
+
+                // Off plays DV sources as their base layer (HDR10); profile 5
+                // always plays as DV (no watchable base layer). Applies from
+                // the next playback start. Apple parity (silo-apple e9bd775).
+                ToggleRow(
+                    label = "Dolby Vision",
+                    subtitle = "Off plays the HDR10 base layer",
+                    checked = dolbyVisionEnabled,
+                    onCheckedChange = onSetDolbyVisionEnabled,
                 )
 
                 if (hasMultipleVersions) {

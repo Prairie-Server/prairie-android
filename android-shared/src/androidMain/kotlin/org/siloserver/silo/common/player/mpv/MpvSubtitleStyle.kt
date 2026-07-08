@@ -57,6 +57,11 @@ fun subtitleAppearanceToMpvProperties(
             props["sub-border-style"] = "4"
             props["sub-back-color"] = argbHex(a.backgroundColor, alphaPercent = a.backgroundOpacity)
             props["sub-shadow-offset"] = "0"
+            // In border-style 4 the border size inflates the BOX (it is not
+            // drawn as a ring), so it doubles as box padding. Keep at least a
+            // few pixels so the box doesn't hug the glyphs (QA 2026-07-08:
+            // "SRT subtitles with box should have more padding").
+            props["sub-border-size"] = maxOf(outlineSize.toIntOrNull() ?: 0, 3).toString()
         }
         SubtitleBackgroundStylePreset.Shadow -> {
             props["sub-border-style"] = "1"

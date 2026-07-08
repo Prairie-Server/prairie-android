@@ -143,6 +143,15 @@ class AndroidPlayerSettingsStore(
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DvProfile7HDR10Fallback, true) }
 
+    override val dolbyVisionEnabledFlow: Flow<Boolean> =
+        profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DolbyVisionEnabled, true) }
+
+    // Default OFF — Apple TV's "Match Content" defaults off because the HDMI
+    // mode switch black-screens for 1-2s on entry/exit (Apple parity,
+    // QA 2026-07-08).
+    override val matchContentFrameRateFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.MatchContentFrameRate, false) }
+
     override val pictureInPictureEnabledFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.PictureInPictureEnabled, true) }
 
@@ -211,6 +220,23 @@ class AndroidPlayerSettingsStore(
             SubtitleAppearance.decode(p.stringFor(s, PlaybackSettingsKeys.SubtitleAppearance, ""))
         }
 
+    override val subtitleMatchesDeviceFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.SubtitleMatchesDevice, false) }
+
+    // tvOS "Match Device Settings" parity: when on, playback styling follows
+    // the OS captioning preferences (CaptioningManager); the stored custom
+    // appearance stays untouched underneath.
+    override val effectiveSubtitleAppearanceFlow: Flow<SubtitleAppearance> =
+        kotlinx.coroutines.flow.combine(
+            subtitleAppearanceFlow,
+            subtitleMatchesDeviceFlow,
+        ) { appearance, matchDevice ->
+            if (matchDevice) deviceCaptioningAppearance(context, appearance) else appearance
+        }
+
+    override suspend fun setSubtitleMatchesDevice(enabled: Boolean) =
+        writeBoolLocal(PlaybackSettingsKeys.SubtitleMatchesDevice, enabled)
+
     // ---- Setters (write to scoped key + enqueue server flush) ---------
     override suspend fun setAutoSkipIntro(value: Boolean) =
         writeBool(PlaybackSettingsKeys.AutoSkipIntro, value)
@@ -226,6 +252,12 @@ class AndroidPlayerSettingsStore(
 
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) =
         writeBool(PlaybackSettingsKeys.DvProfile7HDR10Fallback, value)
+
+    override suspend fun setDolbyVisionEnabled(value: Boolean) =
+        writeBool(PlaybackSettingsKeys.DolbyVisionEnabled, value)
+
+    override suspend fun setMatchContentFrameRate(value: Boolean) =
+        writeBool(PlaybackSettingsKeys.MatchContentFrameRate, value)
 
     override suspend fun setPictureInPictureEnabled(value: Boolean) =
         writeBoolLocal(PlaybackSettingsKeys.PictureInPictureEnabled, value)
@@ -486,6 +518,8 @@ class AndroidPlayerSettingsStore(
             PlaybackSettingsKeys.AutoPlayNext,
             PlaybackSettingsKeys.HdrEnabled,
             PlaybackSettingsKeys.DvProfile7HDR10Fallback,
+            PlaybackSettingsKeys.DolbyVisionEnabled,
+            PlaybackSettingsKeys.MatchContentFrameRate,
             PlaybackSettingsKeys.SubtitleTextOutline,
         )
 

@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun StartupSplashVideo(
     modifier: Modifier = Modifier,
     resizeMode: StartupSplashResizeMode = StartupSplashResizeMode.Fit,
-    backgroundColor: Color = Color(0xFF050505),
+    backgroundColor: Color = Color.Black,
     minVisibleMillis: Long = 0L,
     onPlaybackComplete: () -> Unit = {},
 ) {

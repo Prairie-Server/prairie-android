@@ -13,6 +13,7 @@ import org.siloserver.silo.common.player.video.immediateServerFallbackMode
 import org.siloserver.silo.common.player.video.requestedOriginalPlaybackMethod
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.model.playback.applyResumeRewind
@@ -67,10 +68,12 @@ class TvVideoPlaybackStarter(
             val accessToken = playbackSessionManager.getAccessToken()
                 ?: return failure(request.contentId, "Not authenticated")
 
-            val capabilities = capabilityDetector.detect()
+            val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
+            val capabilities = capabilityDetector.detect(dolbyVision = dolbyVision)
             val playbackContext = capabilityDetector.detectPlaybackContext(
                 formFactor = "tv",
                 appVersion = BuildConfig.VERSION_NAME,
+                dolbyVision = dolbyVision,
             )
             val requestedPlayMethod = version.requestedOriginalPlaybackMethod(
                 playbackContext = playbackContext,
@@ -213,6 +216,7 @@ class TvVideoPlaybackStarter(
             VideoPlaybackStartResult.Ready(
                 contentId = request.contentId,
                 fileId = version.fileId,
+                versions = watchDetail.versions,
                 fileResolution = version.resolution,
                 sessionId = resolved.sessionId,
                 streamUrl = resolvedStreamUrl,

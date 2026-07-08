@@ -255,6 +255,16 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                     return@withLock false
                 }
 
+                // Re-check sign-out state AFTER the network call too. Logout
+                // revokes the access token server-side before clearTokens()
+                // runs, so concurrent requests 401 exactly during sign-out and
+                // start a refresh with the still-valid refresh token; without
+                // this guard the refresh response lands after clearTokens()
+                // and saveTokens() silently signs the user back in.
+                if (tokenManager.getRefreshToken().isNullOrBlank()) {
+                    return@withLock false
+                }
+
                 if (refreshResponse.status.isSuccess()) {
                     val tokens = refreshResponse.body<RefreshResponse>()
                     tokenManager.saveTokens(

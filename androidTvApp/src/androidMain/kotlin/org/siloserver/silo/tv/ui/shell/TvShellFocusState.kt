@@ -43,8 +43,15 @@ sealed interface TvShellBackAction {
     /** The profile dropdown was open; it is now closed and focus returns to the avatar. */
     data object CloseProfileMenu : TvShellBackAction
 
-    /** Focus was on the menu bar; the caller hands it back to content. */
-    data object MoveFocusToContent : TvShellBackAction
+    /**
+     * Focus was on the menu bar: on Home the caller lets the activity finish
+     * (exit); on any other section the caller navigates Home keeping the bar
+     * focused. (QA back-stack model, 2026-07-08.)
+     */
+    data object MenuBack : TvShellBackAction
+
+    /** Content on a tab root pressed Back: the caller focuses the bar's selected tab. */
+    data object MoveFocusToMenu : TvShellBackAction
 
     /** Nothing to dismiss; the caller pops the nested NavHost or lets the activity finish. */
     data object DelegateToNav : TvShellBackAction
@@ -79,10 +86,15 @@ internal fun tvShellBackAction(
     panelOpen: Boolean,
     profileMenuOpen: Boolean,
     menuFocused: Boolean,
+    onTabRoot: Boolean,
 ): TvShellBackAction = when {
     panelOpen -> TvShellBackAction.ClosePanel
     profileMenuOpen -> TvShellBackAction.CloseProfileMenu
-    menuFocused -> TvShellBackAction.MoveFocusToContent
+    // Back-stack model (QA 2026-07-08): content Back on a tab root climbs to
+    // the bar; Back on the bar goes Home (or exits from Home). Secondary
+    // screens (Settings, Search, …) still pop navigation.
+    menuFocused -> TvShellBackAction.MenuBack
+    onTabRoot -> TvShellBackAction.MoveFocusToMenu
     else -> TvShellBackAction.DelegateToNav
 }
 
@@ -228,16 +240,18 @@ class TvShellFocusState {
      * and [TvShellBackAction.DelegateToNav] are left to the composable, which owns
      * the focus manager and nav controller).
      */
-    fun onBack(): TvShellBackAction {
+    fun onBack(onTabRoot: Boolean): TvShellBackAction {
         val action = tvShellBackAction(
             panelOpen = openPanel != null,
             profileMenuOpen = profileMenuOpen,
             menuFocused = isMenuFocused,
+            onTabRoot = onTabRoot,
         )
         when (action) {
             TvShellBackAction.ClosePanel -> closePanel(returnFocusToBar = true)
             TvShellBackAction.CloseProfileMenu -> dismissProfileMenu()
-            TvShellBackAction.MoveFocusToContent,
+            TvShellBackAction.MoveFocusToMenu -> requestMenuFocus()
+            TvShellBackAction.MenuBack,
             TvShellBackAction.DelegateToNav -> Unit
         }
         return action

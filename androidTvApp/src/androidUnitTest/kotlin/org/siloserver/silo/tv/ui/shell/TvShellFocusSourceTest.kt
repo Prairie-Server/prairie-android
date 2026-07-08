@@ -43,8 +43,11 @@ class TvShellFocusSourceTest {
         // a menu-focused Back returns to content instead of exiting the app and
         // can never be double-handled.
         assertTrue(shell.contains("ev.key == Key.Back || ev.key == Key.Escape"))
-        assertTrue(shell.contains("when (focusState.onBack())"))
-        assertTrue(shell.contains("TvShellBackAction.MoveFocusToContent ->"))
+        assertTrue(shell.contains("when (focusState.onBack(onTabRoot = selectedRoot != null))"))
+        // QA back-stack model: tab-root content climbs to the bar; the bar
+        // goes Home (or exits from Home); secondary screens still pop.
+        assertTrue(shell.contains("TvShellBackAction.MoveFocusToMenu -> true"))
+        assertTrue(shell.contains("TvShellBackAction.MenuBack ->"))
         assertTrue(shell.contains("TvShellBackAction.DelegateToNav ->"))
         assertTrue(shell.contains("nestedNav.popBackStack()"))
     }

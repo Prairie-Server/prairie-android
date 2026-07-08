@@ -24,7 +24,10 @@ class TvAuthFocusSourceTest {
         assertTrue(serverSetupSource.contains(".imePadding()"))
         assertTrue(serverSetupSource.contains("keyboardController?.show()"))
         assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing)"))
-        assertTrue(serverSetupSource.contains("runCatching { focusRequester.requestFocus() }"))
+        // First sign-in anchors on the SETUP WITH PHONE card; a pre-filled URL
+        // (returning user) keeps the field focus. Both are crash-guarded.
+        assertTrue(serverSetupSource.contains("phoneSetupFocus.requestFocus()"))
+        assertTrue(serverSetupSource.contains("focusRequester.requestFocus()"))
     }
 
     @Test
@@ -82,6 +85,6 @@ class TvAuthFocusSourceTest {
     fun serverSetupDoesNotRestoreManualFocusWhilePairingOverlayIsActive() {
         assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing)"))
         assertTrue(serverSetupSource.contains("if (!isActivePairing) {"))
-        assertTrue(serverSetupSource.contains("runCatching { focusRequester.requestFocus() }"))
+        assertTrue(serverSetupSource.contains("runCatching {"))
     }
 }

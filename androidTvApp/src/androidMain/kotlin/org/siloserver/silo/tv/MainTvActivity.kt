@@ -11,6 +11,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,7 +92,10 @@ class MainTvActivity : ComponentActivity() {
                 val resolvedRoute = startRoute
                 if (resolvedRoute == null || !splashPlaybackComplete) {
                     val splashFocus = remember { FocusRequester() }
-                    val splashBackground = Color(0xFF070509)
+                    // PURE black — the splash video's encoded black is #000000, and any
+                    // off-black (the old 0xFF070509) reads as a visible box
+                    // around the small video layer (QA 2026-07-08).
+                    val splashBackground = Color.Black
                     LaunchedEffect(Unit) { runCatching { splashFocus.requestFocus() } }
                     Box(
                         modifier = Modifier
@@ -103,18 +110,27 @@ class MainTvActivity : ComponentActivity() {
                             },
                     ) {
                         if (!splashPlaybackComplete) {
-                            StartupSplashVideo(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .fillMaxSize(),
-                                resizeMode = StartupSplashResizeMode.Crop,
+                            // tvOS StartupSplashView parity: the video plays in a
+                            // SMALL centered box — min(25% of screen width, 440pt
+                            // → 220dp at Android TV scale) — on black, NOT
+                            // full-bleed (full-bleed rendered the logo 4x too
+                            // large; QA 2026-07-08).
+                            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                val videoWidth = minOf(maxWidth * 0.25f, 220.dp)
+                                StartupSplashVideo(
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .width(videoWidth)
+                                        .aspectRatio(16f / 9f),
+                                resizeMode = StartupSplashResizeMode.Fit,
                                 backgroundColor = splashBackground,
                                 minVisibleMillis = 5_200L,
                                 onPlaybackComplete = {
                                     splashPlaybackComplete = true
                                     hasShownColdSplash = true
                                 },
-                            )
+                                )
+                            }
                         }
                     }
                 } else {

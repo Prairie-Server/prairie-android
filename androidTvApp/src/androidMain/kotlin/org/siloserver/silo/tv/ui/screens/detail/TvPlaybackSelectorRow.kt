@@ -97,7 +97,7 @@ fun TvPlaybackSelectorRow(
         TvAnchoredSelectorMenu(
             icon = Icons.Filled.HighQuality,
             label = "Version",
-            value = TvPlaybackFormatting.versionShortLabel(currentVersion),
+            value = TvPlaybackFormatting.versionValueLabel(currentVersion, selectedVersionFileId),
             options = buildList {
                 add(
                     TvSelectorOption(

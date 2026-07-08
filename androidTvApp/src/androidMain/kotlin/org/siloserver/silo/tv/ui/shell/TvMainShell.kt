@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.height
@@ -171,6 +172,7 @@ fun TvMainShell(
     val currentEntry by nestedNav.currentBackStackEntryAsState()
 
     val authRepository: AuthRepository = koinInject()
+    val sectionRepository: org.siloserver.silo.repository.SectionRepository = koinInject()
     val personalDataRepository: PersonalDataRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
@@ -206,7 +208,15 @@ fun TvMainShell(
     }
 
     // Skyline tab set (§3.1): Home + present library-type tabs + Calendar.
-    val visibleRoots = remember(libraries) { visibleTvRoots(libraries) }
+    // tvOS parity: the Audiobooks tab is opt-in via Settings > General
+    // (hidden by default); the store is device+profile local.
+    var showAudiobooksTab by remember { mutableStateOf(false) }
+    LaunchedEffect(libraries) {
+        showAudiobooksTab = runCatching { tvLibraryScopeStore.getShowAudiobooksTab() }.getOrDefault(false)
+    }
+    val visibleRoots = remember(libraries, showAudiobooksTab) {
+        visibleTvRoots(libraries, showAudiobooks = showAudiobooksTab)
+    }
 
     // In-session scope/pill selections per library type. Scope selections are
     // also persisted via TvLibraryScopeStore; pill selections are session-only
@@ -257,10 +267,11 @@ fun TvMainShell(
     // the loose bag of counters + booleans this file used to mutate from a dozen
     // sites (the source of a long "fix focus" tail). See [TvShellFocusState].
     val focusState = rememberTvShellFocusState()
-    // Vestigial: superseded in practice by the content `focusRestorer()` and never
-    // bumped now (kept only as TvHomeScreen's `focusRequest` param). Deliberately
-    // left OUT of the focus holder — folding dead state in would only muddy it.
-    val contentFocusRequest by remember { mutableIntStateOf(0) }
+    // Bumped when the user SELECTS a tab from the nav bar: the QA back-stack
+    // model wants Select-from-menu to land on the top-left item (scrolled to
+    // top), while ordinary content re-entry keeps the focusRestorer()'s
+    // last-focused card.
+    var contentFocusRequest by remember { mutableIntStateOf(0) }
 
     // --- Skyline cascade panel host (Stage 4) ----------------------------------
     // Mirrors tvOS `TVMainTabView.persistentPanels`. The cascade overlays are
@@ -312,6 +323,21 @@ fun TvMainShell(
 
     val selectedRoot by remember(currentRoute) {
         derivedStateOf { mapRouteToRoot(currentRoute) }
+    }
+
+    // Which libraries actually HAVE collections — gates the cascade's
+    // Collections pill so an empty library doesn't offer a dead-end section
+    // (QA 2026-07-08: Movies → Collections → black 'No collections' page).
+    // null = unknown (still loading) → pill stays visible.
+    var librariesWithCollections by remember { mutableStateOf<Set<Int>?>(null) }
+    LaunchedEffect(libraries) {
+        if (libraries.isEmpty()) return@LaunchedEffect
+        val ids = mutableSetOf<Int>()
+        libraries.forEach { lib ->
+            val result = runCatching { sectionRepository.getLibraryCollections(lib.id) }.getOrNull()
+            if (result is ApiResult.Success && result.data.isNotEmpty()) ids += lib.id
+        }
+        librariesWithCollections = ids
     }
 
     val navigateToRoute: (String) -> Unit = { route ->
@@ -370,6 +396,14 @@ fun TvMainShell(
         if (route != currentRoute) {
             navigateToRoute(route)
         }
+        // Select-from-menu focuses the TOP-LEFT item (QA back-stack model),
+        // overriding the restorer's remembered card: Home listens to
+        // contentFocusRequest; library-type screens listen to their section
+        // nonce (which re-applies the section AND refocuses the first row).
+        contentFocusRequest++
+        if (dest is TvRootDestination.LibraryType) {
+            sectionRequestNonces[dest.type] = (sectionRequestNonces[dest.type] ?: 0) + 1
+        }
         moveFocusToContent(route)
     }
 
@@ -417,23 +451,14 @@ fun TvMainShell(
     // down fades/translates the menu out; scrolling up restores it. The
     // animation lives entirely in `graphicsLayer` so layout doesn't reflow
     // beneath the menu while it transitions.
+    // tvOS parity (QA 2026-07-08): the top bar NEVER hides — it floats over
+    // every page and dims to 70% while focus is down in content
+    // (TVTopMenuBar draws no band and has no scroll-hide). The old
+    // scroll-away fade let content slide under the wordmark and left users
+    // with an invisible bar to navigate back to.
     val menuVisibility = remember { Animatable(1f) }
-    val scrollScope = rememberCoroutineScope()
-    val nestedScrollConnection = remember(menuVisibility, scrollScope) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // available.y < 0 means the user is scrolling content downward
-                // (revealing items below the fold) — fade the menu out.
-                // available.y > 0 means scrolling upward — fade it in.
-                // We don't consume any scroll; the inner LazyColumn handles it fully.
-                if (source == NestedScrollSource.UserInput) {
-                    val deltaProgress = available.y / 240f
-                    val target = (menuVisibility.value + deltaProgress).coerceIn(0f, 1f)
-                    scrollScope.launch { menuVisibility.snapTo(target) }
-                }
-                return Offset.Zero
-            }
-        }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {}
     }
 
     // When focus is handed back to the top menu (Up at the top content row, or
@@ -442,6 +467,16 @@ fun TvMainShell(
     // focus an invisible bar. Guarded on >0 so it never runs on first compose.
     LaunchedEffect(focusState.menuFocusRequest) {
         if (focusState.menuFocusRequest > 0 && menuVisibility.value < 1f) {
+            menuVisibility.animateTo(1f)
+        }
+    }
+
+    // Belt-and-braces for the same bug via ANY focus path (geometric D-pad Up,
+    // Back-to-menu, panel close): a bar that owns focus must be visible —
+    // QA 2026-07-08 reported the calendar's scroll-fade leaving an invisible,
+    // focused menu until the user scrolled all the way back up.
+    LaunchedEffect(focusState.isMenuFocused) {
+        if (focusState.isMenuFocused && menuVisibility.value < 1f) {
             menuVisibility.animateTo(1f)
         }
     }
@@ -480,20 +515,28 @@ fun TvMainShell(
                     // half (close panel / dropdown); we run only the side effect
                     // each action needs. Keeping it here — not in the selector or
                     // the bar — means Back can never be double-handled.
-                    when (focusState.onBack()) {
+                    when (focusState.onBack(onTabRoot = selectedRoot != null)) {
                         // Panel/dropdown already closed by onBack(): just consume.
                         TvShellBackAction.ClosePanel,
                         TvShellBackAction.CloseProfileMenu -> true
-                        // Focus was on the bar: hand it back to content.
-                        TvShellBackAction.MoveFocusToContent -> {
-                            moveFocusToContent(currentRoute)
-                            true
+                        // Content on a tab root: onBack() already routed focus
+                        // to the bar's selected tab — just consume.
+                        TvShellBackAction.MoveFocusToMenu -> true
+                        // Bar focused: Home exits the app (fall through to the
+                        // activity), any other section goes Home with the bar
+                        // still focused (now on the Home tab).
+                        TvShellBackAction.MenuBack -> {
+                            if (selectedRoot == TvRootDestination.Home) {
+                                false
+                            } else {
+                                navigateToRoute(firstTvRoute())
+                                focusState.requestMenuFocus()
+                                true
+                            }
                         }
-                        // Nothing to dismiss. Pop the flat inner NavHost when
-                        // there's history (popUpTo(start) { saveState } keeps the
-                        // stack typically [Home, currentTab] and restores saved
-                        // scroll/ViewModel cleanly); otherwise fall through so the
-                        // activity's OnBackPressedDispatcher finishes the app.
+                        // Secondary screens (Settings, Search, admin, …): pop
+                        // the flat inner NavHost when there's history; otherwise
+                        // fall through so the activity finishes the app.
                         TvShellBackAction.DelegateToNav -> {
                             if (nestedNav.previousBackStackEntry != null) {
                                 nestedNav.popBackStack()
@@ -757,14 +800,6 @@ fun TvMainShell(
                 }
                 composable(TvMainRoute.Settings.route) {
                     TvSettingsScreen(
-                        onNavigateToFavorites = { navigateToSecondary(TvMainRoute.Favorites.route) },
-                        onNavigateToWatchlist = { navigateToSecondary(TvMainRoute.Watchlist.route) },
-                        onNavigateToHistory = { navigateToSecondary(TvMainRoute.History.route) },
-                        onNavigateToCollections = { navigateToSecondary(TvMainRoute.Collections.route) },
-                        onNavigateToBrowse = {
-                            navigateToSecondary(TvMainRoute.Browse.route)
-                            moveFocusToContent(TvMainRoute.Browse.route)
-                        },
                         onNavigateToAdmin = {
                             // Apple parity: the stats dashboard is the whole
                             // admin surface. The hub (users/sessions/logs/
@@ -846,6 +881,31 @@ fun TvMainShell(
             }
         }
 
+        // Shell-owned top scrim: with the bar permanently visible (tvOS
+        // parity), scrolled content passes beneath it — this fixed gradient
+        // keeps the wordmark/tabs readable regardless of the bar's own
+        // focus dim (which previously weakened its readability exactly when
+        // content scrolled under it — QA 2026-07-08).
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TvSkyline.barTopInset + TvSkyline.barHeight + 40.dp)
+                .align(Alignment.TopStart)
+                .background(
+                    Brush.verticalGradient(
+                        // Near-opaque through the bar strip itself, then a quick
+                        // fade: the first weaker gradient let bright posters
+                        // dominate the strip and it read as content scrolling
+                        // OVER the locked menu (QA 2026-07-08).
+                        0.00f to Color.Black.copy(alpha = 0.98f),
+                        0.60f to Color.Black.copy(alpha = 0.94f),
+                        0.80f to Color.Black.copy(alpha = 0.55f),
+                        1.00f to Color.Transparent,
+                    ),
+                )
+                .zIndex(0.9f),
+        )
+
         // Menu overlay — sits on top, gradient scrim fades into content.
         TvTopMenuBar(
             selectedRoot = selectedRoot,
@@ -910,6 +970,49 @@ fun TvMainShell(
         // the flyout opens, instead of a fixed slab with dead space.
         val maxPanelWidthDp = TvCascadeSelectorMaxPanelWidth
         visibleRoots.forEach { dest ->
+            if (dest is TvRootDestination.ForYou) {
+                val panel = TvTopMenuPanel.Root(dest)
+                // Entered-only (unlike cascades, which support dwell PREVIEW):
+                // this dropdown focus-traps, so it must never become visible or
+                // focusable without a deliberate enter.
+                val active = focusState.openPanel == panel && focusState.panelEntersFocus
+                val anchor = tabAnchors[panel]
+                val panelAlpha by animateFloatAsState(
+                    targetValue = if (active) 1f else 0f,
+                    animationSpec = tween(durationMillis = if (active) 90 else 70),
+                    label = "tvTopMenuForYouPanelAlpha",
+                )
+                Box(
+                    modifier = Modifier
+                        .absoluteOffset {
+                            cascadePanelOffset(
+                                anchor = anchor,
+                                level1WidthPx = with(density) { TvSkyline.profileMenuWidth.toPx() },
+                                totalPanelWidthPx = with(density) { TvSkyline.profileMenuWidth.toPx() },
+                                safeAreaXPx = with(density) { TvSkyline.safeAreaX.toPx() },
+                                panelTopPx = with(density) { TvSkyline.dropdownTopInset.toPx() },
+                            )
+                        }
+                        .alpha(panelAlpha)
+                        .focusProperties { canFocus = active }
+                        .zIndex(2f),
+                ) {
+                    TvForYouDropdown(
+                        entersPanel = active && focusState.panelEntersFocus,
+                        focusEntryToken = focusState.panelFocusEntryToken,
+                        onWatchlist = {
+                            focusState.closePanel(false)
+                            navigateToSecondary(TvMainRoute.Watchlist.route)
+                            moveFocusToContent(TvMainRoute.Watchlist.route)
+                        },
+                        onFavorites = {
+                            focusState.closePanel(false)
+                            navigateToSecondary(TvMainRoute.Favorites.route)
+                            moveFocusToContent(TvMainRoute.Favorites.route)
+                        },
+                    )
+                }
+            }
             if (dest is TvRootDestination.LibraryType) {
                 val panel = TvTopMenuPanel.Root(dest)
                 val active = focusState.openPanel == panel
@@ -939,6 +1042,9 @@ fun TvMainShell(
                         type = dest.type,
                         libraries = libraries.filter { dest.type.matches(it) },
                         currentScopeId = activeLibrary(dest.type)?.id,
+                        libraryHasCollections = { id ->
+                            librariesWithCollections?.contains(id) ?: true
+                        },
                         selectedPill = pillSelections[dest.type] ?: TvLibraryPill.Recommended,
                         entersPanel = active && focusState.panelEntersFocus,
                         focusEntryToken = focusState.panelFocusEntryToken,
@@ -1088,14 +1194,15 @@ private fun mapRouteToRoot(route: String): TvRootDestination? = when (route) {
     TvMainRoute.Music.route -> TvRootDestination.LibraryType(TvLibraryTabType.Music)
     TvMainRoute.Audiobooks.route -> TvRootDestination.LibraryType(TvLibraryTabType.Audiobooks)
     TvMainRoute.Calendar.route -> TvRootDestination.Calendar
-    // Search / ForYou are no longer tabs — they map to null so no top tab is
-    // highlighted (Search is a trailing icon; ForYou is reached as a Home row).
+    TvMainRoute.ForYou.route -> TvRootDestination.ForYou
+    // Search maps to null so no top tab is highlighted (trailing icon).
     // Requests/MyRequests/Settings/Audio/Libraries are likewise non-tab.
     else -> null
 }
 
 private fun TvRootDestination.toRoute(): String = when (this) {
     TvRootDestination.Home -> TvMainRoute.Home.route
+    TvRootDestination.ForYou -> TvMainRoute.ForYou.route
     TvRootDestination.Calendar -> TvMainRoute.Calendar.route
     is TvRootDestination.LibraryType -> when (type) {
         TvLibraryTabType.Movies -> TvMainRoute.Movies.route
@@ -1159,6 +1266,40 @@ private fun cascadePanelOffset(
  * History · Requests (feature-gated) · Settings · Switch Server · Sign Out.
  * Calendar is a top-level tab.
  */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun TvForYouDropdown(
+    entersPanel: Boolean,
+    focusEntryToken: Int,
+    onWatchlist: () -> Unit,
+    onFavorites: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(entersPanel, focusEntryToken) {
+        if (entersPanel) runCatching { firstFocus.requestFocus() }
+    }
+    Column(
+        modifier = modifier
+            .width(TvSkyline.profileMenuWidth)
+            .tvSkylinePanelChrome()
+            .padding(vertical = TvSkyline.profileMenuPanelVerticalPadding)
+            .focusGroup()
+            // Trap directional focus like the profile dropdown — only Back
+            // (handled by the shell's panel routing) closes it.
+            .focusProperties { exit = { FocusRequester.Cancel } },
+        verticalArrangement = Arrangement.spacedBy(TvSkyline.profileMenuItemSpacing),
+    ) {
+        ProfileDropdownRow(
+            label = "Watchlist",
+            icon = Icons.Filled.Bookmark,
+            focusRequester = firstFocus,
+            onClick = onWatchlist,
+        )
+        ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
+    }
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TvProfileDropdown(

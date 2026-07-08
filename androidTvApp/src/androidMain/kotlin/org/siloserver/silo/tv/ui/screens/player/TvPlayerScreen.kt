@@ -223,6 +223,7 @@ fun TvPlayerScreen(
     val audioDelayMs by viewModel.audioDelayMs.collectAsState()
     val subtitleDelayMs by viewModel.subtitleDelayMs.collectAsState()
     val hdrEnabled by viewModel.hdrEnabled.collectAsState()
+    val dolbyVisionEnabled by viewModel.dolbyVisionEnabled.collectAsState()
     val subtitleSearch by viewModel.subtitleSearch.collectAsState()
     val aiTranslate by viewModel.aiTranslate.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -568,7 +569,11 @@ fun TvPlayerScreen(
             state.showNextUp -> stopPlaybackAndExit()
             state.hudOpen -> viewModel.closeHUD()
             showLeaveDialog -> showLeaveDialog = false
-            state.showControls -> viewModel.setControlsVisible(false)
+            // While PLAYING, Back steps controls -> hidden before exiting.
+            // While PAUSED, hiding controls would just strand a frozen frame,
+            // so Back falls through to the exit (or room-leave) flow instead —
+            // Apple parity (silo-apple f12a928).
+            state.showControls && !state.isPaused -> viewModel.setControlsVisible(false)
             // In a room: Back surfaces the Leave affordance. Host gets a
             // close-confirm dialog (closing tears down the room for everyone);
             // a guest leaves immediately.
@@ -642,6 +647,28 @@ fun TvPlayerScreen(
                 )
             ) {
                 return@handler handleSkipIntroNow()
+            }
+
+            // Back while PLAYING with the transport overlay up: hide the
+            // overlay HERE, at the key-dispatch bridge, before Compose's
+            // focus system can eat the press as a button focus-deselection
+            // (QA 2026-07-08: Back on a focused control deselected the button
+            // instead of dismissing the overlay). Paused/room/dialog cases
+            // stay with the BackHandler's stepping logic.
+            if (event.keyCode == KeyEvent.KEYCODE_BACK &&
+                playerState.showControls &&
+                !playerState.isPaused &&
+                !playerState.hudOpen &&
+                !playerState.showNextUp &&
+                !playerState.showSubtitleMenu &&
+                !playerState.showSubtitleStyleDialog &&
+                !latestShowQuickSubtitlePicker &&
+                !latestShowLeaveDialog
+            ) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    viewModel.setControlsVisible(false)
+                }
+                return@handler true
             }
 
             when (action) {
@@ -730,11 +757,22 @@ fun TvPlayerScreen(
         state.preferredAudioLanguage,
         state.preferredTextLanguage,
         hdrEnabled,
+        dolbyVisionEnabled,
     ) {
         val backend = videoBackend ?: return@LaunchedEffect
+        // With Dolby Vision off, drop DV profiles (except 5 — no watchable
+        // base layer) so the DV MIME preference is not added and multi-track
+        // content selects the HEVC/HDR10 variant. DolbyVisionPolicy is the
+        // single decision source (Apple parity, silo-apple e9bd775).
+        val effectiveDisplayHdr = displayHdr.copy(
+            dolbyVisionProfiles = org.siloserver.silo.player.DolbyVisionPolicy.advertisableProfiles(
+                displayHdr.dolbyVisionProfiles,
+                org.siloserver.silo.player.DolbyVisionPolicy.Snapshot(dolbyVisionEnabled = dolbyVisionEnabled),
+            ),
+        )
         backend.applyTrackSelection(
             audioCaps = audioCaps,
-            displayHdr = displayHdr,
+            displayHdr = effectiveDisplayHdr,
             preferredAudioLanguage = state.preferredAudioLanguage,
             preferredTextLanguage = state.preferredTextLanguage,
             hdrEnabled = hdrEnabled,
@@ -805,6 +843,9 @@ fun TvPlayerScreen(
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
                 }
+                override fun onRenderedFirstFrame() {
+                    viewModel.onFirstVideoFrameRendered()
+                }
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     // Buffering during normal playback flips the centered
                     // spinner. This complements the lifecycle's Reconnecting
@@ -842,11 +883,16 @@ fun TvPlayerScreen(
                     if (videoSize.width > 0 && videoSize.height > 0) {
                         pictureInPictureVideoWidth = videoSize.width
                         pictureInPictureVideoHeight = videoSize.height
-                        hdrDisplayController.applyForMedia(
-                            videoWidth = videoSize.width,
-                            videoHeight = videoSize.height,
-                            frameRateHz = frameRate,
-                        )
+                        // Gated like Apple TV's "Match Content" (default off):
+                        // the HDMI mode switch black-screens briefly, so it is
+                        // the viewer's choice (QA 2026-07-08).
+                        if (viewModel.matchContentFrameRate.value) {
+                            hdrDisplayController.applyForMedia(
+                                videoWidth = videoSize.width,
+                                videoHeight = videoSize.height,
+                                frameRateHz = frameRate,
+                            )
+                        }
                     }
                 }
             }
@@ -1390,6 +1436,9 @@ fun TvPlayerScreen(
                             episodeNumber = state.episodeNumber,
                             audioTracks = state.audioTracks,
                             videoQualities = state.videoQualities,
+                            fileVersions = state.fileVersions,
+                            selectedFileId = state.selectedFileId ?: state.mediaFileId,
+                            onSelectFileVersion = viewModel::onSelectFileVersion,
                             subtitleTracks = state.subtitleTracks,
                             stats = state.stats,
                             playbackPlan = state.playbackPlan,
@@ -1455,6 +1504,8 @@ fun TvPlayerScreen(
                             },
                             hdrEnabled = hdrEnabled,
                             onHdrEnabledChanged = viewModel::onSetHdrEnabled,
+                            dolbyVisionEnabled = dolbyVisionEnabled,
+                            onDolbyVisionEnabledChanged = viewModel::onSetDolbyVisionEnabled,
                             chapters = state.chapters,
                             onSelectChapter = { idx ->
                                 viewModel.onSeekToChapter(idx)?.let { sec ->

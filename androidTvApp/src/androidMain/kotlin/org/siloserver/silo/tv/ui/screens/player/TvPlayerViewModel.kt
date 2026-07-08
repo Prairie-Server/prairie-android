@@ -25,6 +25,7 @@ import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.domain.player.IntroAutoSkipController
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.catalog.TimeRange
@@ -450,6 +451,8 @@ class TvPlayerViewModel(
 ) : ViewModel() {
 
     companion object {
+        private const val FIRST_FRAME_WATCHDOG_MS = 8_000L
+        private const val BUFFERING_WATCHDOG_MS = 30_000L
         private const val TAG = "TvPlayerViewModel"
         // A transient network blip retries the same route this many times before
         // demoting to a server transcode (resets once playback progresses).
@@ -551,6 +554,8 @@ class TvPlayerViewModel(
         val serverUrl: String = "",
         val accessToken: String = "",
         val selectedFileId: Int? = null,
+        /** All server file versions for this item (in-player version switching). */
+        val fileVersions: List<org.siloserver.silo.model.catalog.FileVersion> = emptyList(),
         val selectedFileResolution: String? = null,
         val startPosition: Double = 0.0,
         val position: Double = 0.0,
@@ -741,7 +746,13 @@ class TvPlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, 3)
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
-    val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
+    val dolbyVisionEnabled: StateFlow<Boolean> = playerSettingsStore.dolbyVisionEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val matchContentFrameRate: StateFlow<Boolean> = playerSettingsStore.matchContentFrameRateFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    // Effective = custom appearance unless "Match Device Settings" is on
+    // (then the OS captioning style, tvOS parity).
+    val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.effectiveSubtitleAppearanceFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, SubtitleAppearance.DEFAULT)
     /**
      * Per-profile audio delay in ms, ±500 clamp. Sourced from
@@ -842,6 +853,15 @@ class TvPlayerViewModel(
         // Fresh content: forget engines attempted for the previous item.
         attemptedEngines.clear()
         engineSwitchFallbackAttempted = false
+        firstVideoFrameRendered = false
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
+        // Codex PR#44: a stale buffering watchdog from the PREVIOUS session
+        // must not fire into the new one (retry / version switch / fallback
+        // could otherwise trigger a premature second fallback).
+        bufferingWatchdogJob?.cancel()
+        bufferingWatchdogJob = null
+        _uiState.update { it.copy(isBuffering = false) }
 
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
@@ -889,6 +909,7 @@ class TvPlayerViewModel(
                                 serverUrl = result.serverUrl,
                                 accessToken = result.accessToken,
                                 selectedFileId = result.fileId,
+                                fileVersions = result.versions,
                                 selectedFileResolution = result.fileResolution,
                                 mediaFileId = result.mediaFileId,
                                 startPosition = result.startPositionSeconds,
@@ -997,7 +1018,7 @@ class TvPlayerViewModel(
         recoveryJob = viewModelScope.launch {
             val sessionId = state.sessionId ?: return@launch
             val activeFileId = state.selectedFileId ?: state.mediaFileId ?: return@launch
-            val capabilities = capabilityDetector.detect()
+            val capabilities = capabilityDetector.detect(dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot())
             val selectedAudioIndex = state.audioTracks.firstOrNull { it.isSelected }?.index ?: 0
             val selectedSubtitleIndex = selectedSubtitleTrackIndex(state)
             val sessionResponse = PlaybackSessionResponse(
@@ -1220,8 +1241,33 @@ class TvPlayerViewModel(
         maybeRecordPosition(positionSec, if (durationSec > 0) durationSec else _uiState.value.duration)
     }
 
+    /** Set once Media3 renders the first video frame of the current item. */
+    private var firstVideoFrameRendered = false
+    private var firstFrameWatchdogJob: Job? = null
+
+    fun onFirstVideoFrameRendered() {
+        firstVideoFrameRendered = true
+        firstFrameWatchdogJob?.cancel()
+    }
+
     fun onPlayingChanged(isPlaying: Boolean) {
         _uiState.update { it.copy(isPlaying = isPlaying) }
+        // Silent-black-screen watchdog (QA 2026-07-08: a DV Profile 7 remux on
+        // the Shield played audio over a black screen with NO decoder error —
+        // the device claims P7 but its DV decoder renders nothing, so the
+        // error-driven recovery ladder never fires). If playback is rolling
+        // and no first video frame lands within the window, treat it as an
+        // engine failure: the ladder prefers another direct engine (MPV plays
+        // the P7/P8 HDR10 base layer) before conceding a server transcode.
+        if (isPlaying && !firstVideoFrameRendered && firstFrameWatchdogJob == null) {
+            firstFrameWatchdogJob = viewModelScope.launch {
+                delay(FIRST_FRAME_WATCHDOG_MS)
+                if (!firstVideoFrameRendered && _uiState.value.isPlaying) {
+                    Log.w(TAG, "No first video frame after ${FIRST_FRAME_WATCHDOG_MS}ms — engine fallback")
+                    onEngineSwitchFailed("Video never started (black screen)")
+                }
+            }
+        }
         // Durably capture the exact spot when playback halts (pause/stall/stop)
         // while the VM is alive, so resume is reliable without depending on the
         // exit-time write completing during teardown.
@@ -1230,8 +1276,34 @@ class TvPlayerViewModel(
         }
     }
 
+    private var bufferingWatchdogJob: Job? = null
+
     fun onBufferingChanged(isBuffering: Boolean) {
         _uiState.update { it.copy(isBuffering = isBuffering) }
+        // Buffering-stall watchdog (QA 2026-07-08: some remuxes never start on
+        // the compatibility route — the server-side remux wedges and the
+        // client sits on a spinner forever with no error). If we're still
+        // buffering with no position progress after the window, escalate into
+        // the recovery ladder: an alternate direct engine can usually play
+        // the original file (mpv decodes what the wedge was remuxing for),
+        // else the plan falls to a fresh server route.
+        bufferingWatchdogJob?.cancel()
+        bufferingWatchdogJob = if (isBuffering) {
+            viewModelScope.launch {
+                val positionAtStart = _uiState.value.position
+                delay(BUFFERING_WATCHDOG_MS)
+                val state = _uiState.value
+                val stalled = state.isBuffering &&
+                    !state.isPaused &&
+                    (state.position - positionAtStart) < 1.0
+                if (stalled) {
+                    Log.w(TAG, "Buffering stalled for ${BUFFERING_WATCHDOG_MS}ms — engine fallback")
+                    onEngineSwitchFailed("Playback stalled while buffering")
+                }
+            }
+        } else {
+            null
+        }
     }
 
     /** Toggle user-intent pause state. Screen mirrors this to player.play/pause. */
@@ -2019,6 +2091,12 @@ class TvPlayerViewModel(
         viewModelScope.launch { playerSettingsStore.setHdrEnabled(value) }
     }
 
+    /** Applies to track selection immediately; server-side routing (base
+     *  layer vs DV delivery) follows at the next playback start. */
+    fun onSetDolbyVisionEnabled(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDolbyVisionEnabled(value) }
+    }
+
     fun onSetSubtitleAppearance(value: SubtitleAppearance) {
         viewModelScope.launch { playerSettingsStore.setSubtitleAppearance(value) }
     }
@@ -2158,6 +2236,28 @@ class TvPlayerViewModel(
             it.copy(
                 isLoading = false,
                 error = message,
+            )
+        }
+    }
+
+    /**
+     * In-player version switch (QA 2026-07-08 / tvOS parity): restart the
+     * session on the chosen server file version at the current position.
+     */
+    fun onSelectFileVersion(fileId: Int) {
+        val state = _uiState.value
+        if (fileId == (state.selectedFileId ?: state.mediaFileId)) return
+        if (state.fileVersions.none { it.fileId == fileId }) return
+        val resumeAt = state.position.takeIf { it > 0.0 }
+        val staleSessionId = state.sessionId
+        viewModelScope.launch {
+            if (staleSessionId != null) {
+                runCatching { playbackSessionManager.stopSession(staleSessionId) }
+            }
+            loadContent(
+                startPositionOverride = resumeAt,
+                preferredFileIdOverride = fileId,
+                suppressResumeRewind = true,
             )
         }
     }

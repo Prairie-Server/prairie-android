@@ -11,11 +11,19 @@ import org.siloserver.silo.tv.ui.navigation.TvMainRoute
  *
  * Mirrors tvOS `TVMainTabView.visibleRoots`.
  */
-fun visibleTvRoots(libraries: List<UserLibrary>): List<TvRootDestination> = buildList {
+fun visibleTvRoots(
+    libraries: List<UserLibrary>,
+    /** tvOS navPrefs.showAudiobooks parity: the Audiobooks tab is opt-in
+     *  (hidden by default) even when an audiobook library exists. */
+    showAudiobooks: Boolean = false,
+): List<TvRootDestination> = buildList {
     add(TvRootDestination.Home)
     TvLibraryTabType.entries
         .filter { type -> libraries.any { type.matches(it) } }
+        .filter { type -> type != TvLibraryTabType.Audiobooks || showAudiobooks }
         .forEach { type -> add(TvRootDestination.LibraryType(type)) }
+    // tvOS root order: libraries, then For You, then Calendar.
+    add(TvRootDestination.ForYou)
     add(TvRootDestination.Calendar)
 }
 

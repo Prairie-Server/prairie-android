@@ -17,7 +17,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -72,7 +77,6 @@ import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.tv.ui.theme.DarkOnPrimary
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
-import org.siloserver.silo.tv.ui.theme.RowDimens
 import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.viewmodel.CalendarViewModel
 import kotlinx.coroutines.launch
@@ -536,7 +540,7 @@ private fun monthYearLabel(weekDates: List<String>): String {
 
 // MARK: - Day list
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 private fun DayList(
     state: org.siloserver.silo.viewmodel.CalendarUiState,
@@ -546,6 +550,17 @@ private fun DayList(
     onItemFocused: (CalendarItem) -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
+    val snapScope = rememberCoroutineScope()
+    val onShelfFocused: (Int) -> Unit = { index ->
+        snapScope.launch { listState.animateScrollToItem(index) }
+    }
+    // The day-snap is the ONLY vertical scroller: with the default spec the
+    // focused card's own bring-into-view fought the snap (it re-scrolled to
+    // give itself a gutter, dragging the previous day's caption tail back
+    // under the week strip and pushing this shelf's captions past the fold —
+    // QA 2026-07-08 screenshots). Horizontal rows re-enable the smooth spec
+    // inside the shelf.
+    CompositionLocalProvider(LocalBringIntoViewSpec provides NoVerticalBringIntoViewSpec) {
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -559,19 +574,26 @@ private fun DayList(
     ) {
         // Render EVERY weekday so the week keeps its shape; event-less days get
         // a "Nothing scheduled" stub instead of being skipped.
-        items(state.weekDates, key = { "day-$it" }) { date ->
+        itemsIndexed(state.weekDates, key = { _, date -> "day-$date" }) { index, date ->
             DayShelf(
                 date = date,
                 isToday = date == state.today,
                 items = state.itemsFor(date),
                 focusRequest = if (date == shelfFocusDay) shelfFocusRequest else 0,
                 onItemFocused = onItemFocused,
+                // Snap the day whose shelf owns focus to the top of the list
+                // (QA 2026-07-08: default bring-into-view revealed only the
+                // focused CARD, stranding the previous day's caption strip
+                // above and clipping the focused row at the fold).
+                onShelfFocused = { onShelfFocused(index) },
                 onOpenItemDetail = onOpenItemDetail,
             )
         }
     }
+    }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun DayShelf(
     date: String,
@@ -579,6 +601,7 @@ private fun DayShelf(
     items: List<CalendarItem>,
     focusRequest: Int,
     onItemFocused: (CalendarItem) -> Unit,
+    onShelfFocused: () -> Unit = {},
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val firstCardFocusRequester = remember { FocusRequester() }
@@ -598,14 +621,22 @@ private fun DayShelf(
         }
     }
 
+    var shelfHasFocus by remember { mutableStateOf(false) }
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focusState ->
+                val nowFocused = focusState.hasFocus
+                if (nowFocused && !shelfHasFocus) onShelfFocused()
+                shelfHasFocus = nowFocused
+            },
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         DayHeader(date = date, isToday = isToday, muted = items.isEmpty())
         if (items.isEmpty()) {
             NothingScheduledRow()
         } else {
+            CompositionLocalProvider(LocalBringIntoViewSpec provides TvSmoothBringIntoViewSpec) {
             LazyRow(
                 state = rowState,
                 modifier = Modifier
@@ -614,8 +645,8 @@ private fun DayShelf(
                 contentPadding = PaddingValues(
                     start = Spacing.safeArea,
                     end = Spacing.safeArea,
-                    top = 12.dp,
-                    bottom = 12.dp,
+                    top = 8.dp,
+                    bottom = 8.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(CalendarCardSpacing),
             ) {
@@ -629,6 +660,7 @@ private fun DayShelf(
                         onClick = { onOpenItemDetail(item.detailContentId) },
                     )
                 }
+            }
             }
         }
     }
@@ -674,10 +706,19 @@ private fun NothingScheduledRow() {
 
 // MARK: - Event card
 
-private val cardWidth = RowDimens.PosterWidth
-private val cardHeight = RowDimens.PosterHeight
-private val CalendarCardSpacing = 20.dp
-private val posterShape = RoundedCornerShape(12.dp)
+// tvOS CalendarEventCard parity: PORTRAIT poster with the caption below,
+// badges/watched/time overlaid ON the poster. Sized down from the previous
+// RowDimens tokens so a full day shelf (header + poster + 2-line caption)
+// fits between the week strip and the fold (QA 2026-07-08).
+/** Suppresses focus-driven vertical scrolling — the calendar's day-snap owns it. */
+private val NoVerticalBringIntoViewSpec: BringIntoViewSpec = object : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
+}
+
+private val posterWidth = 120.dp
+private val posterHeight = 180.dp
+private val CalendarCardSpacing = 18.dp
+private val posterShape = RoundedCornerShape(10.dp)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -694,10 +735,13 @@ private fun CalendarEventCard(
         if (isFocused) onFocused()
     }
 
+    // tvOS FocusableCalendarCard: the poster alone is the focus-lifted
+    // button; the caption sits OUTSIDE it and brightens on focus.
     Column(
         modifier = Modifier
-            .width(cardWidth)
+            .width(posterWidth)
             .alpha(if (item.watched) 0.65f else 1f),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Card(
             onClick = onClick,
@@ -705,12 +749,12 @@ private fun CalendarEventCard(
             shape = CardDefaults.shape(shape = posterShape),
             scale = CardDefaults.scale(focusedScale = 1.06f),
             border = CardDefaults.border(
-                focusedBorder = Border(BorderStroke(3.dp, Color.White), shape = posterShape),
+                focusedBorder = Border(BorderStroke(2.5.dp, Color.White), shape = posterShape),
             ),
             colors = CardDefaults.colors(containerColor = Color.White.copy(alpha = 0.06f)),
             modifier = Modifier
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .size(cardWidth, cardHeight),
+                .size(posterWidth, posterHeight),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 ThumbhashImage(
@@ -721,14 +765,14 @@ private fun CalendarEventCard(
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                // Badge pills (top-leading): monochrome white-fill capsules.
+                // Badge pills (top-leading) — tvOS CalendarBadgePill.
                 val badges = item.badges.mapNotNull(::badgeLabel)
                 if (badges.isNotEmpty()) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                            .padding(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         badges.forEach { label -> BadgePill(text = label) }
                     }
@@ -739,7 +783,7 @@ private fun CalendarEventCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(10.dp)
+                            .padding(6.dp)
                             .size(17.dp)
                             .background(Color.White, CircleShape),
                         contentAlignment = Alignment.Center,
@@ -748,24 +792,26 @@ private fun CalendarEventCard(
                             imageVector = Icons.Filled.Check,
                             contentDescription = "Watched",
                             tint = Color.Black,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(12.dp),
                         )
                     }
                 }
 
-                // Air-time capsule (bottom-trailing).
-                item.airTime?.takeIf { it.isNotBlank() }?.let { airTime ->
+                // Air-time capsule (bottom-trailing) — only for REAL broadcast
+                // times; date-only entries report midnight, which rendered as
+                // a meaningless "00:00" on every card (QA 2026-07-08).
+                item.airTime?.takeIf { it.isNotBlank() && it != "00:00" }?.let { airTime ->
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(10.dp)
+                            .padding(6.dp)
                             .clip(RoundedCornerShape(100.dp))
                             .background(Color.Black.copy(alpha = 0.62f))
-                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                            .padding(horizontal = 9.dp, vertical = 3.dp),
                     ) {
                         Text(
                             text = airTime,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,
                         )
@@ -774,27 +820,28 @@ private fun CalendarEventCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Caption below the poster: title (2-line reserved) + subtitle.
-        Text(
-            text = item.title,
-            style = MaterialTheme.typography.titleSmall,
-            color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
-            maxLines = 2,
-            minLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        cardSubtitle(item)?.let { subtitle ->
+        // Caption below the poster (tvOS CalendarCardCaption): 2-line reserved
+        // title + single subtitle line.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.60f),
-                maxLines = 1,
+                text = item.title,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
+                maxLines = 2,
+                minLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
+            cardSubtitle(item)?.let { subtitle ->
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.60f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

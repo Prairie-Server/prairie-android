@@ -117,6 +117,13 @@ class MediaAuthInterceptor(
                 if (serverIdAfterCall != serverIdBeforeRequest) {
                     return@use false
                 }
+                // Signed out while the refresh was in flight (logout revokes
+                // the access token server-side before clearTokens() runs, so
+                // 401-refreshes race sign-out): drop the response instead of
+                // re-persisting a fresh session.
+                if (tokenManager.getRefreshToken().isNullOrBlank()) {
+                    return@use false
+                }
                 if (!resp.isSuccessful) {
                     // Only auth rejection proves the refresh token is bad.
                     // Gateway/proxy/server failures should keep the session so

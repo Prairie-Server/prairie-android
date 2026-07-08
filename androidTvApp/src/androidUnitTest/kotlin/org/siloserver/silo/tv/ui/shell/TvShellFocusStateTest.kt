@@ -63,12 +63,12 @@ class TvShellFocusStateTest {
     fun backClosesAnOpenPanelFirstEvenAsAPreview() {
         assertEquals(
             TvShellBackAction.ClosePanel,
-            tvShellBackAction(panelOpen = true, profileMenuOpen = false, menuFocused = false),
+            tvShellBackAction(panelOpen = true, profileMenuOpen = false, menuFocused = false, onTabRoot = true),
         )
         // Panel outranks the profile menu and a focused bar.
         assertEquals(
             TvShellBackAction.ClosePanel,
-            tvShellBackAction(panelOpen = true, profileMenuOpen = true, menuFocused = true),
+            tvShellBackAction(panelOpen = true, profileMenuOpen = true, menuFocused = true, onTabRoot = true),
         )
     }
 
@@ -76,23 +76,33 @@ class TvShellFocusStateTest {
     fun backClosesProfileMenuBeforeHandingTheBarBackToContent() {
         assertEquals(
             TvShellBackAction.CloseProfileMenu,
-            tvShellBackAction(panelOpen = false, profileMenuOpen = true, menuFocused = true),
+            tvShellBackAction(panelOpen = false, profileMenuOpen = true, menuFocused = true, onTabRoot = true),
         )
     }
 
     @Test
-    fun backFromAFocusedBarMovesFocusToContent() {
+    fun backFromAFocusedBarIsMenuBackHomeOrExit() {
+        // QA back-stack model: Back on the bar goes Home (or exits from Home);
+        // the composable decides which using the current section.
         assertEquals(
-            TvShellBackAction.MoveFocusToContent,
-            tvShellBackAction(panelOpen = false, profileMenuOpen = false, menuFocused = true),
+            TvShellBackAction.MenuBack,
+            tvShellBackAction(panelOpen = false, profileMenuOpen = false, menuFocused = true, onTabRoot = true),
         )
     }
 
     @Test
-    fun backWithNothingToDismissDelegatesToNav() {
+    fun backFromTabRootContentClimbsToTheMenu() {
+        assertEquals(
+            TvShellBackAction.MoveFocusToMenu,
+            tvShellBackAction(panelOpen = false, profileMenuOpen = false, menuFocused = false, onTabRoot = true),
+        )
+    }
+
+    @Test
+    fun backOnSecondaryScreensStillDelegatesToNav() {
         assertEquals(
             TvShellBackAction.DelegateToNav,
-            tvShellBackAction(panelOpen = false, profileMenuOpen = false, menuFocused = false),
+            tvShellBackAction(panelOpen = false, profileMenuOpen = false, menuFocused = false, onTabRoot = false),
         )
     }
 
@@ -183,24 +193,24 @@ class TvShellFocusStateTest {
         // Panel open → ClosePanel, panel cleared, bar nudged.
         s.enterPanel(moviesPanel)
         val menuBefore = s.menuFocusRequest
-        assertEquals(TvShellBackAction.ClosePanel, s.onBack())
+        assertEquals(TvShellBackAction.ClosePanel, s.onBack(onTabRoot = true))
         assertNull(s.openPanel)
         assertEquals(menuBefore + 1, s.menuFocusRequest)
 
         // Profile open → CloseProfileMenu, dropdown closed, avatar nudged.
         s.toggleProfileMenu()
         val profileBefore = s.profileFocusRequest
-        assertEquals(TvShellBackAction.CloseProfileMenu, s.onBack())
+        assertEquals(TvShellBackAction.CloseProfileMenu, s.onBack(onTabRoot = true))
         assertFalse(s.profileMenuOpen)
         assertEquals(profileBefore + 1, s.profileFocusRequest)
 
-        // Bar focused → MoveFocusToContent; the holder leaves the move to the caller.
+        // Bar focused → MenuBack; the holder leaves home-vs-exit to the caller.
         s.updateMenuFocused(true)
-        assertEquals(TvShellBackAction.MoveFocusToContent, s.onBack())
+        assertEquals(TvShellBackAction.MenuBack, s.onBack(onTabRoot = true))
         assertTrue(s.isMenuFocused)
 
         // Nothing to dismiss → DelegateToNav.
         s.updateMenuFocused(false)
-        assertEquals(TvShellBackAction.DelegateToNav, s.onBack())
+        assertEquals(TvShellBackAction.DelegateToNav, s.onBack(onTabRoot = false))
     }
 }

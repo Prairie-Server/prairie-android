@@ -15,6 +15,8 @@ object PlaybackSettingsKeys {
     const val OrientationMode = "player.orientation_mode"
     const val NextUpPromptSeconds = "player.next_up_prompt_seconds"
     const val DvProfile7HDR10Fallback = "player.dv_profile7_hdr10_fallback"
+    const val DolbyVisionEnabled = "player.dolby_vision_enabled"
+    const val MatchContentFrameRate = "player.match_frame_rate"
     const val SleepTimerDefaultMinutes = "player.sleep_timer_default_minutes"
     const val SubtitleFontSize = "subtitle.font_size"
     const val SubtitleFontFamily = "subtitle.font_family"
@@ -34,6 +36,10 @@ object PlaybackSettingsKeys {
      * `subtitle_appearance` device-scoped setting.
      */
     const val SubtitleUsesDeviceOverride = "subtitle.uses_device_override"
+
+    /** Local-only: subtitle appearance follows the OS captioning settings
+     *  (tvOS "Match Device Settings" parity). Never server-synced. */
+    const val SubtitleMatchesDevice = "subtitle.matches_device.local"
 
     /**
      * Local-only per-profile flag — when true (default), DownloadWorker is
@@ -93,6 +99,8 @@ object PlaybackSettingsKeys {
         OrientationMode,
         NextUpPromptSeconds,
         DvProfile7HDR10Fallback,
+        DolbyVisionEnabled,
+        MatchContentFrameRate,
         SleepTimerDefaultMinutes,
         SubtitleFontSize,
         SubtitleFontFamily,

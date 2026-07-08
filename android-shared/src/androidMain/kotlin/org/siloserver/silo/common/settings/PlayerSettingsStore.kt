@@ -2,6 +2,8 @@ package org.siloserver.silo.common.settings
 
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import org.siloserver.silo.player.DolbyVisionPolicy
 
 interface PlayerSettingsStore {
     // Booleans
@@ -10,6 +12,8 @@ interface PlayerSettingsStore {
     val autoPlayNextFlow: Flow<Boolean>
     val hdrEnabledFlow: Flow<Boolean>
     val dvProfile7HDR10FallbackFlow: Flow<Boolean>
+    val dolbyVisionEnabledFlow: Flow<Boolean>
+    val matchContentFrameRateFlow: Flow<Boolean>
     val pictureInPictureEnabledFlow: Flow<Boolean>
     /** Per-profile preference for restricting downloads to unmetered (Wi-Fi)
      *  networks. Default true. Consumed by [DownloadEnqueuer] at enqueue
@@ -47,6 +51,10 @@ interface PlayerSettingsStore {
      * user-level setting; when true, the local override is in effect.
      */
     val subtitleUsesDeviceOverrideFlow: Flow<Boolean>
+    /** tvOS "Match Device Settings": appearance follows OS captioning prefs. */
+    val subtitleMatchesDeviceFlow: Flow<Boolean>
+    /** [subtitleAppearanceFlow] with the match-device override applied. */
+    val effectiveSubtitleAppearanceFlow: Flow<org.siloserver.silo.model.settings.SubtitleAppearance>
 
     // Setters
     suspend fun setAutoSkipIntro(value: Boolean)
@@ -54,6 +62,8 @@ interface PlayerSettingsStore {
     suspend fun setAutoPlayNext(value: Boolean)
     suspend fun setHdrEnabled(value: Boolean)
     suspend fun setDvProfile7HDR10Fallback(value: Boolean)
+    suspend fun setDolbyVisionEnabled(value: Boolean)
+    suspend fun setMatchContentFrameRate(value: Boolean)
     suspend fun setPictureInPictureEnabled(value: Boolean)
     suspend fun setDownloadsWifiOnly(value: Boolean)
     suspend fun setKeepWatchedDownloads(value: Boolean)
@@ -95,6 +105,7 @@ interface PlayerSettingsStore {
      * override.
      */
     suspend fun setSubtitleDeviceOverrideEnabled(enabled: Boolean)
+    suspend fun setSubtitleMatchesDevice(enabled: Boolean)
 
     /**
      * Clear the server-side device override for one key. Local DataStore
@@ -118,3 +129,14 @@ interface PlayerSettingsStore {
      */
     suspend fun flushPendingDeviceSettings()
 }
+
+/**
+ * Current Dolby Vision decision inputs, read once at plan/load time. DV off
+ * supersedes the Profile 7 fallback toggle (precedence enforced inside
+ * [DolbyVisionPolicy]).
+ */
+suspend fun PlayerSettingsStore.dolbyVisionPolicySnapshot(): DolbyVisionPolicy.Snapshot =
+    DolbyVisionPolicy.Snapshot(
+        dolbyVisionEnabled = dolbyVisionEnabledFlow.first(),
+        preferProfile7HDR10Fallback = dvProfile7HDR10FallbackFlow.first(),
+    )

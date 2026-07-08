@@ -485,6 +485,8 @@ fun PlayerOverlay(
         onSetAutoPlayNext = viewModel::onSetAutoPlayNext,
         hdrEnabled = viewModel.hdrEnabled.collectAsState().value,
         onSetHdrEnabled = viewModel::onSetHdrEnabled,
+        dolbyVisionEnabled = viewModel.dolbyVisionEnabled.collectAsState().value,
+        onSetDolbyVisionEnabled = viewModel::onSetDolbyVisionEnabled,
         onOpenSubtitleStyle = {
             settingsSheetVisible = false
             subtitleStyleVisible = true
