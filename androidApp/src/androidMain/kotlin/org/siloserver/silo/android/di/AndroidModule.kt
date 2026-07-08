@@ -317,6 +317,9 @@ val androidModule = module {
     viewModel { ReadingHubViewModel(get(), get(), get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { SearchViewModel(get()) }
+    viewModel { params ->
+        org.siloserver.silo.android.ui.screens.home.HomeSectionItemsViewModel(get(), params.get())
+    }
     single {
         org.siloserver.silo.android.ui.screens.browse.BrowsePrefsStore(
             context = get(),

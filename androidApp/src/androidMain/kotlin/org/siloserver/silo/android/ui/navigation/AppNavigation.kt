@@ -368,6 +368,7 @@ fun AppNavigation(
                 onNavigateToAdmin = {
                     navController.navigate(Route.Admin.route)
                 },
+                onSwitchProfile = { navController.navigate(Route.ProfileSelection.route) },
                 onNavigateToWatchlist = { navController.navigate(Route.Watchlist.route) },
                 onNavigateToFavorites = { navController.navigate(Route.Favorites.route) },
                 onNavigateToHistory = { navController.navigate(Route.History.route) },
@@ -423,6 +424,17 @@ fun AppNavigation(
         }
 
         // ---- Requests ----
+        composable(
+            route = Route.HomeSectionItems.ROUTE,
+        ) {
+            org.siloserver.silo.android.ui.screens.home.HomeSectionItemsScreen(
+                onItemClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
+                onBackClick = { navController.popBackStack() },
+            )
+        }
+
         composable(Route.Requests.route) {
             RequestsScreen(
                 onBackClick = { navController.popBackStack() },

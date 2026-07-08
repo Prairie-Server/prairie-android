@@ -74,6 +74,7 @@ fun SettingsScreen(
     onLoggedOut: () -> Unit,
     onNavigateToServers: () -> Unit = {},
     onPairDevice: () -> Unit = {},
+    onSwitchProfile: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToFavorites: () -> Unit = {},
@@ -136,6 +137,7 @@ fun SettingsScreen(
 
             item {
                 AccountSection(
+                    onSwitchProfile = onSwitchProfile,
                     user = state.user,
                     isLoadingUser = state.isLoadingUser,
                     isAdminVisible = state.isAdminVisible,

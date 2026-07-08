@@ -57,6 +57,9 @@ fun AccountSection(
     modifier: Modifier = Modifier,
     isAdminVisible: Boolean = false,
     onAdmin: () -> Unit = {},
+    // iOS parity: the account header is a button that opens profile
+    // selection ("Tap to switch profile") — the chevron was previously dead.
+    onSwitchProfile: () -> Unit = {},
 ) {
     SettingsSectionCard(modifier = modifier) {
         if (isLoadingUser) {
@@ -72,6 +75,7 @@ fun AccountSection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clickable(onClick = onSwitchProfile)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

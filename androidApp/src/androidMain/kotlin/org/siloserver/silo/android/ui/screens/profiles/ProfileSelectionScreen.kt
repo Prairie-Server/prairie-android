@@ -29,6 +29,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +83,34 @@ fun ProfileSelectionScreen(
             viewModel.onProfileSelectedConsumed()
             onNavigateToHome()
         }
+    }
+
+    state.deleteDialogProfile?.let { profile ->
+        val deletingActive = profile.id == state.activeProfileId
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDeleteDialog,
+            title = { Text("Delete \"${profile.name}\"?") },
+            text = {
+                Text(
+                    if (deletingActive) {
+                        "You're signed in as this profile. Deleting it removes its " +
+                            "watch history and preferences, and you'll pick another " +
+                            "profile to continue."
+                    } else {
+                        "This removes the profile's watch history and preferences. " +
+                            "This can't be undone."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmDeleteProfile) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissDeleteDialog) { Text("Cancel") }
+            },
+        )
     }
 
     // PIN entry dialog
@@ -147,7 +177,7 @@ fun ProfileSelectionScreen(
                     isManageMode = state.isManageMode,
                     onProfileTap = { viewModel.onProfileTapped(it) },
                     onProfileEdit = { onNavigateToEditProfile(it.id) },
-                    onProfileDelete = { viewModel.deleteProfile(it.id) },
+                    onProfileDelete = { viewModel.requestDeleteProfile(it) },
                     onAddProfile = onNavigateToCreateProfile,
                 )
 
