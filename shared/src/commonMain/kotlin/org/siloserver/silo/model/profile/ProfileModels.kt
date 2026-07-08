@@ -27,6 +27,17 @@ data class Profile(
     @SerialName("updated_at") val updatedAt: String? = null
 )
 
+/**
+ * True when a profile other than [excludeId] already uses [name], comparing
+ * trimmed forms case-insensitively ("Laura" ≡ " laura "). Mirrors the server's
+ * per-account `name_conflict` rule so forms can fail fast before the network
+ * round-trip (and against servers that predate the rule).
+ */
+fun List<Profile>.hasProfileNamed(name: String, excludeId: String? = null): Boolean {
+    val trimmed = name.trim()
+    return any { it.id != excludeId && it.name.trim().equals(trimmed, ignoreCase = true) }
+}
+
 @Serializable
 data class CreateProfileRequest(
     val name: String,

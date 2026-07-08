@@ -3,7 +3,9 @@ package org.siloserver.silo.tv.ui.screens.profiles
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.model.profile.CreateProfileRequest
+import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.profile.canonicalProfileQualityPreference
+import org.siloserver.silo.model.profile.hasProfileNamed
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +41,18 @@ class TvCreateProfileViewModel(
 
     private val _uiState = MutableStateFlow(TvCreateProfileUiState())
     val uiState: StateFlow<TvCreateProfileUiState> = _uiState.asStateFlow()
+
+    /** Existing profiles, loaded for the duplicate-name pre-check. Best
+     *  effort: if the load fails the server still enforces the rule. */
+    private var existingProfiles: List<Profile> = emptyList()
+
+    init {
+        viewModelScope.launch {
+            (profileRepository.listProfiles() as? ApiResult.Success)?.let {
+                existingProfiles = it.data
+            }
+        }
+    }
 
     fun onNameChanged(value: String) {
         _uiState.update { it.copy(name = value, error = null) }
@@ -122,6 +136,10 @@ class TvCreateProfileViewModel(
             _uiState.update { it.copy(error = "Profile name is required") }
             return
         }
+        if (existingProfiles.hasProfileNamed(current.name)) {
+            _uiState.update { it.copy(error = "A profile with this name already exists") }
+            return
+        }
         if (current.pinEnabled && current.pin.length != 4) {
             _uiState.update { it.copy(error = "PIN must be 4 digits") }
             return
@@ -140,14 +158,19 @@ class TvCreateProfileViewModel(
                 subtitleMode = current.subtitleMode,
             )
 
-            when (profileRepository.createProfile(request)) {
+            when (val result = profileRepository.createProfile(request)) {
                 is ApiResult.Success -> {
                     _uiState.update { it.copy(isLoading = false, createSuccess = true) }
                 }
 
                 is ApiResult.Error -> {
+                    // Surface the server's explanation (e.g. the account's
+                    // profile limit) instead of a generic failure.
                     _uiState.update {
-                        it.copy(isLoading = false, error = "Failed to create profile")
+                        it.copy(
+                            isLoading = false,
+                            error = result.message.ifBlank { "Failed to create profile" },
+                        )
                     }
                 }
 
