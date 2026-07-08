@@ -69,6 +69,22 @@ class PlayerUpNextSourceTest {
     }
 
     @Test
+    fun finishedStateDoesNotSwallowLateNextEpisodeResolution() {
+        val nullNextBranch = viewModelSource
+            .substringAfter("val next = _uiState.value.nextEpisode")
+            .substringBefore("commitApproachingEnd(next, videoEnded)")
+        assertFalse(
+            nullNextBranch.contains("autoAdvanceHandled = true"),
+            "Showing the finished state with no next episode must not latch autoAdvanceHandled — " +
+                "a next episode resolving moments later (slow network) still needs to commit the countdown",
+        )
+        assertFalse(
+            nullNextBranch.contains("pendingApproachingEndVideoEnded = null"),
+            "The pending end flag must stay latched so resolveNextEpisode can upgrade the finished screen",
+        )
+    }
+
+    @Test
     fun upNextModelAvoidsDeadPublicSurface() {
         assertFalse(
             viewModelSource.contains("val overview: String?"),

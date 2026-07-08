@@ -1741,8 +1741,10 @@ class PlayerViewModel(
             // finished state (iOS shows the screen with On Deck only).
             pendingApproachingEndVideoEnded = videoEnded || (pendingApproachingEndVideoEnded == true)
             if (videoEnded) {
-                autoAdvanceHandled = true
-                pendingApproachingEndVideoEnded = null
+                // Show the finished state now, but keep the pending flag
+                // latched and autoAdvanceHandled clear: a next episode that
+                // resolves moments later (slow network/server) must still
+                // upgrade this screen to the countdown/auto-advance commit.
                 _uiState.update {
                     it.copy(showUpNext = true, upNextVideoEnded = true, upNextCountdownSeconds = null)
                 }
