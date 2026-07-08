@@ -163,8 +163,15 @@ class TvProfileSelectionViewModel(
         val profile = _uiState.value.deleteCandidate ?: return
         _uiState.update { it.copy(isDeleting = true) }
         viewModelScope.launch {
-            when (profileRepository.deleteProfile(profile.id)) {
+            when (val result = profileRepository.deleteProfile(profile.id)) {
                 is ApiResult.Success -> {
+                    // Deleting the signed-in profile invalidates its profile
+                    // token server-side; drop the local selection BEFORE the
+                    // list reload so it doesn't ride dead credentials and
+                    // render an empty grid ("all profiles gone").
+                    if (profile.id == profileRepository.getActiveProfileId()) {
+                        profileRepository.clearProfile()
+                    }
                     _uiState.update { it.copy(isDeleting = false, deleteCandidate = null) }
                     loadProfiles()
                 }
@@ -172,7 +179,7 @@ class TvProfileSelectionViewModel(
                     it.copy(
                         isDeleting = false,
                         deleteCandidate = null,
-                        error = "Failed to delete profile",
+                        error = result.message.ifBlank { "Failed to delete profile" },
                     )
                 }
                 is ApiResult.NetworkError -> _uiState.update {

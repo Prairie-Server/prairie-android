@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -195,8 +196,20 @@ fun TvProfileSelectionScreen(
                     ProfileTileGrid(
                         profiles = state.profiles,
                         firstCardFocus = firstCardFocus,
+                        isManageMode = state.isManageMode,
                         onProfileSelected = viewModel::onProfileSelected,
+                        onEditProfile = { onEditProfile(it.id) },
+                        onDeleteProfile = viewModel::requestDelete,
                         onAddProfile = onAddProfile,
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    TvHeroActionPill(
+                        label = if (state.isManageMode) "Done" else "Manage Profiles",
+                        icon = Icons.Filled.Edit,
+                        variant = TvPillVariant.Ghost,
+                        onClick = viewModel::toggleManageMode,
                     )
 
                     if (state.error != null) {
@@ -251,7 +264,10 @@ fun TvProfileSelectionScreen(
 private fun ProfileTileGrid(
     profiles: List<Profile>,
     firstCardFocus: FocusRequester,
+    isManageMode: Boolean,
     onProfileSelected: (Profile) -> Unit,
+    onEditProfile: (Profile) -> Unit,
+    onDeleteProfile: (Profile) -> Unit,
     onAddProfile: () -> Unit,
 ) {
     val itemCount = profiles.size + 1
@@ -274,9 +290,15 @@ private fun ProfileTileGrid(
                                 val profile = profiles[itemIndex]
                                 TvProfileCard(
                                     profile = profile,
-                                    manageMode = false,
-                                    onClick = { onProfileSelected(profile) },
-                                    onDelete = {},
+                                    manageMode = isManageMode,
+                                    onClick = {
+                                        if (isManageMode) {
+                                            onEditProfile(profile)
+                                        } else {
+                                            onProfileSelected(profile)
+                                        }
+                                    },
+                                    onDelete = { onDeleteProfile(profile) },
                                     modifier = if (itemIndex == 0) {
                                         Modifier.focusRequester(firstCardFocus)
                                     } else {
@@ -385,15 +407,17 @@ private fun TvProfileCard(
                     )
                 }
 
-                // Child (leaf) + PIN (lock) indicator badges, top-trailing — tvOS
-                // ProfileTile surfaces these so a household reads at a glance.
-                if (profile.isChild || profile.hasPin) {
+                // Primary (crown) + child (leaf) + PIN (lock) indicator badges,
+                // top-trailing — tvOS ProfileTile surfaces these so a household
+                // reads at a glance.
+                if (profile.isPrimary || profile.isChild || profile.hasPin) {
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        if (profile.isPrimary) ProfileBadge(Icons.Filled.WorkspacePremium, "Primary profile")
                         if (profile.isChild) ProfileBadge(Icons.Filled.ChildCare, "Child profile")
                         if (profile.hasPin) ProfileBadge(Icons.Filled.Lock, "PIN protected")
                     }
@@ -425,7 +449,9 @@ private fun TvProfileCard(
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.88f),
         )
-        if (manageMode) {
+        // The server never deletes the primary profile (409
+        // primary_profile_protected), so don't offer it.
+        if (manageMode && !profile.isPrimary) {
             Spacer(modifier = Modifier.height(8.dp))
             TvHeroActionPill(
                 label = "Delete",

@@ -19,9 +19,12 @@ class TvProfileSelectionScreenSourceTest {
         )
         assertTrue(source.contains("\"Change Server\""))
         assertTrue(source.contains("\"Sign Out\""))
-        assertFalse(
+        // Deliberate deviation from tvOS: Android TV wires profile edit/delete
+        // through a manage mode on the picker (there is no other entry point),
+        // toggled by a Manage Profiles pill under the grid.
+        assertTrue(
             source.contains("\"Manage Profiles\""),
-            "tvOS profile picker exposes Change Server and Sign Out, not a Manage Profiles button.",
+            "Android TV's picker is the entry point for profile management.",
         )
     }
 
