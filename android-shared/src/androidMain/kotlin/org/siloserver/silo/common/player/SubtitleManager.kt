@@ -137,6 +137,24 @@ class SubtitleManager {
     }
 
     /**
+     * Resolves the backend track id (Format.id) for the [subtitleIndex]-th
+     * app subtitle row — used by the MPV backend to address a secondary
+     * subtitle track (`secondary-sid`) without going through Media3's
+     * single-text-override selection parameters.
+     */
+    fun resolveSubtitleTrackId(
+        player: Player,
+        subtitles: List<PlayerSubtitleInfo>,
+        subtitleIndex: Int,
+    ): String? {
+        val subtitle = subtitles.getOrNull(subtitleIndex) ?: return null
+        val selection = resolveSubtitleSelection(player.currentTracks, subtitle)
+            ?: resolveSubtitleSelection(player.currentTracks, subtitleIndex)
+            ?: return null
+        return selection.mediaTrackGroup.getFormat(selection.trackIndex).id
+    }
+
+    /**
      * Applies the user's [SubtitleAppearance] to the [PlayerView]'s subtitle layer.
      *
      * Maps onto Media3 via [CaptionStyleCompat] (colors + edge style + typeface),

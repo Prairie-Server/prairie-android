@@ -13,6 +13,9 @@ data class VideoBackendCapabilities(
     val supportsAudioDelay: Boolean,
     val subtitleRendering: SubtitleRendering,
     val supportsHardContainers: Boolean,
+    /** Simultaneous second subtitle track (iOS parity — supported on the
+     *  native-render route only; Media3 has a single text renderer). */
+    val supportsSecondarySubtitles: Boolean = false,
     val displayName: String,
 ) {
     companion object {
@@ -45,6 +48,7 @@ data class VideoBackendCapabilities(
             supportsAudioDelay = false,
             subtitleRendering = SubtitleRendering.NativeBackend,
             supportsHardContainers = true,
+            supportsSecondarySubtitles = true,
             displayName = "MPV",
         )
     }

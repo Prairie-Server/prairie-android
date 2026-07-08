@@ -69,6 +69,21 @@ class MpvVideoPlaybackBackend(
         selectedIndex = selectedIndex,
     )
 
+    override fun selectSecondarySubtitle(
+        subtitles: List<PlayerSubtitleInfo>,
+        selectedIndex: Int?,
+    ): Boolean {
+        val mpvPlayer = player as? MpvPlayer ?: return false
+        if (selectedIndex == null) {
+            mpvPlayer.setSecondarySubtitleId(null)
+            return true
+        }
+        val trackId = trackSelectionCoordinator
+            .resolveSubtitleTrackId(player, subtitles, selectedIndex) ?: return false
+        mpvPlayer.setSecondarySubtitleId(trackId)
+        return true
+    }
+
     override fun selectAudioTrack(track: VideoPlayerTrackEntry) {
         trackSelectionCoordinator.selectAudioTrack(
             player = player,

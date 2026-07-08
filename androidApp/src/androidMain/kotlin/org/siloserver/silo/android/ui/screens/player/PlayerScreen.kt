@@ -731,6 +731,13 @@ fun PlayerScreen(
         }
     }
 
+    // Secondary subtitle (iOS parity, MPV route only). Re-applied whenever the
+    // track list or selection changes; the backend no-ops when unsupported.
+    LaunchedEffect(videoBackend, uiState.subtitleTracks, uiState.selectedSecondarySubtitleIndex) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        backend.selectSecondarySubtitle(uiState.subtitleTracks, uiState.selectedSecondarySubtitleIndex)
+    }
+
     // Notify the ViewModel we're leaving the screen.
     DisposableEffect(Unit) {
         onDispose { viewModel.onExit() }

@@ -18,7 +18,7 @@ class PlayerOverlaySourceTest {
 
         val guardWindow = text.substring(0, gestureIndex).takeLast(240)
         assertTrue(
-            guardWindow.contains("if (!state.showControls)"),
+            guardWindow.contains("if (!state.showControls && !state.showUpNext)"),
             "The full-screen gesture layer must be removed while controls are visible so button taps reach CC, settings, back, and playback controls",
         )
     }

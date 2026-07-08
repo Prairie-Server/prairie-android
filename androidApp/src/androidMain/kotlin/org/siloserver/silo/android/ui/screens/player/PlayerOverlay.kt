@@ -146,7 +146,7 @@ fun PlayerOverlay(
     Box(modifier = modifier.fillMaxSize()) {
         // Gesture layer stays out of the tree while controls are visible so
         // full-screen pointer handlers cannot consume taps meant for buttons.
-        if (!state.showControls) {
+        if (!state.showControls && !state.showUpNext) {
             PlayerGestureHandler(
                 position = state.position,
                 duration = state.duration,
@@ -156,6 +156,7 @@ fun PlayerOverlay(
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
                 onFastForwardHold = gatedFastForwardHold,
                 onCycleVideoGravity = cycleVideoGravity,
+                onDismiss = handleBack,
                 modifier = Modifier.zIndex(0f),
             )
         }
@@ -277,7 +278,7 @@ fun PlayerOverlay(
 
         // Transport controls (shown/hidden with animation)
         AnimatedVisibility(
-            visible = state.showControls,
+            visible = state.showControls && !state.showUpNext,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
@@ -292,6 +293,8 @@ fun PlayerOverlay(
                 position = state.position,
                 duration = state.duration,
                 bufferedPosition = state.bufferedPosition,
+                chapters = state.chapters,
+                intro = state.intro,
                 hasChapters = state.chapters.isNotEmpty(),
                 hasTracks = state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty(),
                 isOrientationLocked = isOrientationLocked,
@@ -346,25 +349,42 @@ fun PlayerOverlay(
                 retainedUpNextInfo = null
             }
         }
-        val showUpNextCard = state.showUpNext && retainedUpNextInfo != null
 
-        // F2: Up Next card — next-episode thumbnail/title/runtime with an
-        // auto-play countdown (null countdown = pass-out gated / auto-play off).
+        // Full-screen Next-Up screen (iOS PlayerNextUpScreen parity — replaced
+        // the old compact corner card). The countdown ring's total is the
+        // largest countdown value seen since the screen appeared (the pre-end
+        // countdown tracks real remaining time, so there is no fixed total).
+        var upNextCountdownTotal by remember { mutableStateOf(0) }
+        LaunchedEffect(state.showUpNext, state.upNextCountdownSeconds) {
+            if (!state.showUpNext) {
+                upNextCountdownTotal = 0
+            } else {
+                state.upNextCountdownSeconds?.let { seconds ->
+                    if (seconds > upNextCountdownTotal) upNextCountdownTotal = seconds
+                }
+            }
+        }
         AnimatedVisibility(
-            visible = showUpNextCard,
+            visible = state.showUpNext,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = bottomEndSlotModifier,
+            modifier = Modifier.zIndex(3f),
         ) {
-            retainedUpNextInfo?.let { next ->
-                UpNextCard(
-                    info = next,
-                    videoEnded = state.upNextVideoEnded,
-                    countdownSeconds = state.upNextCountdownSeconds,
-                    onPlayNow = viewModel::playUpNextNow,
-                    onDismiss = viewModel::dismissUpNext,
-                )
-            }
+            PlayerNextUpScreen(
+                nextEpisode = retainedUpNextInfo,
+                onDeckItems = state.onDeckItems,
+                videoEnded = state.upNextVideoEnded,
+                countdownSeconds = state.upNextCountdownSeconds,
+                countdownTotalSeconds = upNextCountdownTotal.coerceAtLeast(1),
+                autoPlayEnabled = viewModel.autoPlayNextEnabled.collectAsState().value,
+                onPlayNow = viewModel::playUpNextNow,
+                onKeepWatching = viewModel::dismissUpNext,
+                onToggleAutoPlay = {
+                    viewModel.onSetAutoPlayNext(!viewModel.autoPlayNextEnabled.value)
+                },
+                onPlayOnDeckItem = viewModel::playOnDeckItemNow,
+                onBack = handleBack,
+            )
         }
 
         // Sleep timer chip — top-right, fades in only while a timer is active.
@@ -419,6 +439,9 @@ fun PlayerOverlay(
         selectedSubtitleIndex = state.selectedSubtitleIndex,
         onSelectAudio = onSelectAudio,
         onSelectSubtitle = onSelectSubtitle,
+        supportsSecondarySubtitles = state.supportsSecondarySubtitles,
+        selectedSecondarySubtitleIndex = state.selectedSecondarySubtitleIndex,
+        onSelectSecondarySubtitle = viewModel::onSelectSecondarySubtitle,
         onDismiss = { tracksSheetVisible = false },
         showSearchAction = subtitleToolsAvailable,
         showTranslateAction = subtitleToolsAvailable &&

@@ -1175,6 +1175,12 @@ class MpvPlayer(
         mpv.setPropertyString(trackType.propertyName, id)
     }
 
+    /** Simultaneous second subtitle track — mpv renders it top-anchored
+     *  natively. Null disables (`secondary-sid=no`). */
+    fun setSecondarySubtitleId(id: String?) {
+        mpv.setPropertyString("secondary-sid", id ?: "no")
+    }
+
     override fun getMediaMetadata(): MediaMetadata =
         currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
 

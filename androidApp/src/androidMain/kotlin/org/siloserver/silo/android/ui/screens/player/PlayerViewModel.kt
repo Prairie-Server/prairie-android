@@ -125,6 +125,8 @@ class PlayerViewModel(
     // Track B: durable offline-safe position (resume + outbox sync).
     private val userItemStatePort: org.siloserver.silo.repository.port.UserItemStatePort,
     private val outboxSyncScheduler: org.siloserver.silo.common.data.sync.OutboxSyncScheduler,
+    // iOS PlayerNextUpScreen On Deck carousel — home continue-watching pool.
+    private val sectionRepository: org.siloserver.silo.repository.SectionRepository? = null,
 ) : ViewModel() {
 
     companion object {
@@ -136,12 +138,25 @@ class PlayerViewModel(
         private const val MAX_TRANSIENT_NETWORK_RETRIES = 1
         // Up-next auto-play countdown length (matches TV's NEXT_UP_COUNTDOWN_SECONDS).
         const val UP_NEXT_COUNTDOWN_SECONDS = 10
+        /** iOS resolveOnDeckItems: section pools feeding the On Deck carousel. */
+        private val ON_DECK_SECTION_TYPES = setOf("continue_watching", "in_progress", "next_up")
+        private const val ON_DECK_MAX_ITEMS = 12
     }
 
     /**
      * Resolved next episode for the Up Next card (mirrors TV's NextEpisodeState).
      * Populated by [resolveNextEpisode]; null for movies / last episodes.
      */
+    /** One On Deck carousel entry (iOS nextUpCarouselItems parity). */
+    data class OnDeckItem(
+        val contentId: String,
+        val title: String,
+        val subtitle: String?,
+        val artUrl: String?,
+        val artThumbhash: String?,
+        val progressFraction: Float?,
+    )
+
     data class NextEpisodeInfo(
         val contentId: String,
         val seasonNumber: Int,
@@ -205,7 +220,11 @@ class PlayerViewModel(
         val seasonNumber: Int? = null,
         val episodeNumber: Int? = null,
         // F2 next-episode auto-advance: resolved next episode + Up Next card.
+        // iOS parity: simultaneous second subtitle (MPV route only). Null = off.
+        val selectedSecondarySubtitleIndex: Int? = null,
+        val supportsSecondarySubtitles: Boolean = false,
         val nextEpisode: NextEpisodeInfo? = null,
+        val onDeckItems: List<OnDeckItem> = emptyList(),
         val showUpNext: Boolean = false,
         /** True once the stream has actually ended (STATE_ENDED) while the card shows. */
         val upNextVideoEnded: Boolean = false,
@@ -458,6 +477,14 @@ class PlayerViewModel(
                     subtitleRendering = capabilities.subtitleRendering.name,
                     hardContainers = if (capabilities.supportsHardContainers) "Yes" else "No",
                 ),
+                supportsSecondarySubtitles = capabilities.supportsSecondarySubtitles,
+                // A backend swap (Media3 <-> MPV mid-session fallback) drops
+                // dual-track support; never leave a stale secondary armed.
+                selectedSecondarySubtitleIndex = if (capabilities.supportsSecondarySubtitles) {
+                    state.selectedSecondarySubtitleIndex
+                } else {
+                    null
+                },
             )
         }
     }
@@ -686,6 +713,7 @@ class PlayerViewModel(
         startIntroAutoSkipObserver()
         // F2: resolve the next episode for auto-advance / "Up next".
         resolveNextEpisode()
+        loadOnDeckItems()
 
         // Schedule controls auto-hide
         scheduleControlsHide()
@@ -1246,9 +1274,28 @@ class PlayerViewModel(
     }
 
     /** Select a subtitle track (-1 to disable). */
+    /**
+     * Secondary subtitle pick (iOS parity): requires a primary selection,
+     * can never equal the primary, and null turns it off.
+     */
+    fun onSelectSecondarySubtitle(index: Int?) {
+        val state = _uiState.value
+        if (!state.supportsSecondarySubtitles) return
+        if (index != null && (state.selectedSubtitleIndex < 0 || index == state.selectedSubtitleIndex)) return
+        _uiState.update { it.copy(selectedSecondarySubtitleIndex = index) }
+    }
+
     fun onSelectSubtitle(index: Int) {
         persistNextSubtitleSelection = true
-        _uiState.update { it.copy(selectedSubtitleIndex = index) }
+        _uiState.update {
+            it.copy(
+                selectedSubtitleIndex = index,
+                // Primary off or moved onto the secondary's track: drop the
+                // secondary (iOS gates the secondary on a primary selection).
+                selectedSecondarySubtitleIndex = it.selectedSecondarySubtitleIndex
+                    ?.takeIf { sec -> index >= 0 && sec != index },
+            )
+        }
     }
 
     fun onSubtitleSelectionApplied(index: Int) {
@@ -1553,6 +1600,69 @@ class PlayerViewModel(
      * excluded) and finds the immediate next via [nextEpisodeAfter]. The current
      * season must load (a partial failure must not skip the rest of it).
      */
+    /**
+     * Populates the Next-Up screen's On Deck carousel (iOS
+     * `loadNextUpOnDeckItems` parity): home continue-watching pools, minus
+     * the current item and anything from the same series, deduped, capped at
+     * 12, and dropped when no 16:9 art exists.
+     */
+    private fun loadOnDeckItems() {
+        val repository = sectionRepository ?: return
+        val forContentId = _uiState.value.contentId
+        val currentSeriesId = _uiState.value.seriesId
+        viewModelScope.launch {
+            val sections = (repository.getHomeSections() as? ApiResult.Success)
+                ?.data?.sections ?: return@launch
+            val pool = sections
+                .filter { it.sectionType in ON_DECK_SECTION_TYPES }
+                .flatMap { it.items }
+                .filter { item ->
+                    item.contentId != forContentId &&
+                        (currentSeriesId == null || item.seriesId != currentSeriesId)
+                }
+                .filter { !it.backdropUrl.isNullOrBlank() }
+                .distinctBy { it.contentId }
+                .take(ON_DECK_MAX_ITEMS)
+                .map { item ->
+                    val progress = item.positionSeconds?.let { pos ->
+                        item.durationSeconds?.takeIf { it > 0 }?.let { dur ->
+                            (pos / dur).toFloat().coerceIn(0f, 1f)
+                        }
+                    }
+                    OnDeckItem(
+                        contentId = item.contentId,
+                        title = item.seriesTitle ?: item.title,
+                        subtitle = when {
+                            item.seasonNumber != null && item.episodeNumber != null ->
+                                "S${item.seasonNumber}·E${item.episodeNumber}" +
+                                    (item.title.takeIf { it.isNotBlank() }?.let { " — $it" } ?: "")
+                            item.year > 0 -> item.year.toString()
+                            else -> null
+                        },
+                        artUrl = item.backdropUrl,
+                        artThumbhash = item.backdropThumbhash,
+                        progressFraction = progress,
+                    )
+                }
+            _uiState.update {
+                if (it.contentId != forContentId) it else it.copy(onDeckItems = pool)
+            }
+        }
+    }
+
+    /** On Deck tap — an explicit choice: reset the pass-out streak and load
+     *  the picked item in place (resuming its saved position, iOS parity). */
+    fun playOnDeckItemNow(contentId: String) {
+        autoPlayGuard.recordUserAction()
+        upNextCountdownJob?.cancel()
+        upNextCountdownJob = null
+        _uiState.update { it.copy(showUpNext = false, upNextCountdownSeconds = null) }
+        viewModelScope.launch {
+            sessionLifecycle.stop()
+            loadContent(contentId = contentId)
+        }
+    }
+
     private fun resolveNextEpisode() {
         val state = _uiState.value
         val seriesId = state.seriesId ?: return
@@ -1626,10 +1736,17 @@ class PlayerViewModel(
         if (next == null) {
             // Next episode hasn't resolved yet (or never will — last episode /
             // movie). Record that the end point fired so resolveNextEpisode can
-            // commit the card if a next episode lands moments later. Unlike TV
-            // there is no full-screen "finished" panel on the phone, so nothing
-            // shows here even on videoEnded.
+            // commit the card if a next episode lands moments later. On a true
+            // end with nothing to advance to, show the Next-Up screen in its
+            // finished state (iOS shows the screen with On Deck only).
             pendingApproachingEndVideoEnded = videoEnded || (pendingApproachingEndVideoEnded == true)
+            if (videoEnded) {
+                autoAdvanceHandled = true
+                pendingApproachingEndVideoEnded = null
+                _uiState.update {
+                    it.copy(showUpNext = true, upNextVideoEnded = true, upNextCountdownSeconds = null)
+                }
+            }
             return
         }
         commitApproachingEnd(next, videoEnded)

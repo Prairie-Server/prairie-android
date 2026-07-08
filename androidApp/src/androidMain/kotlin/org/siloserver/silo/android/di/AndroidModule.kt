@@ -302,6 +302,7 @@ val androidModule = module {
             subtitlesRepository = get(),
             userItemStatePort = get(),
             outboxSyncScheduler = get(),
+            sectionRepository = get(),
         )
     }
     viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull()) }
