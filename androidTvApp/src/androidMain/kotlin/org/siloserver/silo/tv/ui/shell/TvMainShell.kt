@@ -792,14 +792,6 @@ fun TvMainShell(
                 }
                 composable(TvMainRoute.Settings.route) {
                     TvSettingsScreen(
-                        onNavigateToFavorites = { navigateToSecondary(TvMainRoute.Favorites.route) },
-                        onNavigateToWatchlist = { navigateToSecondary(TvMainRoute.Watchlist.route) },
-                        onNavigateToHistory = { navigateToSecondary(TvMainRoute.History.route) },
-                        onNavigateToCollections = { navigateToSecondary(TvMainRoute.Collections.route) },
-                        onNavigateToBrowse = {
-                            navigateToSecondary(TvMainRoute.Browse.route)
-                            moveFocusToContent(TvMainRoute.Browse.route)
-                        },
                         onNavigateToAdmin = {
                             // Apple parity: the stats dashboard is the whole
                             // admin surface. The hub (users/sessions/logs/

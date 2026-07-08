@@ -83,11 +83,6 @@ import org.koin.compose.viewmodel.koinViewModel
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvSettingsScreen(
-    onNavigateToFavorites: () -> Unit = {},
-    onNavigateToWatchlist: () -> Unit = {},
-    onNavigateToHistory: () -> Unit = {},
-    onNavigateToCollections: () -> Unit = {},
-    onNavigateToBrowse: () -> Unit = {},
     onNavigateToAdmin: () -> Unit = {},
     onManageSessions: () -> Unit = {},
     onPairDevice: () -> Unit = {},
@@ -140,11 +135,6 @@ fun TvSettingsScreen(
         onManageServers = onManageServers,
         onRequestSignOut = { showSignOutConfirm = true },
         onNavigateToAdmin = onNavigateToAdmin,
-        onNavigateToBrowse = onNavigateToBrowse,
-        onNavigateToFavorites = onNavigateToFavorites,
-        onNavigateToWatchlist = onNavigateToWatchlist,
-        onNavigateToHistory = onNavigateToHistory,
-        onNavigateToCollections = onNavigateToCollections,
         onNotificationsEnabledChanged = viewModel::onNotificationsEnabledChanged,
         onNotifyFavoritesChanged = viewModel::onNotifyFavoritesChanged,
         onNotifyWatchlistChanged = viewModel::onNotifyWatchlistChanged,
@@ -244,11 +234,6 @@ private fun SettingsSplitLayout(
     onManageServers: () -> Unit,
     onRequestSignOut: () -> Unit,
     onNavigateToAdmin: () -> Unit,
-    onNavigateToBrowse: () -> Unit,
-    onNavigateToFavorites: () -> Unit,
-    onNavigateToWatchlist: () -> Unit,
-    onNavigateToHistory: () -> Unit,
-    onNavigateToCollections: () -> Unit,
     onNotificationsEnabledChanged: (Boolean) -> Unit,
     onNotifyFavoritesChanged: (Boolean) -> Unit,
     onNotifyWatchlistChanged: (Boolean) -> Unit,
@@ -311,11 +296,6 @@ private fun SettingsSplitLayout(
             onManageSessions = onManageSessions,
             onPairDevice = onPairDevice,
             onManageServers = onManageServers,
-            onNavigateToBrowse = onNavigateToBrowse,
-            onNavigateToFavorites = onNavigateToFavorites,
-            onNavigateToWatchlist = onNavigateToWatchlist,
-            onNavigateToHistory = onNavigateToHistory,
-            onNavigateToCollections = onNavigateToCollections,
             onNotificationsEnabledChanged = onNotificationsEnabledChanged,
             onNotifyFavoritesChanged = onNotifyFavoritesChanged,
             onNotifyWatchlistChanged = onNotifyWatchlistChanged,
@@ -474,11 +454,6 @@ private fun SettingsDetailPane(
     onManageSessions: () -> Unit,
     onPairDevice: () -> Unit,
     onManageServers: () -> Unit,
-    onNavigateToBrowse: () -> Unit,
-    onNavigateToFavorites: () -> Unit,
-    onNavigateToWatchlist: () -> Unit,
-    onNavigateToHistory: () -> Unit,
-    onNavigateToCollections: () -> Unit,
     onNotificationsEnabledChanged: (Boolean) -> Unit,
     onNotifyFavoritesChanged: (Boolean) -> Unit,
     onNotifyWatchlistChanged: (Boolean) -> Unit,
@@ -535,11 +510,6 @@ private fun SettingsDetailPane(
             TvSettingsCategory.General -> TvGeneralSettingsPane(
                 state = state,
                 onOpenCardOverlays = onOpenCardOverlays,
-                onNavigateToBrowse = onNavigateToBrowse,
-                onNavigateToFavorites = onNavigateToFavorites,
-                onNavigateToWatchlist = onNavigateToWatchlist,
-                onNavigateToHistory = onNavigateToHistory,
-                onNavigateToCollections = onNavigateToCollections,
                 onNotificationsEnabledChanged = onNotificationsEnabledChanged,
                 onNotifyFavoritesChanged = onNotifyFavoritesChanged,
                 onNotifyWatchlistChanged = onNotifyWatchlistChanged,
@@ -592,11 +562,6 @@ private fun SettingsDetailPane(
 private fun TvGeneralSettingsPane(
     state: TvSettingsViewModel.UiState,
     onOpenCardOverlays: () -> Unit,
-    onNavigateToBrowse: () -> Unit,
-    onNavigateToFavorites: () -> Unit,
-    onNavigateToWatchlist: () -> Unit,
-    onNavigateToHistory: () -> Unit,
-    onNavigateToCollections: () -> Unit,
     onNotificationsEnabledChanged: (Boolean) -> Unit,
     onNotifyFavoritesChanged: (Boolean) -> Unit,
     onNotifyWatchlistChanged: (Boolean) -> Unit,
@@ -646,15 +611,11 @@ private fun TvGeneralSettingsPane(
                 }
             }
         }
-        item {
-            SettingsGroup(title = "Library") {
-                SettingsActionRow(label = "Browse", onClick = onNavigateToBrowse)
-                SettingsActionRow(label = "Favorites", onClick = onNavigateToFavorites)
-                SettingsActionRow(label = "Watchlist", onClick = onNavigateToWatchlist)
-                SettingsActionRow(label = "Watch history", onClick = onNavigateToHistory)
-                SettingsActionRow(label = "Collections", onClick = onNavigateToCollections)
-            }
-        }
+        // No Library group — tvOS parity: Apple's TVSettingsView has no such
+        // section (it is iOS-only). On TV these destinations live in the
+        // For You dropdown (Watchlist/Favorites), the profile menu
+        // (Watchlist/Favorites/History), Home (Browse), and each library's
+        // cascade (Collections). (QA 2026-07-08.)
     }
 }
 
