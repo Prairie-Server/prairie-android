@@ -16,6 +16,7 @@ object PlaybackSettingsKeys {
     const val NextUpPromptSeconds = "player.next_up_prompt_seconds"
     const val DvProfile7HDR10Fallback = "player.dv_profile7_hdr10_fallback"
     const val DolbyVisionEnabled = "player.dolby_vision_enabled"
+    const val MatchContentFrameRate = "player.match_frame_rate"
     const val SleepTimerDefaultMinutes = "player.sleep_timer_default_minutes"
     const val SubtitleFontSize = "subtitle.font_size"
     const val SubtitleFontFamily = "subtitle.font_family"
@@ -95,6 +96,7 @@ object PlaybackSettingsKeys {
         NextUpPromptSeconds,
         DvProfile7HDR10Fallback,
         DolbyVisionEnabled,
+        MatchContentFrameRate,
         SleepTimerDefaultMinutes,
         SubtitleFontSize,
         SubtitleFontFamily,

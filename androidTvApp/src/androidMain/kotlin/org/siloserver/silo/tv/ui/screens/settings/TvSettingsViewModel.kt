@@ -79,6 +79,7 @@ class TvSettingsViewModel(
         val pictureInPictureEnabled: Boolean = true,
         val autoPlayNext: Boolean = true,
         val autoSkipIntro: Boolean = false,
+        val matchContentFrameRate: Boolean = false,
         val autoSkipCredits: Boolean = false,
         // Seconds to skip back on resume (0 = off); consecutive auto-advances
         // before the "Still watching?" prompt (0 = off).
@@ -227,6 +228,11 @@ class TvSettingsViewModel(
         viewModelScope.launch {
             playerSettingsStore.nextUpPromptSecondsFlow.collect { seconds ->
                 _uiState.update { it.copy(nextUpPromptSeconds = seconds) }
+            }
+        }
+        viewModelScope.launch {
+            playerSettingsStore.matchContentFrameRateFlow.collect { value ->
+                _uiState.update { it.copy(matchContentFrameRate = value) }
             }
         }
         // Device-scoped subtitle-appearance override toggle (same source the
@@ -468,6 +474,10 @@ class TvSettingsViewModel(
 
     fun onAutoPlayNextChanged(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoPlayNext(value) }
+    }
+
+    fun onMatchContentFrameRateChanged(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setMatchContentFrameRate(value) }
     }
 
     fun onAutoSkipIntroChanged(value: Boolean) {

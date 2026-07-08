@@ -883,11 +883,16 @@ fun TvPlayerScreen(
                     if (videoSize.width > 0 && videoSize.height > 0) {
                         pictureInPictureVideoWidth = videoSize.width
                         pictureInPictureVideoHeight = videoSize.height
-                        hdrDisplayController.applyForMedia(
-                            videoWidth = videoSize.width,
-                            videoHeight = videoSize.height,
-                            frameRateHz = frameRate,
-                        )
+                        // Gated like Apple TV's "Match Content" (default off):
+                        // the HDMI mode switch black-screens briefly, so it is
+                        // the viewer's choice (QA 2026-07-08).
+                        if (viewModel.matchContentFrameRate.value) {
+                            hdrDisplayController.applyForMedia(
+                                videoWidth = videoSize.width,
+                                videoHeight = videoSize.height,
+                                frameRateHz = frameRate,
+                            )
+                        }
                     }
                 }
             }

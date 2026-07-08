@@ -146,6 +146,12 @@ class AndroidPlayerSettingsStore(
     override val dolbyVisionEnabledFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DolbyVisionEnabled, true) }
 
+    // Default OFF — Apple TV's "Match Content" defaults off because the HDMI
+    // mode switch black-screens for 1-2s on entry/exit (Apple parity,
+    // QA 2026-07-08).
+    override val matchContentFrameRateFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.MatchContentFrameRate, false) }
+
     override val pictureInPictureEnabledFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.PictureInPictureEnabled, true) }
 
@@ -232,6 +238,9 @@ class AndroidPlayerSettingsStore(
 
     override suspend fun setDolbyVisionEnabled(value: Boolean) =
         writeBool(PlaybackSettingsKeys.DolbyVisionEnabled, value)
+
+    override suspend fun setMatchContentFrameRate(value: Boolean) =
+        writeBool(PlaybackSettingsKeys.MatchContentFrameRate, value)
 
     override suspend fun setPictureInPictureEnabled(value: Boolean) =
         writeBoolLocal(PlaybackSettingsKeys.PictureInPictureEnabled, value)
@@ -493,6 +502,7 @@ class AndroidPlayerSettingsStore(
             PlaybackSettingsKeys.HdrEnabled,
             PlaybackSettingsKeys.DvProfile7HDR10Fallback,
             PlaybackSettingsKeys.DolbyVisionEnabled,
+            PlaybackSettingsKeys.MatchContentFrameRate,
             PlaybackSettingsKeys.SubtitleTextOutline,
         )
 

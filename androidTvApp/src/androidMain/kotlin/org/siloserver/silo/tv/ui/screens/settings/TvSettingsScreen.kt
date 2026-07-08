@@ -155,6 +155,7 @@ fun TvSettingsScreen(
         onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
         onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
         onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
+        onMatchContentFrameRateChanged = viewModel::onMatchContentFrameRateChanged,
         onPictureInPictureEnabledChanged = viewModel::onPictureInPictureEnabledChanged,
         onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
         onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
@@ -258,6 +259,7 @@ private fun SettingsSplitLayout(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onMatchContentFrameRateChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
@@ -324,6 +326,7 @@ private fun SettingsSplitLayout(
             onAutoPlayNextChanged = onAutoPlayNextChanged,
             onAutoSkipIntroChanged = onAutoSkipIntroChanged,
             onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+            onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
             onPictureInPictureEnabledChanged = onPictureInPictureEnabledChanged,
             onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
             onPassOutThresholdChanged = onPassOutThresholdChanged,
@@ -486,6 +489,7 @@ private fun SettingsDetailPane(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onMatchContentFrameRateChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
@@ -549,6 +553,7 @@ private fun SettingsDetailPane(
                 onAutoPlayNextChanged = onAutoPlayNextChanged,
                 onAutoSkipIntroChanged = onAutoSkipIntroChanged,
                 onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+            onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
                 onPictureInPictureEnabledChanged = onPictureInPictureEnabledChanged,
                 onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
                 onPassOutThresholdChanged = onPassOutThresholdChanged,
@@ -661,6 +666,7 @@ private fun TvPlaybackSettingsPane(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onMatchContentFrameRateChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
@@ -714,6 +720,14 @@ private fun TvPlaybackSettingsPane(
                     label = "Auto-Skip Credits",
                     checked = state.autoSkipCredits,
                     onCheckedChange = onAutoSkipCreditsChanged,
+                )
+                // Apple TV parity: "Match Content" is a viewer choice and
+                // defaults OFF — the HDMI mode switch black-screens for a
+                // second or two on entry/exit (QA 2026-07-08).
+                SettingsToggleRow(
+                    label = "Match Content Frame Rate",
+                    checked = state.matchContentFrameRate,
+                    onCheckedChange = onMatchContentFrameRateChanged,
                 )
                 SettingsValueRow(
                     label = "Resume Skip-Back",

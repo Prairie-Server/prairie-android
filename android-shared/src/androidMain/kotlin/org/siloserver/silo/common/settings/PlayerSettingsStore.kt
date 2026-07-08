@@ -13,6 +13,7 @@ interface PlayerSettingsStore {
     val hdrEnabledFlow: Flow<Boolean>
     val dvProfile7HDR10FallbackFlow: Flow<Boolean>
     val dolbyVisionEnabledFlow: Flow<Boolean>
+    val matchContentFrameRateFlow: Flow<Boolean>
     val pictureInPictureEnabledFlow: Flow<Boolean>
     /** Per-profile preference for restricting downloads to unmetered (Wi-Fi)
      *  networks. Default true. Consumed by [DownloadEnqueuer] at enqueue
@@ -58,6 +59,7 @@ interface PlayerSettingsStore {
     suspend fun setHdrEnabled(value: Boolean)
     suspend fun setDvProfile7HDR10Fallback(value: Boolean)
     suspend fun setDolbyVisionEnabled(value: Boolean)
+    suspend fun setMatchContentFrameRate(value: Boolean)
     suspend fun setPictureInPictureEnabled(value: Boolean)
     suspend fun setDownloadsWifiOnly(value: Boolean)
     suspend fun setKeepWatchedDownloads(value: Boolean)
