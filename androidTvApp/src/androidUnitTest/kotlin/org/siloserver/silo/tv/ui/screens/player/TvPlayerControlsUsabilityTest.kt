@@ -238,7 +238,10 @@ class TvPlayerControlsUsabilityTest {
     @Test
     fun subtitlePaneShowsDirectNoBackgroundControlAndReadableWhiteSelection() {
         assertTrue(hudSource.contains("label = \"No background\""))
-        assertTrue(hudSource.contains("appearance.copy(backgroundStyle = SubtitleBackgroundStylePreset.None)"))
+        // Must be a real toggle: On sets None, Off restores the default Box
+        // background (a one-way None assignment left users stuck on On).
+        assertTrue(hudSource.contains("SubtitleBackgroundStylePreset.Box"))
+        assertTrue(hudSource.contains("appearance.copy(backgroundStyle = target)"))
         assertTrue(hudSource.contains("val isLightSwatch ="))
         assertTrue(hudSource.contains("Icons.Filled.Check"))
         assertTrue(hudSource.contains("checkTint"))

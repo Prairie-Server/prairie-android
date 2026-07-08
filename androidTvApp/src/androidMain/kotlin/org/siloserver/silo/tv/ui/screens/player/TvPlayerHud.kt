@@ -1270,7 +1270,14 @@ private fun HudSubtitlesPane(
                 enabled = enabled,
                 leftFocusRequester = subtitleTrackFocus,
                 onActivate = {
-                    onAppearanceChanged(appearance.copy(backgroundStyle = SubtitleBackgroundStylePreset.None))
+                    // Toggle: turning it back off restores the default Box
+                    // background (Apple parity) rather than staying stuck on None.
+                    val target = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.None) {
+                        SubtitleBackgroundStylePreset.Box
+                    } else {
+                        SubtitleBackgroundStylePreset.None
+                    }
+                    onAppearanceChanged(appearance.copy(backgroundStyle = target))
                 },
             )
 
