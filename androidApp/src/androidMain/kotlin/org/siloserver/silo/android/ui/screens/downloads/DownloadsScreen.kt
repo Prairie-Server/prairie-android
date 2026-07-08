@@ -83,6 +83,28 @@ fun DownloadsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Multi-select delete (mirrors iOS's edit-mode selection). Selection unit
+    // is a top-level entry — selecting a series selects all its episodes.
+    var isSelecting by remember { mutableStateOf(false) }
+    var selectedEntryIds by remember { mutableStateOf(emptySet<String>()) }
+    var pendingBulkDelete by remember { mutableStateOf<Pair<List<String>, Long>?>(null) }
+    val topLevelEntries = state.sections.flatMap { it.entries }
+    val selectedEntries = topLevelEntries.filter { it.id in selectedEntryIds }
+    val selectedRecordIds = selectedEntries.flatMap { it.recordIds }
+    val selectedBytes = selectedEntries.sumOf { it.totalBytesUsed }
+    // Prune selections whose entries were deleted or refreshed away.
+    LaunchedEffect(state.sections) {
+        val ids = topLevelEntries.map { it.id }.toSet()
+        if (!selectedEntryIds.all { it in ids }) {
+            selectedEntryIds = selectedEntryIds.filterTo(mutableSetOf()) { it in ids }
+        }
+    }
+
+    fun exitSelectMode() {
+        isSelecting = false
+        selectedEntryIds = emptySet()
+    }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -123,11 +145,13 @@ fun DownloadsScreen(
                     ),
                 )
             }
-            else -> {
+            else -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -161,6 +185,26 @@ fun DownloadsScreen(
                         )
                     }
 
+                    if (state.sections.isNotEmpty()) {
+                        item(contentType = "downloads-select-bar") {
+                            DownloadsSelectBar(
+                                isSelecting = isSelecting,
+                                selectedCount = selectedEntryIds.size,
+                                allSelected = topLevelEntries.isNotEmpty() &&
+                                    selectedEntryIds.size == topLevelEntries.size,
+                                onEnterSelect = { isSelecting = true },
+                                onToggleSelectAll = {
+                                    selectedEntryIds = if (selectedEntryIds.size == topLevelEntries.size) {
+                                        emptySet()
+                                    } else {
+                                        topLevelEntries.map { it.id }.toSet()
+                                    }
+                                },
+                                onDone = { exitSelectMode() },
+                            )
+                        }
+                    }
+
                     state.sections.forEach { section ->
                         renderSection(
                             section = section,
@@ -176,11 +220,68 @@ fun DownloadsScreen(
                             onDeleteSingle = { item -> viewModel.removeDownload(item.id) },
                             onDeleteEntry = { entry -> viewModel.removeEntry(entry) },
                             onDeleteSection = { sec -> viewModel.removeSection(sec) },
+                            selecting = isSelecting,
+                            selectedIds = selectedEntryIds,
+                            onToggleSelect = { entry ->
+                                selectedEntryIds = if (entry.id in selectedEntryIds) {
+                                    selectedEntryIds - entry.id
+                                } else {
+                                    selectedEntryIds + entry.id
+                                }
+                            },
                         )
+                    }
+
+                    if (isSelecting && selectedEntryIds.isNotEmpty()) {
+                        // Keep the last rows reachable above the floating bar.
+                        item(contentType = "downloads-bulk-spacer") {
+                            Spacer(modifier = Modifier.height(72.dp))
+                        }
+                    }
+                }
+
+                if (isSelecting && selectedEntryIds.isNotEmpty()) {
+                    Button(
+                        onClick = { pendingBulkDelete = selectedRecordIds to selectedBytes },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(16.dp),
+                    ) {
+                        Text("Delete ${selectedEntryIds.size} · Free ${formatBytes(selectedBytes)}")
                     }
                 }
             }
         }
+    }
+
+    pendingBulkDelete?.let { (ids, _) ->
+        AlertDialog(
+            onDismissRequest = { pendingBulkDelete = null },
+            title = { Text("Delete downloaded files?") },
+            text = {
+                Text(
+                    "This removes the downloaded cop${if (ids.size == 1) "y" else "ies"} from this device. " +
+                        "Nothing is deleted from the server library.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.removeDownloadIds(ids)
+                        pendingBulkDelete = null
+                        exitSelectMode()
+                    },
+                ) {
+                    Text(
+                        text = if (ids.size == 1) "Delete Download" else "Delete ${ids.size} Downloads",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBulkDelete = null }) { Text("Cancel") }
+            },
+        )
     }
 
     state.reclaimPlan?.let { plan ->
@@ -252,6 +353,43 @@ private fun DownloadsTotalCard(
             fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
         )
+    }
+}
+
+/**
+ * Select / Select All / Done controls above the sections — the phone
+ * analogue of iOS's toolbar edit-mode buttons ("N Selected" nav title).
+ */
+@Composable
+private fun DownloadsSelectBar(
+    isSelecting: Boolean,
+    selectedCount: Int,
+    allSelected: Boolean,
+    onEnterSelect: () -> Unit,
+    onToggleSelectAll: () -> Unit,
+    onDone: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (isSelecting) {
+            TextButton(onClick = onToggleSelectAll) {
+                Text(if (allSelected) "Clear" else "Select All")
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "$selectedCount Selected",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+            )
+            TextButton(onClick = onDone) { Text("Done") }
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = onEnterSelect) { Text("Select") }
+        }
     }
 }
 

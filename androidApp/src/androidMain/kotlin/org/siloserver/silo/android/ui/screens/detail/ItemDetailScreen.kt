@@ -105,6 +105,9 @@ fun ItemDetailScreen(
     val serverRegistry: ServerRegistry = koinInject()
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingDownloadQualityAction by remember { mutableStateOf<((DownloadQuality) -> Unit)?>(null) }
+    var pendingDownloadEstimate by remember {
+        mutableStateOf<org.siloserver.silo.model.download.DownloadSizeEstimate?>(null)
+    }
     var showDownloadQualityPicker by remember { mutableStateOf(false) }
     var pendingSiloCastLaunchRequest by remember { mutableStateOf<SiloCastLaunchRequest?>(null) }
     val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
@@ -132,9 +135,14 @@ fun ItemDetailScreen(
         legacyStoragePermissionLauncher.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
     }
 
-    fun runDownloadQualityAction(requirePermission: Boolean = true, action: (DownloadQuality) -> Unit) {
+    fun runDownloadQualityAction(
+        requirePermission: Boolean = true,
+        estimate: org.siloserver.silo.model.download.DownloadSizeEstimate? = null,
+        action: (DownloadQuality) -> Unit,
+    ) {
         runDownloadAction(requirePermission = requirePermission) {
             pendingDownloadQualityAction = action
+            pendingDownloadEstimate = estimate
             showDownloadQualityPicker = true
         }
     }
@@ -143,9 +151,10 @@ fun ItemDetailScreen(
         downloadState: DetailDownloadState,
         directAction: () -> Unit,
         qualityAction: (DownloadQuality) -> Unit,
+        estimate: org.siloserver.silo.model.download.DownloadSizeEstimate? = null,
     ) {
         if (!downloadState.isDownloaded && downloadState.progress == null) {
-            runDownloadQualityAction(requirePermission = true, action = qualityAction)
+            runDownloadQualityAction(requirePermission = true, estimate = estimate, action = qualityAction)
         } else {
             runDownloadAction(requirePermission = false, action = directAction)
         }
@@ -321,6 +330,8 @@ fun ItemDetailScreen(
                                                 downloadQuality = quality,
                                             )
                                         },
+                                        estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
+                                            .estimate(versions = listOf(version), fileId = version.fileId),
                                     )
                                 }
                             },
@@ -381,6 +392,8 @@ fun ItemDetailScreen(
                                                 downloadQuality = quality,
                                             )
                                         },
+                                        estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
+                                            .estimate(versions = listOf(version), fileId = version.fileId),
                                     )
                                 }
                             },
@@ -494,6 +507,8 @@ fun ItemDetailScreen(
                                     qualityAction = { quality ->
                                         viewModel.onEpisodeDownloadTapped(ep, downloadQuality = quality)
                                     },
+                                    estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
+                                        .estimate(fileSizes = ep.files.map { it.fileSize }),
                                 )
                             },
                             episodeDownloadState = { ep ->
@@ -599,6 +614,8 @@ fun ItemDetailScreen(
                                                 downloadQuality = quality,
                                             )
                                         },
+                                        estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
+                                            .estimate(versions = listOf(v), fileId = v.fileId),
                                     )
                                 }
                             },
@@ -631,12 +648,16 @@ fun ItemDetailScreen(
                         runSelectedQuality(quality)
                     }
                     pendingDownloadQualityAction = null
+                    pendingDownloadEstimate = null
                     showDownloadQualityPicker = false
                 },
                 onDismiss = {
                     pendingDownloadQualityAction = null
+                    pendingDownloadEstimate = null
                     showDownloadQualityPicker = false
                 },
+                estimate = pendingDownloadEstimate,
+                availableBytes = remember { downloadStorage.usableSpaceBytes() },
             )
         }
 

@@ -20,7 +20,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -105,26 +107,82 @@ internal fun LazyListScope.renderSection(
     onDeleteSingle: (DownloadItem) -> Unit,
     onDeleteEntry: (DownloadEntry) -> Unit,
     onDeleteSection: (DownloadTypeSection) -> Unit,
+    selecting: Boolean = false,
+    selectedIds: Set<String> = emptySet(),
+    onToggleSelect: (DownloadEntry) -> Unit = {},
 ) {
     item(
         key = "section_header_${section.mediaType.wire}",
         contentType = "download-section-header",
     ) {
-        SectionHeaderRow(section = section, onDeleteSection = { onDeleteSection(section) })
+        SectionHeaderRow(
+            section = section,
+            deleteEnabled = !selecting,
+            onDeleteSection = { onDeleteSection(section) },
+        )
     }
     section.entries.forEach { entry ->
         item(
             key = "section_${section.mediaType.wire}_entry_${entry.id}",
             contentType = "download-entry",
         ) {
-            renderEntry(
-                entry = entry,
-                depth = 0,
-                onItemClick = onItemClick,
-                onReadEbook = onReadEbook,
-                onOpenExternalDownload = onOpenExternalDownload,
-                onDeleteSingle = onDeleteSingle,
-                onDeleteEntry = onDeleteEntry,
+            val content: @Composable () -> Unit = {
+                renderEntry(
+                    entry = entry,
+                    depth = 0,
+                    onItemClick = onItemClick,
+                    onReadEbook = onReadEbook,
+                    onOpenExternalDownload = onOpenExternalDownload,
+                    onDeleteSingle = onDeleteSingle,
+                    onDeleteEntry = onDeleteEntry,
+                )
+            }
+            if (selecting) {
+                SelectableEntryRow(
+                    selected = entry.id in selectedIds,
+                    onToggle = { onToggleSelect(entry) },
+                    content = content,
+                )
+            } else {
+                content()
+            }
+        }
+    }
+}
+
+/**
+ * Select-mode wrapper for a top-level entry: a leading selection circle plus
+ * the regular row content, with a full-size tap interceptor so the row's own
+ * click targets (open / expand / delete) can't fire while selecting —
+ * mirrors iOS's edit-mode selection circles. Selecting an aggregate (series
+ * or author) selects all of its descendants.
+ */
+@Composable
+private fun SelectableEntryRow(
+    selected: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+            contentDescription = if (selected) "Selected" else "Not selected",
+            tint = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(start = 16.dp),
+        )
+        Box(modifier = Modifier.weight(1f)) {
+            content()
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(onClick = onToggle),
             )
         }
     }
@@ -200,6 +258,7 @@ private fun renderEntry(
 private fun SectionHeaderRow(
     section: DownloadTypeSection,
     onDeleteSection: () -> Unit,
+    deleteEnabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -221,7 +280,7 @@ private fun SectionHeaderRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        IconButton(onClick = onDeleteSection) {
+        IconButton(onClick = onDeleteSection, enabled = deleteEnabled) {
             Icon(
                 imageVector = Icons.Default.Delete,
                 contentDescription = "Delete all in ${section.displayName}",
