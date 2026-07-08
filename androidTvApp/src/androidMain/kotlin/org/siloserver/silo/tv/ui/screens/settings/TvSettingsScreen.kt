@@ -14,6 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -224,7 +229,7 @@ private enum class TvSettingsCategory(
 // Split settings layout (tvOS parity)
 // ---------------------------------------------------------------------------
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 private fun SettingsSplitLayout(
     state: TvSettingsViewModel.UiState,
@@ -339,7 +344,18 @@ private fun SettingsSplitLayout(
             onSubtitleBackgroundColorChanged = onSubtitleBackgroundColorChanged,
             onSubtitlePositionChanged = onSubtitlePositionChanged,
             onSubtitleDeviceOverrideEnabledChanged = onSubtitleDeviceOverrideEnabledChanged,
-            modifier = Modifier.weight(1f),
+            // Contain Up at the pane's top row: escaping to the top menu from
+            // inside a category was disorienting (QA 2026-07-08). Left still
+            // exits to the category rail.
+            modifier = Modifier
+                .weight(1f)
+                .focusGroup()
+                .focusProperties {
+                    exit = { direction ->
+                        if (direction == FocusDirection.Up) FocusRequester.Cancel
+                        else FocusRequester.Default
+                    }
+                },
         )
     }
 }
@@ -1028,7 +1044,7 @@ private fun TvServerSettingsPane(
                     value = state.serverName.ifBlank { "Not configured" },
                 )
                 if (state.serverUrl.isNotBlank() && state.serverName != state.serverUrl) {
-                    SettingsInfoRow(label = "URL", value = state.serverUrl)
+                    SettingsInfoRow(label = "URL", value = state.serverUrl, singleLine = false)
                 }
                 SettingsActionRow(label = "Manage Servers", onClick = onManageServers)
             }
@@ -1535,15 +1551,15 @@ private fun SettingsToggleRow(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SettingsInfoRow(label: String, value: String) {
+private fun SettingsInfoRow(label: String, value: String, singleLine: Boolean = true) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = RowMaxWidth)
-            .height(RowHeight)
+            .let { if (singleLine) it.height(RowHeight) else it.heightIn(min = RowHeight) }
             .clip(RowShape)
             .background(Color.White.copy(alpha = 0.06f))
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = 24.dp, vertical = if (singleLine) 0.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -1556,8 +1572,12 @@ private fun SettingsInfoRow(label: String, value: String) {
             text = value,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            // Long values (the server URL) wrap instead of truncating into
+            // unreadability (QA 2026-07-08).
+            maxLines = if (singleLine) 1 else 3,
             overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(2f),
         )
     }
 }
