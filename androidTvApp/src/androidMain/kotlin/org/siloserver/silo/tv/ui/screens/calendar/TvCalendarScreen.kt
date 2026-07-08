@@ -692,15 +692,14 @@ private fun NothingScheduledRow() {
 
 // MARK: - Event card
 
-// Landscape cell: small poster LEFT, text beside it (QA 2026-07-08 — the
-// portrait poster + caption-below stack was too tall for the day shelves;
-// poster and text now share a single row).
-private val posterWidth = 96.dp
-private val posterHeight = 144.dp
-private val cellWidth = 400.dp
+// tvOS CalendarEventCard parity: PORTRAIT poster with the caption below,
+// badges/watched/time overlaid ON the poster. Sized down from the previous
+// RowDimens tokens so a full day shelf (header + poster + 2-line caption)
+// fits between the week strip and the fold (QA 2026-07-08).
+private val posterWidth = 120.dp
+private val posterHeight = 180.dp
 private val CalendarCardSpacing = 18.dp
 private val posterShape = RoundedCornerShape(10.dp)
-private val cellShape = RoundedCornerShape(14.dp)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -717,35 +716,28 @@ private fun CalendarEventCard(
         if (isFocused) onFocused()
     }
 
-    // One-line cell: poster left, text beside it. The whole cell is the focus
-    // target so the border wraps poster + text together.
-    Card(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        shape = CardDefaults.shape(shape = cellShape),
-        scale = CardDefaults.scale(focusedScale = 1.03f),
-        border = CardDefaults.border(
-            focusedBorder = Border(BorderStroke(2.5.dp, Color.White), shape = cellShape),
-        ),
-        colors = CardDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.05f),
-            focusedContainerColor = Color.White.copy(alpha = 0.10f),
-        ),
+    // tvOS FocusableCalendarCard: the poster alone is the focus-lifted
+    // button; the caption sits OUTSIDE it and brightens on focus.
+    Column(
         modifier = Modifier
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .width(cellWidth)
+            .width(posterWidth)
             .alpha(if (item.watched) 0.65f else 1f),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        Card(
+            onClick = onClick,
+            interactionSource = interactionSource,
+            shape = CardDefaults.shape(shape = posterShape),
+            scale = CardDefaults.scale(focusedScale = 1.06f),
+            border = CardDefaults.border(
+                focusedBorder = Border(BorderStroke(2.5.dp, Color.White), shape = posterShape),
+            ),
+            colors = CardDefaults.colors(containerColor = Color.White.copy(alpha = 0.06f)),
+            modifier = Modifier
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .size(posterWidth, posterHeight),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(posterWidth, posterHeight)
-                    .clip(posterShape)
-                    .background(Color.White.copy(alpha = 0.06f)),
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 ThumbhashImage(
                     url = item.posterUrl,
                     thumbhash = item.posterThumbhash,
@@ -753,6 +745,21 @@ private fun CalendarEventCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                // Badge pills (top-leading) — tvOS CalendarBadgePill.
+                val badges = item.badges.mapNotNull(::badgeLabel)
+                if (badges.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        badges.forEach { label -> BadgePill(text = label) }
+                    }
+                }
+
+                // Watched check (top-trailing).
                 if (item.watched) {
                     Box(
                         modifier = Modifier
@@ -766,54 +773,55 @@ private fun CalendarEventCard(
                             imageVector = Icons.Filled.Check,
                             contentDescription = "Watched",
                             tint = Color.Black,
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+
+                // Air-time capsule (bottom-trailing) — only for REAL broadcast
+                // times; date-only entries report midnight, which rendered as
+                // a meaningless "00:00" on every card (QA 2026-07-08).
+                item.airTime?.takeIf { it.isNotBlank() && it != "00:00" }?.let { airTime ->
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(Color.Black.copy(alpha = 0.62f))
+                            .padding(horizontal = 9.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            text = airTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
                         )
                     }
                 }
             }
+        }
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(posterHeight),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                val badges = item.badges.mapNotNull(::badgeLabel)
-                if (badges.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        badges.forEach { label -> BadgePill(text = label) }
-                    }
-                }
+        // Caption below the poster (tvOS CalendarCardCaption): 2-line reserved
+        // title + single subtitle line.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
+                maxLines = 2,
+                minLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            cardSubtitle(item)?.let { subtitle ->
                 Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isFocused) Color.White else Color.White.copy(alpha = 0.90f),
-                    maxLines = 2,
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.60f),
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                cardSubtitle(item)?.let { subtitle ->
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.60f),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                // Most entries carry only a release DATE — the server then
-                // reports midnight, which rendered as a meaningless "00:00"
-                // on every card (QA 2026-07-08). Show a time only when it is
-                // a real one.
-                item.airTime?.takeIf { it.isNotBlank() && it != "00:00" }?.let { airTime ->
-                    Text(
-                        text = airTime,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White.copy(alpha = 0.75f),
-                    )
-                }
             }
         }
     }

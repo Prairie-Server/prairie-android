@@ -11,13 +11,11 @@ class TvCalendarSizingSourceTest {
     ).readText()
 
     @Test
-    fun calendarCellsUseLandscapePosterPlusTextLayout() {
-        // QA 2026-07-08: the portrait poster + caption-below stack was too
-        // tall for the day shelves — cells are now a landscape row (small
-        // poster left, text beside) with fixed tokens.
-        assertTrue(source.contains("private val posterWidth = 96.dp"))
-        assertTrue(source.contains("private val posterHeight = 144.dp"))
-        assertTrue(source.contains("private val cellWidth = 400.dp"))
+    fun calendarCellsMatchTvosPortraitCardAtReducedScale() {
+        // tvOS CalendarEventCard parity (QA 2026-07-08): portrait poster with
+        // the caption below, sized so a full day shelf fits above the fold.
+        assertTrue(source.contains("private val posterWidth = 120.dp"))
+        assertTrue(source.contains("private val posterHeight = 180.dp"))
         // Meaningless midnight timestamps stay hidden.
         assertTrue(source.contains("it.isNotBlank() && it != \"00:00\""))
     }
