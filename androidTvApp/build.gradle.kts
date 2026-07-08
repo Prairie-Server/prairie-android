@@ -156,7 +156,10 @@ android {
                 storeFile = file(releaseKeystorePath!!)
                 storePassword = providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
                 keyAlias = providers.environmentVariable("SILO_RELEASE_KEY_ALIAS").orNull
-                keyPassword = providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
+                // The key password may differ from the keystore password; fall
+                // back to the keystore password when they're the same.
+                keyPassword = providers.environmentVariable("SILO_RELEASE_KEY_PASSWORD").orNull
+                    ?: providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
             }
         }
     }
