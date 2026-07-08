@@ -889,12 +889,17 @@ fun TvMainShell(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(TvSkyline.barTopInset + TvSkyline.barHeight + 34.dp)
+                .height(TvSkyline.barTopInset + TvSkyline.barHeight + 40.dp)
                 .align(Alignment.TopStart)
                 .background(
                     Brush.verticalGradient(
-                        0.00f to Color.Black.copy(alpha = 0.88f),
-                        0.62f to Color.Black.copy(alpha = 0.70f),
+                        // Near-opaque through the bar strip itself, then a quick
+                        // fade: the first weaker gradient let bright posters
+                        // dominate the strip and it read as content scrolling
+                        // OVER the locked menu (QA 2026-07-08).
+                        0.00f to Color.Black.copy(alpha = 0.98f),
+                        0.60f to Color.Black.copy(alpha = 0.94f),
+                        0.80f to Color.Black.copy(alpha = 0.55f),
                         1.00f to Color.Transparent,
                     ),
                 )
