@@ -10,6 +10,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -34,8 +36,22 @@ class TvServerSetupPersistenceTest {
 
     @AfterTest
     fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
         Dispatchers.resetMain()
     }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test class calls
+    // setMain throws IllegalStateException from TestMainDispatcher — the
+    // CI-only cross-class flake that failed the v0.3.4 tag build.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     @Test
     fun failedProbeDoesNotReplacePreviouslyActiveServerUrl() = runTest(dispatcher) {
@@ -54,7 +70,7 @@ class TvServerSetupPersistenceTest {
             ),
             tokenManager = tokenManager,
         )
-        val viewModel = TvServerSetupViewModel(repository)
+        val viewModel = track(TvServerSetupViewModel(repository))
 
         viewModel.onServerUrlChanged("bad.silo")
         viewModel.onConnectClick()

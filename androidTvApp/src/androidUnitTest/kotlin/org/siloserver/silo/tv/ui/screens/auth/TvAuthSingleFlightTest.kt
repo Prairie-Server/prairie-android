@@ -14,6 +14,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -47,19 +49,33 @@ class TvAuthSingleFlightTest {
 
     @AfterTest
     fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
         Dispatchers.resetMain()
     }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test class calls
+    // setMain throws IllegalStateException from TestMainDispatcher — the
+    // CI-only cross-class flake that failed the v0.3.4 tag build.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     @Test
     fun loginSubmitIgnoresSecondClickWhileLoading() = runTest(dispatcher) {
         val release = CompletableDeferred<Unit>()
         val recorder = AuthRequestRecorder("/api/v1/auth/login", release)
         val tokenManager = SingleFlightTokenManager()
-        val viewModel = TvLoginViewModel(
+        val viewModel = track(TvLoginViewModel(
             authRepository = AuthRepository(AuthApi(recorder.client(tokenManager)), tokenManager),
             tokenManager = tokenManager,
             deviceLogin = DeviceLoginRepository(NeverCompletingDeviceLoginApi),
-        )
+        ))
         advanceUntilIdle()
 
         viewModel.onUsernameChanged("jim")
@@ -77,9 +93,9 @@ class TvAuthSingleFlightTest {
     fun setupSubmitIgnoresSecondClickWhileLoading() = runTest(dispatcher) {
         val release = CompletableDeferred<Unit>()
         val recorder = AuthRequestRecorder("/api/v1/auth/setup", release)
-        val viewModel = TvSetupViewModel(
+        val viewModel = track(TvSetupViewModel(
             AuthRepository(AuthApi(recorder.client(SingleFlightTokenManager())), SingleFlightTokenManager()),
-        )
+        ))
 
         viewModel.onUsernameChanged("jim")
         viewModel.onEmailChanged("jim@example.com")
@@ -97,9 +113,9 @@ class TvAuthSingleFlightTest {
     fun signupSubmitIgnoresSecondClickWhileLoading() = runTest(dispatcher) {
         val release = CompletableDeferred<Unit>()
         val recorder = AuthRequestRecorder("/api/v1/auth/signup", release)
-        val viewModel = TvSignupViewModel(
+        val viewModel = track(TvSignupViewModel(
             AuthRepository(AuthApi(recorder.client(SingleFlightTokenManager())), SingleFlightTokenManager()),
-        )
+        ))
 
         viewModel.onUsernameChanged("jim")
         viewModel.onEmailChanged("jim@example.com")
