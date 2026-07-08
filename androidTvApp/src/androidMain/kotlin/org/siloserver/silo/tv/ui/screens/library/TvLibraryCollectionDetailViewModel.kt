@@ -71,7 +71,7 @@ class TvLibraryCollectionDetailViewModel(
 
     /**
      * Fetches pages starting at [fromOffset] until one yields at least one
-     * TV-visible item or the collection is exhausted. Reading/ebook entries
+     * TV-visible item or the collection is exhausted. Book-type entries
      * are filtered out per page ([visibleOnTv]); without draining, a page
      * that filters to empty with `hasMore=true` would strand the grid —
      * TvCatalogGrid skips pagination while its list is empty, so a
