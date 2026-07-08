@@ -927,6 +927,46 @@ fun TvMainShell(
         // the flyout opens, instead of a fixed slab with dead space.
         val maxPanelWidthDp = TvCascadeSelectorMaxPanelWidth
         visibleRoots.forEach { dest ->
+            if (dest is TvRootDestination.ForYou) {
+                val panel = TvTopMenuPanel.Root(dest)
+                val active = focusState.openPanel == panel
+                val anchor = tabAnchors[panel]
+                val panelAlpha by animateFloatAsState(
+                    targetValue = if (active) 1f else 0f,
+                    animationSpec = tween(durationMillis = if (active) 90 else 70),
+                    label = "tvTopMenuForYouPanelAlpha",
+                )
+                Box(
+                    modifier = Modifier
+                        .absoluteOffset {
+                            cascadePanelOffset(
+                                anchor = anchor,
+                                level1WidthPx = with(density) { TvSkyline.profileMenuWidth.toPx() },
+                                totalPanelWidthPx = with(density) { TvSkyline.profileMenuWidth.toPx() },
+                                safeAreaXPx = with(density) { TvSkyline.safeAreaX.toPx() },
+                                panelTopPx = with(density) { TvSkyline.dropdownTopInset.toPx() },
+                            )
+                        }
+                        .alpha(panelAlpha)
+                        .focusProperties { canFocus = active }
+                        .zIndex(2f),
+                ) {
+                    TvForYouDropdown(
+                        entersPanel = active && focusState.panelEntersFocus,
+                        focusEntryToken = focusState.panelFocusEntryToken,
+                        onWatchlist = {
+                            focusState.closePanel(false)
+                            navigateToSecondary(TvMainRoute.Watchlist.route)
+                            moveFocusToContent(TvMainRoute.Watchlist.route)
+                        },
+                        onFavorites = {
+                            focusState.closePanel(false)
+                            navigateToSecondary(TvMainRoute.Favorites.route)
+                            moveFocusToContent(TvMainRoute.Favorites.route)
+                        },
+                    )
+                }
+            }
             if (dest is TvRootDestination.LibraryType) {
                 val panel = TvTopMenuPanel.Root(dest)
                 val active = focusState.openPanel == panel
@@ -1105,14 +1145,15 @@ private fun mapRouteToRoot(route: String): TvRootDestination? = when (route) {
     TvMainRoute.Music.route -> TvRootDestination.LibraryType(TvLibraryTabType.Music)
     TvMainRoute.Audiobooks.route -> TvRootDestination.LibraryType(TvLibraryTabType.Audiobooks)
     TvMainRoute.Calendar.route -> TvRootDestination.Calendar
-    // Search / ForYou are no longer tabs — they map to null so no top tab is
-    // highlighted (Search is a trailing icon; ForYou is reached as a Home row).
+    TvMainRoute.ForYou.route -> TvRootDestination.ForYou
+    // Search maps to null so no top tab is highlighted (trailing icon).
     // Requests/MyRequests/Settings/Audio/Libraries are likewise non-tab.
     else -> null
 }
 
 private fun TvRootDestination.toRoute(): String = when (this) {
     TvRootDestination.Home -> TvMainRoute.Home.route
+    TvRootDestination.ForYou -> TvMainRoute.ForYou.route
     TvRootDestination.Calendar -> TvMainRoute.Calendar.route
     is TvRootDestination.LibraryType -> when (type) {
         TvLibraryTabType.Movies -> TvMainRoute.Movies.route
@@ -1176,6 +1217,40 @@ private fun cascadePanelOffset(
  * History · Requests (feature-gated) · Settings · Switch Server · Sign Out.
  * Calendar is a top-level tab.
  */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun TvForYouDropdown(
+    entersPanel: Boolean,
+    focusEntryToken: Int,
+    onWatchlist: () -> Unit,
+    onFavorites: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(entersPanel, focusEntryToken) {
+        if (entersPanel) runCatching { firstFocus.requestFocus() }
+    }
+    Column(
+        modifier = modifier
+            .width(TvSkyline.profileMenuWidth)
+            .tvSkylinePanelChrome()
+            .padding(vertical = TvSkyline.profileMenuPanelVerticalPadding)
+            .focusGroup()
+            // Trap directional focus like the profile dropdown — only Back
+            // (handled by the shell's panel routing) closes it.
+            .focusProperties { exit = { FocusRequester.Cancel } },
+        verticalArrangement = Arrangement.spacedBy(TvSkyline.profileMenuItemSpacing),
+    ) {
+        ProfileDropdownRow(
+            label = "Watchlist",
+            icon = Icons.Filled.Bookmark,
+            focusRequester = firstFocus,
+            onClick = onWatchlist,
+        )
+        ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
+    }
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TvProfileDropdown(

@@ -25,6 +25,7 @@ class TvMediaDestinationsTest {
                 TvRootDestination.LibraryType(TvLibraryTabType.Movies),
                 TvRootDestination.LibraryType(TvLibraryTabType.Series),
                 TvRootDestination.LibraryType(TvLibraryTabType.Music),
+                TvRootDestination.ForYou,
                 TvRootDestination.Calendar,
             ),
             visibleTvRoots(libraries),
@@ -34,7 +35,7 @@ class TvMediaDestinationsTest {
     @Test
     fun rootsAreHomeAndCalendarWhenNoLibraries() {
         assertEquals(
-            listOf(TvRootDestination.Home, TvRootDestination.Calendar),
+            listOf(TvRootDestination.Home, TvRootDestination.ForYou, TvRootDestination.Calendar),
             visibleTvRoots(emptyList()),
         )
     }
@@ -46,6 +47,7 @@ class TvMediaDestinationsTest {
             listOf(
                 TvRootDestination.Home,
                 TvRootDestination.LibraryType(TvLibraryTabType.Audiobooks),
+                TvRootDestination.ForYou,
                 TvRootDestination.Calendar,
             ),
             visibleTvRoots(libraries),

@@ -15,6 +15,9 @@ sealed class TvRootDestination {
     /** A library content-type tab (Movies / Series / Music / Audiobooks). */
     data class LibraryType(val type: TvLibraryTabType) : TvRootDestination()
 
+    /** Personal recommendations ("For You") — tvOS `.recommendations`. */
+    data object ForYou : TvRootDestination()
+
     /** Upcoming releases by week. Always the last tab. */
     data object Calendar : TvRootDestination()
 }

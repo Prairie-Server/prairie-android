@@ -103,6 +103,7 @@ object TvTopMenuLayout {
 private sealed class TvTopMenuFocus {
     data object Home : TvTopMenuFocus()
     data class Tab(val type: TvLibraryTabType) : TvTopMenuFocus()
+    data object ForYou : TvTopMenuFocus()
     data object Calendar : TvTopMenuFocus()
     data object Search : TvTopMenuFocus()
     data object Profile : TvTopMenuFocus()
@@ -160,6 +161,7 @@ fun TvTopMenuBar(
 ) {
     val homeFocusRequester = remember { FocusRequester() }
     val calendarFocusRequester = remember { FocusRequester() }
+    val forYouFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val profileFocusRequester = remember { FocusRequester() }
     // One requester per library-type tab; stable across recompositions so a
@@ -177,6 +179,7 @@ fun TvTopMenuBar(
         TvRootDestination.Home -> homeFocusRequester
         TvRootDestination.Calendar -> calendarFocusRequester
         is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
+        TvRootDestination.ForYou -> forYouFocusRequester
         null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
     }
 
@@ -219,6 +222,9 @@ fun TvTopMenuBar(
         if (focus is TvTopMenuFocus.Tab) {
             delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
             onDwell(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
+        } else if (focus is TvTopMenuFocus.ForYou) {
+            delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
+            onDwell(TvTopMenuPanel.Root(TvRootDestination.ForYou))
         } else {
             onDwell(null)
         }
@@ -275,6 +281,8 @@ fun TvTopMenuBar(
                         // Home/Calendar/Search keep the move-to-content behavior.
                         if (focus is TvTopMenuFocus.Tab) {
                             onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
+                        } else if (focus is TvTopMenuFocus.ForYou) {
+                            onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.ForYou))
                         } else {
                             onMoveDown()
                         }
@@ -356,6 +364,27 @@ fun TvTopMenuBar(
                                 .onGloballyPositioned { onTabAnchor(panel, it) },
                         )
                     }
+
+                    TvRootDestination.ForYou -> TvTopMenuTab(
+                        label = "For You",
+                        isSelected = selectedRoot == TvRootDestination.ForYou,
+                        isFocused = focusedButton == TvTopMenuFocus.ForYou,
+                        focusRequester = forYouFocusRequester,
+                        onFocusChanged = { hasFocus ->
+                            focusedButton = if (hasFocus) {
+                                TvTopMenuFocus.ForYou
+                            } else {
+                                focusedButton.takeUnless { it == TvTopMenuFocus.ForYou }
+                            }
+                        },
+                        onClick = { onSelectRoot(TvRootDestination.ForYou) },
+                        // Publishes its anchor so the shell can hang the
+                        // Watchlist/Favorites dropdown under it (tvOS
+                        // TVForYouDropdown).
+                        modifier = Modifier.onGloballyPositioned {
+                            onTabAnchor(TvTopMenuPanel.Root(TvRootDestination.ForYou), it)
+                        },
+                    )
 
                     TvRootDestination.Calendar -> TvTopMenuTab(
                         label = "Calendar",

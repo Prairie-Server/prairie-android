@@ -16,6 +16,8 @@ fun visibleTvRoots(libraries: List<UserLibrary>): List<TvRootDestination> = buil
     TvLibraryTabType.entries
         .filter { type -> libraries.any { type.matches(it) } }
         .forEach { type -> add(TvRootDestination.LibraryType(type)) }
+    // tvOS root order: libraries, then For You, then Calendar.
+    add(TvRootDestination.ForYou)
     add(TvRootDestination.Calendar)
 }
 
