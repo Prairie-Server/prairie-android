@@ -11,6 +11,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
@@ -102,12 +109,26 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val resolvedRoute = startRoute
                     if (resolvedRoute == null || !splashPlaybackComplete) {
-                        StartupSplashVideo(
-                            onPlaybackComplete = {
-                                splashPlaybackComplete = true
-                                hasShownColdSplash = true
-                            },
-                        )
+                        // iOS StartupSplashView parity: the video plays in a
+                        // SMALL centered box — min(60% of screen width, 320dp)
+                        // on black — not full-bleed (QA 2026-07-08).
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black),
+                        ) {
+                            val videoWidth = minOf(maxWidth * 0.6f, 320.dp)
+                            StartupSplashVideo(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .width(videoWidth)
+                                    .aspectRatio(16f / 9f),
+                                onPlaybackComplete = {
+                                    splashPlaybackComplete = true
+                                    hasShownColdSplash = true
+                                },
+                            )
+                        }
                     } else {
                         AppNavigation(
                             startDestination = resolvedRoute,

@@ -11,6 +11,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -103,13 +107,18 @@ class MainTvActivity : ComponentActivity() {
                             },
                     ) {
                         if (!splashPlaybackComplete) {
-                            StartupSplashVideo(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .fillMaxSize(),
-                                // Fit, not Crop — silo-apple's StartupSplashView uses
-                                // .resizeAspect; the asset is the same file, so
-                                // this renders the tvOS splash exactly.
+                            // tvOS StartupSplashView parity: the video plays in a
+                            // SMALL centered box — min(25% of screen width, 440pt
+                            // → 220dp at Android TV scale) — on black, NOT
+                            // full-bleed (full-bleed rendered the logo 4x too
+                            // large; QA 2026-07-08).
+                            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                val videoWidth = minOf(maxWidth * 0.25f, 220.dp)
+                                StartupSplashVideo(
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .width(videoWidth)
+                                        .aspectRatio(16f / 9f),
                                 resizeMode = StartupSplashResizeMode.Fit,
                                 backgroundColor = splashBackground,
                                 minVisibleMillis = 5_200L,
@@ -117,7 +126,8 @@ class MainTvActivity : ComponentActivity() {
                                     splashPlaybackComplete = true
                                     hasShownColdSplash = true
                                 },
-                            )
+                                )
+                            }
                         }
                     }
                 } else {
