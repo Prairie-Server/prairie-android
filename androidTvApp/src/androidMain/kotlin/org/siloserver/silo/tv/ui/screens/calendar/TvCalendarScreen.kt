@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -537,7 +540,7 @@ private fun monthYearLabel(weekDates: List<String>): String {
 
 // MARK: - Day list
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 private fun DayList(
     state: org.siloserver.silo.viewmodel.CalendarUiState,
@@ -551,6 +554,13 @@ private fun DayList(
     val onShelfFocused: (Int) -> Unit = { index ->
         snapScope.launch { listState.animateScrollToItem(index) }
     }
+    // The day-snap is the ONLY vertical scroller: with the default spec the
+    // focused card's own bring-into-view fought the snap (it re-scrolled to
+    // give itself a gutter, dragging the previous day's caption tail back
+    // under the week strip and pushing this shelf's captions past the fold —
+    // QA 2026-07-08 screenshots). Horizontal rows re-enable the smooth spec
+    // inside the shelf.
+    CompositionLocalProvider(LocalBringIntoViewSpec provides NoVerticalBringIntoViewSpec) {
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -580,8 +590,10 @@ private fun DayList(
             )
         }
     }
+    }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun DayShelf(
     date: String,
@@ -624,6 +636,7 @@ private fun DayShelf(
         if (items.isEmpty()) {
             NothingScheduledRow()
         } else {
+            CompositionLocalProvider(LocalBringIntoViewSpec provides TvSmoothBringIntoViewSpec) {
             LazyRow(
                 state = rowState,
                 modifier = Modifier
@@ -632,8 +645,8 @@ private fun DayShelf(
                 contentPadding = PaddingValues(
                     start = Spacing.safeArea,
                     end = Spacing.safeArea,
-                    top = 12.dp,
-                    bottom = 12.dp,
+                    top = 8.dp,
+                    bottom = 8.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(CalendarCardSpacing),
             ) {
@@ -647,6 +660,7 @@ private fun DayShelf(
                         onClick = { onOpenItemDetail(item.detailContentId) },
                     )
                 }
+            }
             }
         }
     }
@@ -696,6 +710,11 @@ private fun NothingScheduledRow() {
 // badges/watched/time overlaid ON the poster. Sized down from the previous
 // RowDimens tokens so a full day shelf (header + poster + 2-line caption)
 // fits between the week strip and the fold (QA 2026-07-08).
+/** Suppresses focus-driven vertical scrolling — the calendar's day-snap owns it. */
+private val NoVerticalBringIntoViewSpec: BringIntoViewSpec = object : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
+}
+
 private val posterWidth = 120.dp
 private val posterHeight = 180.dp
 private val CalendarCardSpacing = 18.dp
