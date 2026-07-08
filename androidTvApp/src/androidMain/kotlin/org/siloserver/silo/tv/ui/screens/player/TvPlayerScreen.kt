@@ -843,6 +843,9 @@ fun TvPlayerScreen(
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
                 }
+                override fun onRenderedFirstFrame() {
+                    viewModel.onFirstVideoFrameRendered()
+                }
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     // Buffering during normal playback flips the centered
                     // spinner. This complements the lifecycle's Reconnecting

@@ -451,6 +451,7 @@ class TvPlayerViewModel(
 ) : ViewModel() {
 
     companion object {
+        private const val FIRST_FRAME_WATCHDOG_MS = 8_000L
         private const val TAG = "TvPlayerViewModel"
         // A transient network blip retries the same route this many times before
         // demoting to a server transcode (resets once playback progresses).
@@ -847,6 +848,9 @@ class TvPlayerViewModel(
         // Fresh content: forget engines attempted for the previous item.
         attemptedEngines.clear()
         engineSwitchFallbackAttempted = false
+        firstVideoFrameRendered = false
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
 
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
@@ -1226,8 +1230,33 @@ class TvPlayerViewModel(
         maybeRecordPosition(positionSec, if (durationSec > 0) durationSec else _uiState.value.duration)
     }
 
+    /** Set once Media3 renders the first video frame of the current item. */
+    private var firstVideoFrameRendered = false
+    private var firstFrameWatchdogJob: Job? = null
+
+    fun onFirstVideoFrameRendered() {
+        firstVideoFrameRendered = true
+        firstFrameWatchdogJob?.cancel()
+    }
+
     fun onPlayingChanged(isPlaying: Boolean) {
         _uiState.update { it.copy(isPlaying = isPlaying) }
+        // Silent-black-screen watchdog (QA 2026-07-08: a DV Profile 7 remux on
+        // the Shield played audio over a black screen with NO decoder error —
+        // the device claims P7 but its DV decoder renders nothing, so the
+        // error-driven recovery ladder never fires). If playback is rolling
+        // and no first video frame lands within the window, treat it as an
+        // engine failure: the ladder prefers another direct engine (MPV plays
+        // the P7/P8 HDR10 base layer) before conceding a server transcode.
+        if (isPlaying && !firstVideoFrameRendered && firstFrameWatchdogJob == null) {
+            firstFrameWatchdogJob = viewModelScope.launch {
+                delay(FIRST_FRAME_WATCHDOG_MS)
+                if (!firstVideoFrameRendered && _uiState.value.isPlaying) {
+                    Log.w(TAG, "No first video frame after ${FIRST_FRAME_WATCHDOG_MS}ms — engine fallback")
+                    onEngineSwitchFailed("Video never started (black screen)")
+                }
+            }
+        }
         // Durably capture the exact spot when playback halts (pause/stall/stop)
         // while the VM is alive, so resume is reliable without depending on the
         // exit-time write completing during teardown.
