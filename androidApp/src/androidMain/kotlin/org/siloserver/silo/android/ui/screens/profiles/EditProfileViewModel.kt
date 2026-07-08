@@ -2,8 +2,10 @@ package org.siloserver.silo.android.ui.screens.profiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.profile.UpdateProfileRequest
 import org.siloserver.silo.model.profile.canonicalProfileQualityPreference
+import org.siloserver.silo.model.profile.hasProfileNamed
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +39,9 @@ class EditProfileViewModel(
     private val _uiState = MutableStateFlow(EditProfileUiState())
     val uiState: StateFlow<EditProfileUiState> = _uiState.asStateFlow()
 
+    /** All profiles from [loadProfile], kept for the rename duplicate check. */
+    private var existingProfiles: List<Profile> = emptyList()
+
     /**
      * Loads the profile by ID. Called once from the composable via LaunchedEffect.
      * We fetch the full list and find the matching profile because the repository
@@ -48,6 +53,7 @@ class EditProfileViewModel(
 
             when (val result = profileRepository.listProfiles()) {
                 is ApiResult.Success -> {
+                    existingProfiles = result.data
                     val profile = result.data.find { it.id == profileId }
                     if (profile != null) {
                         _uiState.update {
@@ -143,6 +149,10 @@ class EditProfileViewModel(
             _uiState.update { it.copy(error = "Profile name is required") }
             return
         }
+        if (existingProfiles.hasProfileNamed(current.name, excludeId = current.profileId)) {
+            _uiState.update { it.copy(error = "A profile with this name already exists") }
+            return
+        }
         if (current.pinEnabled && current.pin.isNotEmpty() && current.pin.length != 4) {
             _uiState.update { it.copy(error = "PIN must be 4 digits") }
             return
@@ -163,14 +173,19 @@ class EditProfileViewModel(
                 subtitleMode = current.subtitleMode,
             )
 
-            when (profileRepository.updateProfile(current.profileId, request)) {
+            when (val result = profileRepository.updateProfile(current.profileId, request)) {
                 is ApiResult.Success -> {
                     _uiState.update { it.copy(isSaving = false, saveSuccess = true) }
                 }
 
                 is ApiResult.Error -> {
+                    // Surface the server's explanation (e.g. a name conflict)
+                    // instead of a generic failure.
                     _uiState.update {
-                        it.copy(isSaving = false, error = "Failed to update profile")
+                        it.copy(
+                            isSaving = false,
+                            error = result.message.ifBlank { "Failed to update profile" },
+                        )
                     }
                 }
 

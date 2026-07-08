@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,9 +34,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +81,18 @@ fun ProfileSelectionScreen(
     viewModel: ProfileSelectionViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Reload on resume so a profile created/edited on a pushed screen is
+    // reflected when we return (the VM otherwise only loads in init) — the
+    // TvProfileSelectionScreen pattern.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.loadProfiles()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Navigate after a profile is selected.
     LaunchedEffect(state.selectedProfileId) {
@@ -287,20 +304,24 @@ private fun ProfileCard(
                 )
             }
 
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(AuthColors.Error),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Delete profile",
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp),
-                )
+            // The server never deletes the primary profile (409
+            // primary_profile_protected), so don't offer it.
+            if (!profile.isPrimary) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(AuthColors.Error),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Delete profile",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
     }
@@ -364,14 +385,17 @@ private fun ProfileTileBody(profile: Profile, tint: Color) {
             )
         }
 
-        // Child / lock badges ride the top-right corner.
-        if (profile.hasPin || profile.isChild) {
+        // Primary / child / lock badges ride the top-right corner.
+        if (profile.isPrimary || profile.hasPin || profile.isChild) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                if (profile.isPrimary) {
+                    TileBadge(Icons.Filled.WorkspacePremium, contentDescription = "Primary profile")
+                }
                 if (profile.isChild) {
                     TileBadge(Icons.Filled.Eco)
                 }
@@ -384,7 +408,10 @@ private fun ProfileTileBody(profile: Profile, tint: Color) {
 }
 
 @Composable
-private fun TileBadge(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+private fun TileBadge(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String? = null,
+) {
     Box(
         modifier = Modifier
             .clip(CircleShape)
@@ -394,7 +421,7 @@ private fun TileBadge(icon: androidx.compose.ui.graphics.vector.ImageVector) {
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            contentDescription = contentDescription,
             tint = Color.White,
             modifier = Modifier.size(16.dp),
         )
