@@ -14,6 +14,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -47,8 +49,22 @@ class TvLoginViewModelRaceTest {
 
     @AfterTest
     fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
         Dispatchers.resetMain()
     }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test class calls
+    // setMain throws IllegalStateException from TestMainDispatcher — the
+    // CI-only cross-class flake that failed the v0.3.4 tag build.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     @Test
     fun credentialCompletionAfterQrApprovalDoesNotOverwriteQrTokens() = runTest(dispatcher) {
@@ -56,14 +72,14 @@ class TvLoginViewModelRaceTest {
         val releaseCredentialLogin = CompletableDeferred<Unit>()
         val credentialLoginStarted = CompletableDeferred<Unit>()
         val deviceApi = ControlledDeviceLoginApi()
-        val viewModel = TvLoginViewModel(
+        val viewModel = track(TvLoginViewModel(
             authRepository = AuthRepository(
                 authApi = AuthApi(loginClient(tokenManager, releaseCredentialLogin, credentialLoginStarted)),
                 tokenManager = tokenManager,
             ),
             tokenManager = tokenManager,
             deviceLogin = DeviceLoginRepository(deviceApi),
-        )
+        ))
         advanceUntilIdle()
 
         viewModel.onUsernameChanged("jim")
