@@ -166,7 +166,10 @@ private fun TvPersonDetailContent(
             fixedColumnCount = PersonGridColumns,
             contentPadding = PaddingValues(
                 start = 0.dp,
-                top = 6.dp,
+                // Room for the focus ring above / the title+year label below —
+                // with a single row the year clipped at the margin (QA
+                // 2026-07-08).
+                top = 12.dp,
                 end = 0.dp,
                 bottom = Spacing.xxl,
             ),
@@ -201,8 +204,10 @@ private fun PersonHeader(person: Person) {
                 text = person.name,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 38.sp,
-                lineHeight = 42.sp,
+                // Matches the detail hero title scale — the person page was
+                // noticeably larger than the rest of the UI (QA 2026-07-08).
+                fontSize = 25.sp,
+                lineHeight = 29.sp,
                 letterSpacing = 0.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -400,7 +405,9 @@ private fun FilterChoiceChip(
     }
 }
 
-private const val PersonGridColumns = 7
+// Matches BrowseGridColumns — the person grid used 7 columns, so its cards
+// rendered smaller than every other grid in the app (QA 2026-07-08).
+private const val PersonGridColumns = 6
 private val PersonGridItemSpacing = 16.dp
 
 private fun personWorkCardAspectRatio(item: BrowseItem): Float? =

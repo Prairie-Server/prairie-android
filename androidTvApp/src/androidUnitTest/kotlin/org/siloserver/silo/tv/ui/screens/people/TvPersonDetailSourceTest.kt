@@ -31,10 +31,12 @@ class TvPersonDetailSourceTest {
         assertTrue(source.contains("hasMore = state.hasMore"))
         assertTrue(source.contains("modifier = Modifier.weight(1f).fillMaxWidth()"))
         assertTrue(source.contains("val width = 96.dp"))
-        assertTrue(source.contains("fontSize = 38.sp"))
+        // QA 2026-07-08: name matches the detail-hero title scale.
+        assertTrue(source.contains("fontSize = 25.sp"))
         assertTrue(source.contains("horizontalArrangement = Arrangement.spacedBy(20.dp)"))
         assertTrue(source.contains("maxLines = 4"))
-        assertTrue(source.contains("private const val PersonGridColumns = 7"))
+        // QA 2026-07-08: 6 columns to match every other catalog grid.
+        assertTrue(source.contains("private const val PersonGridColumns = 6"))
         assertTrue(source.contains("private val PersonGridItemSpacing = 16.dp"))
         assertTrue(source.contains("No biography or personal details are available yet."))
         assertTrue(source.contains("artworkAspectRatioForItem = ::personWorkCardAspectRatio"))

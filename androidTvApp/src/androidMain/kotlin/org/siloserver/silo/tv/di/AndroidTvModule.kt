@@ -361,6 +361,7 @@ val androidTvModule = module {
         org.siloserver.silo.tv.ui.screens.people.TvPersonDetailViewModel(
             catalogRepository = get(),
             personId = params.get(),
+            personalDataRepository = getOrNull(),
         )
     }
     viewModel { TvLibrariesViewModel(get(), get(), get()) }
