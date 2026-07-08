@@ -25,6 +25,7 @@ import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.domain.player.IntroAutoSkipController
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.catalog.TimeRange
@@ -741,6 +742,8 @@ class TvPlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, 3)
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val dolbyVisionEnabled: StateFlow<Boolean> = playerSettingsStore.dolbyVisionEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, SubtitleAppearance.DEFAULT)
     /**
@@ -997,7 +1000,7 @@ class TvPlayerViewModel(
         recoveryJob = viewModelScope.launch {
             val sessionId = state.sessionId ?: return@launch
             val activeFileId = state.selectedFileId ?: state.mediaFileId ?: return@launch
-            val capabilities = capabilityDetector.detect()
+            val capabilities = capabilityDetector.detect(dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot())
             val selectedAudioIndex = state.audioTracks.firstOrNull { it.isSelected }?.index ?: 0
             val selectedSubtitleIndex = selectedSubtitleTrackIndex(state)
             val sessionResponse = PlaybackSessionResponse(
@@ -2017,6 +2020,12 @@ class TvPlayerViewModel(
 
     fun onSetHdrEnabled(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setHdrEnabled(value) }
+    }
+
+    /** Applies to track selection immediately; server-side routing (base
+     *  layer vs DV delivery) follows at the next playback start. */
+    fun onSetDolbyVisionEnabled(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDolbyVisionEnabled(value) }
     }
 
     fun onSetSubtitleAppearance(value: SubtitleAppearance) {

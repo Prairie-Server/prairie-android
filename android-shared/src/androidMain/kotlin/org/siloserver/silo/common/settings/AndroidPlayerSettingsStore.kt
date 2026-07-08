@@ -143,6 +143,9 @@ class AndroidPlayerSettingsStore(
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DvProfile7HDR10Fallback, true) }
 
+    override val dolbyVisionEnabledFlow: Flow<Boolean> =
+        profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.DolbyVisionEnabled, true) }
+
     override val pictureInPictureEnabledFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.PictureInPictureEnabled, true) }
 
@@ -226,6 +229,9 @@ class AndroidPlayerSettingsStore(
 
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) =
         writeBool(PlaybackSettingsKeys.DvProfile7HDR10Fallback, value)
+
+    override suspend fun setDolbyVisionEnabled(value: Boolean) =
+        writeBool(PlaybackSettingsKeys.DolbyVisionEnabled, value)
 
     override suspend fun setPictureInPictureEnabled(value: Boolean) =
         writeBoolLocal(PlaybackSettingsKeys.PictureInPictureEnabled, value)
@@ -486,6 +492,7 @@ class AndroidPlayerSettingsStore(
             PlaybackSettingsKeys.AutoPlayNext,
             PlaybackSettingsKeys.HdrEnabled,
             PlaybackSettingsKeys.DvProfile7HDR10Fallback,
+            PlaybackSettingsKeys.DolbyVisionEnabled,
             PlaybackSettingsKeys.SubtitleTextOutline,
         )
 

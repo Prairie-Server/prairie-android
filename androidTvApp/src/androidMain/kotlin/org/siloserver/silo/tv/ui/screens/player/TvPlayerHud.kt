@@ -150,6 +150,8 @@ fun TvPlayerHud(
     onTranslateWithAi: (() -> Unit)?,
     hdrEnabled: Boolean,
     onHdrEnabledChanged: (Boolean) -> Unit,
+    dolbyVisionEnabled: Boolean,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
     chapters: List<VersionChapter>,
     onSelectChapter: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -274,6 +276,8 @@ fun TvPlayerHud(
                         onSelectVideoQuality = onSelectVideoQuality,
                         hdrEnabled = hdrEnabled,
                         onHdrEnabledChanged = onHdrEnabledChanged,
+                        dolbyVisionEnabled = dolbyVisionEnabled,
+                        onDolbyVisionEnabledChanged = onDolbyVisionEnabledChanged,
                         fillMode = videoFillMode,
                         onFillModeChanged = onVideoFillModeChanged,
                         playbackSpeed = playbackSpeed,
@@ -731,6 +735,8 @@ private fun HudVideoPane(
     onSelectVideoQuality: (String) -> Unit,
     hdrEnabled: Boolean,
     onHdrEnabledChanged: (Boolean) -> Unit,
+    dolbyVisionEnabled: Boolean,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
     fillMode: VideoFillMode,
     onFillModeChanged: (VideoFillMode) -> Unit,
     playbackSpeed: Double,
@@ -839,6 +845,25 @@ private fun HudVideoPane(
                                 title = "HDR Passthrough",
                                 value = hdrEnabled,
                                 onSet = onHdrEnabledChanged,
+                            ),
+                        )
+                    },
+                )
+
+                // Off plays DV sources as their base layer (HDR10) — some
+                // users prefer HDR10 even on DV-capable displays. Profile 5
+                // always plays as DV (no watchable base layer); applies from
+                // the next playback start. Apple parity (silo-apple e9bd775).
+                HudFocusedSettingRow(
+                    label = "Dolby Vision",
+                    value = onOffLabel(dolbyVisionEnabled),
+                    enabled = enabled,
+                    onActivate = {
+                        onPresentPicker(
+                            boolPicker(
+                                title = "Dolby Vision",
+                                value = dolbyVisionEnabled,
+                                onSet = onDolbyVisionEnabledChanged,
                             ),
                         )
                     },

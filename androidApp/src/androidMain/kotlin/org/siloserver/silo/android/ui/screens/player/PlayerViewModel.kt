@@ -29,6 +29,7 @@ import org.siloserver.silo.common.player.video.immediateServerFallbackMode
 import org.siloserver.silo.common.player.video.requestedOriginalPlaybackMethod
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.settings.PlayerSettingsStore
+import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.domain.player.IntroAutoSkipController
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.catalog.AudioTrack
@@ -344,6 +345,8 @@ class PlayerViewModel(
     )
 
     val hdrEnabled: StateFlow<Boolean> = playerSettingsStore.hdrEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val dolbyVisionEnabled: StateFlow<Boolean> = playerSettingsStore.dolbyVisionEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, SubtitleAppearance.DEFAULT)
@@ -880,7 +883,7 @@ class PlayerViewModel(
                 Log.i(TAG, "Ignoring stale server recovery before fallback start: $recoveryIdentity")
                 return@launch
             }
-            val capabilities = capabilityDetector.detect()
+            val capabilities = capabilityDetector.detect(dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot())
             val sessionResponse = PlaybackSessionResponse(
                 sessionId = sessionId,
                 userId = 0,
@@ -1779,6 +1782,12 @@ class PlayerViewModel(
         viewModelScope.launch { playerSettingsStore.setHdrEnabled(value) }
     }
 
+    /** Applies from the next playback start (capability payload is built per
+     *  session); DV off plays base-layer HDR10, profile 5 stays DV. */
+    fun onSetDolbyVisionEnabled(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDolbyVisionEnabled(value) }
+    }
+
     fun onSetSubtitleAppearance(value: SubtitleAppearance) {
         viewModelScope.launch { playerSettingsStore.setSubtitleAppearance(value) }
     }
@@ -1851,10 +1860,11 @@ class PlayerViewModel(
 
             val version = versions[index]
             val profileId = profileRepository.getActiveProfileId() ?: return@launch
-            val capabilities = capabilityDetector.detect()
+            val capabilities = capabilityDetector.detect(dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot())
             val playbackContext = capabilityDetector.detectPlaybackContext(
                 formFactor = "mobile",
                 appVersion = BuildConfig.VERSION_NAME,
+                dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot(),
             )
             val requestedPlayMethod = version.requestedOriginalPlaybackMethod(
                 playbackContext = playbackContext,

@@ -223,6 +223,7 @@ fun TvPlayerScreen(
     val audioDelayMs by viewModel.audioDelayMs.collectAsState()
     val subtitleDelayMs by viewModel.subtitleDelayMs.collectAsState()
     val hdrEnabled by viewModel.hdrEnabled.collectAsState()
+    val dolbyVisionEnabled by viewModel.dolbyVisionEnabled.collectAsState()
     val subtitleSearch by viewModel.subtitleSearch.collectAsState()
     val aiTranslate by viewModel.aiTranslate.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -568,7 +569,11 @@ fun TvPlayerScreen(
             state.showNextUp -> stopPlaybackAndExit()
             state.hudOpen -> viewModel.closeHUD()
             showLeaveDialog -> showLeaveDialog = false
-            state.showControls -> viewModel.setControlsVisible(false)
+            // While PLAYING, Back steps controls -> hidden before exiting.
+            // While PAUSED, hiding controls would just strand a frozen frame,
+            // so Back falls through to the exit (or room-leave) flow instead —
+            // Apple parity (silo-apple f12a928).
+            state.showControls && !state.isPaused -> viewModel.setControlsVisible(false)
             // In a room: Back surfaces the Leave affordance. Host gets a
             // close-confirm dialog (closing tears down the room for everyone);
             // a guest leaves immediately.
@@ -730,11 +735,22 @@ fun TvPlayerScreen(
         state.preferredAudioLanguage,
         state.preferredTextLanguage,
         hdrEnabled,
+        dolbyVisionEnabled,
     ) {
         val backend = videoBackend ?: return@LaunchedEffect
+        // With Dolby Vision off, drop DV profiles (except 5 — no watchable
+        // base layer) so the DV MIME preference is not added and multi-track
+        // content selects the HEVC/HDR10 variant. DolbyVisionPolicy is the
+        // single decision source (Apple parity, silo-apple e9bd775).
+        val effectiveDisplayHdr = displayHdr.copy(
+            dolbyVisionProfiles = org.siloserver.silo.player.DolbyVisionPolicy.advertisableProfiles(
+                displayHdr.dolbyVisionProfiles,
+                org.siloserver.silo.player.DolbyVisionPolicy.Snapshot(dolbyVisionEnabled = dolbyVisionEnabled),
+            ),
+        )
         backend.applyTrackSelection(
             audioCaps = audioCaps,
-            displayHdr = displayHdr,
+            displayHdr = effectiveDisplayHdr,
             preferredAudioLanguage = state.preferredAudioLanguage,
             preferredTextLanguage = state.preferredTextLanguage,
             hdrEnabled = hdrEnabled,
@@ -1455,6 +1471,8 @@ fun TvPlayerScreen(
                             },
                             hdrEnabled = hdrEnabled,
                             onHdrEnabledChanged = viewModel::onSetHdrEnabled,
+                            dolbyVisionEnabled = dolbyVisionEnabled,
+                            onDolbyVisionEnabledChanged = viewModel::onSetDolbyVisionEnabled,
                             chapters = state.chapters,
                             onSelectChapter = { idx ->
                                 viewModel.onSeekToChapter(idx)?.let { sec ->

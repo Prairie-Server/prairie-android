@@ -9,6 +9,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import org.siloserver.silo.common.player.backend.MpvDeviceFloor
+import org.siloserver.silo.player.DolbyVisionPolicy
 import org.siloserver.silo.common.player.video.directOriginalPlaybackContainers
 import org.siloserver.silo.common.player.video.media3OriginalPlaybackContainers
 import org.siloserver.silo.common.player.video.mpvOriginalPlaybackContainers
@@ -132,10 +133,22 @@ class PlaybackCapabilityDetector(
      */
     fun detect(
         ffmpegAvailable: Boolean = FfmpegAudioSupport.isAvailable(),
+        dolbyVision: DolbyVisionPolicy.Snapshot = DolbyVisionPolicy.Snapshot(),
     ): ClientCodecCapabilities {
         val codecProbe = MediaCodecCapabilitiesProbe.probe()
         val displayHdr = DisplayHdrProbe.probe(context)
-        val intersectedHdr = DisplayHdrProbe.intersect(codecProbe.hdr, displayHdr)
+        // With Dolby Vision off, stop advertising DV profiles (except 5,
+        // which has no watchable base layer) so the server plans base-layer /
+        // HDR10 delivery and local direct-play checks agree. Single decision
+        // source: DolbyVisionPolicy (Apple parity, silo-apple e9bd775).
+        val intersectedHdr = DisplayHdrProbe.intersect(codecProbe.hdr, displayHdr).let { hdr ->
+            hdr.copy(
+                dolbyVisionProfiles = DolbyVisionPolicy.advertisableProfiles(
+                    hdr.dolbyVisionProfiles,
+                    dolbyVision,
+                ),
+            )
+        }
 
         val softwareAudio = detectSoftwareAudioCodecs(ffmpegAvailable)
         val passthrough = audioCapabilityManager.capabilities.value
@@ -180,8 +193,9 @@ class PlaybackCapabilityDetector(
         formFactor: String,
         appVersion: String = "unknown",
         ffmpegAvailable: Boolean = FfmpegAudioSupport.isAvailable(),
+        dolbyVision: DolbyVisionPolicy.Snapshot = DolbyVisionPolicy.Snapshot(),
     ): ClientPlaybackContext {
-        val caps = detect(ffmpegAvailable)
+        val caps = detect(ffmpegAvailable, dolbyVision)
         val supportedAbis = Build.SUPPORTED_ABIS?.toList().orEmpty()
         val mpvSupported = MpvDeviceFloor.isMpvSupported(
             sdkInt = Build.VERSION.SDK_INT,
