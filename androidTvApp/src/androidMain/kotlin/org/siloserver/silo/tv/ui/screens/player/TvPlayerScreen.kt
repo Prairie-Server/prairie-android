@@ -649,6 +649,28 @@ fun TvPlayerScreen(
                 return@handler handleSkipIntroNow()
             }
 
+            // Back while PLAYING with the transport overlay up: hide the
+            // overlay HERE, at the key-dispatch bridge, before Compose's
+            // focus system can eat the press as a button focus-deselection
+            // (QA 2026-07-08: Back on a focused control deselected the button
+            // instead of dismissing the overlay). Paused/room/dialog cases
+            // stay with the BackHandler's stepping logic.
+            if (event.keyCode == KeyEvent.KEYCODE_BACK &&
+                playerState.showControls &&
+                !playerState.isPaused &&
+                !playerState.hudOpen &&
+                !playerState.showNextUp &&
+                !playerState.showSubtitleMenu &&
+                !playerState.showSubtitleStyleDialog &&
+                !latestShowQuickSubtitlePicker &&
+                !latestShowLeaveDialog
+            ) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    viewModel.setControlsVisible(false)
+                }
+                return@handler true
+            }
+
             when (action) {
                 TvPlayerRemoteKeyAction.PlayPause -> {
                     val canPlayPauseInRoom = roomController == null ||
@@ -1406,6 +1428,9 @@ fun TvPlayerScreen(
                             episodeNumber = state.episodeNumber,
                             audioTracks = state.audioTracks,
                             videoQualities = state.videoQualities,
+                            fileVersions = state.fileVersions,
+                            selectedFileId = state.selectedFileId ?: state.mediaFileId,
+                            onSelectFileVersion = viewModel::onSelectFileVersion,
                             subtitleTracks = state.subtitleTracks,
                             stats = state.stats,
                             playbackPlan = state.playbackPlan,

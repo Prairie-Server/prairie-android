@@ -122,6 +122,9 @@ fun TvPlayerHud(
     episodeNumber: Int?,
     audioTracks: List<PlayerTrackEntry>,
     videoQualities: List<VideoQualityOption>,
+    fileVersions: List<org.siloserver.silo.model.catalog.FileVersion> = emptyList(),
+    selectedFileId: Int? = null,
+    onSelectFileVersion: (Int) -> Unit = {},
     subtitleTracks: List<PlayerTrackEntry>,
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
@@ -274,6 +277,9 @@ fun TvPlayerHud(
                     HudTab.Video -> HudVideoPane(
                         videoQualities = videoQualities,
                         onSelectVideoQuality = onSelectVideoQuality,
+                        fileVersions = fileVersions,
+                        selectedFileId = selectedFileId,
+                        onSelectFileVersion = onSelectFileVersion,
                         hdrEnabled = hdrEnabled,
                         onHdrEnabledChanged = onHdrEnabledChanged,
                         dolbyVisionEnabled = dolbyVisionEnabled,
@@ -733,6 +739,9 @@ private fun onOffLabel(value: Boolean): String = if (value) "On" else "Off"
 private fun HudVideoPane(
     videoQualities: List<VideoQualityOption>,
     onSelectVideoQuality: (String) -> Unit,
+    fileVersions: List<org.siloserver.silo.model.catalog.FileVersion>,
+    selectedFileId: Int?,
+    onSelectFileVersion: (Int) -> Unit,
     hdrEnabled: Boolean,
     onHdrEnabledChanged: (Boolean) -> Unit,
     dolbyVisionEnabled: Boolean,
@@ -772,6 +781,38 @@ private fun HudVideoPane(
                 // is shown disabled with an "Auto" value rather than faking it.
                 // (videoQualities, when present, always contains a synthetic
                 // "Auto" entry, so a genuine choice means size > 2.)
+                // Version — the server's file versions (4K / 1080p encodes).
+                // Switching restarts the session on that file at the current
+                // position (QA 2026-07-08 / tvOS parity).
+                if (fileVersions.size > 1) {
+                    val currentVersion = fileVersions.firstOrNull { it.fileId == selectedFileId }
+                        ?: fileVersions.firstOrNull()
+                    HudFocusedSettingRow(
+                        label = "Version",
+                        value = org.siloserver.silo.tv.ui.screens.detail.TvPlaybackFormatting
+                            .versionShortLabel(currentVersion),
+                        enabled = enabled,
+                        onActivate = {
+                            onPresentPicker(
+                                HudPickerPresentation(
+                                    title = "Version",
+                                    options = fileVersions.map { version ->
+                                        HudPickerOption(
+                                            id = version.fileId.toString(),
+                                            label = org.siloserver.silo.tv.ui.screens.detail
+                                                .TvPlaybackFormatting.versionShortLabel(version),
+                                        )
+                                    },
+                                    selectedId = (currentVersion?.fileId ?: -1).toString(),
+                                    onSelect = { id ->
+                                        id.toIntOrNull()?.let(onSelectFileVersion)
+                                    },
+                                ),
+                            )
+                        },
+                    )
+                }
+
                 val hasQualityChoice = videoQualities.size > 2
                 val selectedQuality = videoQualities.firstOrNull { it.isSelected }
                 val qualityValue = selectedQuality?.label ?: "Auto"

@@ -216,6 +216,7 @@ class TvVideoPlaybackStarter(
             VideoPlaybackStartResult.Ready(
                 contentId = request.contentId,
                 fileId = version.fileId,
+                versions = watchDetail.versions,
                 fileResolution = version.resolution,
                 sessionId = resolved.sessionId,
                 streamUrl = resolvedStreamUrl,

@@ -552,6 +552,8 @@ class TvPlayerViewModel(
         val serverUrl: String = "",
         val accessToken: String = "",
         val selectedFileId: Int? = null,
+        /** All server file versions for this item (in-player version switching). */
+        val fileVersions: List<org.siloserver.silo.model.catalog.FileVersion> = emptyList(),
         val selectedFileResolution: String? = null,
         val startPosition: Double = 0.0,
         val position: Double = 0.0,
@@ -892,6 +894,7 @@ class TvPlayerViewModel(
                                 serverUrl = result.serverUrl,
                                 accessToken = result.accessToken,
                                 selectedFileId = result.fileId,
+                                fileVersions = result.versions,
                                 selectedFileResolution = result.fileResolution,
                                 mediaFileId = result.mediaFileId,
                                 startPosition = result.startPositionSeconds,
@@ -2167,6 +2170,28 @@ class TvPlayerViewModel(
             it.copy(
                 isLoading = false,
                 error = message,
+            )
+        }
+    }
+
+    /**
+     * In-player version switch (QA 2026-07-08 / tvOS parity): restart the
+     * session on the chosen server file version at the current position.
+     */
+    fun onSelectFileVersion(fileId: Int) {
+        val state = _uiState.value
+        if (fileId == (state.selectedFileId ?: state.mediaFileId)) return
+        if (state.fileVersions.none { it.fileId == fileId }) return
+        val resumeAt = state.position.takeIf { it > 0.0 }
+        val staleSessionId = state.sessionId
+        viewModelScope.launch {
+            if (staleSessionId != null) {
+                runCatching { playbackSessionManager.stopSession(staleSessionId) }
+            }
+            loadContent(
+                startPositionOverride = resumeAt,
+                preferredFileIdOverride = fileId,
+                suppressResumeRewind = true,
             )
         }
     }

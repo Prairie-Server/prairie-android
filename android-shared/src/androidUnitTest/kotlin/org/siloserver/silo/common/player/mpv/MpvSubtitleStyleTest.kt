@@ -17,8 +17,10 @@ class MpvSubtitleStyleTest {
         // Box style: background color carries the 75% opacity alpha (0xBF).
         assertEquals("#BF000000", props["sub-back-color"])
         assertEquals("4", props["sub-border-style"]) // ASS BorderStyle 4 = per-event box
-        // Outline off → no border ring.
-        assertEquals("0", props["sub-border-size"])
+        // In border-style 4 the border size inflates the box (no ring is
+        // drawn), so Box keeps a minimum for padding around the glyphs
+        // (QA 2026-07-08).
+        assertEquals("3", props["sub-border-size"])
         // Bottom position → legacy sub-pos 100.
         assertEquals("100", props["sub-pos"])
         // User styling must override authored styles on non-ASS tracks.

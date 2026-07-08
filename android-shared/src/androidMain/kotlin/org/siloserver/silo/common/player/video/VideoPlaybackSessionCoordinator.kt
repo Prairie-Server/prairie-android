@@ -8,6 +8,7 @@ class VideoPlaybackSessionCoordinator(
             is VideoPlaybackStartResult.Ready -> VideoPlayerUiState.Ready(
                 contentId = result.contentId,
                 fileId = result.fileId,
+                versions = result.versions,
                 fileResolution = result.fileResolution,
                 streamUrl = result.streamUrl,
                 playMethod = result.playMethod,

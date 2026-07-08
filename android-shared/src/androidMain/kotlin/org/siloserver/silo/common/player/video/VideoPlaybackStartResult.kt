@@ -11,6 +11,9 @@ sealed interface VideoPlaybackStartResult {
     data class Ready(
         val contentId: String,
         val fileId: Int?,
+        /** All server file versions for this item — powers in-player version
+         *  switching (QA 2026-07-08 / tvOS parity). */
+        val versions: List<org.siloserver.silo.model.catalog.FileVersion> = emptyList(),
         val fileResolution: String? = null,
         val streamUrl: String,
         val playMethod: PlayMethod,
