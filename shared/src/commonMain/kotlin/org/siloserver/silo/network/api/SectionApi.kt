@@ -4,7 +4,7 @@ import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.http.*
-import org.siloserver.silo.model.catalog.BrowseResponse
+import org.siloserver.silo.model.catalog.CatalogResponse
 import org.siloserver.silo.model.section.*
 import org.siloserver.silo.network.ApiErrorBody
 import org.siloserver.silo.network.ApiResult
@@ -65,11 +65,25 @@ class SectionApi(private val client: HttpClient) {
         }
     }
 
+    /**
+     * Library-collection items via the paginated catalog resolver
+     * (`source=library_collection`), matching silo-apple's
+     * `libraryCollectionItems`. The raw
+     * `/library/{id}/collections/{id}/items` route serves full membership
+     * in one response — a 10k-item language collection in a single body —
+     * and is being phased out client-side so the server can bound it.
+     */
     suspend fun getLibraryCollectionItems(
-        libraryId: Int,
-        collectionId: String
-    ): ApiResult<BrowseResponse> = safeApiCall {
-        client.get("/api/v1/library/$libraryId/collections/$collectionId/items")
+        collectionId: String,
+        offset: Int = 0,
+        limit: Int = 60,
+    ): ApiResult<CatalogResponse> = safeApiCall {
+        client.get("/api/v1/catalog") {
+            parameter("source", "library_collection")
+            parameter("collection_id", collectionId)
+            parameter("offset", offset)
+            parameter("limit", limit)
+        }
     }
 
     private fun parseLibraryCollectionsResponse(body: String): LibraryCollectionsResponse {
