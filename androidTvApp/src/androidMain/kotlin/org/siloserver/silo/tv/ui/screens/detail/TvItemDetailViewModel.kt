@@ -110,7 +110,21 @@ class TvItemDetailViewModel(
 
     init {
         observePreferredQuality()
-        if (contentId.isNotBlank()) loadAll()
+        if (contentId.isNotBlank()) {
+            // Restore this title's pre-play track choices (QA 2026-07-08: a
+            // manual subtitle selection reset on every return to the page —
+            // season switches and detail re-entry build a fresh ViewModel).
+            TvDetailTrackSelectionSession.recall(contentId)?.let { saved ->
+                _uiState.update {
+                    it.copy(
+                        selectedFileId = saved.fileId,
+                        selectedAudioIndex = saved.audio,
+                        selectedSubtitleIndex = saved.subtitle,
+                    )
+                }
+            }
+            loadAll()
+        }
     }
 
     private fun observePreferredQuality() {
@@ -370,16 +384,21 @@ class TvItemDetailViewModel(
         _uiState.update {
             it.copy(selectedFileId = fileId, selectedAudioIndex = null, selectedSubtitleIndex = null)
         }
+        TvDetailTrackSelectionSession.remember(contentId, fileId, audio = null, subtitle = null)
     }
 
     /** Pre-select an audio track for the next Play (index into the version's audioTracks). */
     fun onAudioTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedAudioIndex = index) }
+        val state = _uiState.value
+        TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, index, state.selectedSubtitleIndex)
     }
 
     /** Pre-select a subtitle track for the next Play (-1 = Off, null = auto). */
     fun onSubtitleTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedSubtitleIndex = index) }
+        val state = _uiState.value
+        TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, state.selectedAudioIndex, index)
     }
 
     fun onSeasonSelected(seasonNumber: Int) {
@@ -675,3 +694,23 @@ private fun BrowseItem.toSectionItem(): SectionItem = SectionItem(
     backdropThumbhash = backdropThumbhash,
     userState = userState,
 )
+
+/**
+ * Session-scoped memory of the detail page's pre-play track choices, keyed by
+ * contentId. The detail ViewModel is nav-entry scoped, so any navigation that
+ * rebuilds the entry (season switch, re-opening the item) silently dropped a
+ * manual audio/subtitle pre-selection (QA 2026-07-08). In-memory on purpose:
+ * durable per-playback preferences are recorded by the player itself.
+ */
+internal object TvDetailTrackSelectionSession {
+    internal data class Saved(val fileId: Int?, val audio: Int?, val subtitle: Int?)
+
+    private val byContent = HashMap<String, Saved>()
+
+    fun remember(contentId: String, fileId: Int?, audio: Int?, subtitle: Int?) {
+        if (contentId.isBlank()) return
+        byContent[contentId] = Saved(fileId, audio, subtitle)
+    }
+
+    fun recall(contentId: String): Saved? = byContent[contentId]
+}
