@@ -452,6 +452,7 @@ class TvPlayerViewModel(
 
     companion object {
         private const val FIRST_FRAME_WATCHDOG_MS = 8_000L
+        private const val BUFFERING_WATCHDOG_MS = 30_000L
         private const val TAG = "TvPlayerViewModel"
         // A transient network blip retries the same route this many times before
         // demoting to a server transcode (resets once playback progresses).
@@ -1265,8 +1266,34 @@ class TvPlayerViewModel(
         }
     }
 
+    private var bufferingWatchdogJob: Job? = null
+
     fun onBufferingChanged(isBuffering: Boolean) {
         _uiState.update { it.copy(isBuffering = isBuffering) }
+        // Buffering-stall watchdog (QA 2026-07-08: some remuxes never start on
+        // the compatibility route — the server-side remux wedges and the
+        // client sits on a spinner forever with no error). If we're still
+        // buffering with no position progress after the window, escalate into
+        // the recovery ladder: an alternate direct engine can usually play
+        // the original file (mpv decodes what the wedge was remuxing for),
+        // else the plan falls to a fresh server route.
+        bufferingWatchdogJob?.cancel()
+        bufferingWatchdogJob = if (isBuffering) {
+            viewModelScope.launch {
+                val positionAtStart = _uiState.value.position
+                delay(BUFFERING_WATCHDOG_MS)
+                val state = _uiState.value
+                val stalled = state.isBuffering &&
+                    !state.isPaused &&
+                    (state.position - positionAtStart) < 1.0
+                if (stalled) {
+                    Log.w(TAG, "Buffering stalled for ${BUFFERING_WATCHDOG_MS}ms — engine fallback")
+                    onEngineSwitchFailed("Playback stalled while buffering")
+                }
+            }
+        } else {
+            null
+        }
     }
 
     /** Toggle user-intent pause state. Screen mirrors this to player.play/pause. */
