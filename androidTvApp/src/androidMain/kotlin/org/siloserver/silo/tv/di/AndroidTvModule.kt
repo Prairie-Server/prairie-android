@@ -267,28 +267,28 @@ val androidTvModule = module {
                         .stable(androidContext()),
                 )
             },
-            receiverStateProvider = {
-                val registry = get<ServerRegistry>()
-                if (registry.activeServerId.value == null) {
-                    org.siloserver.silo.pairing.PairingReceiverState.Setup
-                } else {
-                    org.siloserver.silo.pairing.PairingReceiverState.Login
-                }
-            },
+            // Always `setup`: advertising only runs while the server-setup
+            // screen is showing, and Apple is authoritative for the wire —
+            // silo-apple's TVPairingAdvertiser hardcodes st=setup and its
+            // companion card FILTERS to state == .setup, so a registry-based
+            // `login` (always true after a sign-out, since the registry keeps
+            // entries) made the TV invisible to phones exactly when the user
+            // needed set-up-with-phone again.
+            receiverStateProvider = { org.siloserver.silo.pairing.PairingReceiverState.Setup },
         )
     }
     single {
         org.siloserver.silo.common.pairing.TvPairingAdvertiser(
             context = androidContext(),
             receiver = get(),
-            receiverStateProvider = {
-                val registry = get<ServerRegistry>()
-                if (registry.activeServerId.value == null) {
-                    org.siloserver.silo.pairing.PairingReceiverState.Setup
-                } else {
-                    org.siloserver.silo.pairing.PairingReceiverState.Login
-                }
-            },
+            // Always `setup`: advertising only runs while the server-setup
+            // screen is showing, and Apple is authoritative for the wire —
+            // silo-apple's TVPairingAdvertiser hardcodes st=setup and its
+            // companion card FILTERS to state == .setup, so a registry-based
+            // `login` (always true after a sign-out, since the registry keeps
+            // entries) made the TV invisible to phones exactly when the user
+            // needed set-up-with-phone again.
+            receiverStateProvider = { org.siloserver.silo.pairing.PairingReceiverState.Setup },
         )
     }
     single { SiloCastNsdAdvertiser(androidContext()) }

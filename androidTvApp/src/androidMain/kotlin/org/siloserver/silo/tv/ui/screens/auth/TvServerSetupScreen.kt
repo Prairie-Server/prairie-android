@@ -3,6 +3,10 @@ package org.siloserver.silo.tv.ui.screens.auth
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -118,6 +122,7 @@ fun TvServerSetupScreen(
     val state by viewModel.uiState.collectAsState()
     val pairingStatus by pairingReceiver.status.collectAsState()
     val focusRequester = remember { FocusRequester() }
+    val phoneSetupFocus = remember { FocusRequester() }
     val urlBringIntoView = remember { BringIntoViewRequester() }
     val connectBringIntoView = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
@@ -133,7 +138,17 @@ fun TvServerSetupScreen(
     }
     LaunchedEffect(isActivePairing) {
         if (!isActivePairing) {
-            runCatching { focusRequester.requestFocus() }
+            // First sign-in (no URL yet): land on the SETUP WITH PHONE card so
+            // the viewer decides between the two paths instead of being
+            // dropped into the URL field. Returning users (URL pre-filled
+            // after a sign-out) keep the field focused.
+            runCatching {
+                if (viewModel.uiState.value.serverUrl.isBlank()) {
+                    phoneSetupFocus.requestFocus()
+                } else {
+                    focusRequester.requestFocus()
+                }
+            }
         }
     }
     LaunchedEffect(pairingStatus) {
@@ -179,6 +194,8 @@ fun TvServerSetupScreen(
                         pairingAdvertiser.stop()
                         onPairedSignIn()
                     },
+                    onAllow = pairingReceiver::allowPendingServer,
+                    onDeny = pairingReceiver::denyPendingServer,
                     modifier = Modifier.widthIn(max = 620.dp),
                 )
             }
@@ -226,6 +243,7 @@ fun TvServerSetupScreen(
                             .height(SERVER_SETUP_CHOOSER_HEIGHT),
                     ) {
                         PhoneSetupCard(
+                            focusRequester = phoneSetupFocus,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -256,11 +274,26 @@ fun TvServerSetupScreen(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun PhoneSetupCard(modifier: Modifier = Modifier) {
+private fun PhoneSetupCard(
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+) {
+    // Focusable so FIRST sign-in can land here instead of committing the user
+    // to the manual URL path — the card itself needs no click action (the TV
+    // is already advertising; the phone drives the rest).
+    var focused by remember { mutableStateOf(false) }
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         modifier = modifier
+            .let { m -> focusRequester?.let { m.focusRequester(it) } ?: m }
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
             .auroraGlass(16.dp)
+            .border(
+                width = 2.dp,
+                color = if (focused) Color.White.copy(alpha = 0.55f) else Color.Transparent,
+                shape = RoundedCornerShape(16.dp),
+            )
             .padding(24.dp),
     ) {
         Text(
@@ -548,6 +581,7 @@ private fun SearchingBeacon(modifier: Modifier = Modifier) {
 
 private val PairingReceiverStatus.isActivePairing: Boolean
     get() = this is PairingReceiverStatus.Connected ||
+        this is PairingReceiverStatus.ConsentRequested ||
         this is PairingReceiverStatus.Pairing ||
         this is PairingReceiverStatus.AwaitingApproval ||
         this is PairingReceiverStatus.SignedIn ||
@@ -560,6 +594,8 @@ private fun ActivePairingPanel(
     status: PairingReceiverStatus,
     onCancel: () -> Unit,
     onContinue: () -> Unit,
+    onAllow: () -> Unit = {},
+    onDeny: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -585,6 +621,25 @@ private fun ActivePairingPanel(
                     color = Color.White.copy(alpha = 0.72f),
                 )
                 AuroraGhostButton(label = "Cancel", onClick = onCancel)
+            }
+            is PairingReceiverStatus.ConsentRequested -> {
+                AuroraEyebrow(text = "Step 02 — Allow")
+                Text(
+                    text = "Set up this TV?",
+                    style = TvServerSetupTextStyles.PairingTitle,
+                    color = Color.White,
+                )
+                ServerNameLabel(status.serverName)
+                Text(
+                    text = "A phone wants to sign this TV in to the server above. " +
+                        "Only continue if that phone is yours.",
+                    style = TvServerSetupTextStyles.PairingDetail,
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                    AuroraPrimaryButton(label = "Allow", onClick = onAllow)
+                    AuroraGhostButton(label = "Don\u2019t allow", onClick = onDeny)
+                }
             }
             is PairingReceiverStatus.Pairing -> {
                 AuroraEyebrow(text = "Almost there")
