@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.height
@@ -879,6 +880,26 @@ fun TvMainShell(
                 }
             }
         }
+
+        // Shell-owned top scrim: with the bar permanently visible (tvOS
+        // parity), scrolled content passes beneath it — this fixed gradient
+        // keeps the wordmark/tabs readable regardless of the bar's own
+        // focus dim (which previously weakened its readability exactly when
+        // content scrolled under it — QA 2026-07-08).
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TvSkyline.barTopInset + TvSkyline.barHeight + 34.dp)
+                .align(Alignment.TopStart)
+                .background(
+                    Brush.verticalGradient(
+                        0.00f to Color.Black.copy(alpha = 0.88f),
+                        0.62f to Color.Black.copy(alpha = 0.70f),
+                        1.00f to Color.Transparent,
+                    ),
+                )
+                .zIndex(0.9f),
+        )
 
         // Menu overlay — sits on top, gradient scrim fades into content.
         TvTopMenuBar(

@@ -265,14 +265,10 @@ fun TvTopMenuBar(
                 translationY = -size.height * (1f - visibility)
                 alpha = visibility * dimAlpha
             }
-            .background(
-                Brush.verticalGradient(
-                    0.00f to Color.Black.copy(alpha = 0.84f),
-                    0.58f to Color.Black.copy(alpha = 0.72f),
-                    0.88f to Color.Black.copy(alpha = 0.36f),
-                    1.00f to Color.Transparent,
-                ),
-            )
+            // No background band of its own: the SHELL draws a fixed top
+            // scrim behind the bar, so the focus dim below only affects the
+            // labels — content stays legibly scrimmed even while the bar is
+            // dimmed (QA 2026-07-08).
             .focusGroup()
             .focusProperties { enter = { barEntryRequester } }
             .onPreviewKeyEvent { event ->

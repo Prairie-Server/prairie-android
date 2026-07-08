@@ -151,11 +151,14 @@ fun TvCascadeSelector(
     }
 
     // Section pills for the anchored library; Collections is offered only
-    // when that library actually has collections.
-    val pills = remember(type, anchorId) {
+    // when that library actually has collections. Evaluated OUTSIDE remember
+    // so the async probe's arrival (librariesWithCollections landing after
+    // the cascade composed) recomputes the list — a stale remember kept the
+    // pill visible (QA 2026-07-08).
+    val anchorHasCollections = anchorId?.let(libraryHasCollections) ?: true
+    val pills = remember(type, anchorHasCollections) {
         TvLibraryPill.set(type).filter { pill ->
-            pill != TvLibraryPill.Collections ||
-                anchorId?.let(libraryHasCollections) ?: true
+            pill != TvLibraryPill.Collections || anchorHasCollections
         }
     }
 
