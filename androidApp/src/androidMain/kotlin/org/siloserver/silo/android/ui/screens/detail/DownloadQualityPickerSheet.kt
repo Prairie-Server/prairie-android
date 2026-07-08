@@ -23,7 +23,10 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import org.siloserver.silo.android.ui.util.formatBytes
 import org.siloserver.silo.model.download.DownloadQuality
+import org.siloserver.silo.model.download.DownloadSizeEstimate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +34,8 @@ fun DownloadQualityPickerSheet(
     onQualitySelected: (DownloadQuality) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    estimate: DownloadSizeEstimate? = null,
+    availableBytes: Long = 0,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -57,6 +62,22 @@ fun DownloadQualityPickerSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp),
             )
+            estimate?.let { est ->
+                Text(
+                    text = downloadEstimateSizeLabel(est),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
+                )
+                downloadEstimateWarning(est, availableBytes)?.let { warning ->
+                    Text(
+                        text = warning,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFFF9F0A),
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -101,6 +122,41 @@ fun DownloadQualityPickerSheet(
             }
         }
     }
+}
+
+/** "2.1 GB–5.4 GB" for a range, "5.4 GB" exact — mirrors iOS sizeLabel. */
+private fun downloadEstimateSizeLabel(estimate: DownloadSizeEstimate): String {
+    val max = formatBytes(estimate.maxBytes)
+    val label = if (estimate.isRange) "${formatBytes(estimate.minBytes)}\u2013$max" else max
+    return if (estimate.isRange) {
+        "Estimated size: $label depending on server choice"
+    } else {
+        "Source file size: $label"
+    }
+}
+
+/**
+ * Mirrors iOS DownloadSizeEstimate.warningMessage — a low-space or
+ * large-download caveat (never blocks the download). Free space of 0 means
+ * the lookup failed, which never warns.
+ */
+internal fun downloadEstimateWarning(
+    estimate: DownloadSizeEstimate,
+    availableBytes: Long,
+): String? {
+    val size = formatBytes(estimate.maxBytes)
+    if (estimate.exceedsAvailableSpace(availableBytes)) {
+        val free = formatBytes(availableBytes)
+        return if (estimate.isRange) {
+            "This download may be up to $size, but only $free is free on this device."
+        } else {
+            "This download is $size, but only $free is free on this device."
+        }
+    }
+    if (estimate.exceedsLargeThreshold) {
+        return if (estimate.isRange) "This download may be up to $size." else "This download is $size."
+    }
+    return null
 }
 
 private fun downloadQualityDescription(quality: DownloadQuality): String =

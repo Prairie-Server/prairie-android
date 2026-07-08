@@ -87,7 +87,7 @@ class RequestsViewModel(
                     it.copy(
                         isLoading = false,
                         isEnabled = true,
-                        sections = discover.data.sections,
+                        sections = mergeDiscoverCarousels(discover.data.sections),
                         error = null,
                     )
                 }

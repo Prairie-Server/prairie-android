@@ -109,6 +109,8 @@ import org.siloserver.silo.repository.SectionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -159,17 +161,32 @@ class LibrariesViewModel(
     private val catalogRepository: CatalogRepository,
     private val userItemState: org.siloserver.silo.repository.port.UserItemStatePort =
         org.siloserver.silo.repository.port.NoOpUserItemStatePort,
+    private val playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(LibrariesUiState())
     val uiState: StateFlow<LibrariesUiState> = _uiState.asStateFlow()
+    // iOS AppNavPreferences.showAudiobooks parity: audiobook libraries are
+    // hidden from the picker unless the user opts in under Settings > Library.
+    private var showAudiobooks = false
     private var recommendedLoadedLibraryId: Int? = null
     private var browseLoadedLibraryId: Int? = null
     private var collectionsLoadedLibraryId: Int? = null
     private val pageSize = 42
 
     init {
+        playerSettingsStore?.showAudiobooksFlow
+            ?.onEach { show ->
+                if (show != showAudiobooks) {
+                    showAudiobooks = show
+                    refresh()
+                }
+            }
+            ?.launchIn(viewModelScope)
         refresh()
     }
+
+    private fun isHiddenAudiobookLibrary(library: UserLibrary): Boolean =
+        !showAudiobooks && library.type.trim().lowercase() in setOf("audiobook", "audiobooks")
 
     fun refresh() {
         viewModelScope.launch {
@@ -187,6 +204,7 @@ class LibrariesViewModel(
                     // and ItemDetail routes each item to the right player or
                     // reader by its type.
                     val libraries = result.data
+                        .filterNot(::isHiddenAudiobookLibrary)
                         .sortedBy { library -> library.sortOrder }
                     val selectedLibraryId = _uiState.value.selectedLibraryId
                         ?.takeIf { currentId -> libraries.any { it.id == currentId } }

@@ -144,8 +144,13 @@ class PersonDetailViewModelTest {
             MockEngine { request ->
                 queries += request.url.parameters.names().associateWith { request.url.parameters[it] }
                 when (request.url.encodedPath) {
+                    // Metadata-complete on purpose: a blank bio/photo/birth date
+                    // arms the metadata auto-refresh poll, whose background
+                    // GET /people/7 requests would race these tests' shared
+                    // `queries` list under runTest's auto-advanced virtual time.
                     "/api/v1/people/7" -> respondJson(
-                        """{"id":7,"name":"Person","birth_date":"1972-06-16"}""",
+                        """{"id":7,"name":"Person","birth_date":"1972-06-16",""" +
+                            """"bio":"A person.","photo_url":"https://img/p7.jpg"}""",
                     )
                     "/api/v1/catalog" -> {
                         val body = when (request.url.parameters["type"]) {

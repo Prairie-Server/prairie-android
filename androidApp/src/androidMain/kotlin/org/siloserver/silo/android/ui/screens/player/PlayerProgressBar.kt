@@ -8,7 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -20,21 +24,32 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.siloserver.silo.android.ui.util.formatClockTime
+import org.siloserver.silo.model.catalog.TimeRange
+import org.siloserver.silo.model.catalog.VersionChapter
 
 /**
- * Seek bar with current/total time and a buffered-ahead track.
+ * Seek bar with current/total time and a buffered-ahead track, mirroring
+ * iOS `MobilePlayerControls.progressSlider`:
  *
- * The track draws three regions — played, buffered (downloaded, safe to seek
- * into), and not-yet-buffered — so the user can tell where a seek will land
- * instantly vs. where it will stall. While scrubbing, the displayed time follows
- * the thumb rather than the actual playback position.
+ * - three track regions — played, buffered (safe to seek into), base;
+ * - the intro range tinted cyan (credits is deliberately NOT drawn — iOS
+ *   only tints the intro);
+ * - a 2dp chapter tick per chapter, drawn under the played fill;
+ * - while scrubbing, a preview bubble above the thumb with the target time
+ *   and the chapter title at that point (text only — iOS has no thumbnail
+ *   trickplay either).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,9 +60,12 @@ fun PlayerProgressBar(
     modifier: Modifier = Modifier,
     bufferedPosition: Double = 0.0,
     enabled: Boolean = true,
+    chapters: List<VersionChapter> = emptyList(),
+    intro: TimeRange? = null,
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableFloatStateOf(0f) }
+    var barWidthPx by remember { mutableFloatStateOf(0f) }
 
     val maxDuration = duration.toFloat().coerceAtLeast(1f)
     val displayPosition = (if (isSeeking) seekPosition else position.toFloat()).coerceIn(0f, maxDuration)
@@ -60,6 +78,45 @@ fun PlayerProgressBar(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Scrub preview bubble — pinned above the bar at the drag position,
+        // clamped so it never runs off-screen (iOS clamps to [80, width-80]pt).
+        Box(modifier = Modifier.fillMaxWidth()) {
+            if (isSeeking) {
+                val density = LocalDensity.current
+                val barWidthDp = with(density) { barWidthPx.toDp() }
+                val clampPad = 80.dp
+                val bubbleX = (barWidthDp * playedFraction)
+                    .coerceIn(clampPad, (barWidthDp - clampPad).coerceAtLeast(clampPad))
+                val chapterTitle = chapterTitleAt(chapters, seekPosition.toDouble())
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .offset(x = bubbleX - clampPad)
+                        .padding(bottom = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = formatClockTime(seekPosition.toDouble()),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White,
+                    )
+                    chapterTitle?.let { title ->
+                        Text(
+                            text = title,
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+
         Slider(
             value = displayPosition,
             enabled = enabled,
@@ -83,7 +140,8 @@ fun PlayerProgressBar(
                         .fillMaxWidth()
                         .height(4.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.24f)),
+                        .background(Color.White.copy(alpha = 0.24f))
+                        .onSizeChanged { barWidthPx = it.width.toFloat() },
                 ) {
                     // Buffered-ahead: downloaded and safe to seek into.
                     Box(
@@ -92,6 +150,40 @@ fun PlayerProgressBar(
                             .fillMaxHeight()
                             .background(Color.White.copy(alpha = 0.45f)),
                     )
+                    // Intro tint — iOS draws the intro range cyan at 0.4.
+                    intro?.let { range ->
+                        val startFraction = (range.start / maxDuration).toFloat().coerceIn(0f, 1f)
+                        val endFraction = (range.end / maxDuration).toFloat().coerceIn(startFraction, 1f)
+                        if (endFraction > startFraction) {
+                            val density = LocalDensity.current
+                            val barWidthDp = with(density) { barWidthPx.toDp() }
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = barWidthDp * startFraction)
+                                    .width(barWidthDp * (endFraction - startFraction))
+                                    .fillMaxHeight()
+                                    .background(Color.Cyan.copy(alpha = 0.4f)),
+                            )
+                        }
+                    }
+                    // Chapter ticks, under the played fill (iOS: the fill
+                    // covers ticks in played territory).
+                    if (chapters.isNotEmpty()) {
+                        val density = LocalDensity.current
+                        val barWidthDp = with(density) { barWidthPx.toDp() }
+                        chapters.forEach { chapter ->
+                            val fraction = (chapter.startSeconds / maxDuration).toFloat()
+                            if (fraction > 0f && fraction < 1f) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = barWidthDp * fraction - 1.dp)
+                                        .width(2.dp)
+                                        .fillMaxHeight()
+                                        .background(Color.White.copy(alpha = 0.6f)),
+                                )
+                            }
+                        }
+                    }
                     // Played.
                     Box(
                         modifier = Modifier
@@ -124,4 +216,11 @@ fun PlayerProgressBar(
             )
         }
     }
+}
+
+/** iOS `chapterTitle(at:)`: the last chapter starting at or before [seconds],
+ *  falling back to "Chapter N" when the chapter is untitled. */
+internal fun chapterTitleAt(chapters: List<VersionChapter>, seconds: Double): String? {
+    val chapter = chapters.lastOrNull { it.startSeconds <= seconds } ?: return null
+    return chapter.title.ifBlank { "Chapter ${chapter.index + 1}" }
 }

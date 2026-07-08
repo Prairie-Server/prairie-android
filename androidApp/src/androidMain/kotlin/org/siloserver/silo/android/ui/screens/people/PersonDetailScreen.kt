@@ -100,6 +100,7 @@ fun PersonDetailScreen(
             state.person != null -> {
                 PersonDetailContent(
                     person = state.person!!,
+                    isRefreshingMetadata = state.isRefreshingMetadata,
                     items = state.items,
                     isLoadingItems = state.isLoadingItems,
                     selectedFilter = state.selectedFilter,
@@ -137,6 +138,7 @@ fun PersonDetailScreen(
 @Composable
 private fun PersonDetailContent(
     person: Person,
+    isRefreshingMetadata: Boolean,
     items: List<BrowseItem>,
     isLoadingItems: Boolean,
     selectedFilter: PersonMediaFilter,
@@ -168,7 +170,7 @@ private fun PersonDetailContent(
                     .padding(top = 56.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                PersonHeader(person = person)
+                PersonHeader(person = person, isRefreshingMetadata = isRefreshingMetadata)
                 FilmographyHeader(
                     selected = selectedFilter,
                     availableFilters = availableFilters,
@@ -244,7 +246,7 @@ private fun PersonDetailContent(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PersonHeader(person: Person) {
+private fun PersonHeader(person: Person, isRefreshingMetadata: Boolean = false) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -264,11 +266,32 @@ private fun PersonHeader(person: Person) {
                 overflow = TextOverflow.Ellipsis,
             )
             val badges = personMetadataBadges(person, todayIso = LocalDate.now().toString())
-            if (badges.isNotEmpty()) {
+            if (badges.isNotEmpty() || isRefreshingMetadata) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // iOS PersonMetadataRefreshIndicator: a spinner pill while
+                    // the server metadata refresh poll runs.
+                    if (isRefreshingMetadata) {
+                        Surface(shape = PillShape, color = SiloSurfaceVariant) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    strokeWidth = 1.5.dp,
+                                    modifier = Modifier.size(11.dp),
+                                )
+                                Text(
+                                    text = "Loading metadata",
+                                    fontSize = 11.sp,
+                                    color = SiloOnSurface,
+                                )
+                            }
+                        }
+                    }
                     badges.forEach { badge ->
                         Surface(
                             shape = PillShape,

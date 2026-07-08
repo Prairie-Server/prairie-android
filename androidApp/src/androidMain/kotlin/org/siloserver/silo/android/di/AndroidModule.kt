@@ -302,6 +302,7 @@ val androidModule = module {
             subtitlesRepository = get(),
             userItemStatePort = get(),
             outboxSyncScheduler = get(),
+            sectionRepository = get(),
         )
     }
     viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull()) }
@@ -310,16 +311,27 @@ val androidModule = module {
         LibrariesViewModel(
             get(), get(), get(),
             getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>() ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
+            get(),
         )
     }
     viewModel { ReadingHubViewModel(get(), get(), get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { SearchViewModel(get()) }
     viewModel { params ->
+        org.siloserver.silo.android.ui.screens.home.HomeSectionItemsViewModel(get(), params.get())
+    }
+    single {
+        org.siloserver.silo.android.ui.screens.browse.BrowsePrefsStore(
+            context = get(),
+            serverRegistry = get(),
+        )
+    }
+    viewModel { params ->
         BrowseViewModel(
             get(),
             params.get(),
             getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>() ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
+            get(),
         )
     }
     viewModel { params ->

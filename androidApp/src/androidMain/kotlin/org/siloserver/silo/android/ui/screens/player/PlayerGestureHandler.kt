@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -36,8 +37,11 @@ import kotlin.math.hypot
  * - Double-tap right third: skip forward 10 seconds
  * - Hold: temporary 2x playback while held
  * - Two-finger pinch: cycle video gravity Fit -> Fill -> Stretch
- * - Vertical swipe on left half: brightness adjustment
- * - Vertical swipe on right half: volume adjustment
+ * - Vertical swipe in the left edge zone: brightness adjustment
+ * - Vertical swipe in the right edge zone: volume adjustment
+ * - Vertical swipe down in the center: dismiss the player (iOS
+ *   MobilePlayerGestureLayer parity — evaluated on release, mostly-vertical
+ *   drags over 140dp only; no interactive transform, no velocity check)
  * - Horizontal swipe: seek through the video
  */
 @Composable
@@ -50,6 +54,7 @@ fun PlayerGestureHandler(
     onSkipBackward: () -> Unit,
     onFastForwardHold: (Boolean) -> Unit = {},
     onCycleVideoGravity: () -> Unit = {},
+    onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -135,17 +140,46 @@ fun PlayerGestureHandler(
                 )
             }
             .pointerInput(Unit) {
-                detectVerticalDragGestures { change, dragAmount ->
-                    change.consume()
-                    val isLeftHalf = change.position.x < size.width / 2f
-                    val sensitivity = 0.01f
-
-                    if (isLeftHalf) {
-                        adjustBrightness(context, -dragAmount * sensitivity)
-                    } else {
-                        adjustVolume(audioManager, -dragAmount * sensitivity)
-                    }
-                }
+                // iOS edgeAndDismissDrag: the start x picks the mode once —
+                // left 88dp edge = brightness, right 88dp edge = volume, and a
+                // center drag becomes a dismiss candidate judged on release.
+                var mode = VerticalDragMode.None
+                var totalDrag = Offset.Zero
+                val edgeZonePx = EdgeZoneWidthDp.dp.toPx()
+                detectVerticalDragGestures(
+                    onDragStart = { start ->
+                        totalDrag = Offset.Zero
+                        mode = when {
+                            start.x < edgeZonePx -> VerticalDragMode.Brightness
+                            start.x > size.width - edgeZonePx -> VerticalDragMode.Volume
+                            else -> VerticalDragMode.DismissCandidate
+                        }
+                    },
+                    onDragEnd = {
+                        if (mode == VerticalDragMode.DismissCandidate) {
+                            val dy = totalDrag.y
+                            val dx = totalDrag.x
+                            if (dy > DismissDragThresholdDp.dp.toPx() &&
+                                kotlin.math.abs(dx) < dy * 0.6f
+                            ) {
+                                onDismiss()
+                            }
+                        }
+                        mode = VerticalDragMode.None
+                    },
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDrag += change.position - change.previousPosition
+                        val sensitivity = 0.01f
+                        when (mode) {
+                            VerticalDragMode.Brightness ->
+                                adjustBrightness(context, -dragAmount * sensitivity)
+                            VerticalDragMode.Volume ->
+                                adjustVolume(audioManager, -dragAmount * sensitivity)
+                            else -> Unit
+                        }
+                    },
+                )
             }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
@@ -170,6 +204,14 @@ fun PlayerGestureHandler(
 }
 
 private const val PinchGravityThreshold = 1.16f
+
+private enum class VerticalDragMode { None, Brightness, Volume, DismissCandidate }
+
+/** iOS edge-zone width (88pt) for brightness/volume vertical drags. */
+private const val EdgeZoneWidthDp = 88
+
+/** iOS dismiss threshold: a mostly-vertical downward drag over 140pt. */
+private const val DismissDragThresholdDp = 140
 
 private fun pointerDistance(first: Offset, second: Offset): Float =
     hypot(first.x - second.x, first.y - second.y)

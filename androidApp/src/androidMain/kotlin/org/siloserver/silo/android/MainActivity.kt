@@ -32,6 +32,7 @@ import org.siloserver.silo.android.downloads.hasLegacyPublicDownloadPermission
 import org.siloserver.silo.android.push.PushNotificationPresenter
 import org.siloserver.silo.android.ui.navigation.AppNavigation
 import org.siloserver.silo.android.ui.navigation.Route
+import org.siloserver.silo.android.ui.navigation.contentDeepLinkRouteOrNull
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
 import org.siloserver.silo.android.ui.navigation.notificationNavigationRouteOrNull
@@ -96,7 +97,8 @@ class MainActivity : ComponentActivity() {
                 // its target after auth instead of being silently dropped.
                 // The pending route is only consumed once the main graph is
                 // showing, so pre-auth starts just hold it.
-                notificationRouteOrNull(intent)?.let { pendingExternalRoute = it }
+                (notificationRouteOrNull(intent) ?: contentDeepLinkRouteOrNull(intent?.dataString))
+                    ?.let { pendingExternalRoute = it }
                 launchAuthenticatedStartupWarmup(route)
             }
             LaunchedEffect(Unit) {
@@ -155,6 +157,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         val route = deviceLoginPairRouteOrNull(intent.dataString)
             ?: notificationRouteOrNull(intent)
+            ?: contentDeepLinkRouteOrNull(intent.dataString)
         route?.let { incomingExternalRoutes.tryEmit(it) }
     }
 

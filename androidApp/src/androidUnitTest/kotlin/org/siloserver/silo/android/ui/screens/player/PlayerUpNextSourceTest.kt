@@ -10,7 +10,7 @@ class PlayerUpNextSourceTest {
         "src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerOverlay.kt",
     ).readText()
     private val cardSource = File(
-        "src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/UpNextCard.kt",
+        "src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerNextUpScreen.kt",
     ).readText()
     private val viewModelSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerViewModel.kt",
@@ -23,8 +23,8 @@ class PlayerUpNextSourceTest {
             "PlayerOverlay must retain the last Up Next episode info while AnimatedVisibility fades out",
         )
         assertTrue(
-            overlaySource.contains("visible = showUpNextCard"),
-            "Up Next visibility should be driven by a retained-info flag rather than state.nextEpisode directly",
+            overlaySource.contains("nextEpisode = retainedUpNextInfo"),
+            "The Next-Up screen's episode panel should read the retained info rather than state.nextEpisode directly",
         )
         assertFalse(
             overlaySource.contains("visible = state.showUpNext && state.nextEpisode != null"),
@@ -35,12 +35,12 @@ class PlayerUpNextSourceTest {
     @Test
     fun upNextCardUsesCanonicalEpisodeLabel() {
         assertTrue(
-            cardSource.contains("text = info.label"),
-            "UpNextCard must use NextEpisodeInfo.label instead of re-building the season/episode/title label",
+            cardSource.contains("nextEpisode.label"),
+            "PlayerNextUpScreen must use NextEpisodeInfo.label instead of re-building the season/episode/title label",
         )
         assertFalse(
-            cardSource.contains("S\${info.seasonNumber}"),
-            "UpNextCard should not duplicate NextEpisodeInfo.label formatting",
+            cardSource.contains("S\${nextEpisode.seasonNumber}"),
+            "PlayerNextUpScreen should not duplicate NextEpisodeInfo.label formatting",
         )
     }
 
@@ -65,6 +65,22 @@ class PlayerUpNextSourceTest {
         assertTrue(
             seekBody.contains("pendingApproachingEndVideoEnded = null"),
             "Seeking back after crossing the Up Next trigger must clear pending commits while next episode resolution is still in flight",
+        )
+    }
+
+    @Test
+    fun finishedStateDoesNotSwallowLateNextEpisodeResolution() {
+        val nullNextBranch = viewModelSource
+            .substringAfter("val next = _uiState.value.nextEpisode")
+            .substringBefore("commitApproachingEnd(next, videoEnded)")
+        assertFalse(
+            nullNextBranch.contains("autoAdvanceHandled = true"),
+            "Showing the finished state with no next episode must not latch autoAdvanceHandled — " +
+                "a next episode resolving moments later (slow network) still needs to commit the countdown",
+        )
+        assertFalse(
+            nullNextBranch.contains("pendingApproachingEndVideoEnded = null"),
+            "The pending end flag must stay latched so resolveNextEpisode can upgrade the finished screen",
         )
     }
 

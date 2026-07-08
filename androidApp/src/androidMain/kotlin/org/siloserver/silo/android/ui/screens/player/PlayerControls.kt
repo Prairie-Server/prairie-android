@@ -54,6 +54,8 @@ fun PlayerControls(
     bufferedPosition: Double,
     hasChapters: Boolean,
     hasTracks: Boolean,
+    chapters: List<org.siloserver.silo.model.catalog.VersionChapter> = emptyList(),
+    intro: org.siloserver.silo.model.catalog.TimeRange? = null,
     isOrientationLocked: Boolean,
     // Watch Together guest gate: when false the scrubber + skip buttons are
     // inert and dimmed (seek is host-only, so disabled for all guests).
@@ -206,6 +208,8 @@ fun PlayerControls(
                 bufferedPosition = bufferedPosition,
                 onSeek = onSeek,
                 enabled = seekEnabled,
+                chapters = chapters,
+                intro = intro,
             )
         }
     }

@@ -50,9 +50,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <data
-                    android:host="device"
-                    android:scheme="silo" />
+                <data android:scheme="silo" />
+                <data android:host="device" />
+                <data android:host="item" />
+                <data android:host="play" />
+                <data android:host="downloads" />
             </intent-filter>
         </activity>
 

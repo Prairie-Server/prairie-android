@@ -86,6 +86,9 @@ fun MainScreen(
         null
     }
     var showLibrarySelector by rememberSaveable(currentTab) { mutableStateOf(false) }
+    // Bumped when the Home tab is re-tapped while already on Home; HomeScreen
+    // reacts by scrolling back to the top.
+    var homeScrollToTopTick by remember { mutableStateOf(0) }
 
     // Downloads tab visibility: show whenever EITHER the server says there
     // are records OR we have bytes on disk. The on-disk check is what makes
@@ -192,10 +195,16 @@ fun MainScreen(
             SiloBottomNavBar(
                 currentTab = currentTab,
                 onTabSelected = { tab ->
-                    navController.navigate(tab.route) {
-                        popUpTo(Route.Home.route) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
+                    if (tab == Tab.Home && currentTab == Tab.Home) {
+                        // Re-tapping Home while on Home scrolls it back to the
+                        // top (standard Android bottom-nav convention).
+                        homeScrollToTopTick += 1
+                    } else {
+                        navController.navigate(tab.route) {
+                            popUpTo(Route.Home.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 },
                 tabs = visibleTabs,
@@ -218,6 +227,7 @@ fun MainScreen(
                     Tab.Home -> {
                         val homeViewModel = koinViewModel<HomeViewModel>()
                         HomeScreen(
+                            scrollToTopTick = homeScrollToTopTick,
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
@@ -230,7 +240,7 @@ fun MainScreen(
                                 )
                             },
                             onSeeAllClick = { sectionId ->
-                                navController.navigate(Route.Browse().route)
+                                navController.navigate(Route.HomeSectionItems(sectionId).route)
                             },
                             viewModel = homeViewModel,
                             activeProfile = headerState.activeProfile,

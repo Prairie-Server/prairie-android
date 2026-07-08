@@ -45,6 +45,8 @@ fun PlaybackSettings(
     autoSkipIntro: Boolean,
     autoSkipCredits: Boolean,
     pictureInPictureEnabled: Boolean,
+    dolbyVisionEnabled: Boolean,
+    dvProfile7HDR10Fallback: Boolean,
     autoPlayNext: Boolean,
     nextUpPromptSeconds: Int,
     resumeRewindSeconds: Int,
@@ -54,6 +56,8 @@ fun PlaybackSettings(
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
+    onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onNextUpPromptSecondsChanged: (Int) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
@@ -89,6 +93,22 @@ fun PlaybackSettings(
             checked = autoSkipCredits,
             onCheckedChange = onAutoSkipCreditsChanged,
         )
+
+        // iOS PlaybackSettingsView parity: Dolby Vision (off plays the HDR10
+        // base layer) with the Profile 7 fallback nested under it — the P7 row
+        // only shows while Dolby Vision is on.
+        SettingsSwitchRow(
+            label = "Dolby Vision",
+            checked = dolbyVisionEnabled,
+            onCheckedChange = onDolbyVisionEnabledChanged,
+        )
+        if (dolbyVisionEnabled) {
+            SettingsSwitchRow(
+                label = "Profile 7 HDR10 Fallback",
+                checked = dvProfile7HDR10Fallback,
+                onCheckedChange = onDvProfile7HDR10FallbackChanged,
+            )
+        }
 
         SettingsSwitchRow(
             label = "Picture-in-Picture",

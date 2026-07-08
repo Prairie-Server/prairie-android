@@ -22,6 +22,11 @@ data class ProfileSelectionUiState(
     val pinError: String? = null,
     /** Set after a profile is successfully selected. */
     val selectedProfileId: String? = null,
+    /** Non-null when a delete was requested and the confirm dialog should show. */
+    val deleteDialogProfile: Profile? = null,
+    /** The profile this session is signed in as — deleting it needs a
+     *  stronger warning and clears the local selection first. */
+    val activeProfileId: String? = null,
 )
 
 class ProfileSelectionViewModel(
@@ -39,10 +44,11 @@ class ProfileSelectionViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
+            val activeId = profileRepository.getActiveProfileId()
             when (val result = profileRepository.listProfiles()) {
                 is ApiResult.Success -> {
                     _uiState.update {
-                        it.copy(isLoading = false, profiles = result.data)
+                        it.copy(isLoading = false, profiles = result.data, activeProfileId = activeId)
                     }
                 }
 
@@ -137,12 +143,32 @@ class ProfileSelectionViewModel(
         }
     }
 
-    fun deleteProfile(profileId: String) {
+    /** Manage-mode delete tap — opens the confirmation dialog. */
+    fun requestDeleteProfile(profile: Profile) {
+        _uiState.update { it.copy(deleteDialogProfile = profile) }
+    }
+
+    fun dismissDeleteDialog() {
+        _uiState.update { it.copy(deleteDialogProfile = null) }
+    }
+
+    fun confirmDeleteProfile() {
+        val profile = _uiState.value.deleteDialogProfile ?: return
+        _uiState.update { it.copy(deleteDialogProfile = null) }
         viewModelScope.launch {
-            when (profileRepository.deleteProfile(profileId)) {
+            // Deleting the signed-in profile invalidates its profile token
+            // server-side; clear the local selection FIRST so the follow-up
+            // profile list reload doesn't ride dead credentials (previously
+            // this errored and rendered an empty list — "all profiles gone").
+            if (profile.id == _uiState.value.activeProfileId) {
+                profileRepository.clearProfile()
+                _uiState.update { it.copy(activeProfileId = null) }
+            }
+            when (profileRepository.deleteProfile(profile.id)) {
                 is ApiResult.Success -> loadProfiles()
                 is ApiResult.Error -> {
                     _uiState.update { it.copy(error = "Failed to delete profile") }
+                    loadProfiles()
                 }
                 is ApiResult.NetworkError -> {
                     _uiState.update { it.copy(error = "Network error") }

@@ -460,6 +460,12 @@ class DownloadsViewModel(
         viewModelScope.launch { removeRecords(listOf(id)) }
     }
 
+    /** Bulk delete for the list's multi-select mode — [ids] aggregates the
+     *  recordIds of every selected top-level entry. */
+    fun removeDownloadIds(ids: List<String>) {
+        viewModelScope.launch { removeRecords(ids) }
+    }
+
     /** Remove every record under an entry (Series, Season, or single
      *  leaf). [DownloadEntry.recordIds] aggregates across all
      *  descendants, so this works at every level. */

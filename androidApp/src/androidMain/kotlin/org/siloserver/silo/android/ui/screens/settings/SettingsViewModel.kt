@@ -52,6 +52,12 @@ data class SettingsUiState(
     val autoSkipIntro: Boolean = false,
     val autoSkipCredits: Boolean = false,
     val pictureInPictureEnabled: Boolean = true,
+    val dolbyVisionEnabled: Boolean = true,
+    val dvProfile7HDR10Fallback: Boolean = true,
+    val subtitleMatchesDevice: Boolean = false,
+    val showAudiobooks: Boolean = false,
+    val subtitleAppearance: org.siloserver.silo.model.settings.SubtitleAppearance =
+        org.siloserver.silo.model.settings.SubtitleAppearance.DEFAULT,
     // Up Next card: auto-play the next episode at countdown expiry, and how
     // many seconds before the end to surface the card (0 = only at end).
     val autoPlayNext: Boolean = true,
@@ -180,7 +186,22 @@ class SettingsViewModel(
         playerSettingsStore.pictureInPictureEnabledFlow.onEach { enabled ->
             _uiState.update { it.copy(pictureInPictureEnabled = enabled) }
         }.launchIn(viewModelScope)
-    }
+
+        playerSettingsStore.dolbyVisionEnabledFlow.onEach { enabled ->
+            _uiState.update { it.copy(dolbyVisionEnabled = enabled) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.dvProfile7HDR10FallbackFlow.onEach { enabled ->
+            _uiState.update { it.copy(dvProfile7HDR10Fallback = enabled) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.subtitleMatchesDeviceFlow.onEach { enabled ->
+            _uiState.update { it.copy(subtitleMatchesDevice = enabled) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.showAudiobooksFlow.onEach { enabled ->
+            _uiState.update { it.copy(showAudiobooks = enabled) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.subtitleAppearanceFlow.onEach { appearance ->
+            _uiState.update { it.copy(subtitleAppearance = appearance) }
+        }.launchIn(viewModelScope)    }
 
     fun setDownloadsWifiOnly(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setDownloadsWifiOnly(value) }
@@ -368,6 +389,26 @@ class SettingsViewModel(
 
     fun setPictureInPictureEnabled(enabled: Boolean) {
         viewModelScope.launch { playerSettingsStore.setPictureInPictureEnabled(enabled) }
+    }
+
+    fun setDolbyVisionEnabled(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDolbyVisionEnabled(enabled) }
+    }
+
+    fun setDvProfile7HDR10Fallback(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDvProfile7HDR10Fallback(enabled) }
+    }
+
+    fun setSubtitleMatchesDevice(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setSubtitleMatchesDevice(enabled) }
+    }
+
+    fun setShowAudiobooks(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setShowAudiobooks(enabled) }
+    }
+
+    fun setSubtitleAppearance(value: org.siloserver.silo.model.settings.SubtitleAppearance) {
+        viewModelScope.launch { playerSettingsStore.setSubtitleAppearance(value) }
     }
 
     fun resetPlaybackOverrides() {

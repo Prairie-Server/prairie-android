@@ -41,6 +41,10 @@ object PlaybackSettingsKeys {
      *  (tvOS "Match Device Settings" parity). Never server-synced. */
     const val SubtitleMatchesDevice = "subtitle.matches_device.local"
 
+    /** Local-only: opt-in Audiobooks surfaces in navigation (iOS
+     *  AppNavPreferences.showAudiobooks parity; hidden by default). */
+    const val NavShowAudiobooks = "nav.show_audiobooks.local"
+
     /**
      * Local-only per-profile flag — when true (default), DownloadWorker is
      * constrained to NetworkType.UNMETERED. Never synced to the server.
