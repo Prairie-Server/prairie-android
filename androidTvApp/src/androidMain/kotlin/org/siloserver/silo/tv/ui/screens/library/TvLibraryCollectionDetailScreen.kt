@@ -76,10 +76,10 @@ fun TvLibraryCollectionDetailScreen(
             )
             else -> TvCatalogGrid(
                 items = state.items,
-                isLoading = false,
-                hasMore = false,
+                isLoading = state.isLoadingMore,
+                hasMore = state.hasMore,
                 onItemClick = onItemClick,
-                onLoadMore = {},
+                onLoadMore = viewModel::loadMore,
                 fixedColumnCount = 6,
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = Spacing.safeArea,

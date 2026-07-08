@@ -1,6 +1,6 @@
 package org.siloserver.silo.repository
 
-import org.siloserver.silo.model.catalog.BrowseResponse
+import org.siloserver.silo.model.catalog.CatalogResponse
 import org.siloserver.silo.model.section.HomeLayoutResponse
 import org.siloserver.silo.model.section.HomeSectionItemsResponse
 import org.siloserver.silo.model.section.LibraryCollection
@@ -61,9 +61,11 @@ class SectionRepository(
         sectionApi.getLibraryCollections(libraryId)
 
     /** Fetches items within a library collection. */
+    /** Pages a library collection's items via the catalog resolver. */
     suspend fun getLibraryCollectionItems(
-        libraryId: Int,
         collectionId: String,
-    ): ApiResult<BrowseResponse> =
-        sectionApi.getLibraryCollectionItems(libraryId, collectionId)
+        offset: Int = 0,
+        limit: Int = 60,
+    ): ApiResult<CatalogResponse> =
+        sectionApi.getLibraryCollectionItems(collectionId, offset, limit)
 }

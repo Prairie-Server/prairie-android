@@ -129,13 +129,19 @@ class CollectionDetailViewModel(
                 }
             }
 
-            when (val result = sectionRepository.getLibraryCollectionItems(libraryId, collectionId)) {
+            when (
+                val result = sectionRepository.getLibraryCollectionItems(
+                    collectionId,
+                    offset = 0,
+                    limit = pageSize,
+                )
+            ) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(
                             items = result.data.items,
                             total = result.data.total,
-                            hasMore = false,
+                            hasMore = result.data.hasMore,
                             isLoading = false,
                             error = null,
                         )
@@ -162,17 +168,27 @@ class CollectionDetailViewModel(
     }
 
     fun loadMore() {
-        if (libraryId != null) return
         val current = _uiState.value
         if (current.isLoadingMore || !current.hasMore) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true) }
-            when (val result = collectionRepository.getItems(
-                collectionId,
-                offset = current.items.size,
-                limit = pageSize,
-            )) {
+            // Library collections page through the catalog resolver (like
+            // silo-apple); user collections keep their own paged endpoint.
+            val result = if (libraryId != null) {
+                sectionRepository.getLibraryCollectionItems(
+                    collectionId,
+                    offset = current.items.size,
+                    limit = pageSize,
+                )
+            } else {
+                collectionRepository.getItems(
+                    collectionId,
+                    offset = current.items.size,
+                    limit = pageSize,
+                )
+            }
+            when (result) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(
