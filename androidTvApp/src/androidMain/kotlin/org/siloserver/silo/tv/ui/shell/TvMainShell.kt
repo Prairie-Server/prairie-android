@@ -455,6 +455,16 @@ fun TvMainShell(
         }
     }
 
+    // Belt-and-braces for the same bug via ANY focus path (geometric D-pad Up,
+    // Back-to-menu, panel close): a bar that owns focus must be visible —
+    // QA 2026-07-08 reported the calendar's scroll-fade leaving an invisible,
+    // focused menu until the user scrolled all the way back up.
+    LaunchedEffect(focusState.isMenuFocused) {
+        if (focusState.isMenuFocused && menuVisibility.value < 1f) {
+            menuVisibility.animateTo(1f)
+        }
+    }
+
     LaunchedEffect(currentRoute, visibleRoots, librariesLoaded) {
         // Wait until libraries have actually loaded — before that `visibleRoots`
         // is just Home + Calendar, and a restored/deep-linked `main/movies` route
