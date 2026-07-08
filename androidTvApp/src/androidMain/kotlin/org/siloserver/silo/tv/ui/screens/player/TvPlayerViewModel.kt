@@ -854,6 +854,12 @@ class TvPlayerViewModel(
         firstVideoFrameRendered = false
         firstFrameWatchdogJob?.cancel()
         firstFrameWatchdogJob = null
+        // Codex PR#44: a stale buffering watchdog from the PREVIOUS session
+        // must not fire into the new one (retry / version switch / fallback
+        // could otherwise trigger a premature second fallback).
+        bufferingWatchdogJob?.cancel()
+        bufferingWatchdogJob = null
+        _uiState.update { it.copy(isBuffering = false) }
 
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
