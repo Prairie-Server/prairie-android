@@ -60,7 +60,7 @@ jobs:
             **/build/reports/tests/**
           if-no-files-found: ignore
 
-  build-debug:
+  build-release:
     name: ${{ matrix.name }}
     # APKs are only assembled for releases (tags) and manual runs; PR and
     # main pushes are gated by unit-tests alone.
@@ -71,15 +71,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Android phone debug APK
+          - name: Android phone release APK
             module: androidApp
-            artifact-name: android-phone-debug-apks
-            apk-path: androidApp/build/outputs/apk/debug/*.apk
+            artifact-name: android-phone-release-apks
+            apk-path: androidApp/build/outputs/apk/release/*.apk
             release-prefix: silo-android
-          - name: Android TV debug APK
+          - name: Android TV release APK
             module: androidTvApp
-            artifact-name: android-tv-debug-apks
-            apk-path: androidTvApp/build/outputs/apk/debug/*.apk
+            artifact-name: android-tv-release-apks
+            apk-path: androidTvApp/build/outputs/apk/release/*.apk
             release-prefix: silo-android-tv
 
     steps:
@@ -99,10 +99,12 @@ jobs:
 
       - name: Resolve app version
         shell: bash
+        env:
+          INPUT_VERSION_NAME: ${{ github.event.inputs.version_name }}
         run: |
           set -euo pipefail
 
-          version_name="${{ github.event.inputs.version_name }}"
+          version_name="${INPUT_VERSION_NAME}"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version_name="${GITHUB_REF_NAME#v}"
           fi
@@ -134,12 +136,31 @@ jobs:
 
           echo "Resolved app version ${version_name} (${version_code})."
 
-      - name: Build debug APK
+      - name: Decode release keystore
         shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.SILO_RELEASE_KEYSTORE_B64 }}
         run: |
           set -euo pipefail
 
-          args=(":${{ matrix.module }}:assembleDebug")
+          if [[ -z "${KEYSTORE_B64}" ]]; then
+            echo "::error::SILO_RELEASE_KEYSTORE_B64 secret is not set."
+            exit 1
+          fi
+
+          keystore_path="${RUNNER_TEMP}/silo-release.jks"
+          printf '%s' "${KEYSTORE_B64}" | base64 -d > "${keystore_path}"
+          echo "SILO_RELEASE_KEYSTORE=${keystore_path}" >> "${GITHUB_ENV}"
+
+      - name: Build release APK
+        shell: bash
+        env:
+          SILO_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.SILO_RELEASE_KEYSTORE_PASSWORD }}
+          SILO_RELEASE_KEY_ALIAS: ${{ secrets.SILO_RELEASE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          args=(":${{ matrix.module }}:assembleRelease")
           if [[ -n "${SILO_VERSION_NAME:-}" ]]; then
             args+=(
               "-PsiloVersionName=${SILO_VERSION_NAME}"
@@ -152,7 +173,7 @@ jobs:
             "${args[@]}" \
             --max-workers=2
 
-      - name: Collect debug APKs
+      - name: Collect release APKs
         shell: bash
         run: |
           set -euo pipefail
@@ -166,12 +187,16 @@ jobs:
             variant="${apk_name#${{ matrix.module }}-}"
             cp "${apk}" "${artifact_dir}/${{ matrix.release-prefix }}-${version_label}-${variant}"
 
-            if [[ "${variant}" == "universal-debug.apk" ]]; then
+            if [[ "${variant}" == "universal-release.apk" ]]; then
               cp "${apk}" "${artifact_dir}/${{ matrix.release-prefix }}-latest-${variant}"
+              # The Downloader by AFTVnews short codes redirect to the old
+              # debug-named asset URL. Keep publishing the release build under
+              # that filename until the aftv.news codes are re-registered.
+              cp "${apk}" "${artifact_dir}/${{ matrix.release-prefix }}-latest-universal-debug.apk"
             fi
           done
 
-      - name: Upload debug APKs
+      - name: Upload release APKs
         uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact-name }}
@@ -181,7 +206,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     if: github.ref_type == 'tag'
-    needs: build-debug
+    needs: build-release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -190,7 +215,7 @@ jobs:
       - name: Download APK artifacts
         uses: actions/download-artifact@v5
         with:
-          pattern: android-*-debug-apks
+          pattern: android-*-release-apks
           path: release-artifacts
 
       - name: Create or update release
@@ -204,12 +229,15 @@ jobs:
 
           release_tag="${GITHUB_REF_NAME}"
           release_title="Silo Android ${release_tag}"
-          android_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-latest-universal-debug.apk"
-          android_tv_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-tv-latest-universal-debug.apk"
+          android_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-latest-universal-release.apk"
+          android_tv_latest_url="https://github.com/${GH_REPO}/releases/latest/download/silo-android-tv-latest-universal-release.apk"
           android_downloader_url="http://aftv.news/1051382"
           android_tv_downloader_url="http://aftv.news/1636227"
           release_notes="$(cat <<EOF
-          Debug APK builds for ${release_tag}.
+          Release APK builds for ${release_tag}.
+
+          Note: builds are now release-signed. Updating from an older
+          debug-signed install requires uninstalling the app once.
 
           Install with Downloader by AFTVnews:
 

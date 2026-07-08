@@ -152,6 +152,21 @@ android {
         compose = true
         buildConfig = true
     }
+    // Release signing comes from the environment (CI decodes the keystore from
+    // a GitHub secret). Local release builds without these vars fall back to
+    // the debug-signing opt-in below, or stay unsigned.
+    val releaseKeystorePath = providers.environmentVariable("SILO_RELEASE_KEYSTORE").orNull
+    val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank()
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("SILO_RELEASE_KEY_ALIAS").orNull
+                keyPassword = providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
+            }
+        }
+    }
     buildTypes {
         release {
             // Launch-prep: full R8 + resource shrinking. Keep rules for this
@@ -165,9 +180,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 rootProject.file("proguard-rules.pro"),
             )
-            // No release keystore yet (pre-1.0). Only debug-sign release builds
-            // for local smoke tests when explicitly opted in.
-            if (allowDebugReleaseSigning) {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else if (allowDebugReleaseSigning) {
+                // Debug-sign release builds for local smoke tests when
+                // explicitly opted in and no release keystore is available.
                 signingConfig = signingConfigs.getByName("debug")
             }
         }
