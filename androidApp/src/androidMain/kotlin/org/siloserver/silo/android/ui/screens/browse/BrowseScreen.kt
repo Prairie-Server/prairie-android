@@ -17,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Button
@@ -86,11 +88,54 @@ fun BrowseScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showFilterSheet = true }) {
+                    // iOS control bar: sort menu first, then the filter button
+                    // with an active-facet count badge.
+                    var sortMenuOpen by remember { mutableStateOf(false) }
+                    IconButton(onClick = { sortMenuOpen = true }) {
                         Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = "Filters",
+                            imageVector = Icons.AutoMirrored.Filled.Sort,
+                            contentDescription = "Sort",
                         )
+                    }
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = sortMenuOpen,
+                        onDismissRequest = { sortMenuOpen = false },
+                    ) {
+                        browseSortOptions(state.mediaType).forEach { (field, label) ->
+                            val active = state.filterState.sort == field
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (active) {
+                                            "$label  ${if (state.filterState.order == "desc") "↓" else "↑"}"
+                                        } else {
+                                            label
+                                        },
+                                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.selectSort(field)
+                                    sortMenuOpen = false
+                                },
+                            )
+                        }
+                    }
+                    androidx.compose.material3.BadgedBox(
+                        badge = {
+                            if (state.filterState.activeFacetCount > 0) {
+                                androidx.compose.material3.Badge {
+                                    Text("${state.filterState.activeFacetCount}")
+                                }
+                            }
+                        },
+                    ) {
+                        IconButton(onClick = { showFilterSheet = true }) {
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = "Filters",
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -125,9 +170,8 @@ fun BrowseScreen(
             }
 
             // Active filter chips — iOS phone: horizontal scroll of removable
-            // capsule chips (surfaceElevated bg, caption text, xmark.circle.fill).
-            val activeFilterCount = state.filters.genres.size + state.filters.contentRatings.size
-            if (activeFilterCount > 0 || state.filters.sort != "added_at") {
+            // capsule chips; each chip removes exactly one facet value.
+            if (state.filterState.hasActiveFilters) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -135,25 +179,15 @@ fun BrowseScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    state.filters.genres.forEach { genre ->
-                        ActiveFilterChip(
-                            label = genre,
-                            onRemove = {
-                                viewModel.applyFilters(
-                                    state.filters.copy(genres = state.filters.genres - genre)
-                                )
-                            },
-                        )
-                    }
-                    state.filters.contentRatings.forEach { rating ->
-                        ActiveFilterChip(
-                            label = rating,
-                            onRemove = {
-                                viewModel.applyFilters(
-                                    state.filters.copy(contentRatings = state.filters.contentRatings - rating)
-                                )
-                            },
-                        )
+                    org.siloserver.silo.catalog.filter.CatalogFacet.available(state.mediaType).forEach { facet ->
+                        state.filterState.valuesFor(facet).sorted().forEach { value ->
+                            ActiveFilterChip(
+                                label = facetValueLabel(facet, value),
+                                onRemove = {
+                                    viewModel.applyFilterState(state.filterState.toggle(facet, value))
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -240,16 +274,57 @@ fun BrowseScreen(
         }
     }
 
-    // Filter bottom sheet
+    // Filter bottom sheet — edits a draft and commits on dismiss (iOS: no
+    // Apply button; FilterView commits via onDisappear).
     if (showFilterSheet) {
         FilterSheet(
-            currentFilters = state.filters,
+            currentFilters = state.filterState,
             availableFilters = state.availableFilters,
-            onApply = { viewModel.applyFilters(it) },
-            onReset = { viewModel.resetFilters() },
+            mediaType = state.mediaType,
+            preserveFilters = state.preserveFilters,
+            onCommit = { viewModel.applyFilterState(it) },
+            onSetPreserve = { viewModel.setPreserveFilters(it) },
             onDismiss = { showFilterSheet = false },
         )
     }
+}
+
+/** Sort keys per media type (iOS CatalogSortKey.available). */
+internal fun browseSortOptions(
+    mediaType: org.siloserver.silo.catalog.filter.BrowseFacetMediaType,
+): List<Pair<String, String>> = when (mediaType) {
+    org.siloserver.silo.catalog.filter.BrowseFacetMediaType.Video -> listOf(
+        "title" to "Title",
+        "added_at" to "Date Added",
+        "year" to "Release Year",
+        "rating_imdb" to "IMDb Rating",
+        "runtime" to "Runtime",
+        "resolution" to "Resolution",
+    )
+    org.siloserver.silo.catalog.filter.BrowseFacetMediaType.Audiobook -> listOf(
+        "title" to "Title",
+        "author" to "Author",
+        "narrator" to "Narrator",
+        "series" to "Series",
+        "added_at" to "Date Added",
+        "runtime" to "Runtime",
+    )
+}
+
+/** Chip label for a facet value (decades and watch statuses have labels
+ *  distinct from their wire values). */
+internal fun facetValueLabel(
+    facet: org.siloserver.silo.catalog.filter.CatalogFacet,
+    value: String,
+): String = when (facet) {
+    org.siloserver.silo.catalog.filter.CatalogFacet.Decade -> "${value}s"
+    org.siloserver.silo.catalog.filter.CatalogFacet.WatchStatus ->
+        org.siloserver.silo.catalog.filter.CatalogFacet.WATCH_STATUS_OPTIONS
+            .firstOrNull { it.first == value }?.second ?: value
+    org.siloserver.silo.catalog.filter.CatalogFacet.DynamicRange ->
+        org.siloserver.silo.catalog.filter.CatalogFacet.DYNAMIC_RANGE_OPTIONS
+            .firstOrNull { it.first == value }?.second ?: value
+    else -> value
 }
 
 /**

@@ -38,6 +38,7 @@ class CatalogRepository(
         yearMax: Int? = null,
         snapshotAt: String? = null,
         queryGroups: List<CatalogQueryGroup> = emptyList(),
+        match: String? = null,
     ): ApiResult<CatalogResponse> {
         val result = catalogApi.getCatalog(
             source = source,
@@ -55,6 +56,7 @@ class CatalogRepository(
             yearMax = yearMax,
             snapshotAt = snapshotAt,
             queryGroups = queryGroups,
+            match = match,
         )
 
         // Only the unfiltered, first-page default browse of a single library is
@@ -64,7 +66,7 @@ class CatalogRepository(
                 query == null && genre == null && contentRating == null &&
                 namePrefix == null && yearMin == null && yearMax == null &&
                 source == null && mediaType == null && snapshotAt == null &&
-                queryGroups.isEmpty() &&
+                queryGroups.isEmpty() && match == null &&
                 (sort == null || sort == "added_at") && (order == null || order == "desc")
         } ?: return result
 
@@ -79,8 +81,11 @@ class CatalogRepository(
     }
 
     /** Returns available filter options (genres, studios, etc.) for the catalog. */
-    suspend fun getFilters(libraryId: Int? = null): ApiResult<CatalogFiltersResponse> =
-        catalogApi.getFilters(libraryId)
+    suspend fun getFilters(
+        libraryId: Int? = null,
+        includeTechnical: Boolean = false,
+    ): ApiResult<CatalogFiltersResponse> =
+        catalogApi.getFilters(libraryId, includeTechnical)
 
     /** Groups audiobook libraries by author, narrator, or series for book-native browsing. */
     suspend fun getAudiobookGroups(

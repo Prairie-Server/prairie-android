@@ -24,6 +24,7 @@ class CatalogApi(private val client: HttpClient) {
         yearMax: Int? = null,
         snapshotAt: String? = null,
         queryGroups: List<CatalogQueryGroup> = emptyList(),
+        match: String? = null,
     ): ApiResult<CatalogResponse> = safeApiCall {
         client.get("/api/v1/catalog") {
             source?.let { parameter("source", it) }
@@ -40,12 +41,19 @@ class CatalogApi(private val client: HttpClient) {
             yearMin?.let { parameter("year_min", it) }
             yearMax?.let { parameter("year_max", it) }
             snapshotAt?.let { parameter("snapshot", it) }
+            match?.let { parameter("match", it) }
             queryGroups.forEachIndexed { groupIndex, group ->
                 parameter("groups[$groupIndex][match]", group.match)
                 group.rules.forEachIndexed { ruleIndex, rule ->
                     parameter("groups[$groupIndex][rules][$ruleIndex][field]", rule.field)
                     parameter("groups[$groupIndex][rules][$ruleIndex][op]", rule.op)
-                    parameter("groups[$groupIndex][rules][$ruleIndex][value]", rule.value)
+                    if (rule.values.isNotEmpty()) {
+                        rule.values.forEachIndexed { valueIndex, value ->
+                            parameter("groups[$groupIndex][rules][$ruleIndex][value][$valueIndex]", value)
+                        }
+                    } else {
+                        parameter("groups[$groupIndex][rules][$ruleIndex][value]", rule.value)
+                    }
                 }
             }
         }
@@ -71,9 +79,13 @@ class CatalogApi(private val client: HttpClient) {
         }
     }
 
-    suspend fun getFilters(libraryId: Int? = null): ApiResult<CatalogFiltersResponse> = safeApiCall {
+    suspend fun getFilters(
+        libraryId: Int? = null,
+        includeTechnical: Boolean = false,
+    ): ApiResult<CatalogFiltersResponse> = safeApiCall {
         client.get("/api/v1/catalog/filters") {
             libraryId?.let { parameter("library_id", it) }
+            if (includeTechnical) parameter("include_technical", "true")
         }
     }
 

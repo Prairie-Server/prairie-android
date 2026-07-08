@@ -88,6 +88,9 @@ data class CatalogQueryRule(
     val field: String,
     val op: String,
     val value: String,
+    /** Range ops ("between") carry indexed values instead of [value] —
+     *  encoded as value[0], value[1] on the wire (iOS CatalogQueryBuilder). */
+    val values: List<String> = emptyList(),
 )
 
 data class CatalogQueryGroup(
@@ -123,7 +126,10 @@ data class CatalogFiltersResponse(
     val resolutions: List<String>? = null,
     @SerialName("audio_languages") val audioLanguages: List<String>? = null,
     @SerialName("subtitle_languages") val subtitleLanguages: List<String>? = null,
-    @SerialName("original_languages") val originalLanguages: List<String>? = null
+    @SerialName("original_languages") val originalLanguages: List<String>? = null,
+    val authors: List<String>? = null,
+    val narrators: List<String>? = null,
+    val series: List<String>? = null
 )
 
 // --- Item Detail ---

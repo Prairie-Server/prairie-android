@@ -3,6 +3,9 @@ package org.siloserver.silo.android.ui.screens.browse
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.catalog.filter.BrowseFacetMediaType
+import org.siloserver.silo.catalog.filter.CatalogFilterQueryBuilder
+import org.siloserver.silo.catalog.filter.CatalogFilterState
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.catalog.CatalogFiltersResponse
 import org.siloserver.silo.model.catalog.MediaItemUserState
@@ -18,16 +21,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Active filter selections for browsing.
- */
-data class BrowseFilters(
-    val genres: Set<String> = emptySet(),
-    val contentRatings: Set<String> = emptySet(),
-    val sort: String = "added_at",
-    val order: String = "desc",
-)
-
-/**
  * UI state for the browse / catalog screen.
  */
 data class BrowseUiState(
@@ -36,7 +29,9 @@ data class BrowseUiState(
     val items: List<BrowseItem> = emptyList(),
     val hasMore: Boolean = false,
     val total: Int = 0,
-    val filters: BrowseFilters = BrowseFilters(),
+    val filterState: CatalogFilterState = CatalogFilterState(),
+    val mediaType: BrowseFacetMediaType = BrowseFacetMediaType.Video,
+    val preserveFilters: Boolean = true,
     val selectedNamePrefix: String? = null,
     val catalogDensity: CatalogViewDensity = CatalogViewDensity.Normal,
     val availableFilters: CatalogFiltersResponse? = null,
@@ -55,6 +50,7 @@ class BrowseViewModel(
     private val catalogRepository: CatalogRepository,
     savedStateHandle: SavedStateHandle,
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
+    private val browsePrefs: BrowsePrefsStore? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BrowseUiState())
@@ -64,24 +60,53 @@ class BrowseViewModel(
 
     init {
         val libraryId = savedStateHandle.get<String>("libraryId")?.toIntOrNull()
-        _uiState.update { it.copy(libraryId = libraryId) }
+        // Restore the persisted filter/sort state before the first load so a
+        // preserved selection doesn't flash the unfiltered grid (iOS parity).
+        val restored = browsePrefs?.savedState(libraryId)
+        _uiState.update {
+            it.copy(
+                libraryId = libraryId,
+                filterState = restored ?: it.filterState,
+                preserveFilters = browsePrefs?.preserveEnabled(libraryId) ?: true,
+            )
+        }
         loadFilters()
         loadItems(reset = true)
     }
 
     /**
-     * Applies new filters and reloads the catalog from the beginning.
+     * Applies a new filter/sort state, persists it (when preserve is on),
+     * and reloads the catalog from the beginning.
      */
-    fun applyFilters(filters: BrowseFilters) {
-        _uiState.update { it.copy(filters = filters) }
+    fun applyFilterState(state: CatalogFilterState) {
+        if (state == _uiState.value.filterState) return
+        _uiState.update { it.copy(filterState = state) }
+        browsePrefs?.saveState(_uiState.value.libraryId, state)
         loadItems(reset = true)
     }
 
-    /**
-     * Resets all filters to defaults and reloads.
-     */
+    /** Clears facets + match mode but keeps sort/order (iOS resetFilters). */
     fun resetFilters() {
-        applyFilters(BrowseFilters())
+        applyFilterState(_uiState.value.filterState.resetFilters())
+    }
+
+    /** iOS sort menu semantics: tapping the active key flips direction,
+     *  another key selects it with its default order. */
+    fun selectSort(field: String, defaultOrder: String = "desc") {
+        val current = _uiState.value.filterState
+        val next = if (current.sort == field) {
+            current.copy(order = if (current.order == "desc") "asc" else "desc")
+        } else {
+            current.copy(sort = field, order = defaultOrder)
+        }
+        applyFilterState(next)
+    }
+
+    fun setPreserveFilters(enabled: Boolean) {
+        val libraryId = _uiState.value.libraryId
+        browsePrefs?.setPreserveEnabled(libraryId, enabled)
+        _uiState.update { it.copy(preserveFilters = enabled) }
+        if (enabled) browsePrefs?.saveState(libraryId, _uiState.value.filterState)
     }
 
     fun selectNamePrefix(prefix: String?) {
@@ -122,7 +147,14 @@ class BrowseViewModel(
 
     private fun loadFilters() {
         viewModelScope.launch {
-            when (val result = catalogRepository.getFilters(_uiState.value.libraryId)) {
+            when (
+                val result = catalogRepository.getFilters(
+                    _uiState.value.libraryId,
+                    // Resolution + audio/subtitle language vocabularies are
+                    // technical facets, only sent on request (iOS parity).
+                    includeTechnical = true,
+                )
+            ) {
                 is ApiResult.Success -> {
                     _uiState.update { it.copy(availableFilters = result.data) }
                 }
@@ -163,16 +195,17 @@ class BrowseViewModel(
                 else it.copy(isLoadingMore = true, error = null)
             }
 
-            val filters = currentState.filters
+            val filters = currentState.filterState
             val result = catalogRepository.browse(
                 libraryId = currentState.libraryId,
-                genre = filters.genres.firstOrNull(), // API takes single genre
-                contentRating = filters.contentRatings.firstOrNull(),
                 sort = filters.sort,
                 order = filters.order,
                 offset = offset,
                 limit = pageSize,
                 namePrefix = currentState.selectedNamePrefix,
+                queryGroups = CatalogFilterQueryBuilder.buildGroups(filters),
+                match = CatalogFilterQueryBuilder.matchParam(filters)
+                    .takeIf { filters.hasActiveFilters },
             )
 
             when (result) {
@@ -181,6 +214,16 @@ class BrowseViewModel(
                     // Overlay local optimistic watched/favorite so an offline mutation
                     // shows immediately on the cached grid (mirrors Home).
                     val overlaid = overlayLocalState(response.items)
+                    // Audiobook libraries surface book-native facets
+                    // (author/narrator/series) — detected from the first item
+                    // like iOS BrowseMediaType.from.
+                    val mediaType = overlaid.firstOrNull()?.let { first ->
+                        if (org.siloserver.silo.model.catalog.isAudiobookItemType(first.type)) {
+                            BrowseFacetMediaType.Audiobook
+                        } else {
+                            BrowseFacetMediaType.Video
+                        }
+                    }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -189,6 +232,7 @@ class BrowseViewModel(
                             hasMore = response.hasMore,
                             total = response.total,
                             title = response.title ?: "Browse",
+                            mediaType = mediaType ?: it.mediaType,
                             error = null,
                         )
                     }
