@@ -171,6 +171,7 @@ fun TvMainShell(
     val currentEntry by nestedNav.currentBackStackEntryAsState()
 
     val authRepository: AuthRepository = koinInject()
+    val sectionRepository: org.siloserver.silo.repository.SectionRepository = koinInject()
     val personalDataRepository: PersonalDataRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
@@ -315,6 +316,21 @@ fun TvMainShell(
         derivedStateOf { mapRouteToRoot(currentRoute) }
     }
 
+    // Which libraries actually HAVE collections — gates the cascade's
+    // Collections pill so an empty library doesn't offer a dead-end section
+    // (QA 2026-07-08: Movies → Collections → black 'No collections' page).
+    // null = unknown (still loading) → pill stays visible.
+    var librariesWithCollections by remember { mutableStateOf<Set<Int>?>(null) }
+    LaunchedEffect(libraries) {
+        if (libraries.isEmpty()) return@LaunchedEffect
+        val ids = mutableSetOf<Int>()
+        libraries.forEach { lib ->
+            val result = runCatching { sectionRepository.getLibraryCollections(lib.id) }.getOrNull()
+            if (result is ApiResult.Success && result.data.isNotEmpty()) ids += lib.id
+        }
+        librariesWithCollections = ids
+    }
+
     val navigateToRoute: (String) -> Unit = { route ->
         if (route != currentRoute) {
             nestedNav.navigate(route) {
@@ -426,23 +442,14 @@ fun TvMainShell(
     // down fades/translates the menu out; scrolling up restores it. The
     // animation lives entirely in `graphicsLayer` so layout doesn't reflow
     // beneath the menu while it transitions.
+    // tvOS parity (QA 2026-07-08): the top bar NEVER hides — it floats over
+    // every page and dims to 70% while focus is down in content
+    // (TVTopMenuBar draws no band and has no scroll-hide). The old
+    // scroll-away fade let content slide under the wordmark and left users
+    // with an invisible bar to navigate back to.
     val menuVisibility = remember { Animatable(1f) }
-    val scrollScope = rememberCoroutineScope()
-    val nestedScrollConnection = remember(menuVisibility, scrollScope) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // available.y < 0 means the user is scrolling content downward
-                // (revealing items below the fold) — fade the menu out.
-                // available.y > 0 means scrolling upward — fade it in.
-                // We don't consume any scroll; the inner LazyColumn handles it fully.
-                if (source == NestedScrollSource.UserInput) {
-                    val deltaProgress = available.y / 240f
-                    val target = (menuVisibility.value + deltaProgress).coerceIn(0f, 1f)
-                    scrollScope.launch { menuVisibility.snapTo(target) }
-                }
-                return Offset.Zero
-            }
-        }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {}
     }
 
     // When focus is handed back to the top menu (Up at the top content row, or
@@ -1009,6 +1016,9 @@ fun TvMainShell(
                         type = dest.type,
                         libraries = libraries.filter { dest.type.matches(it) },
                         currentScopeId = activeLibrary(dest.type)?.id,
+                        libraryHasCollections = { id ->
+                            librariesWithCollections?.contains(id) ?: true
+                        },
                         selectedPill = pillSelections[dest.type] ?: TvLibraryPill.Recommended,
                         entersPanel = active && focusState.panelEntersFocus,
                         focusEntryToken = focusState.panelFocusEntryToken,

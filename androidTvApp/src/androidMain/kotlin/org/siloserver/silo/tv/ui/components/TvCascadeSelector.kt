@@ -131,9 +131,10 @@ fun TvCascadeSelector(
     onCommitSection: (UserLibrary, TvLibraryPill) -> Unit,
     onPanelFocusChanged: (Boolean) -> Unit,
     onClose: () -> Unit,
+    /** Gates the Collections pill per anchored library (QA 2026-07-08). */
+    libraryHasCollections: (Int) -> Boolean = { true },
     modifier: Modifier = Modifier,
 ) {
-    val pills = remember(type) { TvLibraryPill.set(type) }
     val isSingleLibrary = libraries.size <= 1
 
     // One stable FocusRequester per library id and per pill, surviving recomposition.
@@ -147,6 +148,15 @@ fun TvCascadeSelector(
     // The library row whose flyout is currently shown.
     var anchorId by remember(libraries, currentScopeId) {
         mutableStateOf(currentScopeId ?: libraries.firstOrNull()?.id)
+    }
+
+    // Section pills for the anchored library; Collections is offered only
+    // when that library actually has collections.
+    val pills = remember(type, anchorId) {
+        TvLibraryPill.set(type).filter { pill ->
+            pill != TvLibraryPill.Collections ||
+                anchorId?.let(libraryHasCollections) ?: true
+        }
     }
 
     // Scroll state for the lazy (libraries.size > 6) level-1 list, so focus
