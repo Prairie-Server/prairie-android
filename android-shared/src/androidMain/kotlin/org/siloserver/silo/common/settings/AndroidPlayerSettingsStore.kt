@@ -220,6 +220,23 @@ class AndroidPlayerSettingsStore(
             SubtitleAppearance.decode(p.stringFor(s, PlaybackSettingsKeys.SubtitleAppearance, ""))
         }
 
+    override val subtitleMatchesDeviceFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.SubtitleMatchesDevice, false) }
+
+    // tvOS "Match Device Settings" parity: when on, playback styling follows
+    // the OS captioning preferences (CaptioningManager); the stored custom
+    // appearance stays untouched underneath.
+    override val effectiveSubtitleAppearanceFlow: Flow<SubtitleAppearance> =
+        kotlinx.coroutines.flow.combine(
+            subtitleAppearanceFlow,
+            subtitleMatchesDeviceFlow,
+        ) { appearance, matchDevice ->
+            if (matchDevice) deviceCaptioningAppearance(context, appearance) else appearance
+        }
+
+    override suspend fun setSubtitleMatchesDevice(enabled: Boolean) =
+        writeBoolLocal(PlaybackSettingsKeys.SubtitleMatchesDevice, enabled)
+
     // ---- Setters (write to scoped key + enqueue server flush) ---------
     override suspend fun setAutoSkipIntro(value: Boolean) =
         writeBool(PlaybackSettingsKeys.AutoSkipIntro, value)

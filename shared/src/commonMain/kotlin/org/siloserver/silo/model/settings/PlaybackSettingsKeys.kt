@@ -37,6 +37,10 @@ object PlaybackSettingsKeys {
      */
     const val SubtitleUsesDeviceOverride = "subtitle.uses_device_override"
 
+    /** Local-only: subtitle appearance follows the OS captioning settings
+     *  (tvOS "Match Device Settings" parity). Never server-synced. */
+    const val SubtitleMatchesDevice = "subtitle.matches_device.local"
+
     /**
      * Local-only per-profile flag — when true (default), DownloadWorker is
      * constrained to NetworkType.UNMETERED. Never synced to the server.

@@ -108,6 +108,10 @@ class PairingReceiver(
     /** Per-session: once the user allows one push, later pushes skip the ask. */
     private var consented = false
 
+    /** Set on deny: a buffered PushServer must not re-open the consent prompt
+     *  while the Cancel/close is still in flight (CodeRabbit PR#44). */
+    private var sessionDenied = false
+
     /** Session scope captured so [allowPendingServer] can launch the login. */
     private var sessionScope: CoroutineScope? = null
 
@@ -155,6 +159,7 @@ class PairingReceiver(
      */
     fun denyPendingServer() {
         if (_status.value !is PairingReceiverStatus.ConsentRequested) return
+        sessionDenied = true
         pendingPush = null
         val transport = activeTransport
         sessionScope?.launch {
@@ -177,6 +182,7 @@ class PairingReceiver(
         pushJob = null
         pendingPush = null
         consented = false
+        sessionDenied = false
         activeTransport = transport
         signedInCount = 0
         signedInNames.clear()
@@ -262,6 +268,7 @@ class PairingReceiver(
         sessionScope: CoroutineScope,
     ) {
         if (pollingServerUrl != null) return // one at a time; ignore overlap.
+        if (sessionDenied) return // denied: session is tearing down.
         val serverURL = message.serverURL
         val serverName = message.serverName?.takeIf { it.isNotBlank() } ?: serverURL
         Log.i(TAG, "received pushed server")

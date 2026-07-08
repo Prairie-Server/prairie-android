@@ -148,6 +148,49 @@ class MediaAuthInterceptorTest {
         assertFalse(tokenManager.savedTokens)
     }
 
+    @Test
+    fun `refresh response is discarded when signed out mid refresh`() {
+        // Logout revokes the access token server-side, so media requests 401
+        // exactly during sign-out; the refresh completing AFTER clearTokens
+        // must not re-persist a session (CodeRabbit PR#44 — mirrors the
+        // SiloAuthPlugin race test).
+        val tokenManager = FakeTokenManager(
+            accessToken = "expired-access",
+            refreshToken = "refresh-token",
+            serverUrl = "https://lib.strm.cafe",
+            serverId = "server-a",
+        )
+        val refreshClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                // Sign-out lands while the refresh round-trip is in flight.
+                runBlocking { tokenManager.clearTokens() }
+                responseFor(
+                    chain.request(),
+                    code = 200,
+                    body = """
+                        {
+                          "access_token": "fresh-access",
+                          "refresh_token": "fresh-refresh",
+                          "expires_in": 3600
+                        }
+                    """.trimIndent(),
+                )
+            }
+            .build()
+        val chain = SequenceChain(
+            Request.Builder()
+                .url("https://lib.strm.cafe/api/v1/ebooks/book/files/7/read")
+                .build(),
+            responseCodes = listOf(401, 401),
+        )
+
+        MediaAuthInterceptor(tokenManager, refreshClient = refreshClient).intercept(chain).close()
+
+        assertEquals(null, runBlocking { tokenManager.getAccessToken() })
+        assertEquals(null, runBlocking { tokenManager.getRefreshToken() })
+        assertFalse(tokenManager.savedTokens)
+    }
+
     private class CapturingChain(
         private val request: Request,
     ) : Interceptor.Chain {

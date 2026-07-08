@@ -146,6 +146,8 @@ fun TvSettingsScreen(
         onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
         onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
         onMatchContentFrameRateChanged = viewModel::onMatchContentFrameRateChanged,
+        onDolbyVisionEnabledChanged = viewModel::onDolbyVisionEnabledChanged,
+        onDvProfile7HDR10FallbackChanged = viewModel::onDvProfile7HDR10FallbackChanged,
         onPictureInPictureEnabledChanged = viewModel::onPictureInPictureEnabledChanged,
         onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
         onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
@@ -166,6 +168,8 @@ fun TvSettingsScreen(
         onSubtitleBackgroundColorChanged = viewModel::setSubtitleBackgroundColor,
         onSubtitlePositionChanged = viewModel::setSubtitlePosition,
         onSubtitleDeviceOverrideEnabledChanged = viewModel::setSubtitleDeviceOverrideEnabled,
+        onSubtitleMatchesDeviceChanged = viewModel::onSubtitleMatchesDeviceChanged,
+        onShowAudiobooksTabChanged = viewModel::onShowAudiobooksTabChanged,
     )
 
     if (showCardOverlaysEditor) {
@@ -228,6 +232,7 @@ private fun SettingsSplitLayout(
     firstActionFocusRequester: FocusRequester,
     onCategorySelected: (TvSettingsCategory) -> Unit,
     onOpenCardOverlays: () -> Unit,
+    onShowAudiobooksTabChanged: (Boolean) -> Unit,
     onSwitchProfile: () -> Unit,
     onManageSessions: () -> Unit,
     onPairDevice: () -> Unit,
@@ -245,6 +250,8 @@ private fun SettingsSplitLayout(
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
     onMatchContentFrameRateChanged: (Boolean) -> Unit,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
+    onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
@@ -265,6 +272,7 @@ private fun SettingsSplitLayout(
     onSubtitleBackgroundColorChanged: (String) -> Unit,
     onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
     onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+    onSubtitleMatchesDeviceChanged: (Boolean) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -293,6 +301,7 @@ private fun SettingsSplitLayout(
             state = state,
             selectedCategory = selectedCategory,
             onOpenCardOverlays = onOpenCardOverlays,
+            onShowAudiobooksTabChanged = onShowAudiobooksTabChanged,
             onManageSessions = onManageSessions,
             onPairDevice = onPairDevice,
             onManageServers = onManageServers,
@@ -307,6 +316,8 @@ private fun SettingsSplitLayout(
             onAutoSkipIntroChanged = onAutoSkipIntroChanged,
             onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
             onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
+            onDolbyVisionEnabledChanged = onDolbyVisionEnabledChanged,
+            onDvProfile7HDR10FallbackChanged = onDvProfile7HDR10FallbackChanged,
             onPictureInPictureEnabledChanged = onPictureInPictureEnabledChanged,
             onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
             onPassOutThresholdChanged = onPassOutThresholdChanged,
@@ -327,6 +338,7 @@ private fun SettingsSplitLayout(
             onSubtitleBackgroundColorChanged = onSubtitleBackgroundColorChanged,
             onSubtitlePositionChanged = onSubtitlePositionChanged,
             onSubtitleDeviceOverrideEnabledChanged = onSubtitleDeviceOverrideEnabledChanged,
+            onSubtitleMatchesDeviceChanged = onSubtitleMatchesDeviceChanged,
             // Contain Up at the pane's top row: escaping to the top menu from
             // inside a category was disorienting (QA 2026-07-08). Left still
             // exits to the category rail.
@@ -451,6 +463,7 @@ private fun SettingsDetailPane(
     state: TvSettingsViewModel.UiState,
     selectedCategory: TvSettingsCategory,
     onOpenCardOverlays: () -> Unit,
+    onShowAudiobooksTabChanged: (Boolean) -> Unit,
     onManageSessions: () -> Unit,
     onPairDevice: () -> Unit,
     onManageServers: () -> Unit,
@@ -465,6 +478,8 @@ private fun SettingsDetailPane(
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
     onMatchContentFrameRateChanged: (Boolean) -> Unit,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
+    onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
@@ -485,6 +500,7 @@ private fun SettingsDetailPane(
     onSubtitleBackgroundColorChanged: (String) -> Unit,
     onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
     onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+    onSubtitleMatchesDeviceChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -510,6 +526,7 @@ private fun SettingsDetailPane(
             TvSettingsCategory.General -> TvGeneralSettingsPane(
                 state = state,
                 onOpenCardOverlays = onOpenCardOverlays,
+            onShowAudiobooksTabChanged = onShowAudiobooksTabChanged,
                 onNotificationsEnabledChanged = onNotificationsEnabledChanged,
                 onNotifyFavoritesChanged = onNotifyFavoritesChanged,
                 onNotifyWatchlistChanged = onNotifyWatchlistChanged,
@@ -524,6 +541,8 @@ private fun SettingsDetailPane(
                 onAutoSkipIntroChanged = onAutoSkipIntroChanged,
                 onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
             onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
+            onDolbyVisionEnabledChanged = onDolbyVisionEnabledChanged,
+            onDvProfile7HDR10FallbackChanged = onDvProfile7HDR10FallbackChanged,
                 onPictureInPictureEnabledChanged = onPictureInPictureEnabledChanged,
                 onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
                 onPassOutThresholdChanged = onPassOutThresholdChanged,
@@ -547,6 +566,7 @@ private fun SettingsDetailPane(
                 onSubtitleBackgroundColorChanged = onSubtitleBackgroundColorChanged,
                 onSubtitlePositionChanged = onSubtitlePositionChanged,
                 onSubtitleDeviceOverrideEnabledChanged = onSubtitleDeviceOverrideEnabledChanged,
+            onSubtitleMatchesDeviceChanged = onSubtitleMatchesDeviceChanged,
             )
             TvSettingsCategory.Server -> TvServerSettingsPane(
                 state = state,
@@ -562,6 +582,7 @@ private fun SettingsDetailPane(
 private fun TvGeneralSettingsPane(
     state: TvSettingsViewModel.UiState,
     onOpenCardOverlays: () -> Unit,
+    onShowAudiobooksTabChanged: (Boolean) -> Unit,
     onNotificationsEnabledChanged: (Boolean) -> Unit,
     onNotifyFavoritesChanged: (Boolean) -> Unit,
     onNotifyWatchlistChanged: (Boolean) -> Unit,
@@ -573,6 +594,18 @@ private fun TvGeneralSettingsPane(
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
         contentPadding = PaddingValues(bottom = Spacing.xxxl),
     ) {
+        item {
+            // tvOS TVGeneralSettingsPane TOP MENU parity: the Audiobooks tab
+            // is opt-in (hidden by default) even when the server has an
+            // audiobook library.
+            SettingsGroup(title = "Top Menu") {
+                SettingsToggleRow(
+                    label = "Show Audiobooks",
+                    checked = state.showAudiobooksTab,
+                    onCheckedChange = onShowAudiobooksTabChanged,
+                )
+            }
+        }
         item {
             SettingsGroup(title = "Preferences") {
                 SettingsActionRow(label = "Card Overlays", onClick = onOpenCardOverlays)
@@ -628,6 +661,8 @@ private fun TvPlaybackSettingsPane(
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
     onMatchContentFrameRateChanged: (Boolean) -> Unit,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
+    onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
@@ -653,6 +688,22 @@ private fun TvPlaybackSettingsPane(
                     value = audioLanguageLabel(state.audioLanguage),
                     onClick = { activePicker = PlaybackPicker.AudioLanguage },
                 )
+                // tvOS TVPlaybackSettingsPane STREAMING parity: Dolby Vision
+                // (default on; off plays the HDR10 base layer) with the
+                // narrower Profile 7 fallback nested under it — the P7 row
+                // only shows while Dolby Vision is on, as on Apple TV.
+                SettingsToggleRow(
+                    label = "Dolby Vision",
+                    checked = state.dolbyVisionEnabled,
+                    onCheckedChange = onDolbyVisionEnabledChanged,
+                )
+                if (state.dolbyVisionEnabled) {
+                    SettingsToggleRow(
+                        label = "Profile 7 HDR10 Fallback",
+                        checked = state.dvProfile7HDR10Fallback,
+                        onCheckedChange = onDvProfile7HDR10FallbackChanged,
+                    )
+                }
                 SettingsToggleRow(
                     label = "Picture-in-Picture",
                     checked = state.pictureInPictureEnabled,
@@ -783,6 +834,7 @@ private fun TvSubtitleSettingsPane(
     onSubtitleBackgroundColorChanged: (String) -> Unit,
     onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
     onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+    onSubtitleMatchesDeviceChanged: (Boolean) -> Unit,
 ) {
     var activePicker by remember { mutableStateOf<SubtitlePicker?>(null) }
     val appearance = state.subtitleAppearance
@@ -820,6 +872,13 @@ private fun TvSubtitleSettingsPane(
         }
         item {
             SettingsGroup(title = "Appearance") {
+                SettingsToggleRow(
+                    // tvOS parity: appearance follows the OS captioning
+                    // settings while this is on.
+                    label = "Match Device Settings",
+                    checked = state.subtitleMatchesDevice,
+                    onCheckedChange = onSubtitleMatchesDeviceChanged,
+                )
                 SettingsToggleRow(
                     label = "Custom Appearance",
                     checked = state.subtitleUsesDeviceOverride,

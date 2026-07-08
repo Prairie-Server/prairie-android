@@ -750,7 +750,9 @@ class TvPlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val matchContentFrameRate: StateFlow<Boolean> = playerSettingsStore.matchContentFrameRateFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-    val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
+    // Effective = custom appearance unless "Match Device Settings" is on
+    // (then the OS captioning style, tvOS parity).
+    val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.effectiveSubtitleAppearanceFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, SubtitleAppearance.DEFAULT)
     /**
      * Per-profile audio delay in ms, ±500 clamp. Sourced from

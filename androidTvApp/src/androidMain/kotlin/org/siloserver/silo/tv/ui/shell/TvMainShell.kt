@@ -208,7 +208,15 @@ fun TvMainShell(
     }
 
     // Skyline tab set (§3.1): Home + present library-type tabs + Calendar.
-    val visibleRoots = remember(libraries) { visibleTvRoots(libraries) }
+    // tvOS parity: the Audiobooks tab is opt-in via Settings > General
+    // (hidden by default); the store is device+profile local.
+    var showAudiobooksTab by remember { mutableStateOf(false) }
+    LaunchedEffect(libraries) {
+        showAudiobooksTab = runCatching { tvLibraryScopeStore.getShowAudiobooksTab() }.getOrDefault(false)
+    }
+    val visibleRoots = remember(libraries, showAudiobooksTab) {
+        visibleTvRoots(libraries, showAudiobooks = showAudiobooksTab)
+    }
 
     // In-session scope/pill selections per library type. Scope selections are
     // also persisted via TvLibraryScopeStore; pill selections are session-only

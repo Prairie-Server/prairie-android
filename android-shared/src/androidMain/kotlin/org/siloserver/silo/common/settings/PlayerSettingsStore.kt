@@ -51,6 +51,10 @@ interface PlayerSettingsStore {
      * user-level setting; when true, the local override is in effect.
      */
     val subtitleUsesDeviceOverrideFlow: Flow<Boolean>
+    /** tvOS "Match Device Settings": appearance follows OS captioning prefs. */
+    val subtitleMatchesDeviceFlow: Flow<Boolean>
+    /** [subtitleAppearanceFlow] with the match-device override applied. */
+    val effectiveSubtitleAppearanceFlow: Flow<org.siloserver.silo.model.settings.SubtitleAppearance>
 
     // Setters
     suspend fun setAutoSkipIntro(value: Boolean)
@@ -101,6 +105,7 @@ interface PlayerSettingsStore {
      * override.
      */
     suspend fun setSubtitleDeviceOverrideEnabled(enabled: Boolean)
+    suspend fun setSubtitleMatchesDevice(enabled: Boolean)
 
     /**
      * Clear the server-side device override for one key. Local DataStore

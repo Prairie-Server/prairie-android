@@ -51,6 +51,7 @@ class TvSettingsViewModel(
     private val overlayPrefsStore: OverlayPrefsStore,
     private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
     private val notificationsRepository: NotificationsRepository,
+    private val tvLibraryScopeStore: org.siloserver.silo.tv.data.preferences.TvLibraryScopeStore? = null,
 ) : ViewModel() {
 
     enum class NavAction { SIGNED_OUT, SWITCH_PROFILE }
@@ -80,6 +81,10 @@ class TvSettingsViewModel(
         val autoPlayNext: Boolean = true,
         val autoSkipIntro: Boolean = false,
         val matchContentFrameRate: Boolean = false,
+        val dolbyVisionEnabled: Boolean = true,
+        val showAudiobooksTab: Boolean = false,
+        val subtitleMatchesDevice: Boolean = false,
+        val dvProfile7HDR10Fallback: Boolean = true,
         val autoSkipCredits: Boolean = false,
         // Seconds to skip back on resume (0 = off); consecutive auto-advances
         // before the "Still watching?" prompt (0 = off).
@@ -233,6 +238,27 @@ class TvSettingsViewModel(
         viewModelScope.launch {
             playerSettingsStore.matchContentFrameRateFlow.collect { value ->
                 _uiState.update { it.copy(matchContentFrameRate = value) }
+            }
+        }
+        viewModelScope.launch {
+            playerSettingsStore.dolbyVisionEnabledFlow.collect { value ->
+                _uiState.update { it.copy(dolbyVisionEnabled = value) }
+            }
+        }
+        viewModelScope.launch {
+            tvLibraryScopeStore?.let { store ->
+                val value = runCatching { store.getShowAudiobooksTab() }.getOrDefault(false)
+                _uiState.update { it.copy(showAudiobooksTab = value) }
+            }
+        }
+        viewModelScope.launch {
+            playerSettingsStore.dvProfile7HDR10FallbackFlow.collect { value ->
+                _uiState.update { it.copy(dvProfile7HDR10Fallback = value) }
+            }
+        }
+        viewModelScope.launch {
+            playerSettingsStore.subtitleMatchesDeviceFlow.collect { value ->
+                _uiState.update { it.copy(subtitleMatchesDevice = value) }
             }
         }
         // Device-scoped subtitle-appearance override toggle (same source the
@@ -478,6 +504,26 @@ class TvSettingsViewModel(
 
     fun onMatchContentFrameRateChanged(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setMatchContentFrameRate(value) }
+    }
+
+    /** tvOS navPrefs.showAudiobooks parity — opt-in Audiobooks top-menu tab. */
+    fun onShowAudiobooksTabChanged(value: Boolean) {
+        _uiState.update { it.copy(showAudiobooksTab = value) }
+        viewModelScope.launch {
+            runCatching { tvLibraryScopeStore?.setShowAudiobooksTab(value) }
+        }
+    }
+
+    fun onSubtitleMatchesDeviceChanged(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setSubtitleMatchesDevice(value) }
+    }
+
+    fun onDolbyVisionEnabledChanged(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDolbyVisionEnabled(value) }
+    }
+
+    fun onDvProfile7HDR10FallbackChanged(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setDvProfile7HDR10Fallback(value) }
     }
 
     fun onAutoSkipIntroChanged(value: Boolean) {

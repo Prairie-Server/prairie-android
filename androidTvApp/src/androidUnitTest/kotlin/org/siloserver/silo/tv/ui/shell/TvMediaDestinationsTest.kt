@@ -43,6 +43,16 @@ class TvMediaDestinationsTest {
     @Test
     fun onlyPresentTypesYieldTabs() {
         val libraries = listOf(library(1, "audiobook"))
+        // tvOS parity: the Audiobooks tab is OPT-IN (hidden by default) even
+        // when an audiobook library exists.
+        assertEquals(
+            listOf(
+                TvRootDestination.Home,
+                TvRootDestination.ForYou,
+                TvRootDestination.Calendar,
+            ),
+            visibleTvRoots(libraries),
+        )
         assertEquals(
             listOf(
                 TvRootDestination.Home,
@@ -50,7 +60,7 @@ class TvMediaDestinationsTest {
                 TvRootDestination.ForYou,
                 TvRootDestination.Calendar,
             ),
-            visibleTvRoots(libraries),
+            visibleTvRoots(libraries, showAudiobooks = true),
         )
     }
 

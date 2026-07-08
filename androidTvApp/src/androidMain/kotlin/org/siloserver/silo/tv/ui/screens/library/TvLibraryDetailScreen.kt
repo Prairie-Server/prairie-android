@@ -692,7 +692,9 @@ private fun GenreChipCloud(
                     onClick = { onGenreChanged(null) },
                 )
             }
-            items(genres, key = { it }) { genre ->
+            // Server genre lists can contain duplicates — a repeated string
+            // would collide as a Lazy key and crash (CodeRabbit PR#44).
+            items(genres.distinct(), key = { it }) { genre ->
                 TvFilterChip(
                     text = genre,
                     selected = selectedGenre == genre,

@@ -348,7 +348,9 @@ class PlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val dolbyVisionEnabled: StateFlow<Boolean> = playerSettingsStore.dolbyVisionEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
-    val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.subtitleAppearanceFlow
+    // Effective = custom appearance unless "Match Device Settings" is on
+    // (then the OS captioning style, tvOS parity).
+    val subtitleAppearance: StateFlow<SubtitleAppearance> = playerSettingsStore.effectiveSubtitleAppearanceFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, SubtitleAppearance.DEFAULT)
     /**
      * Per-profile audio/subtitle delay in ms. Mirrors iOS phone's `audioSyncMs` /
@@ -1860,11 +1862,14 @@ class PlayerViewModel(
 
             val version = versions[index]
             val profileId = profileRepository.getActiveProfileId() ?: return@launch
-            val capabilities = capabilityDetector.detect(dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot())
+            // Snapshot ONCE so capabilities and context can't disagree if the
+            // setting flips mid-call (CodeRabbit PR#44).
+            val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
+            val capabilities = capabilityDetector.detect(dolbyVision = dolbyVision)
             val playbackContext = capabilityDetector.detectPlaybackContext(
                 formFactor = "mobile",
                 appVersion = BuildConfig.VERSION_NAME,
-                dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot(),
+                dolbyVision = dolbyVision,
             )
             val requestedPlayMethod = version.requestedOriginalPlaybackMethod(
                 playbackContext = playbackContext,

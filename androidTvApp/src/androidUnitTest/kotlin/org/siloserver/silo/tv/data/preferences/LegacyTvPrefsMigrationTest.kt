@@ -237,6 +237,9 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val dvProfile7HDR10FallbackFlow = MutableStateFlow(false)
     override val dolbyVisionEnabledFlow = MutableStateFlow(true)
     override val matchContentFrameRateFlow = MutableStateFlow(false)
+    override val subtitleMatchesDeviceFlow = MutableStateFlow(false)
+    override val effectiveSubtitleAppearanceFlow =
+        MutableStateFlow(org.siloserver.silo.model.settings.SubtitleAppearance.DEFAULT)
     override val pictureInPictureEnabledFlow = MutableStateFlow(true)
     override val downloadsWifiOnlyFlow = MutableStateFlow(true)
     override val keepWatchedDownloadsFlow = MutableStateFlow(false)
@@ -277,6 +280,10 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
 
     override suspend fun setMatchContentFrameRate(value: Boolean) {
         setterCalls += "setMatchContentFrameRate"; matchContentFrameRateFlow.value = value
+    }
+
+    override suspend fun setSubtitleMatchesDevice(enabled: Boolean) {
+        setterCalls += "setSubtitleMatchesDevice"; subtitleMatchesDeviceFlow.value = enabled
     }
     override suspend fun setPictureInPictureEnabled(value: Boolean) {
         setterCalls += "setPictureInPictureEnabled"; pictureInPictureEnabledFlow.value = value
