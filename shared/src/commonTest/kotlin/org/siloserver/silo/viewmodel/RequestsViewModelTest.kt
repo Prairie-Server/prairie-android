@@ -49,9 +49,11 @@ class RequestsViewModelTest {
 
     @Test
     fun `requests view model loads status then discover sections`() = runTest(dispatcher) {
+        // Server sections are per-media-type; the VM merges them into the
+        // hub's two carousels (iOS RequestCarouselMerge parity).
         val section = RequestDiscoverySection(
-            key = "trending",
-            title = "Trending",
+            key = "trending_movies",
+            title = "Trending Movies",
             results = listOf(stubResult(tmdbId = 11, title = "The Signal")),
         )
         val api = FakeRequestsApi(
@@ -64,7 +66,9 @@ class RequestsViewModelTest {
 
         assertFalse(state.isLoading)
         assertTrue(state.isEnabled)
-        assertEquals(listOf(section), state.sections)
+        assertEquals(listOf("trending"), state.sections.map { it.key })
+        assertEquals("Trending now", state.sections.single().title)
+        assertEquals(listOf(11), state.sections.single().results.map { it.tmdbId })
         assertNull(state.error)
         assertEquals(listOf("status", "discover"), api.calls)
     }

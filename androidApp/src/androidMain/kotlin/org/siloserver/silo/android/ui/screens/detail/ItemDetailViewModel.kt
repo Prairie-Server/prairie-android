@@ -159,6 +159,11 @@ class ItemDetailViewModel(
         }
     }
 
+    /** True = download started, false = registration failed. Drives the
+     *  download-start haptic (the only haptic iOS mobile has). */
+    private val _downloadStartEvents = kotlinx.coroutines.flow.MutableSharedFlow<Boolean>(extraBufferCapacity = 4)
+    val downloadStartEvents: kotlinx.coroutines.flow.SharedFlow<Boolean> = _downloadStartEvents
+
     private suspend fun startDownload(
         version: FileVersion,
         displayTitle: String,
@@ -166,12 +171,13 @@ class ItemDetailViewModel(
     ) {
         // wifiOnly read from per-profile PlayerSettingsStore inside
         // DownloadEnqueuer.start; default true.
-        downloadEnqueuer.start(
+        val result = downloadEnqueuer.start(
             contentId = contentId,
             fileId = version.fileId,
             displayTitle = displayTitle,
             downloadQualityOverride = downloadQuality,
         )
+        _downloadStartEvents.emit(result is ApiResult.Success)
     }
 
     /**

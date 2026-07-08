@@ -166,6 +166,10 @@ class CatalogRepository(
     suspend fun searchPeople(query: String): ApiResult<List<Person>> =
         catalogApi.searchPeople(query)
 
+    /** Queues a server-side metadata refresh for a person. */
+    suspend fun refreshPerson(id: Long): ApiResult<Unit> =
+        catalogApi.refreshPerson(id)
+
     /** Fetches details for a specific person. */
     suspend fun getPerson(id: Long): ApiResult<Person> =
         catalogApi.getPerson(id)

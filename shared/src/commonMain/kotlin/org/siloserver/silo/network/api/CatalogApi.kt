@@ -126,6 +126,11 @@ class CatalogApi(private val client: HttpClient) {
         client.get("/api/v1/people/$id")
     }
 
+    /** Queues a server-side metadata refresh for a person (fire-and-forget). */
+    suspend fun refreshPerson(id: Long): ApiResult<Unit> = safeApiCall {
+        client.post("/api/v1/people/$id/refresh")
+    }
+
     /**
      * Filmography for a person — wraps `/api/v1/catalog?source=person&person_id=...`.
      * Mirrors the iOS `personCatalogItems` helper.

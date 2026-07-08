@@ -50,6 +50,9 @@ data class PersonDetailUiState(
     val hasMore: Boolean = false,
     val pagingError: String? = null,
     val error: String? = null,
+    /** True while the server-side metadata refresh poll is running (iOS
+     *  isRefreshingMetadata — drives the "Loading metadata" pill). */
+    val isRefreshingMetadata: Boolean = false,
 )
 
 /**
@@ -77,6 +80,10 @@ class PersonDetailViewModel(
         if (personId > 0L) reload()
     }
 
+    private var metadataRefreshJob: kotlinx.coroutines.Job? = null
+    private var refreshRequestedForPerson = false
+    private var refreshExhaustedForPerson = false
+
     fun reload() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -90,6 +97,7 @@ class PersonDetailViewModel(
                         )
                     }
                     loadItems(_uiState.value.selectedFilter, reset = true)
+                    scheduleMetadataRefreshIfNeeded(result.data)
                 }
                 is ApiResult.Error -> {
                     _uiState.update {
@@ -188,5 +196,58 @@ class PersonDetailViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * iOS PersonDetailViewModel parity: a person with a blank bio, photo, or
+     * birth date queues one server-side metadata refresh
+     * (POST /people/{id}/refresh) and polls GET /people/{id} every 3s until
+     * the metadata is complete, 5 consecutive polls come back unchanged
+     * (server has nothing more), or the 120s window expires.
+     */
+    private fun scheduleMetadataRefreshIfNeeded(person: Person) {
+        if (!person.isMetadataIncomplete()) return
+        if (metadataRefreshJob?.isActive == true || refreshExhaustedForPerson) return
+        _uiState.update { it.copy(isRefreshingMetadata = true) }
+        metadataRefreshJob = viewModelScope.launch {
+            try {
+                if (!refreshRequestedForPerson) {
+                    refreshRequestedForPerson = true
+                    catalogRepository.refreshPerson(personId)
+                }
+                var unchangedPolls = 0
+                var current = person
+                val deadlineMark = kotlin.time.TimeSource.Monotonic.markNow() +
+                    METADATA_REFRESH_WINDOW
+                while (deadlineMark.hasNotPassedNow()) {
+                    kotlinx.coroutines.delay(METADATA_REFRESH_POLL_INTERVAL)
+                    val updated = (catalogRepository.getPerson(personId) as? ApiResult.Success)
+                        ?.data ?: continue
+                    if (updated == current) {
+                        unchangedPolls += 1
+                        if (unchangedPolls >= METADATA_REFRESH_SETTLED_POLLS) {
+                            refreshExhaustedForPerson = true
+                            return@launch
+                        }
+                        continue
+                    }
+                    unchangedPolls = 0
+                    current = updated
+                    _uiState.update { it.copy(person = updated) }
+                    if (!updated.isMetadataIncomplete()) return@launch
+                }
+            } finally {
+                _uiState.update { it.copy(isRefreshingMetadata = false) }
+            }
+        }
+    }
+
+    private fun Person.isMetadataIncomplete(): Boolean =
+        bio.isNullOrBlank() || photoUrl.isNullOrBlank() || birthDate.isNullOrBlank()
+
+    private companion object {
+        val METADATA_REFRESH_WINDOW = kotlin.time.Duration.parse("120s")
+        val METADATA_REFRESH_POLL_INTERVAL = kotlin.time.Duration.parse("3s")
+        const val METADATA_REFRESH_SETTLED_POLLS = 5
     }
 }

@@ -101,6 +101,25 @@ fun ItemDetailScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // iOS parity haptic: success/error sensory feedback when a download
+    // starts or fails to register (the only haptic iOS mobile has).
+    val hapticView = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(Unit) {
+        viewModel.downloadStartEvents.collect { started ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                hapticView.performHapticFeedback(
+                    if (started) {
+                        android.view.HapticFeedbackConstants.CONFIRM
+                    } else {
+                        android.view.HapticFeedbackConstants.REJECT
+                    },
+                )
+            } else {
+                hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            }
+        }
+    }
+
     val downloadStorage: DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
