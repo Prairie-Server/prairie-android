@@ -257,10 +257,11 @@ fun TvMainShell(
     // the loose bag of counters + booleans this file used to mutate from a dozen
     // sites (the source of a long "fix focus" tail). See [TvShellFocusState].
     val focusState = rememberTvShellFocusState()
-    // Vestigial: superseded in practice by the content `focusRestorer()` and never
-    // bumped now (kept only as TvHomeScreen's `focusRequest` param). Deliberately
-    // left OUT of the focus holder — folding dead state in would only muddy it.
-    val contentFocusRequest by remember { mutableIntStateOf(0) }
+    // Bumped when the user SELECTS a tab from the nav bar: the QA back-stack
+    // model wants Select-from-menu to land on the top-left item (scrolled to
+    // top), while ordinary content re-entry keeps the focusRestorer()'s
+    // last-focused card.
+    var contentFocusRequest by remember { mutableIntStateOf(0) }
 
     // --- Skyline cascade panel host (Stage 4) ----------------------------------
     // Mirrors tvOS `TVMainTabView.persistentPanels`. The cascade overlays are
@@ -369,6 +370,14 @@ fun TvMainShell(
         val route = dest.toRoute()
         if (route != currentRoute) {
             navigateToRoute(route)
+        }
+        // Select-from-menu focuses the TOP-LEFT item (QA back-stack model),
+        // overriding the restorer's remembered card: Home listens to
+        // contentFocusRequest; library-type screens listen to their section
+        // nonce (which re-applies the section AND refocuses the first row).
+        contentFocusRequest++
+        if (dest is TvRootDestination.LibraryType) {
+            sectionRequestNonces[dest.type] = (sectionRequestNonces[dest.type] ?: 0) + 1
         }
         moveFocusToContent(route)
     }
@@ -480,20 +489,28 @@ fun TvMainShell(
                     // half (close panel / dropdown); we run only the side effect
                     // each action needs. Keeping it here — not in the selector or
                     // the bar — means Back can never be double-handled.
-                    when (focusState.onBack()) {
+                    when (focusState.onBack(onTabRoot = selectedRoot != null)) {
                         // Panel/dropdown already closed by onBack(): just consume.
                         TvShellBackAction.ClosePanel,
                         TvShellBackAction.CloseProfileMenu -> true
-                        // Focus was on the bar: hand it back to content.
-                        TvShellBackAction.MoveFocusToContent -> {
-                            moveFocusToContent(currentRoute)
-                            true
+                        // Content on a tab root: onBack() already routed focus
+                        // to the bar's selected tab — just consume.
+                        TvShellBackAction.MoveFocusToMenu -> true
+                        // Bar focused: Home exits the app (fall through to the
+                        // activity), any other section goes Home with the bar
+                        // still focused (now on the Home tab).
+                        TvShellBackAction.MenuBack -> {
+                            if (selectedRoot == TvRootDestination.Home) {
+                                false
+                            } else {
+                                navigateToRoute(firstTvRoute())
+                                focusState.requestMenuFocus()
+                                true
+                            }
                         }
-                        // Nothing to dismiss. Pop the flat inner NavHost when
-                        // there's history (popUpTo(start) { saveState } keeps the
-                        // stack typically [Home, currentTab] and restores saved
-                        // scroll/ViewModel cleanly); otherwise fall through so the
-                        // activity's OnBackPressedDispatcher finishes the app.
+                        // Secondary screens (Settings, Search, admin, …): pop
+                        // the flat inner NavHost when there's history; otherwise
+                        // fall through so the activity finishes the app.
                         TvShellBackAction.DelegateToNav -> {
                             if (nestedNav.previousBackStackEntry != null) {
                                 nestedNav.popBackStack()
