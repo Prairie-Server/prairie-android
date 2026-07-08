@@ -57,12 +57,14 @@ class TvPlaybackFormattingTest {
         val v = fileVersion(
             audio = listOf(audioTrack(codec = "EAC3", layout = "5.1", lang = "English", default = true)),
         )
-        assertEquals("EAC3 5.1 - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        // Auto previews its resolution (QA 2026-07-08 / Apple parity).
+        assertEquals("Auto - EAC3 5.1 - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        assertEquals("EAC3 5.1 - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = 0))
     }
 
     @Test fun audioValueLabel_eng3LetterCode() {
         val v = fileVersion(audio = listOf(audioTrack(codec = "aac", layout = "stereo", lang = "eng")))
-        assertEquals("AAC Stereo - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        assertEquals("Auto - AAC Stereo - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
     }
 
     @Test fun audioValueLabel_unknownWhenNoTracks() {
@@ -102,7 +104,8 @@ class TvPlaybackFormattingTest {
     }
 
     @Test fun subtitleValueLabel_autoForNull() {
-        assertEquals("Auto", TvPlaybackFormatting.subtitleValueLabel(fileVersion(), selectedSubtitleTrackIndex = null))
+        // No default-flagged track: Auto resolves to none (QA 2026-07-08).
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(fileVersion(), selectedSubtitleTrackIndex = null))
     }
 
     @Test fun subtitleValueLabel_languageForSelected() {

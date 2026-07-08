@@ -55,6 +55,20 @@ object TvPlaybackFormatting {
 
     // --- Version ---------------------------------------------------------
 
+    /**
+     * Selector VALUE label (QA 2026-07-08 / Apple parity): while Auto is
+     * selected the row reads "Auto - <resolved version>" so the viewer sees
+     * what Auto resolved to; a manual pick shows just the version name.
+     */
+    fun versionValueLabel(version: FileVersion?, selectedVersionFileId: Int?): String {
+        val short = versionShortLabel(version)
+        return if (selectedVersionFileId == null) {
+            if (version == null) "Auto" else "Auto - $short"
+        } else {
+            short
+        }
+    }
+
     /** "4K · HDR" / "1080P" / "Auto" (null or no usable tokens → "Auto"). */
     fun versionShortLabel(version: FileVersion?): String {
         if (version == null) return "Auto"
@@ -94,7 +108,10 @@ object TvPlaybackFormatting {
         val tracks = version?.audioTracks ?: return "Unknown"
         val ordinal = resolvedAudioOrdinal(version, selectedAudioTrackIndex) ?: return "Unknown"
         val track = tracks.getOrNull(ordinal) ?: return "Unknown"
-        return audioTitle(track, ordinal)
+        val title = audioTitle(track, ordinal)
+        // Auto shows what it resolved to ("Auto - EAC3 - English"); a manual
+        // pick shows just the track (QA 2026-07-08 / Apple parity).
+        return if (selectedAudioTrackIndex == null) "Auto - $title" else title
     }
 
     private fun resolvedAudioOrdinal(version: FileVersion?, selectedAudioTrackIndex: Int?): Int? {
@@ -150,10 +167,18 @@ object TvPlaybackFormatting {
     }
 
     fun subtitleValueLabel(version: FileVersion?, selectedSubtitleTrackIndex: Int?): String {
-        if (selectedSubtitleTrackIndex == null) return "Auto"
+        val tracks = version?.subtitleTracks
+        if (selectedSubtitleTrackIndex == null) {
+            // Auto previews what it resolves to: the file's default track when
+            // one is flagged, otherwise none ("Auto - None") — QA 2026-07-08 /
+            // Apple parity.
+            val defaultOrdinal = tracks?.indexOfFirst { it.isDefault }?.takeIf { it >= 0 }
+            val resolved = defaultOrdinal?.let { subtitleTitle(tracks[it], it) } ?: "None"
+            return "Auto - $resolved"
+        }
         if (selectedSubtitleTrackIndex == -1) return "Off"
-        val tracks = version?.subtitleTracks ?: return "Auto"
-        val track = tracks.getOrNull(selectedSubtitleTrackIndex) ?: return "Auto"
+        if (tracks == null) return "Auto - None"
+        val track = tracks.getOrNull(selectedSubtitleTrackIndex) ?: return "Auto - None"
         return subtitleTitle(track, selectedSubtitleTrackIndex)
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -65,6 +66,13 @@ import org.siloserver.silo.tv.ui.theme.siloCardDefaults
 fun TvCastCrewSection(
     cast: List<CastMember>,
     modifier: Modifier = Modifier,
+    /**
+     * Safe-area inset applied INSIDE the rail (header padding + LazyRow
+     * contentPadding) instead of on the section, so the leftmost card's focus
+     * ring can render into the inset instead of being clipped by the rail's
+     * viewport edge (QA 2026-07-08).
+     */
+    horizontalContentPadding: Dp = 0.dp,
     firstItemFocusRequester: FocusRequester? = null,
     firstItemCardModifier: Modifier = Modifier,
     onDirectionDown: (() -> Boolean)? = null,
@@ -78,7 +86,10 @@ fun TvCastCrewSection(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        TvDetailSectionHeader(eyebrow = "Cast", title = "& Crew")
+        TvDetailSectionHeader(
+            title = "Cast & Crew",
+            modifier = Modifier.padding(horizontal = horizontalContentPadding),
+        )
 
         LazyRow(
             modifier = Modifier
@@ -107,7 +118,10 @@ fun TvCastCrewSection(
                 )
                 .focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(22.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
+            contentPadding = PaddingValues(
+                horizontal = horizontalContentPadding,
+                vertical = 12.dp,
+            ),
         ) {
             itemsIndexed(
                 cast.take(24),

@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -419,7 +420,7 @@ private fun TvDetailContent(
                         if (showsCastSection) {
                             TvCastCrewSection(
                                 cast = detail.cast,
-                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                                horizontalContentPadding = Spacing.safeArea,
                                 firstItemFocusRequester = firstCastFocus,
                                 // Cast is the first body rail only when there is no
                                 // episode rail above it; Up then returns to the hero.
@@ -443,7 +444,6 @@ private fun TvDetailContent(
                             // poster rail — no See-all on the detail page.
                             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                                 TvDetailSectionHeader(
-                                    eyebrow = "Recommended",
                                     title = "More Like This",
                                     modifier = Modifier.padding(horizontal = Spacing.safeArea),
                                 )
@@ -956,11 +956,22 @@ private fun DetailsSection(
     detail: ItemDetail,
     modifier: Modifier = Modifier,
 ) {
+    // Focusable (QA 2026-07-08): without a focus stop the D-pad drives from
+    // Cast & Crew straight past Details to the Recommended rail, so the facts
+    // can never be brought into view deliberately. The section is a passive
+    // stop — focusing it just scroll-anchors and highlights subtly.
+    var factsFocused by remember { mutableStateOf(false) }
     Column(
-        modifier = modifier,
+        modifier = modifier
+            .onFocusChanged { factsFocused = it.isFocused }
+            .focusable()
+            .background(
+                color = if (factsFocused) Color.White.copy(alpha = 0.06f) else Color.Transparent,
+                shape = RoundedCornerShape(18.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
-        TvDetailSectionHeader(eyebrow = "Info", title = "Details")
+        TvDetailSectionHeader(title = "Details")
         TvDetailFactsTable(detail = detail)
     }
 }
@@ -976,7 +987,7 @@ private fun TvAudiobookPartsSection(
         modifier = modifier.widthIn(max = 720.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        TvDetailSectionHeader(eyebrow = "Audiobook", title = "Parts")
+        TvDetailSectionHeader(title = "Parts")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             parts.forEachIndexed { index, part ->
                 TvAudiobookDetailActionRow(
@@ -1003,7 +1014,7 @@ private fun TvAudiobookChaptersSection(
         modifier = modifier.widthIn(max = 720.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        TvDetailSectionHeader(eyebrow = "Audiobook", title = "Chapters")
+        TvDetailSectionHeader(title = "Chapters")
         TvAudiobookDetailActionRow(
             title = "Chapter list",
             subtitle = "${chapters.size} chapters",
@@ -1027,7 +1038,7 @@ private fun TvAudiobookNarrationsSection(
         modifier = modifier.widthIn(max = 720.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        TvDetailSectionHeader(eyebrow = "Audiobook", title = "Alternate Narrations")
+        TvDetailSectionHeader(title = "Alternate Narrations")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             narrations.forEachIndexed { index, narration ->
                 TvAudiobookDetailActionRow(
@@ -1059,7 +1070,7 @@ private fun TvAudiobookRelatedRailSection(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        TvDetailSectionHeader(eyebrow = "Audiobook", title = title)
+        TvDetailSectionHeader(title = title)
         TvMediaRow(
             title = title,
             showHeader = false,

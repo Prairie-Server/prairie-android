@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
 data class TvItemDetailUiState(
@@ -92,6 +94,7 @@ class TvItemDetailViewModel(
     metadataAiRepository: org.siloserver.silo.repository.MetadataAiRepository,
     private val contentId: String,
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
+    private val recommendationRepository: org.siloserver.silo.repository.RecommendationRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvItemDetailUiState())
@@ -599,43 +602,61 @@ class TvItemDetailViewModel(
     }
 
     private fun loadMoreLikeThis(detail: ItemDetail) {
-        val primaryGenre = detail.genres.firstOrNull { it.isNotBlank() }
-        val mediaType = detail.type.takeIf { it in setOf("movie", "series", "episode") || isAudiobookItemType(it) }
-        if (primaryGenre == null && mediaType == null) return
+        // Apple parity (PhoneSimilarRail + QA 2026-07-08): the shelf shows REAL
+        // engine recommendations from /recommendations/similar, and simply
+        // doesn't render when the server has recommendations/embeddings
+        // disabled (error or empty response). The previous genre browse sorted
+        // by rating was not a recommendation. Episodes never show the shelf —
+        // viewers want the next episode, not a tangent (Apple showsSimilarRail).
+        if (detail.type.lowercase() == "episode") return
+        val recommendations = recommendationRepository ?: return
 
         moreLikeThisJob?.cancel()
         moreLikeThisJob = viewModelScope.launch {
             // This shelf is secondary. Let the hero, seasons, and episode rail settle
-            // before starting another browse request during item-open.
+            // before starting more requests during item-open.
             delay(300)
             _uiState.update { it.copy(moreLikeThisLoading = true) }
-            when (val result = catalogRepository.browse(
-                mediaType = mediaType,
-                genre = primaryGenre,
-                sort = "rating_imdb",
-                order = "desc",
-                limit = 18,
-            )) {
-                is ApiResult.Success -> {
-                    val items = result.data.items
-                        .visibleOnTv()
-                        .filterNot { it.contentId == detail.contentId }
-                        .take(16)
-                        .map { it.toSectionItem() }
-                    _uiState.update {
-                        it.copy(
-                            moreLikeThisLoading = false,
-                            moreLikeThis = items,
-                        )
-                    }
+            val scored = recommendations.getSimilar(detail.contentId, limit = 12)
+            if (scored !is ApiResult.Success || scored.data.items.isEmpty()) {
+                _uiState.update { it.copy(moreLikeThisLoading = false, moreLikeThis = emptyList()) }
+                return@launch
+            }
+            // Resolve refs to renderable items in parallel, preserving the
+            // engine's ranking; failed resolutions drop silently (Apple's
+            // withTaskGroup + zip-back-to-index).
+            val resolved = scored.data.items.map { ref ->
+                async {
+                    (catalogRepository.getItemDetail(ref.mediaItemId) as? ApiResult.Success)?.data
                 }
-                else -> _uiState.update {
-                    it.copy(moreLikeThisLoading = false, moreLikeThis = emptyList())
-                }
+            }.awaitAll()
+            val items = resolved
+                .filterNotNull()
+                .filterNot { isTvHiddenMediaType(it.type) || it.contentId == detail.contentId }
+                .take(16)
+                .map { it.toSectionItem() }
+            _uiState.update {
+                it.copy(moreLikeThisLoading = false, moreLikeThis = items)
             }
         }
     }
 }
+
+private fun ItemDetail.toSectionItem(): SectionItem = SectionItem(
+    contentId = contentId,
+    type = type,
+    title = title,
+    year = year,
+    genres = genres,
+    status = status,
+    ratingImdb = ratingImdb,
+    contentRating = contentRating,
+    overview = overview,
+    posterUrl = posterUrl,
+    posterThumbhash = posterThumbhash,
+    backdropUrl = backdropUrl,
+    backdropThumbhash = backdropThumbhash,
+)
 
 private fun BrowseItem.toSectionItem(): SectionItem = SectionItem(
     contentId = contentId,
