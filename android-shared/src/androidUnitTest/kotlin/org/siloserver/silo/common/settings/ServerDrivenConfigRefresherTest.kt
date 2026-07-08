@@ -154,6 +154,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val dolbyVisionEnabledFlow: Flow<Boolean> = flowOf(true)
     override val matchContentFrameRateFlow: Flow<Boolean> = flowOf(false)
     override val subtitleMatchesDeviceFlow: Flow<Boolean> = flowOf(false)
+    override val showAudiobooksFlow: Flow<Boolean> = flowOf(false)
     override val effectiveSubtitleAppearanceFlow: Flow<org.siloserver.silo.model.settings.SubtitleAppearance> =
         flowOf(org.siloserver.silo.model.settings.SubtitleAppearance.DEFAULT)
     override val pictureInPictureEnabledFlow: Flow<Boolean> = flowOf(true)
@@ -183,6 +184,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setDolbyVisionEnabled(value: Boolean) = Unit
     override suspend fun setMatchContentFrameRate(value: Boolean) = Unit
     override suspend fun setSubtitleMatchesDevice(enabled: Boolean) = Unit
+    override suspend fun setShowAudiobooks(enabled: Boolean) = Unit
     override suspend fun setPictureInPictureEnabled(value: Boolean) = Unit
     override suspend fun setDownloadsWifiOnly(value: Boolean) = Unit
     override suspend fun setKeepWatchedDownloads(value: Boolean) = Unit

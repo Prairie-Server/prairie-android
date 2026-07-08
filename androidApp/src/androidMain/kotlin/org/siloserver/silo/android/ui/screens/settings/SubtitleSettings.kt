@@ -1,6 +1,8 @@
 package org.siloserver.silo.android.ui.screens.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.ui.Modifier
 
 private val subtitleLanguageOptions = listOf("Off", "English", "Spanish", "French", "German", "Japanese", "Korean", "Chinese", "Portuguese", "Italian", "Russian")
@@ -32,6 +34,9 @@ fun SubtitleSettings(
     onLanguageChanged: (String) -> Unit,
     onModeChanged: (SubtitleMode) -> Unit,
     onForcedSubtitlesChanged: (Boolean) -> Unit,
+    subtitleMatchesDevice: Boolean = false,
+    onSubtitleMatchesDeviceChanged: (Boolean) -> Unit = {},
+    onOpenSubtitleAppearance: () -> Unit = {},
     modifier: Modifier = Modifier,
     // Metadata AI description translation (server-gated; row hidden when off).
     metadataLanguageEnabled: Boolean = false,
@@ -62,6 +67,22 @@ fun SubtitleSettings(
             checked = showForcedSubtitles,
             onCheckedChange = onForcedSubtitlesChanged,
         )
+
+        // iOS SubtitleSettingsView APPEARANCE parity: Match Device Settings
+        // (appearance follows the OS captioning preferences) + the custom
+        // appearance editor (the same sheet the player uses).
+        SettingsSwitchRow(
+            label = "Match Device Settings",
+            checked = subtitleMatchesDevice,
+            onCheckedChange = onSubtitleMatchesDeviceChanged,
+        )
+        if (!subtitleMatchesDevice) {
+            SettingsClickableRow(
+                icon = Icons.Filled.ClosedCaption,
+                label = "Subtitle Appearance",
+                onClick = onOpenSubtitleAppearance,
+            )
+        }
 
         if (metadataLanguageEnabled) {
             val selectedLabel = metadataLanguageOptions.firstOrNull { it.first == metadataLanguage }?.second ?: "Off"

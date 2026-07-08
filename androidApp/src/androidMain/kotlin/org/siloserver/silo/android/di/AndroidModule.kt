@@ -310,6 +310,7 @@ val androidModule = module {
         LibrariesViewModel(
             get(), get(), get(),
             getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>() ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
+            get(),
         )
     }
     viewModel { ReadingHubViewModel(get(), get(), get()) }

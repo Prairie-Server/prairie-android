@@ -86,6 +86,13 @@ fun SettingsScreen(
     downloadsViewModel: DownloadsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    var subtitleStyleVisible by remember { mutableStateOf(false) }
+    org.siloserver.silo.android.ui.screens.player.SubtitleStyleSheet(
+        isVisible = subtitleStyleVisible,
+        appearance = state.subtitleAppearance,
+        onUpdate = viewModel::setSubtitleAppearance,
+        onDismiss = { subtitleStyleVisible = false },
+    )
     val downloadsState by downloadsViewModel.uiState.collectAsState()
     val sessionsSheetState = rememberModalBottomSheetState()
     var showRemoveAllDownloadsConfirm by remember { mutableStateOf(false) }
@@ -158,6 +165,8 @@ fun SettingsScreen(
                     autoSkipIntro = state.autoSkipIntro,
                     autoSkipCredits = state.autoSkipCredits,
                     pictureInPictureEnabled = state.pictureInPictureEnabled,
+                    dolbyVisionEnabled = state.dolbyVisionEnabled,
+                    dvProfile7HDR10Fallback = state.dvProfile7HDR10Fallback,
                     autoPlayNext = state.autoPlayNext,
                     nextUpPromptSeconds = state.nextUpPromptSeconds,
                     resumeRewindSeconds = state.resumeRewindSeconds,
@@ -167,6 +176,8 @@ fun SettingsScreen(
                     onAutoSkipIntroChanged = viewModel::setAutoSkipIntro,
                     onAutoSkipCreditsChanged = viewModel::setAutoSkipCredits,
                     onPictureInPictureEnabledChanged = viewModel::setPictureInPictureEnabled,
+                    onDolbyVisionEnabledChanged = viewModel::setDolbyVisionEnabled,
+                    onDvProfile7HDR10FallbackChanged = viewModel::setDvProfile7HDR10Fallback,
                     onAutoPlayNextChanged = viewModel::setAutoPlayNext,
                     onNextUpPromptSecondsChanged = viewModel::setNextUpPromptSeconds,
                     onResumeRewindSecondsChanged = viewModel::setResumeRewindSeconds,
@@ -185,6 +196,9 @@ fun SettingsScreen(
                     onLanguageChanged = viewModel::setSubtitleLanguage,
                     onModeChanged = viewModel::setSubtitleMode,
                     onForcedSubtitlesChanged = viewModel::setShowForcedSubtitles,
+                    subtitleMatchesDevice = state.subtitleMatchesDevice,
+                    onSubtitleMatchesDeviceChanged = viewModel::setSubtitleMatchesDevice,
+                    onOpenSubtitleAppearance = { subtitleStyleVisible = true },
                     metadataLanguageEnabled = metadataAiStatus.enabled &&
                         metadataAiStatus.onView != MetadataAiOnView.Off,
                     metadataLanguage = state.metadataLanguage,
@@ -214,6 +228,11 @@ fun SettingsScreen(
                         icon = Icons.Outlined.GridView,
                         label = "Collections",
                         onClick = onNavigateToCollections,
+                    )
+                    SettingsSwitchRow(
+                        label = "Show Audiobooks",
+                        checked = state.showAudiobooks,
+                        onCheckedChange = viewModel::setShowAudiobooks,
                     )
                 }
             }
