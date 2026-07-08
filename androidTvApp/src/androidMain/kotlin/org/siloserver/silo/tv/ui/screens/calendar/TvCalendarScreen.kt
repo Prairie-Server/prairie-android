@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -546,6 +548,10 @@ private fun DayList(
     onItemFocused: (CalendarItem) -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
+    val snapScope = rememberCoroutineScope()
+    val onShelfFocused: (Int) -> Unit = { index ->
+        snapScope.launch { listState.animateScrollToItem(index) }
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -559,13 +565,18 @@ private fun DayList(
     ) {
         // Render EVERY weekday so the week keeps its shape; event-less days get
         // a "Nothing scheduled" stub instead of being skipped.
-        items(state.weekDates, key = { "day-$it" }) { date ->
+        itemsIndexed(state.weekDates, key = { _, date -> "day-$date" }) { index, date ->
             DayShelf(
                 date = date,
                 isToday = date == state.today,
                 items = state.itemsFor(date),
                 focusRequest = if (date == shelfFocusDay) shelfFocusRequest else 0,
                 onItemFocused = onItemFocused,
+                // Snap the day whose shelf owns focus to the top of the list
+                // (QA 2026-07-08: default bring-into-view revealed only the
+                // focused CARD, stranding the previous day's caption strip
+                // above and clipping the focused row at the fold).
+                onShelfFocused = { onShelfFocused(index) },
                 onOpenItemDetail = onOpenItemDetail,
             )
         }
@@ -579,6 +590,7 @@ private fun DayShelf(
     items: List<CalendarItem>,
     focusRequest: Int,
     onItemFocused: (CalendarItem) -> Unit,
+    onShelfFocused: () -> Unit = {},
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val firstCardFocusRequester = remember { FocusRequester() }
@@ -598,8 +610,15 @@ private fun DayShelf(
         }
     }
 
+    var shelfHasFocus by remember { mutableStateOf(false) }
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focusState ->
+                val nowFocused = focusState.hasFocus
+                if (nowFocused && !shelfHasFocus) onShelfFocused()
+                shelfHasFocus = nowFocused
+            },
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         DayHeader(date = date, isToday = isToday, muted = items.isEmpty())
