@@ -103,9 +103,125 @@ class TvPlaybackFormattingTest {
         assertEquals("Off", TvPlaybackFormatting.subtitleValueLabel(fileVersion(), selectedSubtitleTrackIndex = -1))
     }
 
-    @Test fun subtitleValueLabel_autoForNull() {
-        // No default-flagged track: Auto resolves to none (QA 2026-07-08).
-        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(fileVersion(), selectedSubtitleTrackIndex = null))
+    @Test fun subtitleValueLabel_autoWithoutContextIsBare() {
+        // No resolution inputs (no autoContext): we can't preview the pick, so
+        // show a bare "Auto" rather than guessing from isDefault (which the
+        // player's resolver never consults) — QA 2026-07-09 / tvOS parity.
+        val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng"), subtitleTrack(lang = "fre")))
+        assertEquals("Auto", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = null))
+    }
+
+    @Test fun subtitleValueLabel_autoWithoutContextSingleTrackShowsTrack() {
+        val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
+        assertEquals("English", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = null))
+    }
+
+    // --- Auto preview resolved through the REAL selection rules (tvOS parity) ---
+
+    @Test fun subtitleValueLabel_autoResolvesPreferredLanguage() {
+        // preferred=fr, audio=en → readable French subs auto-selected.
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(lang = "eng"),
+                subtitleTrack(lang = "fre"),
+            ),
+        )
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(
+            preferredLanguage = "fr",
+            mode = "auto",
+            audioLanguage = "eng",
+        )
+        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoNoneWhenAudioMatchesPreferred() {
+        // auto mode hides subs when audio is already in the preferred language.
+        val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(
+            preferredLanguage = "en",
+            mode = "auto",
+            audioLanguage = "eng",
+        )
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoForcedWhenAudioMatchesAndShowForced() {
+        // audio matches preferred + showForced → the language-matching forced
+        // (signs-only) track is exactly what plays.
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(lang = "eng"),
+                subtitleTrack(lang = "eng", forced = true),
+            ),
+        )
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(
+            preferredLanguage = "en",
+            mode = "auto",
+            showForced = true,
+            audioLanguage = "eng",
+        )
+        assertEquals("Auto - Forced - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoNoneWhenModeOff() {
+        val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "en", mode = "off")
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoNoneWhenPreferenceIsNoSubs() {
+        // Empty (not null) preferred language means "no subs" at this level.
+        val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "", mode = "auto")
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoNoneWhenNoPreferenceAndModeAuto() {
+        // No language preference + plain auto → resolver leaves subs off.
+        val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "auto")
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoAlwaysPicksFullDialogueWithNoPreference() {
+        // mode=always with no language pref falls back to the best track,
+        // preferring full-dialogue (non-forced, non-SDH) over the forced one.
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(lang = "fre", forced = true),
+                subtitleTrack(lang = "fre"),
+            ),
+        )
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "always")
+        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoPrefersFullDialogueOverSdh() {
+        // With a language match, SDH is skipped in favour of the readable track.
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(lang = "eng", title = "English SDH"),
+                subtitleTrack(lang = "eng"),
+            ),
+        )
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(
+            preferredLanguage = "en",
+            mode = "auto",
+            audioLanguage = "jpn",
+        )
+        assertEquals("Auto - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun resolvedAudioLanguage_returnsAutoTrackLanguage() {
+        val v = fileVersion(
+            audio = listOf(
+                audioTrack(codec = "aac", lang = "jpn"),
+                audioTrack(codec = "eac3", lang = "eng", default = true),
+            ),
+        )
+        // Auto resolves to the default track → its language.
+        assertEquals("eng", TvPlaybackFormatting.resolvedAudioLanguage(v, selectedAudioTrackIndex = null))
+        assertEquals("jpn", TvPlaybackFormatting.resolvedAudioLanguage(v, selectedAudioTrackIndex = 0))
     }
 
     @Test fun subtitleValueLabel_languageForSelected() {

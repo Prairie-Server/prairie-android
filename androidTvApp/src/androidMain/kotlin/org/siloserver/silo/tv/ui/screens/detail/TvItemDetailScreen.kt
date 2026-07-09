@@ -748,6 +748,9 @@ private fun HeroActionRow(
                 selectedVersionFileId = selectorSelectedFileId,
                 selectedAudioTrackIndex = selectorAudioIndex,
                 selectedSubtitleTrackIndex = selectorSubtitleIndex,
+                preferredSubtitleLanguage = state.preferredSubtitleLanguage,
+                subtitleMode = state.subtitleMode,
+                showForcedSubtitles = state.showForcedSubtitles,
                 onSelectVersion = if (isSeriesOrSeason) {
                     viewModel::onNextUpVersionSelected
                 } else {

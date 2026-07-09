@@ -43,6 +43,12 @@ fun TvPlaybackSelectorRow(
     selectedVersionFileId: Int?,
     selectedAudioTrackIndex: Int?,
     selectedSubtitleTrackIndex: Int?,
+    // Cascaded subtitle prefs (profile-sourced) that let the Subtitles pill
+    // preview the concrete track Auto will resolve to — the same rules the
+    // player runs at launch.
+    preferredSubtitleLanguage: String?,
+    subtitleMode: String?,
+    showForcedSubtitles: Boolean,
     onSelectVersion: (Int?) -> Unit,
     onSelectAudioTrack: (Int?) -> Unit,
     onSelectSubtitleTrack: (Int?) -> Unit,
@@ -165,7 +171,19 @@ fun TvPlaybackSelectorRow(
         TvAnchoredSelectorMenu(
             icon = Icons.Filled.ClosedCaption,
             label = "Subtitles",
-            value = TvPlaybackFormatting.subtitleValueLabel(currentVersion, selectedSubtitleTrackIndex),
+            value = TvPlaybackFormatting.subtitleValueLabel(
+                currentVersion,
+                selectedSubtitleTrackIndex,
+                autoContext = TvPlaybackFormatting.SubtitleAutoContext(
+                    preferredLanguage = preferredSubtitleLanguage,
+                    mode = subtitleMode,
+                    showForced = showForcedSubtitles,
+                    audioLanguage = TvPlaybackFormatting.resolvedAudioLanguage(
+                        currentVersion,
+                        selectedAudioTrackIndex,
+                    ),
+                ),
+            ),
             options = buildList {
                 add(
                     TvSelectorOption(

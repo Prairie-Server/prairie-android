@@ -110,8 +110,24 @@ object TvPlaybackFormatting {
         val track = tracks.getOrNull(ordinal) ?: return "Unknown"
         val title = audioTitle(track, ordinal)
         // Auto shows what it resolved to ("Auto - EAC3 - English"); a manual
-        // pick shows just the track (QA 2026-07-08 / Apple parity).
+        // pick shows just the track (QA 2026-07-08 / Apple parity). Audio auto
+        // is the file's default/first track — the same signal the player uses
+        // (there is no client-side language audio resolver; the server drives
+        // audio selection), so unlike subtitles this preview needs no prefs
+        // and already matches tvOS's `annotateAuto` label.
         return if (selectedAudioTrackIndex == null) "Auto - $title" else title
+    }
+
+    /**
+     * Language of the track [audioValueLabel] would display for Auto — feeds
+     * the subtitle auto-resolver, whose "auto" mode hides subs when the audio
+     * is already in the preferred subtitle language. Mirrors silo-apple's
+     * `DetailPlaybackFormatting.resolvedAudioLanguage`.
+     */
+    fun resolvedAudioLanguage(version: FileVersion?, selectedAudioTrackIndex: Int?): String? {
+        val tracks = version?.audioTracks ?: return null
+        val ordinal = resolvedAudioOrdinal(version, selectedAudioTrackIndex) ?: return null
+        return tracks.getOrNull(ordinal)?.language
     }
 
     private fun resolvedAudioOrdinal(version: FileVersion?, selectedAudioTrackIndex: Int?): Int? {
@@ -166,20 +182,198 @@ object TvPlaybackFormatting {
         }
     }
 
-    fun subtitleValueLabel(version: FileVersion?, selectedSubtitleTrackIndex: Int?): String {
+    /**
+     * Inputs needed to preview what the player's subtitle auto-resolver would
+     * land on, so the row can annotate "Auto" with the concrete track (or
+     * "None"). Mirrors the subset of [TvPlayerViewModel.resolveAutoSubtitleSelection]'s
+     * inputs the detail page can supply. Analogue of silo-apple's
+     * `DetailPlaybackFormatting.SubtitleAutoContext`.
+     */
+    data class SubtitleAutoContext(
+        /** Cascaded `subtitle_language`. `null` = no preference; empty = "no subs". */
+        val preferredLanguage: String?,
+        /** Cascaded `subtitle_mode`. `null`/blank → "auto". */
+        val mode: String?,
+        /** Whether forced subs should be auto-selected when available. */
+        val showForced: Boolean = false,
+        /** Language of the Auto-resolved audio track (see [resolvedAudioLanguage]);
+         *  "auto" mode skips subs when it matches [preferredLanguage]. */
+        val audioLanguage: String? = null,
+    )
+
+    /**
+     * Selector VALUE label for Subtitles.
+     *
+     * When [autoContext] is supplied, the Auto preview is resolved through the
+     * SAME rules the player runs at launch ([TvPlayerViewModel.resolveAutoSubtitleSelection],
+     * mirrored in [autoResolvedSubtitle]) — preferred-language / mode /
+     * forced-subs — so the row shows exactly what will play, including
+     * "Auto - None" when Auto resolves to no subtitles. It never consults the
+     * catalog `isDefault` flag, which the resolver ignores and which
+     * contradicted playback (QA 2026-07-09 / tvOS parity).
+     *
+     * Without [autoContext] the resolution inputs are unknown, so we cannot
+     * honestly preview the pick and fall back to a bare "Auto" (single-track
+     * files show that track) — matching the shared iOS/tvOS formatter's
+     * no-context branch rather than guessing.
+     */
+    fun subtitleValueLabel(
+        version: FileVersion?,
+        selectedSubtitleTrackIndex: Int?,
+        autoContext: SubtitleAutoContext? = null,
+    ): String {
         val tracks = version?.subtitleTracks
         if (selectedSubtitleTrackIndex == null) {
-            // Auto previews what it resolves to: the file's default track when
-            // one is flagged, otherwise none ("Auto - None") — QA 2026-07-08 /
-            // Apple parity.
-            val defaultOrdinal = tracks?.indexOfFirst { it.isDefault }?.takeIf { it >= 0 }
-            val resolved = defaultOrdinal?.let { subtitleTitle(tracks[it], it) } ?: "None"
-            return "Auto - $resolved"
+            if (autoContext != null) {
+                val resolved = autoResolvedSubtitle(version, autoContext)
+                return if (resolved != null) {
+                    "Auto - ${subtitleTitle(resolved.first, resolved.second)}"
+                } else {
+                    "Auto - None"
+                }
+            }
+            if (tracks != null && tracks.size == 1) return subtitleTitle(tracks[0], 0)
+            return "Auto"
         }
         if (selectedSubtitleTrackIndex == -1) return "Off"
-        if (tracks == null) return "Auto - None"
-        val track = tracks.getOrNull(selectedSubtitleTrackIndex) ?: return "Auto - None"
+        // An explicit positive selection that doesn't resolve in this version's
+        // track list: a subtitle IS requested, so "On" (not "Auto"/"Off").
+        if (tracks == null) return "On"
+        val track = tracks.getOrNull(selectedSubtitleTrackIndex) ?: return "On"
         return subtitleTitle(track, selectedSubtitleTrackIndex)
+    }
+
+    /**
+     * Preview the ordinal (into [FileVersion.subtitleTracks]) the player's
+     * subtitle auto-resolver would pick for the no-override case, or `null`
+     * when Auto resolves to no subtitles (mode off, "no subs" preference, no
+     * language match, or audio already in the preferred language). Mirrors
+     * [TvPlayerViewModel.resolveAutoSubtitleSelection] branch-for-branch over
+     * the catalog [SubtitleTrack] list. A resolver `NoChange`/`Disable` maps to
+     * `null` here: the detail page starts from nothing playing, so both mean
+     * "no subtitle".
+     */
+    private fun autoResolvedSubtitle(
+        version: FileVersion?,
+        context: SubtitleAutoContext,
+    ): Pair<SubtitleTrack, Int>? {
+        val tracks = version?.subtitleTracks ?: return null
+        if (tracks.isEmpty()) return null
+
+        val mode = context.mode?.trim()?.lowercase(Locale.US)?.takeIf { it.isNotBlank() } ?: "auto"
+        if (mode == "off") return null
+
+        val preferred = context.preferredLanguage
+        if (preferred != null && preferred.isBlank()) return null
+
+        val targetLanguage = autoSubtitleLanguageKey(preferred)
+        if (targetLanguage == null) {
+            return if (mode == "always") {
+                bestAutoSubtitleTrack(tracks, targetLanguage = null, preferForced = context.showForced)
+            } else {
+                null
+            }
+        }
+
+        val audioLanguage = autoSubtitleLanguageKey(context.audioLanguage)
+        if (mode == "auto" && audioLanguage != null && audioLanguage == targetLanguage) {
+            if (context.showForced) {
+                bestForcedAutoSubtitleTrack(tracks, targetLanguage)?.let { return it }
+            }
+            return null
+        }
+
+        return bestAutoSubtitleTrack(tracks, targetLanguage, preferForced = context.showForced)
+            ?: if (context.showForced) {
+                tracks.withIndex().firstOrNull { it.value.forced }?.let { it.value to it.index }
+            } else {
+                null
+            }
+    }
+
+    /** Mirrors `TvPlayerViewModel.bestAutoSubtitleTrack` over catalog tracks. */
+    private fun bestAutoSubtitleTrack(
+        tracks: List<SubtitleTrack>,
+        targetLanguage: String?,
+        preferForced: Boolean,
+    ): Pair<SubtitleTrack, Int>? {
+        val pool = tracks.withIndex().filter { (_, t) ->
+            targetLanguage == null || autoSubtitleLanguageKey(t.language) == targetLanguage
+        }
+        if (pool.isEmpty()) return null
+        if (preferForced) {
+            pool.firstOrNull { (_, t) -> t.forced && !isHearingImpairedSubtitle(t) && !isBitmapSubtitle(t.codec) }
+                ?.let { return it.value to it.index }
+        }
+        pool.firstOrNull { (_, t) -> !t.forced && !isHearingImpairedSubtitle(t) && !isBitmapSubtitle(t.codec) }
+            ?.let { return it.value to it.index }
+        pool.firstOrNull { (_, t) -> !t.forced && !isBitmapSubtitle(t.codec) }
+            ?.let { return it.value to it.index }
+        pool.firstOrNull { (_, t) -> !isBitmapSubtitle(t.codec) }
+            ?.let { return it.value to it.index }
+        return pool.first().let { it.value to it.index }
+    }
+
+    /** Mirrors `TvPlayerViewModel.bestForcedAutoSubtitleTrack` over catalog tracks. */
+    private fun bestForcedAutoSubtitleTrack(
+        tracks: List<SubtitleTrack>,
+        targetLanguage: String?,
+    ): Pair<SubtitleTrack, Int>? {
+        val pool = tracks.withIndex().filter { (_, t) ->
+            (targetLanguage == null || autoSubtitleLanguageKey(t.language) == targetLanguage) && t.forced
+        }
+        if (pool.isEmpty()) return null
+        pool.firstOrNull { (_, t) -> !isHearingImpairedSubtitle(t) && !isBitmapSubtitle(t.codec) }
+            ?.let { return it.value to it.index }
+        pool.firstOrNull { (_, t) -> !isHearingImpairedSubtitle(t) }
+            ?.let { return it.value to it.index }
+        return pool.first().let { it.value to it.index }
+    }
+
+    /**
+     * ISO-639 folding used by the RESOLVER (`TvPlayerViewModel.normalizedSubtitleLanguage`)
+     * — deliberately its own smaller alias table (not [languageDisplayName]'s),
+     * dropping `und`, so the preview matches the player's language comparison
+     * exactly rather than the row's display grouping.
+     */
+    private fun autoSubtitleLanguageKey(language: String?): String? {
+        val primary = language
+            ?.trim()
+            ?.takeUnless { it.isBlank() || it.equals("und", ignoreCase = true) }
+            ?.lowercase(Locale.US)
+            ?.replace('_', '-')
+            ?.substringBefore('-')
+            ?: return null
+        return when (primary) {
+            "eng" -> "en"
+            "spa" -> "es"
+            "fre", "fra" -> "fr"
+            "ger", "deu" -> "de"
+            "dut", "nld" -> "nl"
+            "jpn" -> "ja"
+            "dan" -> "da"
+            else -> primary
+        }
+    }
+
+    private val hearingImpairedSubtitleTokenRegex =
+        Regex("""(^|[^a-z0-9])(cc|sdh|hi)([^a-z0-9]|$)""", RegexOption.IGNORE_CASE)
+
+    /** Title-based HI/CC/SDH detection mirroring the player's `indicatesHearingImpairedSubtitle`. */
+    private fun isHearingImpairedSubtitle(track: SubtitleTrack): Boolean {
+        val title = track.title ?: return false
+        val lower = title.lowercase(Locale.US)
+        return lower.contains("closed caption") ||
+            lower.contains("hearing impaired") ||
+            lower.contains("hearing-impaired") ||
+            lower.contains("hearing") ||
+            hearingImpairedSubtitleTokenRegex.containsMatchIn(title)
+    }
+
+    /** Mirrors `isBitmapSubtitleCodecOrMime` (PGS / VobSub / DVB / HDMV). */
+    private fun isBitmapSubtitle(codec: String?): Boolean {
+        val n = codec?.trim()?.lowercase(Locale.US)?.replace('_', '-') ?: return false
+        return n.contains("pgs") || n.contains("hdmv") || n.contains("dvd") || n.contains("dvbsubs")
     }
 
     private fun subtitleTitle(track: SubtitleTrack, ordinal: Int): String {
