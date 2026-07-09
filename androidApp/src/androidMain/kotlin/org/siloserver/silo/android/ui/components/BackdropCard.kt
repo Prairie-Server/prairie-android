@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -43,11 +44,20 @@ import androidx.compose.ui.unit.dp
 import org.siloserver.silo.model.catalog.MediaItemUserState
 
 /**
- * Reserved height for the text block under a backdrop card: series title +
- * episode line + remaining-time line. Constant across episode and movie
- * cards so mixed rows keep a stable height.
+ * Reserved height for the text block under a backdrop card: title (bodySmall)
+ * plus up to two label lines (episode subtitle + "Xm left"). Computed from the
+ * ACTUAL line heights at the current density & font scale — a fixed dp constant
+ * doesn't grow with fontScale, so accessibility text sizes (>=~1.25) sheared the
+ * last line. Every card in a row resolves the identical value (theme-driven, not
+ * content-driven), so mixed rows still align. Reserves the tallest stack (an
+ * episode card with a remaining-time line) so shorter movie cards fit too.
  */
-private val BackdropInfoBlockHeight = 54.dp
+private val backdropInfoBlockHeight: Dp
+    @Composable get() = with(LocalDensity.current) {
+        val typography = MaterialTheme.typography
+        typography.bodySmall.lineHeight.toDp() +
+            typography.labelSmall.lineHeight.toDp() * 2
+    }
 
 /**
  * Landscape card for "Continue Watching" / "Next Up" sections.
@@ -161,7 +171,7 @@ fun BackdropCard(
         // movie cards as few as one. In a mixed row (Continue Watching) the
         // LazyRow's height would otherwise change with whichever items are
         // visible, bouncing every row below it during horizontal scrolls.
-        Column(modifier = Modifier.height(BackdropInfoBlockHeight)) {
+        Column(modifier = Modifier.height(backdropInfoBlockHeight)) {
         if (seriesTitle != null) {
             // Episode card: show series title, then episode tag + episode title
             Text(
