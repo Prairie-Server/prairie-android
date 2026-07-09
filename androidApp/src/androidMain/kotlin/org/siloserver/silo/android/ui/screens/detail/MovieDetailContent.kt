@@ -21,7 +21,6 @@ import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -79,7 +78,6 @@ fun MovieDetailContent(
     translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var showMediaInfo by remember { mutableStateOf(false) }
     var showVersionPicker by remember { mutableStateOf(false) }
     var showAudioPicker by remember { mutableStateOf(false) }
     var showSubtitlePicker by remember { mutableStateOf(false) }
@@ -93,8 +91,7 @@ fun MovieDetailContent(
     val hasMultipleVersions = detail.versions.size > 1
     val hasAudioOptions = audioTracks.size > 1
     val hasSubtitleOptions = subtitleTracks.isNotEmpty()
-    val hasMediaInfo = detail.versions.isNotEmpty()
-    val hasOverflow = hasAudioOptions || hasSubtitleOptions || hasMediaInfo || onPlayOnDevice != null ||
+    val hasOverflow = hasAudioOptions || hasSubtitleOptions || onPlayOnDevice != null ||
         onSeriesClick != null || onSeasonClick != null || onWatchTogether != null
 
     val eyebrow = if (detail.type == "episode") {
@@ -175,18 +172,6 @@ fun MovieDetailContent(
                                     onClick = {
                                         dismiss()
                                         showSubtitlePicker = true
-                                    },
-                                )
-                            }
-                            if (hasMediaInfo) {
-                                DropdownMenuItem(
-                                    text = { Text("Media Info") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.Info, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        showMediaInfo = true
                                     },
                                 )
                             }
@@ -332,13 +317,6 @@ fun MovieDetailContent(
                 showSubtitlePicker = false
             },
             onDismiss = { showSubtitlePicker = false },
-        )
-    }
-
-    if (showMediaInfo && hasMediaInfo) {
-        MediaInfoSheet(
-            versions = detail.versions,
-            onDismiss = { showMediaInfo = false },
         )
     }
 
