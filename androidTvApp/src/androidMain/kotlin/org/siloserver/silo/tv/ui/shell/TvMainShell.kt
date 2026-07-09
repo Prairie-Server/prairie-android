@@ -1055,6 +1055,11 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.Favorites.route)
                             moveFocusToContent(TvMainRoute.Favorites.route)
                         },
+                        onRecommendations = {
+                            focusState.closePanel(false)
+                            navigateToSecondary(TvMainRoute.ForYou.route)
+                            moveFocusToContent(TvMainRoute.ForYou.route)
+                        },
                     )
                 }
             }
@@ -1318,6 +1323,7 @@ private fun TvForYouDropdown(
     focusEntryToken: Int,
     onWatchlist: () -> Unit,
     onFavorites: () -> Unit,
+    onRecommendations: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val firstFocus = remember { FocusRequester() }
@@ -1342,6 +1348,13 @@ private fun TvForYouDropdown(
             onClick = onWatchlist,
         )
         ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
+        // tvOS parity: the For You dropdown's third row (sparkles) returns to the
+        // recommendations feed (Jim TV QA 2026-07-10).
+        ProfileDropdownRow(
+            label = "Recommendations",
+            icon = Icons.Filled.AutoAwesome,
+            onClick = onRecommendations,
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 package org.siloserver.silo.tv.ui.components
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -66,6 +72,14 @@ fun TvAuroraBackdrop(
         val rng = Random(0x5110)
         List(90) { Triple(rng.nextFloat(), rng.nextFloat() * 0.62f, 0.25f + rng.nextFloat() * 0.55f) }
     }
+
+    // Deterministic dither grain. These plum-night gradients quantize into
+    // visible 8-bit bands on the Shield (Android 11, no RenderEffect blur to
+    // smear them). A tiled tile of per-pixel ±luminance noise at ~4% alpha,
+    // painted over the final composite, is ordered dithering: it nudges each
+    // pixel randomly across the band boundary so the eye stops seeing steps,
+    // with no perceptible texture (Jim TV QA TS3, 2026-07-10).
+    val grain = remember { buildDitherGrain() }
 
     Box(modifier = modifier.fillMaxSize().background(NightBottom)) {
         // Glow layer: night gradient + additive bloom + additive aurora glows.
@@ -173,7 +187,37 @@ fun TvAuroraBackdrop(
                     Brush.verticalGradient(listOf(NightBottom.copy(alpha = 0.66f), Color.Transparent)),
                 ),
         )
+
+        // Dither grain on top of everything, so it breaks up the banding of the
+        // final composite (glows, vignette, and scrims all band on 8-bit). Tiled
+        // 1:1 in pixels so the grain stays sub-pixel-fine at any resolution.
+        Canvas(Modifier.matchParentSize()) {
+            drawRect(
+                brush = ShaderBrush(ImageShader(grain, TileMode.Repeated, TileMode.Repeated)),
+                size = size,
+            )
+        }
     }
+}
+
+/**
+ * A small square of monochrome dither noise: each pixel is fully black or fully
+ * white at a low, constant alpha, so painting it (SrcOver) over a gradient
+ * randomly pushes each covered pixel slightly lighter or darker — dithering the
+ * 8-bit banding. Kept tiny and tiled ([TileMode.Repeated]) so it costs one small
+ * bitmap regardless of screen size and stays grain-fine when tiled 1:1.
+ */
+private fun buildDitherGrain(): ImageBitmap {
+    val dim = 160
+    val alpha = 10 // ~4% — enough to cross a band step, below visible-texture.
+    val rng = Random(0x6261)
+    val pixels = IntArray(dim * dim) {
+        val channel = if (rng.nextBoolean()) 0xFF else 0x00
+        (alpha shl 24) or (channel shl 16) or (channel shl 8) or channel
+    }
+    return Bitmap.createBitmap(dim, dim, Bitmap.Config.ARGB_8888)
+        .apply { setPixels(pixels, 0, dim, 0, 0, dim, dim) }
+        .asImageBitmap()
 }
 
 /**
