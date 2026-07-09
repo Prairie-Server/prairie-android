@@ -58,6 +58,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -65,6 +66,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -163,11 +165,11 @@ internal fun resolveAutoSubtitleSelection(
                 targetLanguage = targetLanguage,
             )
             if (forcedTarget != null) {
-                return if (forcedTarget.isSelected) {
-                    SubtitleAutoSelection.NoChange
-                } else {
-                    SubtitleAutoSelection.Select(forcedTarget.index)
-                }
+                // Idempotent re-select even when already selected: NoChange is
+                // reserved for "no track should be on", so the launch-time
+                // consumer can map it to an explicit disable (Apple parity)
+                // without turning off a forced track the defaults picked.
+                return SubtitleAutoSelection.Select(forcedTarget.index)
             }
         }
         return SubtitleAutoSelection.Disable
@@ -183,9 +185,10 @@ internal fun resolveAutoSubtitleSelection(
         null
     }
 
-    return when {
-        target == null -> SubtitleAutoSelection.NoChange
-        target.isSelected -> SubtitleAutoSelection.NoChange
+    return when (target) {
+        // Idempotent re-select for an already-selected target (see the forced
+        // branch above): NoChange now strictly means "no track should be on".
+        null -> SubtitleAutoSelection.NoChange
         else -> SubtitleAutoSelection.Select(target.index)
     }
 }
@@ -203,7 +206,11 @@ internal fun preferredAutoTextSubtitleIndex(
             showForced = true,
         )
     ) {
-        is SubtitleAutoSelection.Select -> selection.index
+        // This helper answers "which track should we MOVE to" — an idempotent
+        // re-select of the already-selected target (see the resolver) is not a
+        // move, so it stays null here.
+        is SubtitleAutoSelection.Select ->
+            selection.index.takeUnless { idx -> tracks.any { it.index == idx && it.isSelected } }
         SubtitleAutoSelection.Disable,
         SubtitleAutoSelection.NoChange -> null
     }
@@ -466,6 +473,16 @@ class TvPlayerViewModel(
         private const val MAX_TRANSIENT_NETWORK_RETRIES = 1
         // Record a durable position roughly every 10s of content time.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
+        // Non-empty onTracksChanged callbacks an unresolved explicit subtitle
+        // pick survives while waiting for async sidecar mounts (MPV) before it
+        // gives up and lets the persisted/auto fallback proceed.
+        private const val MAX_PENDING_INITIAL_SUBTITLE_ATTEMPTS = 5
+        // A position report within this distance of a pending local-seek
+        // target counts as the seek having landed (clears the guard).
+        private const val PENDING_SEEK_LANDED_TOLERANCE_SEC = 2.0
+        // Failsafe: a seek that never lands (player error mid-seek) must not
+        // mute position reports forever.
+        private const val PENDING_SEEK_TIMEOUT_MS = 3_000L
         // Auto-play countdown shown on the Up-Next overlay before the next
         // episode starts (mirrors tvOS CountdownRing default).
         const val NEXT_UP_COUNTDOWN_SECONDS = 10
@@ -521,6 +538,16 @@ class TvPlayerViewModel(
     // later user track change isn't overridden.
     private val initialAudioTrackIndex: Int? = launchArgs.initialAudioTrackIndex
     private var pendingInitialSubtitleIndex: Int? = launchArgs.initialSubtitleTrackIndex
+
+    /**
+     * Non-empty track callbacks the explicit pick has failed to resolve
+     * against. MPV mounts sidecar subtitles asynchronously AFTER the embedded
+     * tracks land (Media3 reports everything at once), so an unresolved pick
+     * is retried across callbacks until the sidecars arrive — bounded by
+     * [MAX_PENDING_INITIAL_SUBTITLE_ATTEMPTS], after which the pick is dropped
+     * so the persisted/auto fallback can proceed.
+     */
+    private var pendingInitialSubtitleAttempts = 0
     private var pendingPersistedAudioFingerprint: String? = null
     private var pendingPersistedSubtitleFingerprint: String? = null
     private var autoTextSubtitleSelectionAttempted = false
@@ -541,9 +568,11 @@ class TvPlayerViewModel(
      * engine don't re-enter the ladder, while a black screen on a LATER fallback
      * engine can still escalate. Cleared on every fresh [loadContent]; the ladder
      * itself terminates because the planner stops offering direct engines once
-     * [attemptedEngines] is exhausted.
+     * [attemptedEngines] is exhausted. Nullable element: a failure arriving with
+     * NO playback plan is its own one-shot sentinel, so a plan-less error can't
+     * re-enter the ladder unboundedly either.
      */
-    private val engineSwitchFailureEngines = mutableSetOf<PlaybackEngineKind>()
+    private val engineSwitchFailureEngines = mutableSetOf<PlaybackEngineKind?>()
 
     /** Guards [startServerRecoveryFallback] against concurrent fallbacks racing the same session. */
     private var recoveryJob: Job? = null
@@ -556,6 +585,15 @@ class TvPlayerViewModel(
      * in-flight one without permanently locking out later switches.
      */
     private var versionSwitchJob: Job? = null
+
+    /**
+     * Monotonic generation for [loadContent] pipelines. Bumped at the top of
+     * every loadContent call; each pipeline captures its value at entry and
+     * re-checks it before applying results to [_uiState], so a superseded
+     * pipeline (rapid version picks, a retry racing a pick) is inert even
+     * once its coordinator round-trip returns.
+     */
+    private var contentLoadGeneration = 0L
 
     /** Same-route retries spent on transient network errors; reset once playback progresses. */
     private var transientNetworkRetries = 0
@@ -875,6 +913,9 @@ class TvPlayerViewModel(
         // (a normal first resume keeps the default false so it gets the rewind).
         suppressResumeRewind: Boolean = false,
     ) {
+        // Capture this pipeline's generation; a later loadContent bump makes
+        // this one inert before it can touch _uiState.
+        val generation = ++contentLoadGeneration
         introAutoSkipController.reset()
         manualSubtitleSelectionApplied = false
         // Fresh content: forget engines attempted for the previous item.
@@ -894,7 +935,7 @@ class TvPlayerViewModel(
         viewModelScope.launch {
             try {
                 runCatching { playerSettingsStore.refreshFromServer() }
-                when (val result = videoPlaybackCoordinator.start(
+                val result = videoPlaybackCoordinator.start(
                     VideoPlaybackStartRequest(
                         contentId = contentId,
                         preferredFileId = preferredFileIdOverride ?: preferredFileId,
@@ -905,7 +946,12 @@ class TvPlayerViewModel(
                         preferredQualityOverride = preferredQuality,
                         suppressResumeRewind = suppressResumeRewind,
                     ),
-                )) {
+                )
+                // A newer loadContent superseded this pipeline while start()
+                // was in flight — its results must not clobber the newer
+                // pipeline's session state.
+                if (generation != contentLoadGeneration) return@launch
+                when (result) {
                     is VideoPlayerUiState.Ready -> {
                         val localTrackSelection = result.fileId
                             ?.let { fileId -> userItemStatePort.localTrackSelection(contentId, fileId) }
@@ -979,6 +1025,7 @@ class TvPlayerViewModel(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading content", e)
+                if (generation != contentLoadGeneration) return@launch
                 fail("Unexpected error: ${e.message}")
             }
         }
@@ -988,9 +1035,15 @@ class TvPlayerViewModel(
         // Auto-skip is a local transport action: in a Watch Together room only
         // the host's transport may move position, so never auto-skip in a room
         // (a guest jump would fight the host's broadcast in a yank-back loop).
-        // The manual Skip Intro button is a separate, gate-checked path and
-        // stays available.
-        if (roomId != null) return
+        // The observer still runs in a room — with enabled pinned false the
+        // controller only ever surfaces ShowingButton (prompt visible, never
+        // counts down or auto-fires), keeping the manual Skip Intro button
+        // alive; its press routes through the screen's gate-checked seek.
+        val autoSkipEnabled = if (roomId != null) {
+            flowOf(false)
+        } else {
+            playerSettingsStore.autoSkipIntroFlow
+        }
         introObserveJob?.cancel()
         introObserveJob = introAutoSkipController.observe(
             position = _uiState
@@ -999,7 +1052,7 @@ class TvPlayerViewModel(
             introRange = _uiState
                 .map { it.intro }
                 .distinctUntilChanged(),
-            autoSkipEnabled = playerSettingsStore.autoSkipIntroFlow,
+            autoSkipEnabled = autoSkipEnabled,
             introKey = _uiState
                 .map { state ->
                     state.intro?.let { intro ->
@@ -1118,7 +1171,11 @@ class TvPlayerViewModel(
                 fileId = activeFileId,
                 capabilities = capabilities,
                 audioTrackIndex = selectedAudioIndex,
-                subtitleTrackIndex = selectedSubtitleIndex,
+                // null means "keep current" only on a SAME-session transcode
+                // restart; a renewed session has no current selection to keep,
+                // so an unmatched embedded track (null here) must pin the old
+                // deterministic Off (-1) instead of the server's default.
+                subtitleTrackIndex = selectedSubtitleIndex ?: -1,
                 qualityPreference = null,
                 startPosition = state.position,
                 preserveDirectAudioSelection = true,
@@ -1154,7 +1211,9 @@ class TvPlayerViewModel(
                             fileId = activeFileId,
                             capabilities = capabilities,
                             audioTrackIndex = fallback.audioTrackIndex,
-                            subtitleTrackIndex = selectedSubtitleIndex,
+                            // Fresh-session restart params (404 recovery): same
+                            // explicit-Off rule as renewStartParams above.
+                            subtitleTrackIndex = selectedSubtitleIndex ?: -1,
                             qualityPreference = null,
                             startPosition = fallback.position,
                             preserveDirectAudioSelection = true,
@@ -1263,6 +1322,23 @@ class TvPlayerViewModel(
 
         val positionSec = positionMs / 1000.0
         val durationSec = durationMs / 1000.0
+        // A local seek ([seekImmediate] / [onSkipIntroNow]) pre-writes its
+        // target into uiState.position; the player's position poll can still
+        // deliver a report taken BEFORE the seek applied. Applying that stale
+        // sample would overwrite the pre-write, and the next post-seek report
+        // would then look like a natural credits crossing (spurious Up-Next).
+        // Suppress reports still on the pre-seek side until one lands near the
+        // target (or the guard times out).
+        pendingSeekTargetSec?.let { target ->
+            val landed =
+                kotlin.math.abs(positionSec - target) <= PENDING_SEEK_LANDED_TOLERANCE_SEC ||
+                    if (pendingSeekFromSec <= target) positionSec >= target else positionSec <= target
+            if (landed || System.currentTimeMillis() - pendingSeekSetAtMs > PENDING_SEEK_TIMEOUT_MS) {
+                pendingSeekTargetSec = null
+            } else {
+                return
+            }
+        }
         val previousPosition = _uiState.value.position
         _uiState.update {
             it.copy(
@@ -1398,8 +1474,26 @@ class TvPlayerViewModel(
      * `PlayerViewModel.seekImmediate` contract.
      */
     fun seekImmediate(positionSec: Double) {
+        markPendingSeek(positionSec)
         _uiState.update { it.copy(position = positionSec) }
         _seekRequests.tryEmit(positionSec)
+    }
+
+    // ---- Local-seek suppression guard (see onPositionChanged) ------------------
+    private var pendingSeekTargetSec: Double? = null
+    private var pendingSeekFromSec: Double = 0.0
+    private var pendingSeekSetAtMs: Long = 0L
+
+    /**
+     * Arm the position-report suppression guard for a local seek whose target
+     * is pre-written into uiState.position ([seekImmediate], [onSkipIntroNow]).
+     * Captures the pre-seek position so [onPositionChanged] can tell stale
+     * (pre-seek side) reports from the seek actually landing.
+     */
+    private fun markPendingSeek(targetSec: Double) {
+        pendingSeekFromSec = _uiState.value.position
+        pendingSeekTargetSec = targetSec
+        pendingSeekSetAtMs = System.currentTimeMillis()
     }
 
     // ---- Remote-control adapters (TvPlaybackRealtimeController calls these) ----
@@ -1712,7 +1806,11 @@ class TvPlayerViewModel(
         when (selection) {
             SubtitleAutoSelection.Disable -> _subtitleSelectRequests.tryEmit(-1)
             is SubtitleAutoSelection.Select -> _subtitleSelectRequests.tryEmit(selection.index)
-            SubtitleAutoSelection.NoChange -> Unit
+            // Launch-time only: NoChange means Auto picked nothing, but Media3's
+            // default selector may still have a track on — Apple's engines start
+            // subs OFF, so the detail preview truthfully shows "Auto - None".
+            // Disable explicitly so the launch state matches that preview.
+            SubtitleAutoSelection.NoChange -> _subtitleSelectRequests.tryEmit(-1)
         }
     }
 
@@ -1739,10 +1837,11 @@ class TvPlayerViewModel(
             _subtitleSelectRequests.tryEmit(-1)
             return
         }
-        // Wait for the first non-empty track list, then consume regardless so we
-        // only act during initial load.
+        // Wait for a non-empty track list. The pick is only CONSUMED when it
+        // resolves: MPV mounts sidecar subtitles asynchronously after the
+        // embedded tracks land (Media3 reports everything immediately), so the
+        // first non-empty callback may not contain the picked sidecar yet.
         if (subtitle.isEmpty()) return
-        pendingInitialSubtitleIndex = null
         val resolved = resolveInitialSubtitleTrackIndex(
             requestedOrdinal = index,
             subtitleTracks = subtitle,
@@ -1754,9 +1853,20 @@ class TvPlayerViewModel(
         // persisted -> auto instead of being silently dropped (subtitles Off all
         // session).
         if (resolved != null) {
+            pendingInitialSubtitleIndex = null
+            pendingInitialSubtitleAttempts = 0
             manualSubtitleSelectionApplied = true
             pendingPersistedSubtitleFingerprint = null
             _subtitleSelectRequests.tryEmit(resolved)
+            return
+        }
+        // Bounded retry: keep the pick pending across a few callbacks so a
+        // late-mounting sidecar can still honor it, then give up so we only
+        // act during initial load (persisted/auto proceed as usual).
+        pendingInitialSubtitleAttempts += 1
+        if (pendingInitialSubtitleAttempts >= MAX_PENDING_INITIAL_SUBTITLE_ATTEMPTS) {
+            pendingInitialSubtitleIndex = null
+            pendingInitialSubtitleAttempts = 0
         }
     }
 
@@ -1896,7 +2006,10 @@ class TvPlayerViewModel(
         introAutoSkipController.cancelCountdown()
         // Pre-write the resolved position (like seekImmediate) so the credits
         // crossing check in onPositionChanged treats this as a local seek and
-        // not natural playback reaching the credits point.
+        // not natural playback reaching the credits point. The pending-seek
+        // guard keeps the ~1s position poll from overwriting the pre-write
+        // with a stale pre-seek sample (which would re-arm the crossing).
+        markPendingSeek(intro.end)
         _uiState.update { it.copy(position = intro.end) }
         return intro.end
     }
@@ -2338,8 +2451,9 @@ class TvPlayerViewModel(
         // ladder and emit duplicate route events, but a black screen on a LATER
         // fallback engine still needs to escalate. `add` returns false when the
         // engine was already handled. Termination stays bound by attemptedEngines.
-        val currentEngine = state.playbackPlan?.engine
-        if (currentEngine != null && !engineSwitchFailureEngines.add(currentEngine)) return
+        // A null plan participates as its own sentinel: repeated plan-less
+        // failures must not loop the recovery ladder forever.
+        if (!engineSwitchFailureEngines.add(state.playbackPlan?.engine)) return
         if (state.sessionId != null) {
             // Don't blindly remux: prefer another direct engine, then fall through
             // the plan's remux/transcode ladder. A transcode-only source can't be
@@ -2379,6 +2493,11 @@ class TvPlayerViewModel(
             if (staleSessionId != null) {
                 runCatching { playbackSessionManager.stopSession(staleSessionId) }
             }
+            // stopSession's safeApiCall swallows the CancellationException a
+            // superseding pick raises mid-round-trip, so re-check the job's
+            // cancelled flag explicitly — otherwise this stale coroutine would
+            // proceed into loadContent and race the pipeline that replaced it.
+            coroutineContext.ensureActive()
             loadContent(
                 startPositionOverride = resumeAt,
                 preferredFileIdOverride = fileId,
@@ -2401,6 +2520,9 @@ class TvPlayerViewModel(
             if (staleSessionId != null) {
                 runCatching { playbackSessionManager.stopSession(staleSessionId) }
             }
+            // Same stale-coroutine guard as onSelectFileVersion: safeApiCall
+            // eats the cancellation, so check the flag before loading.
+            coroutineContext.ensureActive()
             // Retry resumes exactly where it failed — no skip-back nudge.
             loadContent(startPositionOverride = resumeAt, suppressResumeRewind = true)
         }
@@ -2438,13 +2560,11 @@ class TvPlayerViewModel(
         if (sessionId != null) {
             // androidx lifecycle 2.10 closes viewModelScope BEFORE onCleared, so a
             // launch here never runs and the server session leaks until timeout.
-            // AWAIT the stop under NonCancellable off the main thread — same
-            // survivable approach as the resume-position write above. Best-effort.
-            runCatching {
-                runBlocking(NonCancellable + Dispatchers.IO) {
-                    sessionLifecycle.stop()
-                }
-            }
+            // Unlike the resume-position write above (a brief local Room write),
+            // stop() makes up to two HTTP calls — blocking main for those network
+            // timeouts is an ANR. stopAsync launches the stop on the lifecycle's
+            // own singleton scope under NonCancellable. Best-effort.
+            sessionLifecycle.stopAsync()
         }
     }
 

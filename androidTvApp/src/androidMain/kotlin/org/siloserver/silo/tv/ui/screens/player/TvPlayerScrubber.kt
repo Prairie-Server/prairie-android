@@ -202,6 +202,17 @@ fun TvPlayerScrubber(
         }
     }
 
+    // An external cancel (remote-key bridge Back, setControlsVisible(false))
+    // clears the VM's isScrubbing without any key event or blur reaching this
+    // composable — resync the local timeline state and kill the auto-seek loop
+    // so it can't keep advancing a preview the VM already dropped.
+    LaunchedEffect(isScrubbing) {
+        if (!isScrubbing && isTimelineScrubbing) {
+            isTimelineScrubbing = false
+            stopAutoSeek()
+        }
+    }
+
     val totalProgress = if (durationSec > 0) {
         ((if (isScrubbing) scrubPreviewSec else positionSec) / durationSec)
             .toFloat().coerceIn(0f, 1f)
