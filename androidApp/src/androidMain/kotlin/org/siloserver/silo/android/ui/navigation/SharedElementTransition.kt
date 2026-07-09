@@ -5,9 +5,11 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
@@ -103,7 +105,15 @@ fun Modifier.heroSource(key: String?): Modifier {
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Modifier.heroTarget(): Modifier {
-    val key = LocalHeroSourceHandoff.current?.pendingKey
+    val handoff = LocalHeroSourceHandoff.current
+    // Consume the key once for THIS target, then clear the app-wide hand-off so
+    // a later navigation that doesn't set a fresh key (back → search → open
+    // another item, with the source screen still composed in the back stack)
+    // can't reuse this stale key and morph the new hero from the wrong card.
+    // `remember` keeps our captured key for this target's lifetime, so clearing
+    // the hand-off doesn't disturb the current morph.
+    val key = remember(handoff) { handoff?.pendingKey }
+    LaunchedEffect(handoff) { handoff?.pendingKey = null }
     if (key.isNullOrBlank()) return this
     val sharedScope = LocalSharedTransitionScope.current ?: return this
     val visibilityScope = LocalNavAnimatedVisibilityScope.current ?: return this

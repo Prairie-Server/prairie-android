@@ -2019,7 +2019,21 @@ class TvPlayerViewModel(
         _uiState.update {
             it.copy(videoQualities = transcodeQualityLadder(it.selectedFileResolution, wireValue))
         }
-        loadContent(startPositionOverride = _uiState.value.position, suppressResumeRewind = true)
+        val resumeAt = _uiState.value.position.takeIf { it > 0.0 }
+        val staleSessionId = _uiState.value.sessionId
+        // A quality change restarts the session, exactly like onSelectFileVersion
+        // and retry — so share their single-flight guard: supersede any in-flight
+        // switch/retry and stop the old server session first, or loadContent's
+        // adoptActiveSession leaves the previous session orphaned until timeout
+        // and two load pipelines can race.
+        versionSwitchJob?.cancel()
+        versionSwitchJob = viewModelScope.launch {
+            if (staleSessionId != null) {
+                runCatching { playbackSessionManager.stopSession(staleSessionId) }
+            }
+            coroutineContext.ensureActive()
+            loadContent(startPositionOverride = resumeAt, suppressResumeRewind = true)
+        }
     }
 
     /**

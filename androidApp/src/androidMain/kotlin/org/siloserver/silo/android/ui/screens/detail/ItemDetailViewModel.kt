@@ -761,6 +761,12 @@ class ItemDetailViewModel(
             )
             if (subtitleOrdinal == null && audioOrdinal == null) return@launch
             _uiState.update {
+                // The ordinals were resolved against `version`; if the user
+                // switched versions while this suspended, they'd index into the
+                // wrong track list — leave the new version untouched.
+                if (it.detail?.versions?.getOrNull(it.selectedVersionIndex)?.fileId != version.fileId) {
+                    return@update it
+                }
                 // Don't clobber a pick the user already made this session.
                 it.copy(
                     selectedSubtitleIndex = if (it.hasExplicitSubtitleSelection) it.selectedSubtitleIndex

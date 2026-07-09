@@ -503,6 +503,10 @@ class TvItemDetailViewModel(
             val audOrdinal = resolveAudioTrackOrdinal(version.audioTracks.orEmpty(), saved.audioFingerprint)
             if (subOrdinal == null && audOrdinal == null) return@launch
             _uiState.update {
+                // The ordinals were resolved against `version`; if the user
+                // switched versions while this suspended, they'd index into the
+                // wrong track list — leave the new version untouched.
+                if (selectedVersionFor(it, detail)?.fileId != version.fileId) return@update it
                 it.copy(
                     selectedSubtitleIndex = it.selectedSubtitleIndex ?: subOrdinal,
                     selectedAudioIndex = it.selectedAudioIndex ?: audOrdinal,
