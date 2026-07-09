@@ -28,7 +28,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import org.siloserver.silo.android.ui.navigation.heroSharedBounds
+import org.siloserver.silo.android.ui.navigation.LocalHeroSourceHandoff
+import org.siloserver.silo.android.ui.navigation.heroSharedKeyPrefix
+import org.siloserver.silo.android.ui.navigation.heroSource
+import java.util.UUID
 import org.siloserver.silo.common.overlays.CardOverlayVariant
 import org.siloserver.silo.common.overlays.CardOverlays
 import org.siloserver.silo.common.overlays.LocalCardOverlayUiState
@@ -75,12 +78,25 @@ fun MediaCard(
 ) {
     val overlayState = LocalCardOverlayUiState.current
     var menuExpanded by remember { mutableStateOf(false) }
+    // Unique per-placement hero key. Two placements of the same content id (e.g.
+    // Continue Watching + a genre row) get distinct keys, so they never collide
+    // in the shared-transition layout (the old flicker). Recomputed when this
+    // slot is recycled for a different item. Null when the card isn't a hero.
+    val heroHandoff = LocalHeroSourceHandoff.current
+    val heroKey = remember(sharedContentId) {
+        sharedContentId?.let { "${heroSharedKeyPrefix(it)}-${UUID.randomUUID()}" }
+    }
     // iOS MediaCard.swift: VStack(alignment: .leading, spacing: 4).
     Column(
         modifier = modifier
             .width(width)
             .combinedClickable(
-                onClick = onClick,
+                onClick = {
+                    // Record which exact placement was tapped so the detail hero
+                    // pairs with this card, not a duplicate elsewhere on screen.
+                    if (heroKey != null) heroHandoff?.pendingKey = heroKey
+                    onClick()
+                },
                 onLongClick = if (actions.isEmpty) null else { { menuExpanded = true } },
             ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -92,7 +108,7 @@ fun MediaCard(
                 .aspectRatio(artworkAspectRatio)
                 // Hero morph source. Must precede .clip() — sharedBounds renders
                 // into the transition overlay and clipping is applied to its child.
-                .heroSharedBounds(sharedContentId)
+                .heroSource(heroKey)
                 .clip(MaterialTheme.shapes.small),
         ) {
             ThumbhashImage(

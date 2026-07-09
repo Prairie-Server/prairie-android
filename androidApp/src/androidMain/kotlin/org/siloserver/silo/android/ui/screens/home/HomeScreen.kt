@@ -68,8 +68,6 @@ import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.section.splitFeatured
 import org.siloserver.silo.viewmodel.HomeViewModel
-import org.siloserver.silo.android.ui.navigation.HeroClaimRegistry
-import org.siloserver.silo.android.ui.navigation.LocalHeroClaimRegistry
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val ChromeFadeDistanceDp = 72f
@@ -131,11 +129,9 @@ fun HomeScreen(
         }
     }
 
-    // Home can show the same item in several rows at once; the claim registry
-    // ensures only one visible card owns the hero shared-element key (see
-    // HeroClaimRegistry) so duplicates don't morph into each other.
-    val heroClaims = remember { HeroClaimRegistry() }
-    CompositionLocalProvider(LocalHeroClaimRegistry provides heroClaims) {
+    // Home can show the same item in several rows at once. Each poster placement
+    // now carries a unique hero key (see MediaCard) so duplicates never collide
+    // in the shared-transition layout — no per-screen claim registry needed.
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -242,7 +238,6 @@ fun HomeScreen(
             onApprove = companionPairingViewModel::approveMatchCode,
             onCancel = companionPairingViewModel::cancelMatchCode,
         )
-    }
     }
 }
 

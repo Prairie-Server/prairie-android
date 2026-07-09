@@ -62,7 +62,7 @@ import org.siloserver.silo.android.ui.theme.SiloBackground
 import org.siloserver.silo.android.ui.theme.SiloOnSurface
 import org.siloserver.silo.android.ui.theme.SiloSecondaryText
 import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
-import org.siloserver.silo.android.ui.navigation.heroSharedBounds
+import org.siloserver.silo.android.ui.navigation.heroTarget
 import org.siloserver.silo.android.ui.theme.PillShape
 import org.siloserver.silo.android.ui.util.playbackResumePosition
 import org.siloserver.silo.common.ui.components.ThumbhashImage
@@ -166,9 +166,10 @@ private fun Backdrop(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(heroHeight)
-                // Hero morph target — matches the tapped poster's shared key so
-                // the artwork bounds carry from the list card into this backdrop.
-                .heroSharedBounds(contentId),
+                // Hero morph target — pairs with the exact poster placement the
+                // user tapped (read from the hero hand-off) so the artwork bounds
+                // carry from that list card into this backdrop.
+                .heroTarget(),
         ) {
             ThumbhashImage(
                 url = backdropUrl,
