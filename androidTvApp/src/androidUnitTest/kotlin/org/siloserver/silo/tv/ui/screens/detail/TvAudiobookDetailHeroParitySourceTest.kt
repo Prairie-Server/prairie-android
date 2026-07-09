@@ -84,12 +84,13 @@ class TvAudiobookDetailHeroParitySourceTest {
     @Test
     fun audiobookDetailsRenderPartsAndCollapsedChaptersBelowHero() {
         assertTrue(
-            detailScreenSource.contains("val audiobookParts = remember(detail.versions) { detail.versions }"),
-            "Audiobook details should derive parts from file versions.",
+            detailScreenSource.contains("buildAudiobookTimeline(") &&
+                detailScreenSource.contains("val audiobookParts = audiobookTimeline?.tracks.orEmpty()"),
+            "Audiobook details should derive parts from the stitched whole-book timeline tracks.",
         )
         assertTrue(
-            detailScreenSource.contains("val audiobookChapters = remember(detail.versions) { audiobookDisplayChapters(detail.versions) }"),
-            "Audiobook details should flatten version chapters for the chapters section.",
+            detailScreenSource.contains("audiobookDisplayChapters(audiobookTimeline"),
+            "Audiobook details should build stitched whole-book chapters from the timeline.",
         )
         assertTrue(
             detailScreenSource.contains("TvAudiobookPartsSection("),

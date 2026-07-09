@@ -73,6 +73,9 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.siloserver.silo.audiobook.AudioPlaybackTrack
+import org.siloserver.silo.audiobook.AudiobookTimeline
+import org.siloserver.silo.audiobook.buildAudiobookTimeline
 import org.siloserver.silo.model.audiobook.AudiobookNarration
 import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.FileVersion
@@ -219,8 +222,20 @@ private fun TvDetailContent(
     val showsCastSection = !isAudiobook && detail.cast.isNotEmpty()
     val showsSimilarRail = !isAudiobook && detail.type != "episode" && state.moreLikeThis.isNotEmpty()
     val showsDetailsSection = !isAudiobook && remember(detail) { detail.hasTvDetailFacts() }
-    val audiobookParts = remember(detail.versions) { detail.versions }
-    val audiobookChapters = remember(detail.versions) { audiobookDisplayChapters(detail.versions) }
+    // Whole-book timeline stitched from the item's audiobook-part files — the
+    // same math the player VM uses. Drives the Parts section (one row per track)
+    // and the stitched, globally-offset chapter list. Null when there are no
+    // audio parts; single-part books yield a single track (no Parts section).
+    val audiobookTimeline = remember(detail.versions, detail.audiobook?.totalDurationSeconds) {
+        buildAudiobookTimeline(
+            versions = detail.versions,
+            serverTotalSeconds = detail.audiobook?.totalDurationSeconds?.toDouble(),
+        )
+    }
+    val audiobookParts = audiobookTimeline?.tracks.orEmpty()
+    val audiobookChapters = remember(audiobookTimeline) {
+        audiobookDisplayChapters(audiobookTimeline, detail.versions)
+    }
     val audiobookSeries = detail.audiobook?.series
     val audiobookOtherNarrations = detail.audiobook?.otherNarrations.orEmpty()
     val audiobookAlsoByAuthor = detail.audiobook?.related?.alsoByAuthor.orEmpty()
@@ -340,15 +355,20 @@ private fun TvDetailContent(
                     ) {
                         if (isAudiobook && audiobookParts.size > 1) {
                             TvAudiobookPartsSection(
-                                parts = audiobookParts,
-                                onPartSelected = { part ->
+                                tracks = audiobookParts,
+                                versions = detail.versions,
+                                // Tap plays from the part's whole-book (global)
+                                // start offset with no part fileId — the VM
+                                // resolves the part. (Pinning the part's fileId +
+                                // 0.0 would resolve to Part 1 at global 0.)
+                                onPartSelected = { track ->
                                     onPlay(
                                         detail.contentId,
-                                        part.fileId,
+                                        null,
                                         state.selectedAudioIndex,
                                         state.selectedSubtitleIndex,
                                         detail.type,
-                                        0.0,
+                                        track.startOffsetSeconds,
                                     )
                                 },
                                 firstRowUpFocusRequester = playFocus,
@@ -520,7 +540,7 @@ private fun TvDetailContent(
                 title = "Chapters",
                 options = audiobookChapters.mapIndexed { index, chapter ->
                     TvDialogOption(
-                        key = "chapter-$index-${chapter.fileId}",
+                        key = "chapter-$index",
                         title = chapter.title,
                         subtitle = listOf(
                             chapter.partTitle,
@@ -530,9 +550,11 @@ private fun TvDetailContent(
                             .joinToString("  "),
                         onClick = {
                             chaptersDialogOpen = false
+                            // Jump to the chapter's whole-book (global) start with
+                            // no part fileId — the VM resolves the part.
                             onPlay(
                                 detail.contentId,
-                                chapter.fileId,
+                                null,
                                 state.selectedAudioIndex,
                                 state.selectedSubtitleIndex,
                                 detail.type,
@@ -1056,8 +1078,9 @@ private fun DetailsSection(
 
 @Composable
 private fun TvAudiobookPartsSection(
-    parts: List<FileVersion>,
-    onPartSelected: (FileVersion) -> Unit,
+    tracks: List<AudioPlaybackTrack>,
+    versions: List<FileVersion>,
+    onPartSelected: (AudioPlaybackTrack) -> Unit,
     firstRowUpFocusRequester: FocusRequester?,
     modifier: Modifier = Modifier,
 ) {
@@ -1067,12 +1090,13 @@ private fun TvAudiobookPartsSection(
     ) {
         TvDetailSectionHeader(title = "Parts")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            parts.forEachIndexed { index, part ->
+            tracks.forEachIndexed { index, track ->
+                val version = versions.firstOrNull { it.fileId == track.fileId }
                 TvAudiobookDetailActionRow(
-                    title = "Part ${index + 1}",
-                    subtitle = audiobookPartSubtitle(part),
-                    trailing = audiobookDurationLabel(part.duration),
-                    onClick = { onPartSelected(part) },
+                    title = audiobookPartTitle(version, track.index),
+                    subtitle = audiobookPartSubtitle(version),
+                    trailing = audiobookDurationLabel(track.durationSeconds),
+                    onClick = { onPartSelected(track) },
                     upFocusRequester = if (index == 0) firstRowUpFocusRequester else null,
                 )
             }
@@ -1266,35 +1290,66 @@ private fun TvAudiobookDetailActionRow(
 // MARK: - Helpers
 
 private data class TvAudiobookDisplayChapter(
-    val fileId: Int,
     val title: String,
     val partTitle: String,
+    /** Whole-book (global) start offset; the chapter tap seeks here. */
     val startSeconds: Double,
 )
 
-private fun audiobookDisplayChapters(parts: List<FileVersion>): List<TvAudiobookDisplayChapter> =
-    parts.flatMapIndexed { partIndex, part ->
-        val partTitle = "Part ${partIndex + 1}"
-        part.chapters.orEmpty().mapIndexed { chapterIndex, chapter ->
+/**
+ * Chapter list for the detail dialog, in whole-book (global) space.
+ *
+ * Multi-part books use the stitched [AudiobookTimeline.chapters] (each chapter's
+ * `startSeconds` already offset by its part's start) so a tap jumps to the right
+ * place in the right part. Single-part / no-timeline books keep the single
+ * file's own chapters unchanged, so their behaviour is exactly as before.
+ */
+private fun audiobookDisplayChapters(
+    timeline: AudiobookTimeline?,
+    versions: List<FileVersion>,
+): List<TvAudiobookDisplayChapter> {
+    if (timeline != null && !timeline.isSingle) {
+        return timeline.chapters.map { chapter ->
             TvAudiobookDisplayChapter(
-                fileId = part.fileId,
-                title = audiobookChapterTitle(chapterIndex, chapter),
-                partTitle = partTitle,
+                title = chapter.title?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "Chapter ${chapter.index + 1}",
+                partTitle = "Part ${chapter.trackIndex + 1}",
                 startSeconds = chapter.startSeconds,
             )
         }
     }
+    val file = timeline?.tracks?.firstOrNull()?.fileId
+        ?.let { fileId -> versions.firstOrNull { it.fileId == fileId } }
+        ?: versions.firstOrNull()
+    return file?.chapters.orEmpty().mapIndexed { index, chapter ->
+        TvAudiobookDisplayChapter(
+            title = audiobookChapterTitle(index, chapter),
+            partTitle = "",
+            startSeconds = chapter.startSeconds,
+        )
+    }
+}
 
 private fun audiobookChapterTitle(
     fallbackIndex: Int,
     chapter: VersionChapter,
 ): String = chapter.title.trim().takeIf { it.isNotBlank() } ?: "Chapter ${fallbackIndex + 1}"
 
-private fun audiobookPartSubtitle(part: FileVersion): String? =
+/** Part row label: the file name when present, else "Part {presentationPartIndex}"
+ *  (falling back to the 0-based track [position], displayed 1-based). Mirrors the
+ *  phone AudiobookDetailContent `partTitle`. */
+private fun audiobookPartTitle(version: FileVersion?, position: Int): String {
+    version?.fileName?.takeIf { it.isNotBlank() }?.let { return it }
+    val rawIndex = version?.presentationPartIndex ?: position
+    val displayIndex = if (rawIndex <= 0) rawIndex + 1 else rawIndex
+    return "Part $displayIndex"
+}
+
+private fun audiobookPartSubtitle(part: FileVersion?): String? =
     listOfNotNull(
-        part.codecAudio?.takeIf { it.isNotBlank() }?.uppercase(),
-        part.container?.takeIf { it.isNotBlank() }?.uppercase(),
-        part.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
+        part?.codecAudio?.takeIf { it.isNotBlank() }?.uppercase(),
+        part?.container?.takeIf { it.isNotBlank() }?.uppercase(),
+        part?.bitrate?.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
     )
         .joinToString("  ")
         .takeIf { it.isNotBlank() }

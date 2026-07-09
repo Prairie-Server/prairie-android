@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -48,8 +49,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.screens.detail.CircleActionButton
+import org.siloserver.silo.audiobook.buildAudiobookTimeline
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.audiobook.AudiobookNarration
+import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.ebook.MediaRelatedContent
@@ -74,8 +77,15 @@ fun AudiobookDetailContent(
     selectedFileId: Int? = null,
     isDownloaded: Boolean = false,
     downloadProgress: Float? = null,
-    onPlayClick: (fileId: Int?) -> Unit,
-    onPlayFromStartClick: (fileId: Int?) -> Unit = {},
+    // Primary play/resume: launches with the BOOK-GLOBAL resume position (the
+    // player VM resolves which part contains it) — never paired with a part's
+    // fileId. Mirrors Apple `audioStore.play(contentId:restart:false)`.
+    onPlayClick: () -> Unit,
+    // Restart the whole book from 0:00 (Apple `play(restart: true)`).
+    onPlayFromStartClick: () -> Unit = {},
+    // Play from a whole-book (global) offset — a part's start offset or a
+    // chapter's global start (Apple `play(startPosition:)`).
+    onPlayFromPositionClick: (startPositionSeconds: Double) -> Unit = {},
     onChapterClick: (VersionChapter) -> Unit,
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
@@ -88,12 +98,41 @@ fun AudiobookDetailContent(
     val playableVersion = selectedFileId
         ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
         ?: detail.versions.firstOrNull()
-    val durationSeconds = meta?.totalDurationSeconds?.toDouble()
+    // Whole-book timeline stitched from the item's audiobook-part files — the
+    // same math the player VM uses. Drives the Parts section and the stitched
+    // whole-book chapter list. Null when there are no audio parts.
+    val timeline = remember(detail) {
+        buildAudiobookTimeline(
+            versions = detail.versions,
+            serverTotalSeconds = meta?.totalDurationSeconds?.toDouble(),
+        )
+    }
+    val durationSeconds = timeline?.totalSeconds
+        ?: meta?.totalDurationSeconds?.toDouble()
         ?: playableVersion?.duration
-    // Server-recorded resume position (Continue Listening); drives the
-    // "Resume · h:mm:ss" hero label when the listener is partway through.
-    val resumeSeconds = detail.userData?.positionSeconds?.takeIf { it > 0 }
-    val chapters = playableVersion?.chapters.orEmpty()
+    // Resume/finished gating mirrors Apple's AudiobookDetailContent: Resume only
+    // when >30s in and not effectively finished; a finished book routes to "Play
+    // Again" (restart) instead of resuming near the end.
+    val positionSeconds = (detail.userData?.positionSeconds ?: 0.0).coerceAtLeast(0.0)
+    val totalForGating = durationSeconds ?: 0.0
+    val isFinished = detail.userData?.played == true ||
+        (totalForGating > 0.0 && positionSeconds > 0.0 && positionSeconds >= totalForGating - 5.0)
+    val resumeSeconds = positionSeconds.takeIf { it > 30.0 && !isFinished }
+    // Multi-part books get the stitched whole-book chapters (each jumps to its
+    // global start); single-part / no-timeline books keep the single file's own
+    // chapters unchanged.
+    val chapters: List<VersionChapter> = if (timeline != null && !timeline.isSingle) {
+        timeline.chapters.map { ch ->
+            VersionChapter(
+                index = ch.index,
+                title = ch.title.orEmpty(),
+                startSeconds = ch.startSeconds,
+                endSeconds = ch.endSeconds ?: ch.startSeconds,
+            )
+        }
+    } else {
+        playableVersion?.chapters.orEmpty()
+    }
     val displayableNarrations = meta?.otherNarrations.orEmpty()
         .filter { it.title.isNotBlank() }
     val relatedLines = meta?.related?.displayLines().orEmpty()
@@ -178,18 +217,30 @@ fun AudiobookDetailContent(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 if (playableVersion != null) {
+                    // Primary label mirrors Apple: Resume (>30s, unfinished) →
+                    // "Resume · h:mm:ss"; finished → "Play Again"; else "Play".
+                    val primaryLabel = when {
+                        resumeSeconds != null -> "Resume · ${formatClock(resumeSeconds)}"
+                        isFinished -> "Play Again"
+                        else -> "Play"
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Button(
-                            onClick = { onPlayClick(playableVersion.fileId) },
+                            onClick = {
+                                // Finished with no resume → restart; otherwise resume
+                                // from the stored whole-book position (VM picks the part).
+                                if (isFinished && resumeSeconds == null) onPlayFromStartClick()
+                                else onPlayClick()
+                            },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(resumeSeconds?.let { "Resume · ${formatClock(it)}" } ?: "Play")
+                            Text(primaryLabel)
                         }
                         OutlinedButton(
-                            onClick = { onPlayFromStartClick(playableVersion.fileId) },
+                            onClick = { onPlayFromStartClick() },
                             modifier = Modifier.weight(1f),
                         ) {
                             Text("Start Over")
@@ -197,7 +248,7 @@ fun AudiobookDetailContent(
                     }
                 } else {
                     Button(
-                        onClick = { onPlayClick(null) },
+                        onClick = { onPlayClick() },
                         enabled = false,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -291,6 +342,27 @@ fun AudiobookDetailContent(
         if (relatedLines.isNotEmpty()) {
             item(contentType = "audiobook-related") {
                 AudiobookRelatedSection(lines = relatedLines)
+            }
+        }
+
+        // Parts — shown only for multi-part books (>1 audiobook_part version).
+        // Tapping a part plays from its whole-book start offset (Apple parity).
+        val parts = timeline?.tracks.orEmpty()
+        if (timeline != null && !timeline.isSingle && parts.isNotEmpty()) {
+            item(contentType = "audiobook-parts-header") {
+                Text(
+                    text = "Parts (${parts.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            items(parts, contentType = { "audiobook-part" }) { track ->
+                val version = detail.versions.firstOrNull { it.fileId == track.fileId }
+                PartRow(
+                    title = partTitle(version, track.index),
+                    runtimeSeconds = track.durationSeconds,
+                    onClick = { onPlayFromPositionClick(track.startOffsetSeconds) },
+                )
             }
         }
 
@@ -482,6 +554,47 @@ private fun ChapterRow(chapter: VersionChapter, onClick: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+@Composable
+private fun PartRow(title: String, runtimeSeconds: Double, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.PlayArrow,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = formatDuration(runtimeSeconds),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Part row label: the file name when present, else "Part {index}" — mirrors
+ *  Apple `partTitle`, using the version's `presentationPartIndex` (falling back
+ *  to the 0-based [position], displayed 1-based). */
+private fun partTitle(version: FileVersion?, position: Int): String {
+    version?.fileName?.takeIf { it.isNotBlank() }?.let { return it }
+    val rawIndex = version?.presentationPartIndex ?: position
+    val displayIndex = if (rawIndex <= 0) rawIndex + 1 else rawIndex
+    return "Part $displayIndex"
 }
 
 private fun formatDuration(seconds: Double): String {

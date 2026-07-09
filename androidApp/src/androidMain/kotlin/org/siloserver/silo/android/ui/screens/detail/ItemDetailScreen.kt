@@ -79,7 +79,7 @@ fun ItemDetailScreen(
     onPersonClick: (String) -> Unit,
     onSeriesClick: (String) -> Unit,
     onSeasonClick: (String, Int) -> Unit,
-    onAudiobookPlayClick: (contentId: String, fileId: Int?, fromStart: Boolean) -> Unit = { _, _, _ -> },
+    onAudiobookPlayClick: (contentId: String, fileId: Int?, fromStart: Boolean, startPosition: Double?) -> Unit = { _, _, _, _ -> },
     onBookReadClick: (String, Int?) -> Unit = { _, _ -> },
     onWatchTogether: (String, Int?) -> Unit = { _, _ -> },
     viewModel: ItemDetailViewModel,
@@ -339,14 +339,21 @@ fun ItemDetailScreen(
                             selectedFileId = effectiveAudiobookFileId,
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
-                            onPlayClick = { fileId ->
-                                onAudiobookPlayClick(detail.contentId, fileId, false)
+                            // Resume/Play: no fileId — the player VM resolves
+                            // the part from the stored whole-book position.
+                            onPlayClick = {
+                                onAudiobookPlayClick(detail.contentId, null, false, null)
                             },
-                            onPlayFromStartClick = { fileId ->
-                                onAudiobookPlayClick(detail.contentId, fileId, true)
+                            onPlayFromStartClick = {
+                                onAudiobookPlayClick(detail.contentId, null, true, null)
                             },
-                            onChapterClick = { _ ->
-                                onAudiobookPlayClick(detail.contentId, effectiveAudiobookFileId, false)
+                            // Parts play from a whole-book (global) offset.
+                            onPlayFromPositionClick = { startPosition ->
+                                onAudiobookPlayClick(detail.contentId, null, false, startPosition)
+                            },
+                            // Chapters jump to their global start offset.
+                            onChapterClick = { chapter ->
+                                onAudiobookPlayClick(detail.contentId, null, false, chapter.startSeconds)
                             },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },

@@ -28,9 +28,9 @@ import androidx.compose.ui.unit.dp
 import org.siloserver.silo.common.player.SleepTimerChoice
 
 /**
- * Sleep timer picker bottom sheet. Standard presets (5 / 10 / 15 / 30
- * / 45 / 60 min), an "End of chapter" option (resolves to the
- * current chapter's remaining seconds), and "Off" to cancel.
+ * Sleep timer picker bottom sheet. Matches Apple's audiobook player:
+ * minute presets only (15 / 30 / 60 min) plus "Off" to cancel — no
+ * end-of-chapter / end-of-book boundary options.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,14 +64,9 @@ fun AudiobookSleepTimerSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             val items = listOf(
-                "5 minutes" to SleepTimerChoice.Minutes(5),
-                "10 minutes" to SleepTimerChoice.Minutes(10),
                 "15 minutes" to SleepTimerChoice.Minutes(15),
                 "30 minutes" to SleepTimerChoice.Minutes(30),
-                "45 minutes" to SleepTimerChoice.Minutes(45),
                 "60 minutes" to SleepTimerChoice.Minutes(60),
-                "End of chapter" to SleepTimerChoice.EndOfChapter,
-                "End of book" to SleepTimerChoice.EndOfBook,
                 "Off" to SleepTimerChoice.Off,
             )
 
@@ -92,8 +87,6 @@ fun AudiobookSleepTimerSheet(
 
 private fun choiceEquals(a: SleepTimerChoice, b: SleepTimerChoice): Boolean = when {
     a is SleepTimerChoice.Off && b is SleepTimerChoice.Off -> true
-    a is SleepTimerChoice.EndOfChapter && b is SleepTimerChoice.EndOfChapter -> true
-    a is SleepTimerChoice.EndOfBook && b is SleepTimerChoice.EndOfBook -> true
     a is SleepTimerChoice.Minutes && b is SleepTimerChoice.Minutes -> a.minutes == b.minutes
     else -> false
 }

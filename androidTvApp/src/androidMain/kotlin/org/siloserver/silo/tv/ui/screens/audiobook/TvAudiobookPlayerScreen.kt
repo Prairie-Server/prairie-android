@@ -74,7 +74,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.common.player.AudiobookPlayerViewModel
 import org.siloserver.silo.common.player.SiloPlaybackService
-import org.siloserver.silo.common.player.SleepTimerChoice
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvPoster
@@ -349,7 +348,6 @@ fun TvAudiobookPlayerScreen(
                                 modifier = Modifier.focusProperties { up = playPauseFocus },
                                 speedLabel = tvAudiobookSpeedLabel(state.playbackSpeed),
                                 sleepLabel = tvAudiobookSleepLabel(
-                                    choice = sleepChoice,
                                     minutesLeft = state.sleepTimerMinutesLeft,
                                 ),
                                 showChapters = hasChapters,
@@ -787,14 +785,8 @@ private fun tvAudiobookSpeedLabel(speed: Float): String {
 }
 
 private fun tvAudiobookSleepLabel(
-    choice: SleepTimerChoice,
     minutesLeft: Int?,
-): String = when {
-    minutesLeft != null -> "${minutesLeft}m"
-    choice == SleepTimerChoice.EndOfChapter -> "Chapter"
-    choice == SleepTimerChoice.EndOfBook -> "Book"
-    else -> "Sleep"
-}
+): String = if (minutesLeft != null) "${minutesLeft}m" else "Sleep"
 
 private fun tvAudiobookSkipLabel(
     skipBackSeconds: Int,

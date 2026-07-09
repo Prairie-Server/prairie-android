@@ -169,18 +169,24 @@ sealed class Route(val route: String) {
         val contentId: String,
         val fileId: Int? = null,
         val fromStart: Boolean = false,
+        // Whole-book (global) start offset for Parts / Chapters. The player VM
+        // resolves which part contains it; null resumes from the stored position.
+        val startPosition: Double? = null,
     ) : Route(
         "audiobook/$contentId" +
             listOfNotNull(
                 fileId?.let { "fileId=$it" },
                 if (fromStart) "fromStart=true" else null,
+                startPosition?.takeIf { it.isFinite() && it >= 0.0 }?.let { "startPosition=$it" },
             ).let { params -> if (params.isEmpty()) "" else "?" + params.joinToString("&") },
     ) {
         companion object {
-            const val ROUTE = "audiobook/{contentId}?fileId={fileId}&fromStart={fromStart}"
+            const val ROUTE =
+                "audiobook/{contentId}?fileId={fileId}&fromStart={fromStart}&startPosition={startPosition}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
             const val ARG_FROM_START = "fromStart"
+            const val ARG_START_POSITION = "startPosition"
         }
     }
 

@@ -741,9 +741,7 @@ class AudiobookPlayerViewModel(
         } else {
             seconds
         }
-        val previous = _uiState.value.positionSeconds
         _uiState.update { it.copy(positionSeconds = global) }
-        maybeFireSleepBoundary(previous, global)
 
         // End-of-part: once the engine plays (near) the end of a non-final part,
         // cross into the next part. Guarded to while actually playing so a pause
@@ -862,11 +860,6 @@ class AudiobookPlayerViewModel(
 
     private var sleepTimerJob: Job? = null
 
-    /** Fixed position (seconds) an end-of-chapter / end-of-book timer fires
-     *  on. Resolved once at apply time so it does not drift as the user
-     *  seeks; null when no boundary timer is armed. */
-    private var sleepBoundarySeconds: Double? = null
-
     /**
      * Sleep timer requests. Apply via [applySleepTimer]; the player
      * screen mirrors [SleepTimerEffect] into the controller (auto-pause
@@ -877,14 +870,13 @@ class AudiobookPlayerViewModel(
 
     /**
      * Apply a new timer choice, cancelling any active timer first.
-     * [SleepTimerChoice.Minutes] runs a wall-clock countdown; [EndOfChapter]
-     * and [EndOfBook] resolve a fixed position boundary now (via the pure
-     * [AudiobookChapters] math) and pause when playback crosses it.
+     * [SleepTimerChoice.Minutes] runs a fixed wall-clock countdown; [Off]
+     * cancels. Matches Apple, which offers only minute timers (no
+     * end-of-chapter / end-of-book boundary).
      */
     fun applySleepTimer(choice: SleepTimerChoice) {
         sleepTimerJob?.cancel()
         sleepTimerJob = null
-        sleepBoundarySeconds = null
         _sleepTimerChoice.value = choice
 
         when (choice) {
@@ -892,18 +884,6 @@ class AudiobookPlayerViewModel(
                 _uiState.update { it.copy(sleepTimerMinutesLeft = null) }
             is SleepTimerChoice.Minutes ->
                 startCountdown(choice.minutes * 60)
-            SleepTimerChoice.EndOfChapter, SleepTimerChoice.EndOfBook -> {
-                val state = _uiState.value
-                sleepBoundarySeconds = sleepBoundaryFor(
-                    choice = choice,
-                    chapters = state.chapters.toAudiobookChapters(),
-                    durationSeconds = state.durationSeconds,
-                    positionSeconds = state.positionSeconds,
-                )
-                // Boundary timers have no minute countdown; the selected
-                // choice is what the UI reflects.
-                _uiState.update { it.copy(sleepTimerMinutesLeft = null) }
-            }
         }
     }
 
@@ -922,16 +902,6 @@ class AudiobookPlayerViewModel(
                     )
                 }
             }
-            fireSleep()
-        }
-    }
-
-    /** Position watcher for the boundary timers. Pauses exactly once, on the
-     *  tick that crosses the resolved boundary. Driven by [onPositionChanged]. */
-    private fun maybeFireSleepBoundary(previousSeconds: Double, currentSeconds: Double) {
-        val boundary = sleepBoundarySeconds ?: return
-        if (AudiobookChapters.hasCrossedBoundary(previousSeconds, currentSeconds, boundary)) {
-            sleepBoundarySeconds = null
             fireSleep()
         }
     }
@@ -1220,46 +1190,6 @@ class AudiobookPlayerViewModel(
          *  items to DIRECT instead of transcoding the poster. */
         private val AUDIOBOOK_COVER_ART_CODECS =
             listOf("mjpeg", "png", "jpeg", "bmp", "gif")
-
-        /**
-         * Fixed position boundary (seconds) a boundary sleep timer should fire
-         * on for [choice], resolved against [positionSeconds] at apply time;
-         * null for [SleepTimerChoice.Off] / [SleepTimerChoice.Minutes]. An
-         * end-of-chapter timer with no chapters degrades to the book end.
-         * Pure → unit-tested.
-         */
-        internal fun sleepBoundaryFor(
-            choice: SleepTimerChoice,
-            chapters: List<AudiobookChapter>,
-            durationSeconds: Double,
-            positionSeconds: Double,
-        ): Double? = when (choice) {
-            SleepTimerChoice.EndOfChapter ->
-                AudiobookChapters.currentChapterEndSeconds(chapters, positionSeconds)
-                    ?: AudiobookChapters.bookEndSeconds(chapters, durationSeconds)
-            SleepTimerChoice.EndOfBook ->
-                AudiobookChapters.bookEndSeconds(chapters, durationSeconds)
-            SleepTimerChoice.Off, is SleepTimerChoice.Minutes -> null
-        }
-
-        /**
-         * Whether playback stepping from [previousSeconds] to [currentSeconds]
-         * should trip a sleep pause for [choice] — a pure composition of
-         * [sleepBoundaryFor] (resolved from the prior position) and
-         * [AudiobookChapters.hasCrossedBoundary]. Stands in for the
-         * Android-bound position watcher in unit tests.
-         */
-        internal fun shouldPauseForSleep(
-            choice: SleepTimerChoice,
-            chapters: List<AudiobookChapter>,
-            durationSeconds: Double,
-            previousSeconds: Double,
-            currentSeconds: Double,
-        ): Boolean {
-            val boundary = sleepBoundaryFor(choice, chapters, durationSeconds, previousSeconds)
-                ?: return false
-            return AudiobookChapters.hasCrossedBoundary(previousSeconds, currentSeconds, boundary)
-        }
     }
 }
 
