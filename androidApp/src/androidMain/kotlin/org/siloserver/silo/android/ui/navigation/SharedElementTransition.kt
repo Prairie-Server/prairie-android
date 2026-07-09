@@ -6,11 +6,10 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
 /**
@@ -51,14 +50,34 @@ fun heroSharedKey(contentId: String): String = "hero-$contentId"
  * the transition machinery treats them as a match and "morphs" between two
  * live cards — posters flicker and draw into the overlay above everything
  * while scrolling. Screens that can show duplicates provide a registry; the
- * first composed instance claims the key (released on dispose), later
- * duplicates render as plain cards — they still navigate, just without the
- * morph. The detail screen provides no registry, so the hero target always
- * registers and pairs with whichever card holds the claim.
+ * first composed instance claims the key and non-claimants render as plain
+ * cards.
+ *
+ * Ownership is snapshot-backed ([mutableStateMapOf]), so composables that read
+ * it via [ownerOf] recompose when the owner changes. This makes the claim
+ * *re-offerable*: when the current claimant disposes (e.g. a LazyRow recycles
+ * its card off-screen) it releases the key, the map change wakes the surviving
+ * duplicates, and one of them re-claims — so the still-visible copy takes over
+ * the morph instead of the key going dead until Home next recomposes.
+ *
+ * The detail screen provides no registry, so the hero target always registers
+ * and pairs with whichever card currently holds the claim.
  */
 class HeroClaimRegistry {
-    private val owners = mutableMapOf<String, Any>()
+    private val owners = mutableStateMapOf<String, Any>()
 
+    /**
+     * Current owner token for [key], or null if unclaimed. Reading this inside
+     * composition subscribes the caller to ownership changes (snapshot map), so
+     * a released/reassigned key re-triggers the reading composable.
+     */
+    fun ownerOf(key: String): Any? = owners[key]
+
+    /**
+     * Atomically take [key] for [owner] if it is free, or confirm [owner]
+     * already holds it. Returns false when another owner holds the claim, so a
+     * duplicate never double-claims a key that is already spoken for.
+     */
     fun tryClaim(key: String, owner: Any): Boolean {
         val current = owners[key]
         if (current == null) {
@@ -85,6 +104,17 @@ val LocalHeroClaimRegistry = compositionLocalOf<HeroClaimRegistry?> { null }
  * `sharedBounds` renders into the scope overlay during the transition, so any
  * clipping/shaping MUST be applied AFTER this in the chain —
  * callers do `.heroSharedBounds(id).clip(shape)`.
+ *
+ * When a [HeroClaimRegistry] is provided (screens that can show the same item
+ * in multiple rows), only the card holding the claim opts into the morph;
+ * non-claimant duplicates render as plain cards. Note this does NOT mean a
+ * non-claimant "navigates without a morph": if any claimant card is on screen,
+ * the shared key is still matched, so the morph animates from that claimant
+ * card — even when you tapped a different duplicate. The plain duplicate simply
+ * isn't the visual source. The claim is snapshot-observed and re-taken whenever
+ * the key falls free (see [HeroClaimRegistry]); the very first claim still lands
+ * one frame after composition (the source card renders plain for that frame),
+ * which is acceptable and unchanged.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -96,13 +126,19 @@ fun Modifier.heroSharedBounds(contentId: String?): Modifier {
     if (registry != null) {
         val key = heroSharedKey(contentId)
         val owner = remember { Any() }
-        var claimed by remember(key) { mutableStateOf(false) }
-        DisposableEffect(key) {
-            claimed = registry.tryClaim(key, owner)
-            onDispose {
-                registry.release(key, owner)
-                claimed = false
-            }
+        // Observe live ownership; the snapshot map recomposes us when the owner
+        // changes, so a released key re-offers itself to survivors.
+        val currentOwner = registry.ownerOf(key)
+        val claimed = currentOwner === owner
+        // (Re-)claim whenever the key is unowned. This covers the initial claim
+        // AND re-offering after the previous claimant disposes (LazyRow
+        // recycling). tryClaim is atomic, so concurrent survivors can't
+        // double-own — losers see currentOwner become non-null and stay plain.
+        LaunchedEffect(key, currentOwner) {
+            if (currentOwner == null) registry.tryClaim(key, owner)
+        }
+        DisposableEffect(key, owner) {
+            onDispose { registry.release(key, owner) }
         }
         if (!claimed) return this
     }
