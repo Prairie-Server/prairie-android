@@ -34,6 +34,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,6 +101,11 @@ fun TvRequestsScreen(
     var initialFocusRequested by remember { mutableStateOf(false) }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     var pendingRequest by remember { mutableStateOf<RequestMediaResult?>(null) }
+    // The highest successGeneration this screen has already refreshed for.
+    // rememberSaveable so a restored composition (config change, tab
+    // save/restore) doesn't re-run the success refresh for a create that was
+    // handled before the screen went away.
+    var consumedSuccessGeneration by rememberSaveable { mutableStateOf(0) }
 
     fun refreshRequests() {
         actionViewModel.clearNotices()
@@ -139,13 +145,21 @@ fun TvRequestsScreen(
     // Once a create succeeds, refresh discover/search so the just-requested card
     // reflects its new status. The create itself runs in the ViewModel's scope
     // (see TvRequestsViewModel) so it survives navigating away; this only tidies
-    // the rows when the user is still on this screen.
+    // the rows when the user is still on this screen. Only UNCONSUMED
+    // generations fire the refresh — re-entering the screen with the ViewModel
+    // still holding a past success must not re-fire it; instead the stale
+    // "Request submitted." notice is dropped so it doesn't resurface.
     LaunchedEffect(actionState.successGeneration) {
-        if (actionState.successGeneration > 0) {
+        if (actionState.successGeneration > consumedSuccessGeneration) {
+            consumedSuccessGeneration = actionState.successGeneration
             viewModel.refresh()
             if (searchState.query.isNotBlank()) {
                 searchViewModel.search(searchState.page)
             }
+        } else if (actionState.message != null) {
+            // Already-consumed success on re-entry: clear the success banner
+            // only (errors stay visible until acted on).
+            actionViewModel.consumeSuccessNotice()
         }
     }
 

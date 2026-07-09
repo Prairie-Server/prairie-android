@@ -87,4 +87,13 @@ class TvRequestsViewModel(
     fun clearNotices() {
         _actionState.update { it.copy(message = null, error = null) }
     }
+
+    /**
+     * Clears only the success notice, keeping any error visible. Called when
+     * the screen detects an already-consumed success on re-entry so a stale
+     * "Request submitted." doesn't resurface.
+     */
+    fun consumeSuccessNotice() {
+        _actionState.update { it.copy(message = null) }
+    }
 }

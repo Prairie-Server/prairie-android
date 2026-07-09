@@ -52,11 +52,12 @@ import org.koin.core.qualifier.named
  * Settings-reachable grids (favorites, watchlist, history, collections) are
  * also top-level routes so they can cover the full screen.
  */
-// Routes the graph passes through BEFORE the authenticated Main shell. A queued
-// content deep link stays queued while the current destination is one of these
-// (an unauthenticated/mid-auth launch, consumed once auth completes and lands on
-// Main); anywhere else that isn't Main means the session is authenticated and
-// the link is stale (see the deep-link collector in [TvAppNavigation]).
+// The unauthenticated chain where content deep links stay queued: routes the
+// graph passes through BEFORE the authenticated Main shell. A queued content
+// deep link stays queued while the current destination is one of these (an
+// unauthenticated/mid-auth launch, consumed once auth completes and lands on
+// Main); any other route means the session is authenticated and the link is
+// consumed immediately (see the deep-link collector in [TvAppNavigation]).
 private val preMainAuthRoutes: Set<String> = setOf(
     TvRoute.ServerSetup.route,
     TvRoute.Setup.route,
@@ -123,20 +124,14 @@ fun TvAppNavigation(
             // ARE the sign-in path.
             // The combine with currentBackStackEntryFlow makes this re-fire
             // when the graph lands on Main with the link still queued.
-            val onMainShell = entry.destination.route == TvRoute.Main.route
-            if (!onMainShell) {
-                // A content link needs the Main shell to consume it. While the
-                // user is still in the pre-Main auth chain (unauthenticated
-                // launch) keep it queued — this collector re-fires once the graph
-                // reaches Main. But if the session is already authenticated and
-                // the user has merely drilled into a detail/player screen, a link
-                // left queued would fire minutes later when they back out to Main
-                // (a stale launcher click). Drop it instead so it can't resurface.
-                val route = entry.destination.route
-                val inAuthChain = route == null || route in preMainAuthRoutes
-                if (!inAuthChain) pendingDeepLink.value = null
-                return@collect
-            }
+            // Any authenticated route consumes the link right away: ItemDetail,
+            // Player, and AudiobookPlayer are root-NavHost destinations, so the
+            // navigate calls below work from anywhere (a warm launcher click
+            // while the user sits on a detail/player screen navigates
+            // immediately). Immediate consumption also means a queued link can
+            // never go stale on an authenticated session.
+            val route = entry.destination.route
+            if (route == null || route in preMainAuthRoutes) return@collect // unauthenticated flow: keep queued until Main
             val contentId = uri.pathSegments.lastOrNull() ?: run {
                 pendingDeepLink.value = null
                 return@collect
@@ -390,7 +385,15 @@ fun TvAppNavigation(
                         // alone left the tokens, profileId, and server session
                         // alive, so a relaunch resumed the previous user. Drop
                         // credentials and per-profile caches before navigating.
-                        authRepository.logout()
+                        // The Settings sign-out path may have already logged out
+                        // server-side and cleared tokens — only hit the network
+                        // when a session still exists so we don't 401 a second
+                        // logout. The local clears below are idempotent and run
+                        // unconditionally (the Settings path doesn't clear
+                        // Watch Next, so that teardown must still happen here).
+                        if (!tokenManager.getAccessToken().isNullOrBlank()) {
+                            authRepository.logout()
+                        }
                         profileRepository.clearProfile()
                         tokenManager.clearTokens()
                         libraryPlaybackPrefsStore.clear()

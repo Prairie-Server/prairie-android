@@ -11,6 +11,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
@@ -34,16 +35,26 @@ class WatchNextSeeder(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // The most recent [clear]'s in-flight provider wipe. [seedNow] joins it so
+    // a clear() → seedNow() sequence (server switch, profile select) can't run
+    // the seed worker while the wipe is still deleting — the wipe would land
+    // AFTER the seed and erase the fresh rows it just inserted.
+    private var clearJob: Job? = null
+
     fun seedNow() {
-        val request = OneTimeWorkRequestBuilder<WatchNextSyncWorker>()
-            .setConstraints(networkConstraints)
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            WatchNextSyncWorker.UNIQUE_NAME_ONESHOT,
-            ExistingWorkPolicy.REPLACE,
-            request,
-        )
+        val pending = clearJob
+        scope.launch {
+            pending?.join()
+            val request = OneTimeWorkRequestBuilder<WatchNextSyncWorker>()
+                .setConstraints(networkConstraints)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                WatchNextSyncWorker.UNIQUE_NAME_ONESHOT,
+                ExistingWorkPolicy.REPLACE,
+                request,
+            )
+        }
     }
 
     fun enqueuePeriodic() {
@@ -73,7 +84,8 @@ class WatchNextSeeder(
         }
         // Cross-process ContentResolver deletes are binder I/O: run them off
         // the caller's (main) thread so clear() stays cheap for call sites.
-        scope.launch { repository.clearAll() }
+        // Track the wipe so [seedNow] can join it before enqueuing a seed.
+        clearJob = scope.launch { repository.clearAll() }
     }
 
     private val networkConstraints = Constraints.Builder()
