@@ -36,6 +36,7 @@ import org.siloserver.silo.tv.ui.screens.servers.TvServerListScreen
 import org.siloserver.silo.tv.ui.screens.servers.TvServerSwitchDestination
 import org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherLobbyScreen
 import org.siloserver.silo.common.overlays.ProvideCardOverlays
+import org.siloserver.silo.common.settings.LibraryPlaybackPrefsStore
 import org.siloserver.silo.common.settings.OverlayPrefsStore
 import org.siloserver.silo.tv.watchnext.WatchNextSeeder
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,6 +63,7 @@ fun TvAppNavigation(
     val authRepository: AuthRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
+    val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
     val pendingDeepLink: MutableStateFlow<Uri?> =
         koinInject(qualifier = named("pendingDeepLink"))
@@ -113,9 +115,23 @@ fun TvAppNavigation(
             }
             when (uri.host) {
                 "item" -> navController.navigate(TvRoute.ItemDetail(contentId).route)
-                "play" -> navController.navigate(
-                    TvRoute.Player(contentId, fileId = null).route,
-                )
+                "play" -> {
+                    // The Watch Next mapper tags play intents with the item type
+                    // (`silo://play/<contentId>?type=<type>`) so audiobook tiles
+                    // route to [TvRoute.AudiobookPlayer] instead of the video
+                    // player. Older already-published tiles carry no type param —
+                    // [tvPlayDestinationFor] treats a null type as non-audiobook
+                    // and falls through to [TvRoute.Player], preserving today's
+                    // behavior for movie/episode tiles.
+                    val itemType = uri.getQueryParameter("type")
+                    navController.navigate(
+                        tvPlayDestinationFor(
+                            itemType = itemType,
+                            contentId = contentId,
+                            fileId = null,
+                        ),
+                    )
+                }
             }
             pendingDeepLink.value = null
         }
@@ -209,6 +225,20 @@ fun TvAppNavigation(
                         TvServerSwitchDestination.ProfileSelection ->
                             TvRoute.ProfileSelection.route
                         TvServerSwitchDestination.Login -> TvRoute.Login().route
+                    }
+                    // Landing straight on Home means the target server is already
+                    // authenticated, so no Login/ProfileSelection callback fires to
+                    // refresh state. Do the hygiene here: drop the previous
+                    // server's per-profile caches and re-seed Watch Next so its
+                    // launcher tiles and cached prefs don't ghost. The
+                    // Login/ProfileSelection destinations re-seed via their own
+                    // callbacks — only the already-authed path needs this.
+                    if (destination == TvServerSwitchDestination.Home) {
+                        libraryPlaybackPrefsStore.clear()
+                        overlayPrefsStore.clear()
+                        watchNextSeeder.clear()
+                        watchNextSeeder.seedNow()
+                        watchNextSeeder.enqueuePeriodic()
                     }
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
@@ -320,17 +350,35 @@ fun TvAppNavigation(
                     navController.navigate(TvRoute.CollectionDetail(collectionId, title).route)
                 },
                 onSignedOut = {
-                    // Drop our Watch Next rows + cancel the periodic refresh so
-                    // the launcher doesn't keep showing the signed-out user's
-                    // progress.
-                    watchNextSeeder.clear()
-                    navController.navigate(TvRoute.ServerSetup.route) {
-                        popUpTo(TvRoute.Main.route) { inclusive = true }
+                    scope.launch {
+                        // Full sign-out teardown — parity with the Settings and
+                        // ProfileSelection sign-out paths. Clearing Watch Next
+                        // alone left the tokens, profileId, and server session
+                        // alive, so a relaunch resumed the previous user. Drop
+                        // credentials and per-profile caches before navigating.
+                        authRepository.logout()
+                        profileRepository.clearProfile()
+                        tokenManager.clearTokens()
+                        libraryPlaybackPrefsStore.clear()
+                        overlayPrefsStore.clear()
+                        // Drop our Watch Next rows + cancel the periodic refresh so
+                        // the launcher doesn't keep showing the signed-out user's
+                        // progress.
+                        watchNextSeeder.clear()
+                        navController.navigate(TvRoute.ServerSetup.route) {
+                            popUpTo(TvRoute.Main.route) { inclusive = true }
+                        }
                     }
                 },
                 onSwitchProfile = {
                     scope.launch {
                         profileRepository.clearProfile()
+                        // Library/overlay prefs are per-profile — drop the caches
+                        // so the next profile's prefs don't ghost-render the
+                        // previous user's rows. Parity with the Settings
+                        // switch-profile path.
+                        libraryPlaybackPrefsStore.clear()
+                        overlayPrefsStore.clear()
                         // Clear the previous profile's Watch Next rows before
                         // landing on the picker; the new profile will re-seed
                         // via [onProfileSelected].
