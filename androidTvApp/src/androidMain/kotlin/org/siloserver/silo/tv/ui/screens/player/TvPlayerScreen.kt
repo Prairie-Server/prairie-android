@@ -506,7 +506,11 @@ fun TvPlayerScreen(
         if (roomController != null) {
             roomController.onUserSeek(target / 1000.0)
         } else {
-            controller.seekTo(target)
+            // seekImmediate pre-writes uiState.position (like room seeks) so the
+            // credits-crossing check treats this as a local seek, not natural
+            // playback reaching the credits point. The seekRequests collector
+            // applies it to the controller.
+            viewModel.seekImmediate(target / 1000.0)
         }
         if (revealControls) {
             viewModel.setControlsVisible(true)
@@ -666,7 +670,13 @@ fun TvPlayerScreen(
                 !latestShowLeaveDialog
             ) {
                 if (event.action == KeyEvent.ACTION_UP) {
-                    viewModel.setControlsVisible(false)
+                    // While scrubbing, Back cancels the in-flight scrub (drop the
+                    // preview, keep playing) rather than hiding the whole overlay.
+                    if (playerState.isScrubbing) {
+                        viewModel.cancelScrub()
+                    } else {
+                        viewModel.setControlsVisible(false)
+                    }
                 }
                 return@handler true
             }
@@ -1217,9 +1227,14 @@ fun TvPlayerScreen(
         state.hudOpen,
         state.showSubtitleMenu,
         state.showSubtitleStyleDialog,
+        state.isScrubbing,
     ) {
+        // Never auto-hide mid-scrub: hiding the scrubber would tear down the
+        // in-flight preview under the user. The timer re-arms once the scrub
+        // commits or cancels (isScrubbing flips back to false).
         if (state.showControls && !state.isPaused && !state.hudOpen &&
-            !state.showSubtitleMenu && !state.showSubtitleStyleDialog
+            !state.showSubtitleMenu && !state.showSubtitleStyleDialog &&
+            !state.isScrubbing
         ) {
             delay(CONTROLS_AUTO_HIDE_MS)
             viewModel.setControlsVisible(false)
@@ -1382,7 +1397,10 @@ fun TvPlayerScreen(
                             if (roomController != null) {
                                 roomController.onUserSeek(targetSec)
                             } else {
-                                mediaController?.seekTo((targetSec * 1000).toLong())
+                                // seekImmediate pre-writes position so a scrub
+                                // committed into the credits region isn't mistaken
+                                // for natural playback crossing the credits point.
+                                viewModel.seekImmediate(targetSec)
                             }
                             viewModel.setControlsVisible(true)
                         },
@@ -1509,7 +1527,10 @@ fun TvPlayerScreen(
                             chapters = state.chapters,
                             onSelectChapter = { idx ->
                                 viewModel.onSeekToChapter(idx)?.let { sec ->
-                                    mediaController?.seekTo((sec * 1000).toLong())
+                                    // seekImmediate pre-writes position so a chapter
+                                    // jump into credits isn't mistaken for natural
+                                    // playback crossing the credits point.
+                                    viewModel.seekImmediate(sec)
                                 }
                             },
                             onDismiss = { viewModel.closeHUD() },

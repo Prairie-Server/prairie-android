@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,6 +114,13 @@ fun TvPlayerScrubber(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
+    // Live preview value. The auto-seek loop below runs across recompositions, so
+    // it must read the CURRENT preview (which onBeginScrub seeds from the playback
+    // position and each tick advances) instead of the closure-captured parameter
+    // value frozen at launch — otherwise continuous scanning never advances and a
+    // commit seeks to ~0.
+    val currentPreviewSec by rememberUpdatedState(scrubPreviewSec)
+
     // Trailing-edge auto-seek state. tvOS owns this in the scrubber view too.
     var isTimelineScrubbing by remember { mutableStateOf(false) }
     var autoSeekRate by remember { mutableStateOf(0) }
@@ -146,11 +154,14 @@ fun TvPlayerScrubber(
         autoSeekJob?.cancel()
         autoSeekJob = scope.launch {
             while (isActive) {
+                // Delay first so onBeginScrub's position seed lands in
+                // currentPreviewSec before the first tick reads it (otherwise the
+                // first update would overwrite the seed and scanning starts at ~0).
+                delay(100)
                 val rate = autoSeekRate
                 if (rate == 0) break
-                val base = scrubPreviewSec + 2.0 * rate
+                val base = currentPreviewSec + 2.0 * rate
                 onUpdateScrub(base)
-                delay(100)
             }
         }
         // Time-based progression: 1.0s -> ±2, 2.0s -> ±4, 3.0s -> ±8. Stops at

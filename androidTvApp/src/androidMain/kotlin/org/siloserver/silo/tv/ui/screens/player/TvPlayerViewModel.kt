@@ -527,6 +527,17 @@ class TvPlayerViewModel(
      */
     private val attemptedEngines = mutableSetOf<PlaybackEngineKind>()
 
+    /**
+     * Engines for which an engine-switch failure ([onEngineSwitchFailed]) has
+     * already been escalated. Replaces the old one-shot boolean so repeated
+     * SET_ENGINE failures — or a re-armed black-screen watchdog — for the SAME
+     * engine don't re-enter the ladder, while a black screen on a LATER fallback
+     * engine can still escalate. Cleared on every fresh [loadContent]; the ladder
+     * itself terminates because the planner stops offering direct engines once
+     * [attemptedEngines] is exhausted.
+     */
+    private val engineSwitchFailureEngines = mutableSetOf<PlaybackEngineKind>()
+
     /** Guards [startServerRecoveryFallback] against concurrent fallbacks racing the same session. */
     private var recoveryJob: Job? = null
 
@@ -861,7 +872,7 @@ class TvPlayerViewModel(
         manualSubtitleSelectionApplied = false
         // Fresh content: forget engines attempted for the previous item.
         attemptedEngines.clear()
-        engineSwitchFallbackAttempted = false
+        engineSwitchFailureEngines.clear()
         firstVideoFrameRendered = false
         firstFrameWatchdogJob?.cancel()
         firstFrameWatchdogJob = null
@@ -1128,6 +1139,9 @@ class TvPlayerViewModel(
                         ),
                         session = fallback,
                     )
+                    // Adopting a new server route swaps the effective engine/route,
+                    // so re-arm the black-screen watchdog for the adopted stream.
+                    rearmFirstFrameWatchdog()
                     _uiState.update {
                         it.copy(
                             // Clear any error the failing direct item set: a successful
@@ -1189,6 +1203,9 @@ class TvPlayerViewModel(
                 ),
             )
         }
+        // Swapping to a new engine re-arms the black-screen watchdog so a black
+        // frame on the fallback engine is escalated too (not just the first one).
+        rearmFirstFrameWatchdog()
         _uiState.update {
             it.copy(
                 isLoading = false,
@@ -1257,6 +1274,20 @@ class TvPlayerViewModel(
     fun onFirstVideoFrameRendered() {
         firstVideoFrameRendered = true
         firstFrameWatchdogJob?.cancel()
+    }
+
+    /**
+     * Re-arm the black-screen watchdog for a freshly swapped engine/route. The
+     * watchdog is one-shot per armed engine (see [onPlayingChanged]); without
+     * clearing the rendered latch and cancelling the previous engine's job, a
+     * black screen on the NEW (fallback) engine would never be detected — the
+     * ladder would stall on permanent black-with-audio. The next
+     * [onPlayingChanged] with isPlaying=true re-arms it for the new engine.
+     */
+    private fun rearmFirstFrameWatchdog() {
+        firstVideoFrameRendered = false
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
     }
 
     fun onPlayingChanged(isPlaying: Boolean) {
@@ -1750,6 +1781,13 @@ class TvPlayerViewModel(
                 } else {
                     it.controlsVisibilityNonce
                 },
+                // Hiding chrome tears down the scrubber; drop any in-flight scrub
+                // so the scrubber's blur-safety effect (cancelOnBlur=false) can't
+                // auto-commit a stale seek the instant controls reopen. The
+                // auto-hide timer is gated on !isScrubbing, so this only clears a
+                // scrub the user is no longer actively dragging.
+                isScrubbing = if (visible) it.isScrubbing else false,
+                scrubPreviewSec = if (visible) it.scrubPreviewSec else 0.0,
             )
         }
     }
@@ -1789,6 +1827,10 @@ class TvPlayerViewModel(
     fun onSkipIntroNow(): Double? {
         val intro = _uiState.value.intro ?: return null
         introAutoSkipController.cancelCountdown()
+        // Pre-write the resolved position (like seekImmediate) so the credits
+        // crossing check in onPositionChanged treats this as a local seek and
+        // not natural playback reaching the credits point.
+        _uiState.update { it.copy(position = intro.end) }
         return intro.end
     }
 
@@ -2221,14 +2263,16 @@ class TvPlayerViewModel(
         }
     }
 
-    private var engineSwitchFallbackAttempted = false
-
     fun onEngineSwitchFailed(message: String) {
         val state = _uiState.value
-        // One-shot per playback (phone parity): repeated SET_ENGINE failures
-        // otherwise re-enter the ladder and emit duplicate route events.
-        if (engineSwitchFallbackAttempted) return
-        engineSwitchFallbackAttempted = true
+        // Per-attempt scoping (phone parity): escalate at most once per distinct
+        // engine. Repeated SET_ENGINE failures — or a re-armed black-screen
+        // watchdog firing again — for the SAME engine must not re-enter the
+        // ladder and emit duplicate route events, but a black screen on a LATER
+        // fallback engine still needs to escalate. `add` returns false when the
+        // engine was already handled. Termination stays bound by attemptedEngines.
+        val currentEngine = state.playbackPlan?.engine
+        if (currentEngine != null && !engineSwitchFailureEngines.add(currentEngine)) return
         if (state.sessionId != null) {
             // Don't blindly remux: prefer another direct engine, then fall through
             // the plan's remux/transcode ladder. A transcode-only source can't be
