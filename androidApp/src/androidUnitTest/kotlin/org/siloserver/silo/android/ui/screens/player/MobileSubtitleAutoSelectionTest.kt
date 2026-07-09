@@ -116,6 +116,49 @@ class MobileSubtitleAutoSelectionTest {
         )
     }
 
+    @Test
+    fun initialDetailOrdinalTranslatesFromCatalogToMountedList() {
+        // Catalog order: [Signs (forced), English] with demux indices 3/5;
+        // mounted order is reversed — the detail pick must land by match,
+        // not by raw ordinal.
+        val catalog = listOf(
+            catalogSubtitle(index = 3, title = "Signs", forced = true),
+            catalogSubtitle(index = 5, title = "English"),
+        )
+        val mounted = listOf(
+            subtitle(index = 0, label = "English", language = "en"),
+            subtitle(index = 1, label = "Signs", language = "en", forced = true),
+        )
+
+        assertEquals(1, resolveInitialMobileSubtitleOrdinal(0, catalog, mounted))
+        assertEquals(0, resolveInitialMobileSubtitleOrdinal(1, catalog, mounted))
+        assertEquals(-1, resolveInitialMobileSubtitleOrdinal(-1, catalog, mounted))
+        // Unmatched pick falls back to the raw ordinal when mountable.
+        assertEquals(
+            1,
+            resolveInitialMobileSubtitleOrdinal(
+                1,
+                listOf(catalog[0], catalogSubtitle(index = 9, title = "Nederlands", language = "nl")),
+                mounted,
+            ),
+        )
+    }
+
+    private fun catalogSubtitle(
+        index: Int,
+        title: String,
+        language: String? = "en",
+        forced: Boolean = false,
+        codec: String = "srt",
+    ): org.siloserver.silo.model.catalog.SubtitleTrack =
+        org.siloserver.silo.model.catalog.SubtitleTrack(
+            index = index,
+            language = language,
+            codec = codec,
+            title = title,
+            forced = forced,
+        )
+
     private fun audio(
         index: Int,
         language: String?,

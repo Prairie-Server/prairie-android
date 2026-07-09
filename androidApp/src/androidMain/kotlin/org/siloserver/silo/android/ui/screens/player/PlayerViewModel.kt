@@ -661,7 +661,18 @@ class PlayerViewModel(
         } else {
             MobileSubtitleAutoSelection.NoChange
         }
-        val resolvedSubtitleIndex = initialSubtitleTrackIndex
+        // The detail screen's pick is an ordinal into the catalog subtitle
+        // list — translate it onto the mounted list before selecting (TV
+        // parity); using it raw either missed range (subtitles stayed off)
+        // or selected the wrong track.
+        val requestedSubtitleIndex = initialSubtitleTrackIndex?.let { requested ->
+            resolveInitialMobileSubtitleOrdinal(
+                requestedOrdinal = requested,
+                catalogTracks = version?.subtitleTracks.orEmpty(),
+                mountedSubtitles = playbackState.subtitleUrls,
+            )
+        }
+        val resolvedSubtitleIndex = requestedSubtitleIndex
             ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
             ?: persistedSubtitleIndex
                 ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
