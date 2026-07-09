@@ -62,7 +62,7 @@ import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.playback.nextEpisodeAfter
 import org.siloserver.silo.playback.resolveAudioTrackOrdinal
-import org.siloserver.silo.playback.resolveSubtitleTrackOrdinal
+import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
 import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.repository.CatalogRepository
@@ -141,6 +141,10 @@ class PlayerViewModel(
         /** iOS resolveOnDeckItems: section pools feeding the On Deck carousel. */
         private val ON_DECK_SECTION_TYPES = setOf("continue_watching", "in_progress", "next_up")
         private const val ON_DECK_MAX_ITEMS = 12
+        // Stored orientation-mode values — raw-value parity with iOS
+        // `PlayerOrientationMode` so the device-scoped setting round-trips.
+        private const val ORIENTATION_MODE_LANDSCAPE_LOCKED = "landscapeLocked"
+        private const val ORIENTATION_MODE_ROTATE_FREELY = "rotateFreely"
     }
 
     /**
@@ -321,6 +325,13 @@ class PlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0)
     val videoGravity: StateFlow<String> = playerSettingsStore.videoGravityFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, "fit")
+    // iOS parity (PlayerOrientationCoordinator): the phone player defaults to
+    // landscape-locked; "rotateFreely" is the persisted opt-out written by the
+    // HUD lock toggle. Any other stored value (including the legacy "auto"
+    // default) locks, matching iOS's landscapeLocked default on new clients.
+    val orientationLocked: StateFlow<Boolean> = playerSettingsStore.orientationModeFlow
+        .map { it != ORIENTATION_MODE_ROTATE_FREELY }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val autoSkipIntroEnabled: StateFlow<Boolean> = playerSettingsStore.autoSkipIntroFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val autoPlayNextEnabled: StateFlow<Boolean> = playerSettingsStore.autoPlayNextFlow
@@ -625,8 +636,16 @@ class PlayerViewModel(
             null
         }
         val persistedSubtitleIndex = if (initialSubtitleTrackIndex == null) {
-            version?.subtitleTracks
-                ?.let { tracks -> resolveSubtitleTrackOrdinal(tracks, localTrackSelection?.subtitleFingerprint) }
+            // Selections are recorded against the MOUNTED subtitle list
+            // (onSubtitleSelectionApplied fingerprints uiState.subtitleTracks,
+            // i.e. PlayerSubtitleInfo) — restore against the same list. The
+            // previous catalog-list resolution used a different index space
+            // (demux stream index), so saved choices never matched and player
+            // subtitle overrides silently failed to stick.
+            resolveMountedSubtitleOrdinal(
+                playbackState.subtitleUrls,
+                localTrackSelection?.subtitleFingerprint,
+            )
         } else {
             null
         }
@@ -642,7 +661,18 @@ class PlayerViewModel(
         } else {
             MobileSubtitleAutoSelection.NoChange
         }
-        val resolvedSubtitleIndex = initialSubtitleTrackIndex
+        // The detail screen's pick is an ordinal into the catalog subtitle
+        // list — translate it onto the mounted list before selecting (TV
+        // parity); using it raw either missed range (subtitles stayed off)
+        // or selected the wrong track.
+        val requestedSubtitleIndex = initialSubtitleTrackIndex?.let { requested ->
+            resolveInitialMobileSubtitleOrdinal(
+                requestedOrdinal = requested,
+                catalogTracks = version?.subtitleTracks.orEmpty(),
+                mountedSubtitles = playbackState.subtitleUrls,
+            )
+        }
+        val resolvedSubtitleIndex = requestedSubtitleIndex
             ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
             ?: persistedSubtitleIndex
                 ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
@@ -1889,6 +1919,15 @@ class PlayerViewModel(
 
     fun onSetVideoGravity(value: String) {
         viewModelScope.launch { playerSettingsStore.setVideoGravity(value) }
+    }
+
+    /** HUD lock toggle — persisted like iOS's `setPlayerOrientationMode`. */
+    fun onSetOrientationLocked(locked: Boolean) {
+        viewModelScope.launch {
+            playerSettingsStore.setOrientationMode(
+                if (locked) ORIENTATION_MODE_LANDSCAPE_LOCKED else ORIENTATION_MODE_ROTATE_FREELY,
+            )
+        }
     }
 
     fun onSetAutoSkipIntro(value: Boolean) {

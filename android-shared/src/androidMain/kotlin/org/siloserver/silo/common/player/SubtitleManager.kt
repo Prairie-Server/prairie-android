@@ -229,10 +229,17 @@ class SubtitleManager {
         }
         val edgeColor = parseHexColor(appearance.textOutlineColor)
         val typeface = typefaceFor(appearance.fontFamily)
+        // Box renders through windowColor: Media3's SubtitlePainter draws the
+        // window as one block behind the whole cue with INNER_PADDING_RATIO
+        // (12.5% of the text size) of horizontal breathing room, whereas
+        // backgroundColor is a per-line BackgroundColorSpan that hugs the
+        // glyphs (QA 2026-07-08: "SRT subtitles with box should have more
+        // padding"). The MPV route pads via MpvSubtitleStyle's border-size
+        // floor instead.
         return CaptionStyleCompat(
             foreground,
-            background,
             Color.TRANSPARENT,
+            background,
             edgeType,
             edgeColor,
             typeface,

@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.content.pm.ActivityInfo
 import android.graphics.Rect
 import android.os.SystemClock
-import android.provider.Settings
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -265,6 +264,7 @@ fun PlayerScreen(
                         isHardPlaybackContainer(uiState.container),
                     hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                     hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                    hasHdrVideo = uiState.activeVersionHasHdrVideo(),
                     isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(uiState.streamUrl),
                 ),
             )
@@ -371,26 +371,7 @@ fun PlayerScreen(
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-            // Orientation policy keys off the system rotation lock so we never
-            // jump the phone sideways against the user's preference:
-            //   - Auto-rotate ON  -> SENSOR_LANDSCAPE: Play goes straight to
-            //     fullscreen landscape (the natural video orientation) instead
-            //     of letterboxing a centered band in portrait.
-            //   - Auto-rotate OFF -> USER: a locked phone keeps its current
-            //     orientation and the video letterboxes inside it, exactly as
-            //     before. (The earlier unconditional SENSOR_LANDSCAPE force-
-            //     rotated even locked phones, which is the behavior we avoid.)
-            val autoRotateEnabled = Settings.System.getInt(
-                activity.contentResolver,
-                Settings.System.ACCELEROMETER_ROTATION,
-                0,
-            ) == 1
             val originalOrientation = activity.requestedOrientation
-            activity.requestedOrientation = if (autoRotateEnabled) {
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            } else {
-                ActivityInfo.SCREEN_ORIENTATION_USER
-            }
             refreshRateMatcher.attach(activity)
 
             onDispose {
@@ -400,6 +381,20 @@ fun PlayerScreen(
             }
         } else {
             onDispose { }
+        }
+    }
+
+    // Orientation policy (iOS PlayerOrientationCoordinator parity): entering
+    // the player locks to landscape by default; the persisted "rotateFreely"
+    // opt-out (HUD lock toggle / synced setting) falls back to USER so the
+    // system rotation preference stays in charge. Released on exit by the
+    // immersive effect's originalOrientation restore above.
+    val orientationLocked by viewModel.orientationLocked.collectAsState()
+    LaunchedEffect(activity, orientationLocked) {
+        activity?.requestedOrientation = if (orientationLocked) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_USER
         }
     }
 
@@ -484,6 +479,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                hasHdrVideo = uiState.activeVersionHasHdrVideo(),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -558,6 +554,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                hasHdrVideo = uiState.activeVersionHasHdrVideo(),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -981,3 +978,12 @@ private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
 
 private fun isHardPlaybackContainer(container: String?): Boolean =
     isMpvPreferredOriginalPlaybackContainer(container)
+
+/**
+ * True when the active file version carries HDR video. Feeds
+ * [VideoPlaybackBackendRequest.hasHdrVideo] so Auto routes HDR sources to
+ * MPV — the Media3 route has no phone-side HDR handling and can play
+ * audio+subtitles over a permanently black video surface.
+ */
+private fun PlayerViewModel.PlayerUiState.activeVersionHasHdrVideo(): Boolean =
+    versions.getOrNull(selectedVersionIndex)?.hdr == true

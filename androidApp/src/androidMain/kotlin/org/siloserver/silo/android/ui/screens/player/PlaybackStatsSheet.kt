@@ -8,19 +8,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,6 +41,9 @@ fun PlaybackStatsSheet(
     isVisible: Boolean,
     stats: PlayerStatsSnapshot,
     onDismiss: () -> Unit,
+    // Gear-submenu back affordance: dismisses this sheet and reopens the
+    // parent settings sheet (wired in PlayerOverlay).
+    onBack: (() -> Unit)? = null,
 ) {
     if (!isVisible) return
 
@@ -56,6 +66,10 @@ fun PlaybackStatsSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // Cap below the top edge + keep content flings from
+                // dismissing the sheet — see PlayerSheetSupport.
+                .heightIn(max = playerSheetMaxHeight())
+                .nestedScroll(PlayerSheetFlingGuard)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
@@ -71,12 +85,29 @@ fun PlaybackStatsSheet(
                     .verticalScroll(rememberScrollState())
                     .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
             ) {
-                Text(
-                    text = "Playback Stats",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onBack != null) {
+                        IconButton(
+                            onClick = {
+                                scope.launch { sheetState.hide() }
+                                onBack()
+                            },
+                            modifier = Modifier.padding(end = 4.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                contentDescription = "Back to playback settings",
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Playback Stats",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Current stream",

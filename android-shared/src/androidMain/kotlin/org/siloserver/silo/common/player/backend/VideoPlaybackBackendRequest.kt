@@ -22,6 +22,13 @@ data class VideoPlaybackBackendRequest(
     // this device but MPV can software-decode it (Apple codec-tail parity).
     // Only meaningful for DIRECT playback; the device floor still wins.
     val hasSoftwareOnlyVideoCodec: Boolean = false,
+    // True when the selected file version carries HDR video. The Media3
+    // ("compatibility") route has no phone-side HDR track handling or
+    // tone-mapping fallback, and HDR sources there can decode audio+text
+    // while the video renderer produces no visible frames — so Auto routes
+    // HDR to MPV (gpu-next tone-maps) on supported devices. Route/session
+    // intent (Cast/DRM/HLS/transcode) still wins first.
+    val hasHdrVideo: Boolean = false,
     // True when the resolved playback URL is an adaptive HLS playlist. Some
     // legacy sessions arrive without a v2 playbackPlan/delivery even though the
     // URL is a master.m3u8; route those to Media3 up front instead of trying MPV

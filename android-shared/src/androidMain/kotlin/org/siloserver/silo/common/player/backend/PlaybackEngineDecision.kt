@@ -58,6 +58,8 @@ data class PlaybackEngineDecision(
                     request.playMethod == PlayMethod.TRANSCODE -> "transcode"
                     request.hasHardContainer -> "hasHardContainer"
                     request.hasStyledSubtitles -> "hasStyledSubtitles"
+                    request.hasSoftwareOnlyVideoCodec -> "hasSoftwareOnlyVideoCodec"
+                    request.hasHdrVideo -> "hasHdrVideo"
                     else -> "default"
                 }
             }
