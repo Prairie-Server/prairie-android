@@ -239,7 +239,7 @@ fun MovieDetailContent(
         if (detail.cast.isNotEmpty()) {
             item(contentType = "detail-cast") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Cast", title = "& Crew")
+                    SectionHeader(title = "Cast & Crew")
                     CastCrewSection(
                         cast = detail.cast,
                         crew = detail.crew,
@@ -249,18 +249,9 @@ fun MovieDetailContent(
             }
         }
 
-        if (detail.genres.isNotEmpty()) {
-            item(contentType = "detail-genres") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Tags", title = "Genres")
-                    GenrePillRow(genres = detail.genres)
-                }
-            }
-        }
-
         item(contentType = "detail-facts") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SectionHeader(label = "Info", title = "Details")
+                SectionHeader(title = "Details")
                 DetailFactsList(detail = detail)
             }
         }
