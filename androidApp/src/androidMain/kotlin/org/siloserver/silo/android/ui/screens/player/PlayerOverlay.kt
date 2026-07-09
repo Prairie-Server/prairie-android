@@ -1,7 +1,5 @@
 package org.siloserver.silo.android.ui.screens.player
 
-import android.app.Activity
-import android.content.pm.ActivityInfo
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -106,12 +104,11 @@ fun PlayerOverlay(
     val gatedFastForwardHold: (Boolean) -> Unit = if (!inRoom) onFastForwardHold else { _: Boolean -> }
 
     // Orientation lock — toggled from the top-bar lock icon (iOS parity).
-    // Default false: respect system rotation lock (PlayerScreen sets the
-    // initial requestedOrientation to USER). When the user taps the lock,
-    // we override to LANDSCAPE; tapping again returns control to USER.
-    var isOrientationLocked by remember { mutableStateOf(false) }
+    // Persisted via the orientation-mode setting (default landscape-locked,
+    // like iOS's PlayerOrientationCoordinator); PlayerScreen applies the
+    // matching requestedOrientation whenever the setting changes.
+    val isOrientationLocked by viewModel.orientationLocked.collectAsState()
     val context = LocalContext.current
-    val activity = context as? Activity
 
     val introSkipState by viewModel.introSkipState.collectAsState()
     val sleepTimerState by viewModel.sleepTimerState.collectAsState()
@@ -306,13 +303,7 @@ fun PlayerOverlay(
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
                 onToggleOrientationLock = {
-                    val nextLocked = !isOrientationLocked
-                    isOrientationLocked = nextLocked
-                    activity?.requestedOrientation = if (nextLocked) {
-                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                    } else {
-                        ActivityInfo.SCREEN_ORIENTATION_USER
-                    }
+                    viewModel.onSetOrientationLocked(!isOrientationLocked)
                 },
                 onOpenChapters = { chaptersSheetVisible = true },
                 onOpenTracks = { tracksSheetVisible = true },

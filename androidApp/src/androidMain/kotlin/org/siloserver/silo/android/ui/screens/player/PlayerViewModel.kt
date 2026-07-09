@@ -141,6 +141,10 @@ class PlayerViewModel(
         /** iOS resolveOnDeckItems: section pools feeding the On Deck carousel. */
         private val ON_DECK_SECTION_TYPES = setOf("continue_watching", "in_progress", "next_up")
         private const val ON_DECK_MAX_ITEMS = 12
+        // Stored orientation-mode values — raw-value parity with iOS
+        // `PlayerOrientationMode` so the device-scoped setting round-trips.
+        private const val ORIENTATION_MODE_LANDSCAPE_LOCKED = "landscapeLocked"
+        private const val ORIENTATION_MODE_ROTATE_FREELY = "rotateFreely"
     }
 
     /**
@@ -321,6 +325,13 @@ class PlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0)
     val videoGravity: StateFlow<String> = playerSettingsStore.videoGravityFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, "fit")
+    // iOS parity (PlayerOrientationCoordinator): the phone player defaults to
+    // landscape-locked; "rotateFreely" is the persisted opt-out written by the
+    // HUD lock toggle. Any other stored value (including the legacy "auto"
+    // default) locks, matching iOS's landscapeLocked default on new clients.
+    val orientationLocked: StateFlow<Boolean> = playerSettingsStore.orientationModeFlow
+        .map { it != ORIENTATION_MODE_ROTATE_FREELY }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val autoSkipIntroEnabled: StateFlow<Boolean> = playerSettingsStore.autoSkipIntroFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val autoPlayNextEnabled: StateFlow<Boolean> = playerSettingsStore.autoPlayNextFlow
@@ -1889,6 +1900,15 @@ class PlayerViewModel(
 
     fun onSetVideoGravity(value: String) {
         viewModelScope.launch { playerSettingsStore.setVideoGravity(value) }
+    }
+
+    /** HUD lock toggle — persisted like iOS's `setPlayerOrientationMode`. */
+    fun onSetOrientationLocked(locked: Boolean) {
+        viewModelScope.launch {
+            playerSettingsStore.setOrientationMode(
+                if (locked) ORIENTATION_MODE_LANDSCAPE_LOCKED else ORIENTATION_MODE_ROTATE_FREELY,
+            )
+        }
     }
 
     fun onSetAutoSkipIntro(value: Boolean) {
