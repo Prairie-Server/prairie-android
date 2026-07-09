@@ -1,0 +1,192 @@
+package org.siloserver.silo.audiobook
+
+import org.siloserver.silo.model.catalog.FileVersion
+import org.siloserver.silo.model.catalog.VersionChapter
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class AudiobookTimelineTest {
+
+    private fun part(
+        fileId: Int,
+        duration: Double,
+        partIndex: Int? = null,
+        kind: String? = "audiobook_part",
+        codecAudio: String? = "aac",
+        chapters: List<VersionChapter>? = null,
+    ) = FileVersion(
+        fileId = fileId,
+        codecAudio = codecAudio,
+        duration = duration,
+        presentationKind = kind,
+        presentationPartIndex = partIndex,
+        chapters = chapters,
+    )
+
+    private fun chapter(index: Int, start: Double, end: Double, title: String = "Chapter ${index + 1}") =
+        VersionChapter(index = index, title = title, startSeconds = start, endSeconds = end)
+
+    // Three parts: 100s, 200s, 150s → offsets 0, 100, 300; cumulative 450.
+    private val threePartVersions = listOf(
+        part(fileId = 10, duration = 100.0, partIndex = 0),
+        part(fileId = 11, duration = 200.0, partIndex = 1),
+        part(fileId = 12, duration = 150.0, partIndex = 2),
+    )
+
+    @Test
+    fun `cumulative offsets across three parts`() {
+        val timeline = buildAudiobookTimeline(threePartVersions, serverTotalSeconds = null)
+        assertNotNull(timeline)
+        assertEquals(3, timeline.tracks.size)
+        assertEquals(listOf(0.0, 100.0, 300.0), timeline.tracks.map { it.startOffsetSeconds })
+        assertEquals(listOf(100.0, 200.0, 150.0), timeline.tracks.map { it.durationSeconds })
+        assertEquals(listOf(10, 11, 12), timeline.tracks.map { it.fileId })
+        assertFalse(timeline.isSingle)
+    }
+
+    @Test
+    fun `track index at boundaries mid-part and past end`() {
+        val timeline = buildAudiobookTimeline(threePartVersions, serverTotalSeconds = null)!!
+        // Exactly at a part start belongs to that part (start-inclusive).
+        assertEquals(0, timeline.trackIndexAt(0.0))
+        assertEquals(1, timeline.trackIndexAt(100.0))
+        assertEquals(2, timeline.trackIndexAt(300.0))
+        // Mid-part.
+        assertEquals(0, timeline.trackIndexAt(50.0))
+        assertEquals(1, timeline.trackIndexAt(250.0))
+        assertEquals(2, timeline.trackIndexAt(400.0))
+        // Just before a boundary stays in the earlier part (end-exclusive).
+        assertEquals(0, timeline.trackIndexAt(99.999))
+        // Past the end → last track.
+        assertEquals(2, timeline.trackIndexAt(9999.0))
+        // Negative clamps to the first track.
+        assertEquals(0, timeline.trackIndexAt(-5.0))
+    }
+
+    @Test
+    fun `local and global round-trip within a track`() {
+        val timeline = buildAudiobookTimeline(threePartVersions, serverTotalSeconds = null)!!
+        val track = timeline.tracks[1] // offset 100, duration 200
+        // global 250 → local 150 → global 250.
+        val local = timeline.localTimeFor(250.0, track)
+        assertEquals(150.0, local)
+        assertEquals(250.0, timeline.globalTimeFor(local, track))
+        // Clamping: global before the track floors local to 0.
+        assertEquals(0.0, timeline.localTimeFor(50.0, track))
+        // Clamping: local past the duration caps at the track end.
+        assertEquals(300.0, timeline.globalTimeFor(999.0, track))
+    }
+
+    @Test
+    fun `chapters stitch onto the whole-book timeline and sort globally`() {
+        val versions = listOf(
+            part(
+                fileId = 20, duration = 100.0, partIndex = 0,
+                chapters = listOf(chapter(0, 0.0, 60.0), chapter(1, 60.0, 100.0)),
+            ),
+            part(
+                fileId = 21, duration = 200.0, partIndex = 1,
+                chapters = listOf(chapter(0, 0.0, 90.0), chapter(1, 90.0, 200.0)),
+            ),
+        )
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+        assertEquals(4, timeline.chapters.size)
+
+        // Part-2's first chapter (local start 0) sits at part2 offset (100).
+        val part2First = timeline.chapters.first { it.trackIndex == 1 && it.index == 0 }
+        assertEquals(100.0, part2First.startSeconds)   // part2Offset(100) + localStart(0)
+        assertEquals(190.0, part2First.endSeconds)     // part2Offset(100) + localEnd(90)
+
+        // Part-2's second chapter: 100 + 90 = 190 start.
+        val part2Second = timeline.chapters.first { it.trackIndex == 1 && it.index == 1 }
+        assertEquals(190.0, part2Second.startSeconds)
+
+        // Global sort order (ascending by startSeconds).
+        assertEquals(listOf(0.0, 60.0, 100.0, 190.0), timeline.chapters.map { it.startSeconds })
+    }
+
+    @Test
+    fun `single part book behaves like today`() {
+        val versions = listOf(
+            part(
+                fileId = 30, duration = 300.0, partIndex = 0,
+                chapters = listOf(chapter(0, 0.0, 120.0), chapter(1, 120.0, 300.0)),
+            ),
+        )
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+        assertTrue(timeline.isSingle)
+        assertEquals(1, timeline.tracks.size)
+        assertEquals(0.0, timeline.tracks[0].startOffsetSeconds)
+        // Offsets are trivial: global chapter starts equal file-local starts.
+        assertEquals(listOf(0.0, 120.0), timeline.chapters.map { it.startSeconds })
+        assertEquals(300.0, timeline.totalSeconds)
+        assertEquals(0, timeline.trackIndexAt(150.0))
+    }
+
+    @Test
+    fun `zero audio parts returns null`() {
+        val versions = listOf(
+            // Not an audiobook part, no audio codec, no duration → not a part.
+            FileVersion(fileId = 40, codecAudio = null, duration = 0.0),
+        )
+        assertNull(buildAudiobookTimeline(versions, serverTotalSeconds = null))
+        assertNull(buildAudiobookTimeline(emptyList(), serverTotalSeconds = null))
+    }
+
+    @Test
+    fun `fallback treats non-tagged audio versions as parts`() {
+        // No presentation_kind, but an audio codec → counts as a part.
+        val versions = listOf(
+            part(fileId = 50, duration = 0.0, partIndex = null, kind = null, codecAudio = "mp3",
+                chapters = listOf(chapter(0, 0.0, 80.0))),
+        )
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)
+        assertNotNull(timeline)
+        assertEquals(1, timeline.tracks.size)
+    }
+
+    @Test
+    fun `part duration falls back to furthest chapter edge when duration is zero`() {
+        val versions = listOf(
+            part(fileId = 60, duration = 0.0, partIndex = 0,
+                chapters = listOf(chapter(0, 0.0, 40.0), chapter(1, 40.0, 130.0))),
+            part(fileId = 61, duration = 50.0, partIndex = 1,
+                chapters = listOf(chapter(0, 0.0, 50.0))),
+        )
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+        // Part 0 has no container duration → furthest chapter edge (130).
+        assertEquals(130.0, timeline.tracks[0].durationSeconds)
+        assertEquals(130.0, timeline.tracks[1].startOffsetSeconds)
+        assertEquals(180.0, timeline.totalSeconds) // 130 + 50
+    }
+
+    @Test
+    fun `total is the max of server total and cumulative offset`() {
+        // Server reports a larger whole-book total than the stitched parts → use server's.
+        val larger = buildAudiobookTimeline(threePartVersions, serverTotalSeconds = 500.0)!!
+        assertEquals(500.0, larger.totalSeconds)
+        // Server reports a smaller total than the stitched parts → use the cumulative offset.
+        val smaller = buildAudiobookTimeline(threePartVersions, serverTotalSeconds = 100.0)!!
+        assertEquals(450.0, smaller.totalSeconds)
+        // No server total → cumulative offset.
+        val none = buildAudiobookTimeline(threePartVersions, serverTotalSeconds = null)!!
+        assertEquals(450.0, none.totalSeconds)
+    }
+
+    @Test
+    fun `parts sort by presentation index then file id`() {
+        // Provided out of order; missing index sorts last, tie-broken by fileId.
+        val versions = listOf(
+            part(fileId = 73, duration = 10.0, partIndex = null),
+            part(fileId = 71, duration = 10.0, partIndex = 1),
+            part(fileId = 72, duration = 10.0, partIndex = null),
+            part(fileId = 70, duration = 10.0, partIndex = 0),
+        )
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+        assertEquals(listOf(70, 71, 72, 73), timeline.tracks.map { it.fileId })
+    }
+}
