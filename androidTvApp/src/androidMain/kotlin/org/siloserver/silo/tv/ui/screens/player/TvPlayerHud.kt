@@ -36,7 +36,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,6 +92,15 @@ private val HudChipTextSize = 14.sp
 private val HudChipLineHeight = 18.sp
 private val HudTabTextSize = 16.sp
 private val HudTabLineHeight = 20.sp
+
+/**
+ * Lets a [HudFocusedSettingRow] register its own focus requester as the row that
+ * opened the shared picker dialog, so the HUD can return focus to it when the
+ * picker closes (instead of snapping focus back to the tab pill). Provided by
+ * [TvPlayerHud]; null when a row is used outside the HUD.
+ */
+private val LocalHudPickerReturnFocus =
+    compositionLocalOf<((FocusRequester) -> Unit)?> { null }
 
 /**
  * Floating top-center player HUD mirroring `iosApp/.../tvOS/TVPlayerInfoHUD.swift`.
@@ -177,16 +188,46 @@ fun TvPlayerHud(
     // matching the tvOS HUDPickerDialog presentation.
     var activePicker by remember { mutableStateOf<HudPickerPresentation?>(null) }
 
-    val tabFocusRequesters = remember(tabs) { tabs.associateWith { FocusRequester() } }
-
-    LaunchedEffect(initialTab, tabs) {
-        selectedTab = initialTab.takeIf { it in tabs } ?: tabs.first()
+    // The setting row that opened the active picker. On picker close we return
+    // focus here — not to the tab pill — so the user resumes on the row they were
+    // editing instead of re-traversing the whole pane from the tab bar.
+    val pickerReturnFocus = remember { mutableStateOf<FocusRequester?>(null) }
+    val registerPickerReturnFocus = remember {
+        { requester: FocusRequester -> pickerReturnFocus.value = requester }
     }
 
-    // Seed initial focus on the active tab pill (only while no dialog is open).
-    LaunchedEffect(selectedTab, tabs, activePicker) {
+    val tabFocusRequesters = remember(tabs) { tabs.associateWith { FocusRequester() } }
+
+    // Preserve the user's current tab when the visible-tabs list changes (Stats /
+    // Audio / Chapters arriving asynchronously): only re-seed from initialTab when
+    // the caller actually requests a different tab, or when the currently-selected
+    // tab is no longer present. Re-seeding on every membership change would yank
+    // the user off the tab they navigated to and snap focus back to the Info pill.
+    var lastInitialTab by remember { mutableStateOf(initialTab) }
+    LaunchedEffect(initialTab, tabs) {
+        selectedTab = when {
+            initialTab != lastInitialTab -> initialTab.takeIf { it in tabs } ?: tabs.first()
+            selectedTab in tabs -> selectedTab
+            else -> initialTab.takeIf { it in tabs } ?: tabs.first()
+        }
+        lastInitialTab = initialTab
+    }
+
+    // Seed focus on the active tab pill when the HUD first appears.
+    LaunchedEffect(Unit) {
+        tabFocusRequesters[selectedTab]?.let { runCatching { it.requestFocus() } }
+    }
+
+    // When a picker closes, return focus to the setting row that opened it rather
+    // than the tab pill, so the user doesn't have to re-traverse the pane after
+    // every picker interaction. Falls back to the tab pill if no row was recorded.
+    LaunchedEffect(activePicker) {
         if (activePicker == null) {
-            tabFocusRequesters[selectedTab]?.let { runCatching { it.requestFocus() } }
+            val target = pickerReturnFocus.value
+            if (target != null) {
+                pickerReturnFocus.value = null
+                runCatching { target.requestFocus() }
+            }
         }
     }
 
@@ -229,6 +270,7 @@ fun TvPlayerHud(
             }
             .padding(HudPanelPadding),
     ) {
+        CompositionLocalProvider(LocalHudPickerReturnFocus provides registerPickerReturnFocus) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -327,6 +369,7 @@ fun TvPlayerHud(
                     }
                 }
             }
+        }
         }
 
         // Centered modal picker dialog, drawn on top of the dimmed panes.
@@ -698,7 +741,9 @@ private fun speedOptionId(speed: Double): String =
 /** 1.0 -> "1.0×", 1.25 -> "1.25×" (matches tvOS speed labels). */
 private fun formatTvPlaybackSpeed(speed: Double): String {
     val text = if (speed % 1.0 == 0.0) {
-        "%.1f".format(speed)
+        // Locale.ROOT so comma-decimal devices render "1.0×", not "1,0×",
+        // matching the dot-formatted speedOptionId used to commit the choice.
+        String.format(java.util.Locale.ROOT, "%.1f", speed)
     } else {
         speed.toString().trimEnd('0').trimEnd('.')
     }
@@ -1285,7 +1330,10 @@ private fun HudSubtitlesPane(
                     label = "Outline",
                     value = onOffLabel(appearance.textOutline),
                     enabled = enabled,
-                    rightFocusRequester = subtitleOutlineColorFocus,
+                    // The outline-color swatch (subtitleOutlineColorFocus) is only
+                    // composed when textOutline is on. Right-nav must not target a
+                    // detached requester when it's off, so gate the target on it.
+                    rightFocusRequester = subtitleOutlineColorFocus.takeIf { appearance.textOutline },
                     onActivate = {
                         onPresentPicker(
                             boolPicker(
@@ -1621,7 +1669,7 @@ private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildLis
     hardContainers?.let { add("Hard containers" to it) }
     videoCodec?.let { add("Video codec" to it) }
     resolution?.let { add("Resolution" to it) }
-    frameRate?.let { add("Frame rate" to "%.3f fps".format(it)) }
+    frameRate?.let { add("Frame rate" to String.format(java.util.Locale.ROOT, "%.3f fps", it)) }
     hdrMode?.let { add("HDR mode" to it) }
     videoDecoderName?.let { add("Video decoder" to it) }
     audioCodec?.let { add("Audio codec" to it) }
@@ -1632,8 +1680,10 @@ private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildLis
 }
 
 private fun formatBitrate(bps: Long): String = when {
-    bps >= 1_000_000 -> "%.1f Mbps".format(bps / 1_000_000.0)
-    bps >= 1_000 -> "%.0f Kbps".format(bps / 1_000.0)
+    // Locale.ROOT so the decimal separator is a dot everywhere, consistent with
+    // the rest of the HUD's formatted numbers on comma-decimal locales.
+    bps >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1f Mbps", bps / 1_000_000.0)
+    bps >= 1_000 -> String.format(java.util.Locale.ROOT, "%.0f Kbps", bps / 1_000.0)
     else -> "$bps bps"
 }
 
@@ -1802,6 +1852,11 @@ internal fun HudFocusedSettingRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
+    // Own focus requester so the HUD can return focus to this row after the
+    // picker it opens is dismissed (registered via LocalHudPickerReturnFocus).
+    val selfFocusRequester = remember { FocusRequester() }
+    val registerPickerReturnFocus = LocalHudPickerReturnFocus.current
+
     val bg = if (isFocused) Color.White else Color.Transparent
     val labelColor = if (isFocused) Color.Black else Color.White
     val valueColor = if (isFocused) Color.Black.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.72f)
@@ -1811,6 +1866,7 @@ internal fun HudFocusedSettingRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .focusRequester(selfFocusRequester)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusProperties {
                 if (leftFocusRequester != null) left = leftFocusRequester
@@ -1823,7 +1879,10 @@ internal fun HudFocusedSettingRow(
                 enabled = enabled,
                 interactionSource = interactionSource,
                 indication = null,
-            ) { onActivate() }
+            ) {
+                registerPickerReturnFocus?.invoke(selfFocusRequester)
+                onActivate()
+            }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -22,7 +22,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -117,6 +119,17 @@ fun TvSubtitleSearchDialog(
 ) {
     val languageRowFocus = remember { FocusRequester() }
     val initialNonce = remember { state.completedNonce }
+
+    // Result ids are provider-scoped (the LazyColumn key is "provider:id"), so two
+    // providers can return the same id. The VM's downloadingResultId carries only
+    // the id, which would light the spinner on every same-id row. Track the full
+    // provider+id key of the row the user actually triggered to scope the spinner.
+    var downloadingKey by remember { mutableStateOf<String?>(null) }
+
+    // Clear the local key once the VM reports the download settled (done/failed).
+    LaunchedEffect(state.downloadingResultId) {
+        if (state.downloadingResultId == null) downloadingKey = null
+    }
 
     LaunchedEffect(Unit) { runCatching { languageRowFocus.requestFocus() } }
 
@@ -228,9 +241,13 @@ fun TvSubtitleSearchDialog(
                         ) { result ->
                             TvSubtitleResultRow(
                                 result = result,
-                                isDownloading = state.downloadingResultId == result.id,
+                                isDownloading = state.downloadingResultId != null &&
+                                    downloadingKey == "${result.provider}:${result.id}",
                                 enabled = state.downloadingResultId == null,
-                                onClick = { onDownload(result) },
+                                onClick = {
+                                    downloadingKey = "${result.provider}:${result.id}"
+                                    onDownload(result)
+                                },
                             )
                         }
                     }
