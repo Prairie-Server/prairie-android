@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -205,6 +207,27 @@ fun MovieDetailContent(
                         null
                     },
                 )
+                // Downloaded confirmation under the action row — the circle
+                // button's filled state alone is easy to miss (QA 2026-07-08);
+                // iOS pairs its green check with an accessible "Downloaded".
+                if (isDownloaded) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.DownloadDone,
+                            contentDescription = null,
+                            tint = Color(0xFF30D158),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = "Downloaded",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.85f),
+                        )
+                    }
+                }
                 // Box-style track group list (Video / Audio / Subtitles) —
                 // TV & Apple parity; Auto rows preview the resolved track.
                 if (hasTrackSelectors) {
