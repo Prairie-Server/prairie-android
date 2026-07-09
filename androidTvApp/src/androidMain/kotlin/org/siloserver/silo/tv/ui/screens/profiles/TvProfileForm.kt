@@ -214,7 +214,7 @@ fun TvProfileForm(
                 TvProfilePreviewColumn(
                     avatar = previewAvatar,
                     name = state.name.ifBlank { "Your Name" },
-                    hasPin = state.pinEnabled && state.pin.isNotBlank(),
+                    hasPin = state.pinEnabled,
                     isChild = state.isChild,
                 )
 
@@ -324,7 +324,24 @@ fun TvProfileForm(
                             )
                         }
 
-                        TvProfileFormSection(title = "PIN (optional)") {
+                        TvProfileFormSection(
+                            title = "PIN (optional)",
+                            trailing = if (state.pinEnabled) {
+                                {
+                                    TvHeroActionPill(
+                                        label = "Remove",
+                                        icon = Icons.Filled.Close,
+                                        variant = TvPillVariant.Hollow,
+                                        heightOverride = 24.dp,
+                                        horizontalPaddingOverride = 10.dp,
+                                        labelStyle = MaterialTheme.typography.labelSmall,
+                                        onClick = { callbacks.onPinToggled(false) },
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                        ) {
                             TvProfileTextEntryField(
                                 value = state.pin,
                                 placeholder = state.pinHelper,
@@ -405,7 +422,18 @@ fun TvProfileForm(
                 onConfirm = { text ->
                     when (field) {
                         ProfileTextField.Name -> callbacks.onNameChanged(text.trim())
-                        ProfileTextField.Pin -> callbacks.onPinChanged(text.filter(Char::isDigit).take(4))
+                        ProfileTextField.Pin -> {
+                            // Entering a PIN implies the profile should be
+                            // PIN-protected. A blank confirmation is a no-op on
+                            // the enabled flag: on edit that means "leave blank
+                            // to keep" the existing PIN; the Remove action is the
+                            // deliberate way to turn a PIN off.
+                            val digits = text.filter(Char::isDigit).take(4)
+                            callbacks.onPinChanged(digits)
+                            if (digits.isNotBlank()) {
+                                callbacks.onPinToggled(true)
+                            }
+                        }
                     }
                     editingTextField = null
                 },
