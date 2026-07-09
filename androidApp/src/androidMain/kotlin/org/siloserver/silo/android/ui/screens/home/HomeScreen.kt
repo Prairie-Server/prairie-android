@@ -64,6 +64,7 @@ import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
 import org.siloserver.silo.common.pairing.CompanionPairingApproval
 import org.siloserver.silo.common.pairing.CompanionPairingStatus
 import org.siloserver.silo.common.pairing.CompanionPairingTarget
+import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.section.splitFeatured
 import org.siloserver.silo.viewmodel.HomeViewModel
@@ -192,7 +193,19 @@ fun HomeScreen(
                         HomeSectionRow(
                             section = section,
                             onItemClick = onItemClick,
-                            onItemPlay = { item -> onPlayClick(item.contentId, item.positionSeconds) },
+                            onItemPlay = { item ->
+                                // Continue Watching can include audiobooks; the play
+                                // glyph must not drop them into the video player. Home
+                                // has no callback reaching Route.AudiobookPlayer (that
+                                // route needs a fileId SectionItem doesn't carry), so
+                                // send audiobooks to their detail page, which dispatches
+                                // audiobook playback correctly.
+                                if (isAudiobookItemType(item.type)) {
+                                    onItemClick(item.contentId)
+                                } else {
+                                    onPlayClick(item.contentId, item.positionSeconds)
+                                }
+                            },
                             onSetWatched = viewModel::setWatched,
                             onToggleFavorite = viewModel::toggleFavorite,
                             onToggleWatchlist = viewModel::toggleWatchlist,
