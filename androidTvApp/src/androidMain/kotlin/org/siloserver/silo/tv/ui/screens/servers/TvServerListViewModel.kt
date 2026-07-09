@@ -19,6 +19,12 @@ data class TvServerListUiState(
     val activeId: String? = null,
     val pendingSwitchToId: String? = null,
     val switchedTo: TvServerSwitchDestination? = null,
+    /**
+     * Set once when the *active* server was removed and no server remains to
+     * fall back to — there is nothing to sign into, so the navigator must send
+     * the user back to server setup. One-shot; cleared by [onServerSetupConsumed].
+     */
+    val needsServerSetup: Boolean = false,
 )
 
 /**
@@ -79,9 +85,47 @@ class TvServerListViewModel(
         _uiState.update { it.copy(switchedTo = null) }
     }
 
+    fun onServerSetupConsumed() {
+        _uiState.update { it.copy(needsServerSetup = false) }
+    }
+
     fun onRemove(serverId: String) {
         viewModelScope.launch {
+            val wasActive = serverRegistry.activeServerId.value == serverId
             serverRegistry.remove(serverId)
+
+            // Removing a *non-active* server is a passive list edit — the shell
+            // behind us is unaffected, so leave navigation exactly as before.
+            if (!wasActive) return@launch
+
+            // Removing the ACTIVE server is a session change. The registry has
+            // just promoted the next-MRU server (or none) and wiped the removed
+            // server's tokens; the Main shell behind this list is still rendering
+            // the removed server. Re-resolve like onSelect so the navigator tears
+            // that shell down instead of leaking API calls onto whatever server
+            // got promoted (or a now-empty baseUrl).
+            val promotedId = serverRegistry.activeServerId.value
+            if (promotedId == null) {
+                // No server left to sign into — route back to server setup.
+                _uiState.update { it.copy(needsServerSetup = true) }
+                return@launch
+            }
+
+            tokenManager.switchActiveServer(promotedId)
+
+            // Land on the deepest screen the promoted server's stored
+            // credentials can reach — preserves that server's session if tokens
+            // are present, otherwise falls back to Login.
+            val accessToken = tokenManager.getAccessToken()
+            val activeEntry = serverRegistry.activeEntry.value
+            val profileId = activeEntry?.profileId ?: tokenManager.getProfileId()
+            val destination = when {
+                accessToken.isNullOrBlank() -> TvServerSwitchDestination.Login
+                profileId.isNullOrBlank() -> TvServerSwitchDestination.ProfileSelection
+                else -> TvServerSwitchDestination.Home
+            }
+
+            _uiState.update { it.copy(switchedTo = destination) }
         }
     }
 

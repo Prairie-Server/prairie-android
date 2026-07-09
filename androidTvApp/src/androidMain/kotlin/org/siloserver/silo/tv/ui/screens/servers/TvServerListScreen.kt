@@ -79,6 +79,16 @@ fun TvServerListScreen(
         }
     }
 
+    LaunchedEffect(state.needsServerSetup) {
+        // The active server was removed and none remain — there is nothing to
+        // sign into, so bounce to server setup rather than leaving the stale
+        // shell behind this list pointed at an empty baseUrl.
+        if (state.needsServerSetup) {
+            viewModel.onServerSetupConsumed()
+            onAddServer()
+        }
+    }
+
     LaunchedEffect(state.servers.size) {
         // Anchor focus on the first row whenever the list materializes so
         // d-pad navigation has somewhere to land.
@@ -142,12 +152,25 @@ fun TvServerListScreen(
     }
 
     confirmRemove?.let { target ->
+        // Removing the active server signs the user out of it — say so
+        // explicitly instead of showing the same generic confirm as any
+        // other row, so it isn't a silent footgun.
+        val isActiveTarget = target.id == state.activeId
         TvOptionDialog(
-            title = "Remove ${target.displayName}?",
+            title = if (isActiveTarget) {
+                "Sign out & remove ${target.displayName}?"
+            } else {
+                "Remove ${target.displayName}?"
+            },
             options = listOf(
                 TvDialogOption(
                     key = "confirm",
-                    title = "Remove",
+                    title = if (isActiveTarget) "Sign out & remove" else "Remove",
+                    subtitle = if (isActiveTarget) {
+                        "This is the server you're signed into — removing it will sign you out of it."
+                    } else {
+                        null
+                    },
                     onClick = {
                         viewModel.onRemove(target.id)
                         confirmRemove = null
