@@ -117,10 +117,19 @@ fun PlayerOverlay(
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val subtitleTools by viewModel.subtitleTools.collectAsState()
-    val cycleVideoGravity: () -> Unit = {
-        val nextGravity = nextMobileVideoGravity(videoGravity)
-        viewModel.onSetVideoGravity(nextGravity)
-        Toast.makeText(context, mobileVideoGravityLabel(nextGravity), Toast.LENGTH_SHORT).show()
+    // Pinch-to-scale (iOS parity): pinch-out steps Fit -> Fill -> Stretch,
+    // pinch-in steps back, clamped at both ends. No-op steps (already at an
+    // end) skip the toast so a clamped pinch stays quiet.
+    val stepVideoGravity: (Boolean) -> Unit = { expand ->
+        val nextGravity = if (expand) {
+            nextMobileVideoGravity(videoGravity)
+        } else {
+            previousMobileVideoGravity(videoGravity)
+        }
+        if (nextGravity != videoGravity) {
+            viewModel.onSetVideoGravity(nextGravity)
+            Toast.makeText(context, mobileVideoGravityLabel(nextGravity), Toast.LENGTH_SHORT).show()
+        }
     }
     // Remote "display_message" from the control socket — show transiently.
     val remoteMessage by viewModel.remoteMessage.collectAsState()
@@ -152,7 +161,7 @@ fun PlayerOverlay(
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
                 onFastForwardHold = gatedFastForwardHold,
-                onCycleVideoGravity = cycleVideoGravity,
+                onPinchVideoGravity = stepVideoGravity,
                 onDismiss = handleBack,
                 modifier = Modifier.zIndex(0f),
             )
@@ -603,9 +612,18 @@ private fun SleepTimerChip(remainingSeconds: Int) {
     }
 }
 
+// Directional gravity steps, clamped at both ends (iOS nextVideoGravity /
+// previousVideoGravity in MobilePlayerGestureLayer — no wrap-around).
 internal fun nextMobileVideoGravity(current: String): String = when (current) {
     "fit" -> "fill"
     "fill" -> "stretch"
+    "stretch" -> "stretch"
+    else -> "fill"
+}
+
+internal fun previousMobileVideoGravity(current: String): String = when (current) {
+    "stretch" -> "fill"
+    "fill" -> "fit"
     else -> "fit"
 }
 

@@ -57,7 +57,8 @@ import kotlin.math.hypot
  * - Double-tap left 35% zone: skip back 10 seconds (with a flash badge)
  * - Double-tap right 35% zone: skip forward 10 seconds (with a flash badge)
  * - Hold: temporary 2x playback while held
- * - Two-finger pinch: cycle video gravity Fit -> Fill -> Stretch
+ * - Two-finger pinch: step video gravity — pinch-out steps Fit -> Fill ->
+ *   Stretch, pinch-in steps back, clamped at both ends (iOS parity)
  * - Vertical swipe in the left edge zone: brightness adjustment
  * - Vertical swipe in the right edge zone: volume adjustment
  * - Vertical swipe down in the center: dismiss the player (iOS
@@ -74,7 +75,9 @@ fun PlayerGestureHandler(
     onSkipForward: () -> Unit,
     onSkipBackward: () -> Unit,
     onFastForwardHold: (Boolean) -> Unit = {},
-    onCycleVideoGravity: () -> Unit = {},
+    // Called once per completed pinch: true = pinch-out (step toward
+    // fill/stretch), false = pinch-in (step back toward fit).
+    onPinchVideoGravity: (Boolean) -> Unit = {},
     onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -113,30 +116,36 @@ fun PlayerGestureHandler(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
+                // iOS videoGravityPinchGesture parity: accumulate the scale
+                // over the whole gesture and evaluate ONCE on release — one
+                // directional step per pinch, with a dead zone between the
+                // pinch-in and pinch-out thresholds.
                 awaitEachGesture {
                     var zoomAccumulator = 1f
-                    var cycled = false
+                    var isPinch = false
                     do {
                         val event = awaitPointerEvent()
                         val pressed = event.changes.filter { it.pressed }
-                        if (pressed.size >= 2 && !cycled) {
+                        if (pressed.size >= 2) {
+                            isPinch = true
                             val first = pressed[0]
                             val second = pressed[1]
                             val previousDistance = pointerDistance(first.previousPosition, second.previousPosition)
                             val currentDistance = pointerDistance(first.position, second.position)
                             if (previousDistance > 0f && currentDistance > 0f) {
                                 zoomAccumulator *= currentDistance / previousDistance
-                                if (
-                                    zoomAccumulator >= PinchGravityThreshold ||
-                                    zoomAccumulator <= 1f / PinchGravityThreshold
-                                ) {
-                                    pressed.forEach { it.consume() }
-                                    onCycleVideoGravity()
-                                    cycled = true
-                                }
                             }
+                            // Keep two-finger events away from the seek /
+                            // brightness drag detectors below.
+                            pressed.forEach { it.consume() }
                         }
                     } while (event.changes.any { it.pressed })
+                    if (isPinch) {
+                        when {
+                            zoomAccumulator > PinchGravityThreshold -> onPinchVideoGravity(true)
+                            zoomAccumulator < 1f / PinchGravityThreshold -> onPinchVideoGravity(false)
+                        }
+                    }
                 }
             }
             .pointerInput(Unit) {
@@ -297,7 +306,8 @@ private fun SkipFlashBadge(forward: Boolean) {
     }
 }
 
-private const val PinchGravityThreshold = 1.16f
+/** iOS pinch dead zone: >1.08 steps out, <1/1.08 steps in, between = no-op. */
+private const val PinchGravityThreshold = 1.08f
 
 /** iOS skipZoneFraction: outer double-tap bands (35% each side) skip ±10s. */
 private const val SkipZoneFraction = 0.35f
