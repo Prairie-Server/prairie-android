@@ -112,11 +112,13 @@ import org.siloserver.silo.cast.SiloCastQualityOption
 import org.siloserver.silo.cast.SiloCastTrack
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.playback.PlaybackSourceMetadata
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.siloserver.silo.model.settings.legacyPosition
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
+import org.siloserver.silo.player.DolbyVisionDetection
 import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
 import org.siloserver.silo.tv.R
 import org.siloserver.silo.tv.cast.TvSiloCastPlayerAdapter
@@ -351,6 +353,7 @@ fun TvPlayerScreen(
                         isHardPlaybackContainer(state.container),
                     hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
                     hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
+                    hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                     isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(state.streamUrl),
                 ),
             )
@@ -1023,6 +1026,7 @@ fun TvPlayerScreen(
                 isHardPlaybackContainer(state.container),
             hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
             hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
+            hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
         // Bound the await: a wedged engine build would otherwise suspend here
@@ -1086,6 +1090,7 @@ fun TvPlayerScreen(
                 isHardPlaybackContainer(state.container),
             hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
             hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
+            hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
         // Same bounded await as the initial prepare effect: a wedged engine
@@ -2453,6 +2458,23 @@ private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
 
 internal fun isHardPlaybackContainer(container: String?): Boolean =
     isMpvPreferredOriginalPlaybackContainer(container)
+
+/**
+ * True when the planned source carries Dolby Vision. Feeds
+ * [VideoPlaybackBackendRequest.hasDolbyVisionVideo] so Auto routes DV to
+ * MPV — Media3 has no reliable TV-side DV handling and can play
+ * audio+subtitles over a permanently black video surface. Plain
+ * HDR10/HDR10+/HLG stays on Media3, which plays it correctly; MPV's
+ * slurp-then-idle streaming makes it the worse default for those. Routes
+ * through the shared [DolbyVisionDetection] predicate so the TV, phone, and
+ * routing layers recognize the same signals (structured profile plus the
+ * HDR-format tokens, including a bare `dv`) and never diverge from Apple.
+ */
+private fun hasDolbyVisionSource(source: PlaybackSourceMetadata?): Boolean =
+    DolbyVisionDetection.isDolbyVision(
+        dolbyVisionProfile = source?.dolbyVisionProfile,
+        hdrFormat = source?.hdrFormat,
+    )
 
 private const val TAG = "TvPlayerScreen"
 

@@ -72,14 +72,21 @@ class SiloPictureInPictureCoordinator {
         state: SiloPictureInPicturePlaybackState,
     ) {
         stateBySurface[surface] = state
-        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            activity.setPictureInPictureParams(buildParams(activity, state))
+        // setPictureInPictureParams throws IllegalStateException on devices
+        // without FEATURE_PICTURE_IN_PICTURE (e.g. some Android TV hardware), so
+        // gate on device support before touching the system API.
+        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            activity.supportsPictureInPicture()
+        ) {
+            activity.setPictureInPictureParams(buildParams(activity, surface, state))
         }
     }
 
     fun clearPlaybackState(activity: Activity?, surface: SiloPictureInPictureSurface) {
         stateBySurface.remove(surface)
-        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            activity.supportsPictureInPicture()
+        ) {
             activity.setPictureInPictureParams(
                 PictureInPictureParams.Builder()
                     .setAutoEnterEnabled(false)
@@ -95,7 +102,7 @@ class SiloPictureInPictureCoordinator {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         val state = stateBySurface[surface] ?: return false
         if (!canEnter(activity, surface, state)) return false
-        activity.enterPictureInPictureMode(buildParams(activity, state))
+        activity.enterPictureInPictureMode(buildParams(activity, surface, state))
         return true
     }
 
@@ -107,15 +114,18 @@ class SiloPictureInPictureCoordinator {
         siloCanEnterPictureInPicture(
             surface = surface,
             sdkInt = Build.VERSION.SDK_INT,
-            deviceSupportsPictureInPicture = activity.packageManager
-                .hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE),
+            deviceSupportsPictureInPicture = activity.supportsPictureInPicture(),
             enabled = state.enabled,
             videoActive = state.videoActive,
             isPlaying = state.isPlaying,
         )
 
+    private fun Activity.supportsPictureInPicture(): Boolean =
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
     private fun buildParams(
         context: Context,
+        surface: SiloPictureInPictureSurface,
         state: SiloPictureInPicturePlaybackState,
     ): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder()
@@ -126,7 +136,20 @@ class SiloPictureInPictureCoordinator {
             builder.setSourceRectHint(rect)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(state.enabled && state.videoActive && state.isPlaying)
+            // Gate auto-enter on the SAME eligibility the explicit path uses, so
+            // a surface whose PiP floor is above API 31 (TV requires API 34)
+            // never auto-enters a mode enterPictureInPictureIfEligible refuses.
+            builder.setAutoEnterEnabled(
+                siloCanEnterPictureInPicture(
+                    surface = surface,
+                    sdkInt = Build.VERSION.SDK_INT,
+                    deviceSupportsPictureInPicture = context.packageManager
+                        .hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE),
+                    enabled = state.enabled,
+                    videoActive = state.videoActive,
+                    isPlaying = state.isPlaying,
+                ),
+            )
             builder.setSeamlessResizeEnabled(true)
         }
         return builder.build()
