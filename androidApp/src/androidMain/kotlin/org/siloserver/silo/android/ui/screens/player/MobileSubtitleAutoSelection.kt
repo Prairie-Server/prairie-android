@@ -106,7 +106,10 @@ private fun PlayerSubtitleInfo.matchesCatalogSubtitle(track: SubtitleTrack): Boo
     if (targetLabel != null && mountedLabel != null &&
         mountedLabel.equals(targetLabel, ignoreCase = true)
     ) {
-        return true
+        // Duplicate titles ("English" full + "English" forced/SDH) are only
+        // told apart by the forced flag — a bare label match must not cross
+        // that boundary when the mounted order differs from the catalog's.
+        return (forced == true) == track.forced
     }
     val targetLanguage = normalizedSubtitleLanguage(track.language) ?: return false
     if (normalizedSubtitleLanguage(language) != targetLanguage) return false

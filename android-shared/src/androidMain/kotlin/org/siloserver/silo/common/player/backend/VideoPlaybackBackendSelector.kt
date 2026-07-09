@@ -19,6 +19,13 @@ object VideoPlaybackBackendSelector {
                 request.isAdaptiveHlsStream -> VideoPlaybackBackendKind.Media3
                 request.delivery == PlaybackDelivery.SERVER_REMUX_HLS -> VideoPlaybackBackendKind.Media3
                 request.delivery == PlaybackDelivery.SERVER_TRANSCODE_HLS -> VideoPlaybackBackendKind.Media3
+                // HDR fidelity must outrank a planned Media3 engine: the plan
+                // is computed without phone-side HDR knowledge, and Media3 has
+                // no HDR track handling or tone-mapping fallback — direct-play
+                // HDR on that path decodes audio+subtitles over a permanently
+                // black surface. Transcoded output is exempt (server already
+                // resolved HDR); MPV tone-maps via gpu-next.
+                request.hasHdrVideo && request.playMethod != PlayMethod.TRANSCODE -> VideoPlaybackBackendKind.Mpv
                 request.plannedEngine == PlaybackEngineKind.MEDIA3_DIRECT -> VideoPlaybackBackendKind.Media3
                 request.plannedEngine == PlaybackEngineKind.MEDIA3_PROGRESSIVE_REMUX -> VideoPlaybackBackendKind.Media3
                 request.plannedEngine == PlaybackEngineKind.MEDIA3_HLS -> VideoPlaybackBackendKind.Media3
@@ -32,11 +39,6 @@ object VideoPlaybackBackendSelector {
                 // software-decode it (Apple codec-tail parity) — without this
                 // the file would have been transcoded server-side.
                 request.hasSoftwareOnlyVideoCodec -> VideoPlaybackBackendKind.Mpv
-                // HDR fidelity: the Media3 route has no phone-side HDR track
-                // handling or tone-mapping fallback and can end up decoding
-                // audio+subtitles with a permanently black video surface —
-                // route HDR sources to MPV, which tone-maps via gpu-next.
-                request.hasHdrVideo -> VideoPlaybackBackendKind.Mpv
                 else -> VideoPlaybackBackendKind.Media3
             }
         }

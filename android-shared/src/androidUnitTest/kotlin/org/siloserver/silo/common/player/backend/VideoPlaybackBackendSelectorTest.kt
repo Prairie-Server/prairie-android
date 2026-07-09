@@ -251,6 +251,22 @@ class VideoPlaybackBackendSelectorTest {
     }
 
     @Test
+    fun hdrVideoOutranksPlannedMedia3Direct() {
+        // The v2 plan is computed without phone-side HDR knowledge; a planned
+        // MEDIA3_DIRECT must not pull HDR back onto the black-screen path.
+        assertEquals(
+            VideoPlaybackBackendKind.Mpv,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(
+                    playMethod = PlayMethod.DIRECT,
+                    plannedEngine = PlaybackEngineKind.MEDIA3_DIRECT,
+                    hasHdrVideo = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun hdrVideoStillTranscodesOnMedia3() {
         assertEquals(
             VideoPlaybackBackendKind.Media3,
