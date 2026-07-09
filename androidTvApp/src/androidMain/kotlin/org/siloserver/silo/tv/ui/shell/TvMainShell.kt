@@ -211,8 +211,18 @@ fun TvMainShell(
     // tvOS parity: the Audiobooks tab is opt-in via Settings > General
     // (hidden by default); the store is device+profile local.
     var showAudiobooksTab by remember { mutableStateOf(false) }
-    LaunchedEffect(libraries) {
+    // Gates the snap-to-Home redirect below (alongside librariesLoaded) so a
+    // restored/deep-linked main/audiobooks route isn't ejected before this
+    // async DataStore read has landed.
+    var showAudiobooksTabResolved by remember { mutableStateOf(false) }
+    // The store exposes no Flow and Settings is an in-shell NavHost route (so no
+    // ON_RESUME fires when the user backs out of it), which is why a one-shot
+    // read left the tab bar stale after toggling the setting. Re-read on every
+    // shell route change — a cheap DataStore lookup — so toggling Settings >
+    // "Show Audiobooks tab" takes effect on return, without recreating the shell.
+    LaunchedEffect(libraries, currentEntry?.destination?.route) {
         showAudiobooksTab = runCatching { tvLibraryScopeStore.getShowAudiobooksTab() }.getOrDefault(false)
+        showAudiobooksTabResolved = true
     }
     val visibleRoots = remember(libraries, showAudiobooksTab) {
         visibleTvRoots(libraries, showAudiobooks = showAudiobooksTab)
@@ -260,6 +270,38 @@ fun TvMainShell(
     val contentFocusRequester = remember { FocusRequester() }
     val searchInputFocusRequester = remember { FocusRequester() }
     var contentUpFallback by remember { mutableStateOf<(() -> Boolean)?>(null) }
+    // Feeds that registered the up-fallback slot, were superseded by a newer
+    // feed, and are still awaiting their (now-stale) onDispose. Tracking them
+    // lets us ignore that late dispose instead of nulling the entering feed's
+    // registration.
+    val supersededContentUpFallbacks = remember { mutableSetOf<() -> Boolean>() }
+    // Register/relinquish the single D-pad-Up fallback slot BY IDENTITY. A
+    // NavHost composes the ENTERING feed (which registers its own lambda) before
+    // it disposes the EXITING one, so a blind null-on-dispose would drop the new
+    // screen's registration and lose the "Up scrolls into the previous row"
+    // fallback after every feed↔feed tab switch. Each feed passes its own stable
+    // lambda on both register and dispose; we only relinquish the slot for the
+    // feed that still owns it, ignore a superseded feed's stale dispose, and let
+    // a newly-entering feed take the slot (retiring the previous owner).
+    val onContentUpFallback: ((() -> Boolean)?) -> Unit = remember {
+        { incoming ->
+            if (incoming != null) {
+                when {
+                    // The active owner re-announcing == its own onDispose: relinquish.
+                    contentUpFallback === incoming -> contentUpFallback = null
+                    // A superseded feed's late onDispose: it no longer owns the
+                    // slot, so drop it from the watch set and leave the slot alone.
+                    supersededContentUpFallbacks.remove(incoming) -> Unit
+                    // A newly-entering feed: it takes the slot; the previous owner
+                    // becomes superseded until its own dispose arrives.
+                    else -> {
+                        contentUpFallback?.let { supersededContentUpFallbacks.add(it) }
+                        contentUpFallback = incoming
+                    }
+                }
+            }
+        }
+    }
 
     // All shell focus/overlay state — the menu-refocus / profile-refocus /
     // panel-entry nudge counters, the menu-focused / profile-open / panel flags —
@@ -481,11 +523,14 @@ fun TvMainShell(
         }
     }
 
-    LaunchedEffect(currentRoute, visibleRoots, librariesLoaded) {
+    LaunchedEffect(currentRoute, visibleRoots, librariesLoaded, showAudiobooksTabResolved) {
         // Wait until libraries have actually loaded — before that `visibleRoots`
         // is just Home + Calendar, and a restored/deep-linked `main/movies` route
-        // would be wrongly ejected even though that type exists.
-        if (!librariesLoaded) return@LaunchedEffect
+        // would be wrongly ejected even though that type exists. Likewise wait for
+        // the async Audiobooks-tab read to resolve: until it lands `visibleRoots`
+        // omits Audiobooks, so a restored `main/audiobooks` route would be ejected
+        // to Home before the DataStore read completes.
+        if (!librariesLoaded || !showAudiobooksTabResolved) return@LaunchedEffect
         // Only media-root tabs are eligible for the "tab no longer visible"
         // redirect. Non-tab routes (Settings, Favorites, Search, …) map
         // to null and must be left alone — otherwise navigating to Settings
@@ -629,7 +674,7 @@ fun TvMainShell(
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
-                        onContentUpFallbackChanged = { contentUpFallback = it },
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Home.route) {
@@ -646,7 +691,7 @@ fun TvMainShell(
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
-                        onContentUpFallbackChanged = { contentUpFallback = it },
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Search.route) {
@@ -694,7 +739,7 @@ fun TvMainShell(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
-                        onContentUpFallbackChanged = { contentUpFallback = it },
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Series.route) {
@@ -707,7 +752,7 @@ fun TvMainShell(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
-                        onContentUpFallbackChanged = { contentUpFallback = it },
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Music.route) {
@@ -720,7 +765,7 @@ fun TvMainShell(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
-                        onContentUpFallbackChanged = { contentUpFallback = it },
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Audiobooks.route) {
@@ -733,7 +778,7 @@ fun TvMainShell(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
-                        onContentUpFallbackChanged = { contentUpFallback = it },
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.ForYou.route) {

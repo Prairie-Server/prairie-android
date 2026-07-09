@@ -151,9 +151,22 @@ fun TvSkylineSectionFeed(
         }
     }
 
-    DisposableEffect(onContentUpFallbackChanged) {
-        onContentUpFallbackChanged?.invoke { currentContentUpFallback.value() }
-        onDispose { onContentUpFallbackChanged?.invoke(null) }
+    // Stable per-screen registration so the shell can identify THIS feed's
+    // ownership of the shared up-fallback slot across sibling (tab) swaps.
+    val contentUpFallbackRegistration: () -> Boolean =
+        remember { { currentContentUpFallback.value() } }
+
+    DisposableEffect(onContentUpFallbackChanged, contentUpFallbackRegistration) {
+        onContentUpFallbackChanged?.invoke(contentUpFallbackRegistration)
+        onDispose {
+            // Relinquish by identity (see TvMainShell's reconcile): pass our own
+            // lambda, not a blind null, so the shell keeps the ENTERING feed's
+            // registration. A NavHost composes the entering feed (which registers)
+            // BEFORE it disposes this one, so an unconditional null here would drop
+            // that new registration and lose the D-pad Up scroll-into-previous-row
+            // fallback after every feed↔feed tab switch.
+            onContentUpFallbackChanged?.invoke(contentUpFallbackRegistration)
+        }
     }
 
     LaunchedEffect(marquee.content?.heroBackdropUrl) {
@@ -163,6 +176,10 @@ fun TvSkylineSectionFeed(
     val firstRowFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
     var firstRowFocusRequest by remember { mutableIntStateOf(0) }
+    // Last shell focus-request value we actually applied. Guards the effect
+    // below so it only grabs the first row on a genuine counter bump, never on
+    // a firstRowId change alone.
+    var lastAppliedFocusRequest by remember { mutableIntStateOf(0) }
 
     val firstRowId = rows.firstOrNull()?.id
     fun requestFirstRowFocus(): Boolean {
@@ -180,7 +197,16 @@ fun TvSkylineSectionFeed(
     }
 
     LaunchedEffect(focusRequest, firstRowId) {
+        // Grab the first row ONLY on an actual shell focus-request bump
+        // (menu→content selection), never on a firstRowId change alone. Keeping
+        // firstRowId as a key lets a bump that arrived before rows loaded still
+        // apply once data lands; the lastApplied guard then stops a quiet
+        // refresh that swaps the first section (Continue Watching appearing or
+        // disappearing) from re-firing the grab and warping focus back to
+        // row 1 / card 0 mid-browse.
         if (focusRequest == 0 || firstRowId == null) return@LaunchedEffect
+        if (focusRequest == lastAppliedFocusRequest) return@LaunchedEffect
+        lastAppliedFocusRequest = focusRequest
         requestFirstRowFocus()
     }
 

@@ -52,6 +52,22 @@ import org.koin.core.qualifier.named
  * Settings-reachable grids (favorites, watchlist, history, collections) are
  * also top-level routes so they can cover the full screen.
  */
+// Routes the graph passes through BEFORE the authenticated Main shell. A queued
+// content deep link stays queued while the current destination is one of these
+// (an unauthenticated/mid-auth launch, consumed once auth completes and lands on
+// Main); anywhere else that isn't Main means the session is authenticated and
+// the link is stale (see the deep-link collector in [TvAppNavigation]).
+private val preMainAuthRoutes: Set<String> = setOf(
+    TvRoute.ServerSetup.route,
+    TvRoute.Setup.route,
+    TvRoute.Signup.route,
+    TvRoute.Login.ROUTE,
+    TvRoute.ServerList.route,
+    TvRoute.ProfileSelection.route,
+    TvRoute.CreateProfile.route,
+    TvRoute.EditProfile.ROUTE,
+)
+
 @Composable
 fun TvAppNavigation(
     startDestination: String,
@@ -108,7 +124,19 @@ fun TvAppNavigation(
             // The combine with currentBackStackEntryFlow makes this re-fire
             // when the graph lands on Main with the link still queued.
             val onMainShell = entry.destination.route == TvRoute.Main.route
-            if (!onMainShell) return@collect
+            if (!onMainShell) {
+                // A content link needs the Main shell to consume it. While the
+                // user is still in the pre-Main auth chain (unauthenticated
+                // launch) keep it queued — this collector re-fires once the graph
+                // reaches Main. But if the session is already authenticated and
+                // the user has merely drilled into a detail/player screen, a link
+                // left queued would fire minutes later when they back out to Main
+                // (a stale launcher click). Drop it instead so it can't resurface.
+                val route = entry.destination.route
+                val inAuthChain = route == null || route in preMainAuthRoutes
+                if (!inAuthChain) pendingDeepLink.value = null
+                return@collect
+            }
             val contentId = uri.pathSegments.lastOrNull() ?: run {
                 pendingDeepLink.value = null
                 return@collect
@@ -339,7 +367,13 @@ fun TvAppNavigation(
         composable(TvRoute.Main.route) {
             TvMainShell(
                 onOpenItemDetail = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route)
+                    // launchSingleTop collapses a double-OK on the same card into
+                    // one ItemDetail entry (consecutive identical contentId), so
+                    // Back doesn't appear inert against a duplicate. Distinct
+                    // pushes are unaffected — their route args differ.
+                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onOpenLibraryCollectionDetail = { libraryId, collectionId, title ->
                     navController.navigate(
@@ -454,7 +488,12 @@ fun TvAppNavigation(
                     )
                 },
                 onItemDetail = { itemContentId ->
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route)
+                    // launchSingleTop suppresses the exact double-tap dupe; a
+                    // distinct related item (always a different contentId) still
+                    // pushes normally.
+                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 // Season switching REPLACES the current detail entry so paging
                 // through seasons never stacks pages — one Back returns to the
@@ -467,10 +506,14 @@ fun TvAppNavigation(
                     }
                 },
                 onSeriesClick = { seriesId ->
-                    navController.navigate(TvRoute.ItemDetail(seriesId).route)
+                    navController.navigate(TvRoute.ItemDetail(seriesId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onSeasonClick = { seriesId, selectedSeason ->
-                    navController.navigate(TvRoute.ItemDetail(seriesId, selectedSeason).route)
+                    navController.navigate(TvRoute.ItemDetail(seriesId, selectedSeason).route) {
+                        launchSingleTop = true
+                    }
                 },
                 // Watch Together: the entry dialog resolves a room snapshot; route
                 // host-with-selection straight to the synced player (carrying
@@ -506,7 +549,9 @@ fun TvAppNavigation(
             TvPersonDetailScreen(
                 personId = personId,
                 onOpenItemDetail = { itemContentId ->
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route)
+                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -712,7 +757,9 @@ fun TvAppNavigation(
                 collectionId = collectionId,
                 title = title,
                 onItemClick = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route)
+                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -738,7 +785,9 @@ fun TvAppNavigation(
                 collectionId = collectionId,
                 title = title,
                 onItemClick = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route)
+                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onBack = { navController.popBackStack() },
             )
