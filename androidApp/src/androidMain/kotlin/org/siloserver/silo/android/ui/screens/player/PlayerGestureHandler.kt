@@ -4,24 +4,45 @@ import android.content.Context
 import android.media.AudioManager
 import android.view.Window
 import android.view.WindowManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -33,8 +54,8 @@ import kotlin.math.hypot
  *
  * Supported gestures:
  * - Single tap center: toggle controls visibility
- * - Double-tap left third: skip back 10 seconds
- * - Double-tap right third: skip forward 10 seconds
+ * - Double-tap left 35% zone: skip back 10 seconds (with a flash badge)
+ * - Double-tap right 35% zone: skip forward 10 seconds (with a flash badge)
  * - Hold: temporary 2x playback while held
  * - Two-finger pinch: cycle video gravity Fit -> Fill -> Stretch
  * - Vertical swipe in the left edge zone: brightness adjustment
@@ -69,6 +90,24 @@ fun PlayerGestureHandler(
     var seekDragStartPosition by remember { mutableDoubleStateOf(0.0) }
     var seekDragAccumulator by remember { mutableFloatStateOf(0f) }
     var suppressTapAfterFastForwardHold by remember { mutableStateOf(false) }
+
+    // Double-tap skip feedback (iOS MobilePlayerGestureLayer skipFlash parity):
+    // the badge appears instantly, holds 700ms, then fades out. The nonce makes
+    // rapid re-taps restart the hold timer; the retained copy keeps content
+    // rendered through the exit fade (same pattern as the Up Next card).
+    var skipFlash by remember { mutableStateOf<SkipFlash?>(null) }
+    var retainedSkipFlash by remember { mutableStateOf<SkipFlash?>(null) }
+    var skipFlashNonce by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(skipFlash) {
+        if (skipFlash != null) {
+            retainedSkipFlash = skipFlash
+            delay(SkipFlashHoldMs)
+            skipFlash = null
+        } else {
+            delay(220)
+            retainedSkipFlash = null
+        }
+    }
 
     Box(
         modifier = modifier
@@ -130,10 +169,19 @@ fun PlayerGestureHandler(
                     },
                     onDoubleTap = { offset ->
                         suppressTapAfterFastForwardHold = false
-                        val thirdWidth = size.width / 3f
+                        // iOS skipZoneFraction (0.35): outer bands skip ±10s
+                        // with a flash badge; the middle band keeps the
+                        // controls toggle.
+                        val skipZoneWidth = size.width * SkipZoneFraction
                         when {
-                            offset.x < thirdWidth -> onSkipBackward()
-                            offset.x > thirdWidth * 2 -> onSkipForward()
+                            offset.x < skipZoneWidth -> {
+                                onSkipBackward()
+                                skipFlash = SkipFlash(forward = false, nonce = ++skipFlashNonce)
+                            }
+                            offset.x > size.width - skipZoneWidth -> {
+                                onSkipForward()
+                                skipFlash = SkipFlash(forward = true, nonce = ++skipFlashNonce)
+                            }
                             else -> onToggleControls()
                         }
                     },
@@ -199,11 +247,65 @@ fun PlayerGestureHandler(
                         seekDragAccumulator += dragAmount
                     },
                 )
+            },
+    ) {
+        // Double-tap skip flash badge — vertically centered in the tapped
+        // half (iOS positions it at 18% / 82% of the width; the edge padding
+        // approximates that). Non-interactive: it sits under no pointer
+        // handlers of its own and gestures keep flowing to this Box.
+        val flash = retainedSkipFlash
+        if (flash != null) {
+            AnimatedVisibility(
+                visible = skipFlash != null,
+                enter = fadeIn(),
+                exit = fadeOut(animationSpec = tween(durationMillis = 200)),
+                modifier = Modifier
+                    .align(if (flash.forward) Alignment.CenterEnd else Alignment.CenterStart)
+                    .padding(horizontal = 56.dp),
+            ) {
+                SkipFlashBadge(forward = flash.forward)
             }
-    )
+        }
+    }
+}
+
+/**
+ * iOS `skipFlashView` parity: a 74dp circle with the circular-arrow skip
+ * glyph above a "+10s"/"−10s" caption.
+ */
+@Composable
+private fun SkipFlashBadge(forward: Boolean) {
+    Column(
+        modifier = Modifier
+            .size(74.dp)
+            .background(color = Color.Black.copy(alpha = 0.55f), shape = CircleShape),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = if (forward) Icons.Filled.Forward10 else Icons.Filled.Replay10,
+            contentDescription = if (forward) "Skipped forward 10 seconds" else "Skipped back 10 seconds",
+            tint = Color.White,
+            modifier = Modifier.size(26.dp),
+        )
+        Text(
+            text = if (forward) "+10s" else "−10s",
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
 }
 
 private const val PinchGravityThreshold = 1.16f
+
+/** iOS skipZoneFraction: outer double-tap bands (35% each side) skip ±10s. */
+private const val SkipZoneFraction = 0.35f
+
+/** iOS skip flash hold before the fade-out begins. */
+private const val SkipFlashHoldMs = 700L
+
+private data class SkipFlash(val forward: Boolean, val nonce: Long)
 
 private enum class VerticalDragMode { None, Brightness, Volume, DismissCandidate }
 
