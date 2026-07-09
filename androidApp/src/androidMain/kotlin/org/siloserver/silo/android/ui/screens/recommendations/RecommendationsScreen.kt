@@ -29,11 +29,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.siloserver.silo.android.ui.screens.personal.FavoritesGridContent
 import org.siloserver.silo.android.ui.screens.personal.WatchlistGridContent
 import androidx.compose.ui.Alignment
@@ -67,6 +72,27 @@ fun RecommendationsScreen(
     viewModel: RecommendationsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Self-heal the "For You" fallback. The shared VM loads only in init{} and
+    // survives tab switches (saveState/restoreState), so an empty server
+    // response would otherwise leave the tab dead until a profile switch or
+    // restart. Re-load on ON_RESUME whenever the feed is still empty — returning
+    // to the tab after watching something re-fetches without any user action.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentState by rememberUpdatedState(state)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                currentState.sections.isEmpty() &&
+                !currentState.isLoading &&
+                !currentState.isRefreshing
+            ) {
+                viewModel.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     when {
         state.isLoading && state.sections.isEmpty() -> {
@@ -126,6 +152,16 @@ fun RecommendationsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                // Explicit retry so the fallback is recoverable in place — the
+                // embedded grids below carry their own pull-to-refresh, so we do
+                // NOT wrap them in another PullToRefreshBox (nesting misbehaves).
+                OutlinedButton(
+                    onClick = { viewModel.refresh() },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    Text("Check again")
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 when (savedListSelection) {
                     SavedList.Watchlist -> WatchlistGridContent(
