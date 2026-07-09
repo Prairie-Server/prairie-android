@@ -13,6 +13,7 @@ import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
@@ -140,6 +141,26 @@ class SiloPlayerFactory(
         }.apply {
             setExtensionRendererMode(extensionMode)
             setEnableDecoderFallback(true)
+            // Force the HARDWARE HEVC decoder even when it reports "NoSupport" for
+            // an unusual profile/level. Some encodes (e.g. an odd-resolution 4K
+            // Main10 title) are rejected by the capability check yet decode fine in
+            // hardware — an NVIDIA Shield plays them, and so does the Pixel's Tensor
+            // decoder (`c2.google.hevc.decoder`, hardware-accelerated) once it's
+            // actually handed the stream. Without this, Media3 avoids the hardware
+            // decoder and falls to Android's software HEVC path, whose 10-bit HDR
+            // output is undisplayable (black). Handing the video renderer only the
+            // hardware-accelerated HEVC decoders makes it use that instead;
+            // decoder fallback stays on, and if no hardware decoder exists we hand
+            // back the full list so nothing regresses.
+            setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                val infos = MediaCodecSelector.DEFAULT
+                    .getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
+                if (mimeType == MimeTypes.VIDEO_H265) {
+                    infos.filter { it.hardwareAccelerated }.ifEmpty { infos }
+                } else {
+                    infos
+                }
+            }
         }
 
         val trackSelector = DefaultTrackSelector(context).apply {

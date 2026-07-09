@@ -178,20 +178,24 @@ class MpvPlayerSourceTest {
     }
 
     @Test
-    fun mpvPlayerKeepsVideoOutputAliveAcrossSurfaceTransitions() {
+    fun mpvPlayerGatesVideoOutputOnSurface() {
+        // vo (video output) is gated on the surface, mirroring mpv-android: init
+        // starts with vo="null", the real vo is enabled only once a surface
+        // attaches, and it is nulled again on detach. Hard-setting vo up front made
+        // a surface-less start fatal the video output permanently.
         val text = source.readText()
         val attachBody = text.substringAfter("private fun attachVideoSurface(surface: Surface?)")
-            .substringBefore("private fun detachVideoSurface")
+            .substringBefore("private fun applySurfaceFrameRate")
         val detachBody = text.substringAfter("private fun detachVideoSurface(surface: Surface?)")
-            .substringBefore("private fun updateVideoSurfaceSize")
+            .substringBefore("private fun resetVideoSurfaceSize")
 
+        assertTrue(text.contains("setOptionString(\"vo\", \"null\")"))
         assertTrue(attachBody.contains("mpv.attachSurface(surface)"))
         assertTrue(attachBody.contains("setOptionString(\"force-window\", \"yes\")"))
-        assertTrue(!attachBody.contains("setOptionString(\"vo\", videoOutput)"))
+        assertTrue(attachBody.contains("setPropertyString(\"vo\", videoOutput)"))
+        assertTrue(detachBody.contains("setPropertyString(\"vo\", \"null\")"))
+        assertTrue(detachBody.contains("setOptionString(\"force-window\", \"no\")"))
         assertTrue(detachBody.contains("mpv.detachSurface()"))
-        assertTrue(!detachBody.contains("setOptionString(\"vid\", \"no\")"))
-        assertTrue(!detachBody.contains("setOptionString(\"vo\", \"null\")"))
-        assertTrue(!detachBody.contains("setOptionString(\"force-window\", \"no\")"))
     }
 
     @Test
