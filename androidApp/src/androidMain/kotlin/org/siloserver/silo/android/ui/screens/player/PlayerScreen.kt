@@ -396,9 +396,14 @@ fun PlayerScreen(
     // opt-out (HUD lock toggle / synced setting) falls back to USER so the
     // system rotation preference stays in charge. Released on exit by the
     // immersive effect's originalOrientation restore above.
-    val orientationLocked by viewModel.orientationLocked.collectAsState()
-    LaunchedEffect(activity, orientationLocked) {
-        activity?.requestedOrientation = if (orientationLocked) {
+    // Wait for the persisted preference before touching the activity: the
+    // resolved flow is null until it arrives, and applying the eager locked
+    // default on the first frame would snap rotateFreely users back to
+    // landscape on every player entry.
+    val orientationLockedResolved by viewModel.orientationLockedResolved.collectAsState()
+    LaunchedEffect(activity, orientationLockedResolved) {
+        val locked = orientationLockedResolved ?: return@LaunchedEffect
+        activity?.requestedOrientation = if (locked) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
             ActivityInfo.SCREEN_ORIENTATION_USER

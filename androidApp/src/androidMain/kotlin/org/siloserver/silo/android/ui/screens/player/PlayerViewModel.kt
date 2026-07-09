@@ -336,9 +336,19 @@ class PlayerViewModel(
     // landscape-locked; "rotateFreely" is the persisted opt-out written by the
     // HUD lock toggle. Any other stored value (including the legacy "auto"
     // default) locks, matching iOS's landscapeLocked default on new clients.
+    // Display flow (HUD lock icon/label, toggle): never null — the eager `true`
+    // default just means the lock icon shows locked until the setting resolves.
     val orientationLocked: StateFlow<Boolean> = playerSettingsStore.orientationModeFlow
         .map { it != ORIENTATION_MODE_ROTATE_FREELY }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    // Apply flow: same resolution, but null until the persisted preference has
+    // actually arrived. PlayerScreen keys its requestedOrientation effect on
+    // this and does NOTHING while null — the factory-scoped VM's first frame
+    // would otherwise report the eager locked default and snap rotateFreely
+    // users back to SENSOR_LANDSCAPE on every player entry.
+    val orientationLockedResolved: StateFlow<Boolean?> = playerSettingsStore.orientationModeFlow
+        .map { it != ORIENTATION_MODE_ROTATE_FREELY }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val autoSkipIntroEnabled: StateFlow<Boolean> = playerSettingsStore.autoSkipIntroFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val autoPlayNextEnabled: StateFlow<Boolean> = playerSettingsStore.autoPlayNextFlow
@@ -363,9 +373,11 @@ class PlayerViewModel(
     private var pendingApproachingEndVideoEnded: Boolean? = null
     private var upNextCountdownJob: Job? = null
     private var engineSwitchFallbackAttempted = false
-    // Prevents a failed version switch from recursing while it restores the
-    // previously-playing version.
-    private var versionSwitchRecovering = false
+    // Auto-dismiss timer for the transient version-switch failure pill. A new
+    // failure cancels the prior job so a stale one can't clear the fresh
+    // message early (repeated identical failures used to be dismissed within a
+    // second by an uncancelled, message-equality-gated coroutine).
+    private var versionSwitchMessageJob: Job? = null
     private var persistNextSubtitleSelection = false
 
     // Recovery ladder state — mirrors TvPlayerViewModel. The planner picks the
@@ -636,8 +648,31 @@ class PlayerViewModel(
             ?: watchDetail?.let { findPreferredVersion(it, preferredFileId, null) }
             ?: 0
         val version = versions.getOrNull(versionIndex)
+        // Resolve the detail screen's explicit pick FIRST: the persisted/auto
+        // chain below is suppressed only when the pick actually RESOLVES, so an
+        // unmatchable pick falls through to persisted → auto instead of Off.
+        // The pick is an ordinal into the catalog subtitle list — translate it
+        // onto the mounted list before selecting (TV parity); using it raw
+        // either missed range (subtitles stayed off) or selected the wrong
+        // track. resolveInitialMobileSubtitleOrdinal returns null when a real
+        // pick can't be matched to the mounted list; it maps an explicit -1
+        // (deliberate Off from the detail page) to -1, a resolved pick that is
+        // honored and persisted like any other explicit choice.
+        val requestedSubtitleIndex = initialSubtitleTrackIndex?.let { requested ->
+            resolveInitialMobileSubtitleOrdinal(
+                requestedOrdinal = requested,
+                catalogTracks = version?.subtitleTracks.orEmpty(),
+                mountedSubtitles = playbackState.subtitleUrls,
+            )
+        }
+        // A RESOLVED explicit pick (including an explicit -1 Off) wins over the
+        // persisted/auto chain. A pick that failed to resolve (null) does NOT
+        // suppress it — otherwise one unmatchable pick would strand playback on
+        // Off and (via onSubtitleSelectionApplied) persist that Off for every
+        // future playback.
+        val explicitSubtitlePickResolved = requestedSubtitleIndex != null
         val localTrackSelection = version?.fileId
-            ?.takeIf { initialAudioTrackIndex == null || initialSubtitleTrackIndex == null }
+            ?.takeIf { initialAudioTrackIndex == null || !explicitSubtitlePickResolved }
             ?.let { fileId -> userItemStatePort.localTrackSelection(playbackState.contentId, fileId) }
         val persistedAudioIndex = if (initialAudioTrackIndex == null) {
             version?.audioTracks
@@ -645,7 +680,7 @@ class PlayerViewModel(
         } else {
             null
         }
-        val persistedSubtitleIndex = if (initialSubtitleTrackIndex == null) {
+        val persistedSubtitleIndex = if (!explicitSubtitlePickResolved) {
             // Selections are recorded against the MOUNTED subtitle list
             // (onSubtitleSelectionApplied fingerprints uiState.subtitleTracks,
             // i.e. PlayerSubtitleInfo) — restore against the same list. The
@@ -659,7 +694,7 @@ class PlayerViewModel(
         } else {
             null
         }
-        val autoSubtitleSelection = if (initialSubtitleTrackIndex == null && persistedSubtitleIndex == null) {
+        val autoSubtitleSelection = if (!explicitSubtitlePickResolved && persistedSubtitleIndex == null) {
             resolveMobileAutoSubtitleSelection(
                 audioTracks = version?.audioTracks ?: emptyList(),
                 selectedAudioIndex = playbackState.audioTrackIndex,
@@ -671,17 +706,6 @@ class PlayerViewModel(
         } else {
             MobileSubtitleAutoSelection.NoChange
         }
-        // The detail screen's pick is an ordinal into the catalog subtitle
-        // list — translate it onto the mounted list before selecting (TV
-        // parity); using it raw either missed range (subtitles stayed off)
-        // or selected the wrong track.
-        val requestedSubtitleIndex = initialSubtitleTrackIndex?.let { requested ->
-            resolveInitialMobileSubtitleOrdinal(
-                requestedOrdinal = requested,
-                catalogTracks = version?.subtitleTracks.orEmpty(),
-                mountedSubtitles = playbackState.subtitleUrls,
-            )
-        }
         val resolvedSubtitleIndex = requestedSubtitleIndex
             ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
             ?: persistedSubtitleIndex
@@ -692,7 +716,9 @@ class PlayerViewModel(
                 MobileSubtitleAutoSelection.Disable -> -1
                 MobileSubtitleAutoSelection.NoChange -> -1
             }
-        persistNextSubtitleSelection = initialSubtitleTrackIndex != null || persistedSubtitleIndex != null
+        // Persist only a resolved explicit pick or a restored persisted choice —
+        // never an Off produced by a failed explicit pick.
+        persistNextSubtitleSelection = explicitSubtitlePickResolved || persistedSubtitleIndex != null
 
         _uiState.update {
             it.copy(
@@ -2003,11 +2029,22 @@ class PlayerViewModel(
      * Select a different file version for playback.
      * Stops the current session and starts a new one with the selected version.
      */
-    fun onSelectVersion(index: Int) {
+    fun onSelectVersion(index: Int) = startVersionPlayback(index)
+
+    /**
+     * Starts playback of [versions][index]. [isRecovery] marks a re-start of the
+     * previously-playing version after a failed switch: it skips the "already on
+     * this version" dedupe (recovery re-selects the version the failed attempt
+     * had already written into selectedVersionIndex) and tells
+     * [failVersionSwitch] that a further failure is terminal. Recovery never
+     * writes an invalid selectedVersionIndex — the dedupe is bypassed by the
+     * flag, not by a sentinel.
+     */
+    private fun startVersionPlayback(index: Int, isRecovery: Boolean = false) {
         val currentState = _uiState.value
         val versions = currentState.versions
         if (index < 0 || index >= versions.size) return
-        if (index == currentState.selectedVersionIndex) return
+        if (!isRecovery && index == currentState.selectedVersionIndex) return
 
         val previousVersionIndex = currentState.selectedVersionIndex
         val currentPosition = currentState.position
@@ -2082,13 +2119,14 @@ class PlayerViewModel(
                             )) {
                                 is ApiResult.Success -> fallback.data
                                 is ApiResult.Error -> {
-                                    failVersionSwitch(previousVersionIndex, fallback.message)
+                                    failVersionSwitch(previousVersionIndex, fallback.message, isRecovery)
                                     return@launch
                                 }
                                 is ApiResult.NetworkError -> {
                                     failVersionSwitch(
                                         previousVersionIndex,
                                         fallback.exception.message ?: "Network error",
+                                        isRecovery,
                                     )
                                     return@launch
                                 }
@@ -2147,51 +2185,62 @@ class PlayerViewModel(
                     // sessionId/fileId so any prior cancellation does not carry over.
                     startIntroAutoSkipObserver()
                 }
-                is ApiResult.Error -> failVersionSwitch(previousVersionIndex, result.message)
+                is ApiResult.Error -> failVersionSwitch(previousVersionIndex, result.message, isRecovery)
                 is ApiResult.NetworkError ->
-                    failVersionSwitch(previousVersionIndex, result.exception.message ?: "Network error")
+                    failVersionSwitch(
+                        previousVersionIndex,
+                        result.exception.message ?: "Network error",
+                        isRecovery,
+                    )
             }
         }
     }
 
     /**
      * Handles a failed quality/version switch. The requested version's session
-     * was already stopped, so rather than stranding the viewer on a black
-     * error screen we surface a dismissable message and restart the version
-     * that was playing. [versionSwitchRecovering] guards against recursion if
-     * the restore itself were to fail.
+     * was already stopped.
+     *
+     * On the FIRST failure ([isRecovery] false) we surface a dismissable pill
+     * and restart the version that was playing via
+     * [startVersionPlayback]`(previousIndex, isRecovery = true)`. If that
+     * recovery restart ALSO fails ([isRecovery] true) the player is genuinely
+     * dead — no session, stale streamUrl — so we raise a persistent error
+     * screen (pre-PR behavior) rather than a transient pill that leaves a
+     * black player behind.
      */
-    private fun failVersionSwitch(previousIndex: Int, rawReason: String) {
-        val message = humanizeVersionSwitchFailure(rawReason)
-        if (versionSwitchRecovering) {
-            // The restore attempt also failed — give up gracefully with a
-            // non-fatal message rather than looping.
-            versionSwitchRecovering = false
-            _uiState.update { it.copy(isLoading = false, versionSwitchMessage = message) }
+    private fun failVersionSwitch(previousIndex: Int, rawReason: String, isRecovery: Boolean) {
+        if (isRecovery) {
+            versionSwitchMessageJob?.cancel()
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    versionSwitchMessage = null,
+                    error = "Failed to switch version: $rawReason",
+                )
+            }
             return
         }
-        _uiState.update { it.copy(versionSwitchMessage = message) }
+        showVersionSwitchMessage(humanizeVersionSwitchFailure(rawReason))
         val versions = _uiState.value.versions
         if (previousIndex in versions.indices) {
-            // Force a distinct selectedVersionIndex so onSelectVersion doesn't
-            // early-return, then restart the previously-working version.
-            versionSwitchRecovering = true
-            _uiState.update { it.copy(selectedVersionIndex = -1) }
-            onSelectVersion(previousIndex)
-            versionSwitchRecovering = false
+            startVersionPlayback(previousIndex, isRecovery = true)
         } else {
             _uiState.update { it.copy(isLoading = false) }
         }
-        // Auto-dismiss the pill after a few seconds.
-        viewModelScope.launch {
+    }
+
+    /**
+     * Shows the transient version-switch pill and (re)arms its 4s auto-dismiss.
+     * A single [versionSwitchMessageJob] is held and cancelled before each new
+     * timer so a stale coroutine can never dismiss the current message early;
+     * once armed the timer clears the message unconditionally.
+     */
+    private fun showVersionSwitchMessage(message: String) {
+        versionSwitchMessageJob?.cancel()
+        _uiState.update { it.copy(versionSwitchMessage = message) }
+        versionSwitchMessageJob = viewModelScope.launch {
             kotlinx.coroutines.delay(4000)
-            _uiState.update { current ->
-                if (current.versionSwitchMessage == message) {
-                    current.copy(versionSwitchMessage = null)
-                } else {
-                    current
-                }
-            }
+            _uiState.update { it.copy(versionSwitchMessage = null) }
         }
     }
 
@@ -2206,6 +2255,7 @@ class PlayerViewModel(
 
     /** Dismisses the transient version-switch message. */
     fun dismissVersionSwitchMessage() {
+        versionSwitchMessageJob?.cancel()
         _uiState.update { it.copy(versionSwitchMessage = null) }
     }
 
