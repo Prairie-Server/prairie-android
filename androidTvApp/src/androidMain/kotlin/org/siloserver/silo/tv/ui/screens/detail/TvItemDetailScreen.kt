@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.CheckCircle
@@ -202,9 +203,19 @@ private fun TvDetailContent(
         runCatching { playFocus.requestFocus() }
     }
 
-    val showsEpisodeRail = detail.type in setOf("series", "season", "episode") &&
-        state.episodes.isNotEmpty()
-    val showsSeasonChips = detail.type in setOf("series", "season", "episode") && state.seasons.size > 1
+    val isEpisodicType = detail.type in setOf("series", "season", "episode")
+    val showsEpisodeRail = isEpisodicType && state.episodes.isNotEmpty()
+    val showsSeasonChips = isEpisodicType && state.seasons.size > 1
+    // Keep the whole Episodes section — and, crucially, the season chips —
+    // mounted whenever the series has seasons, so selecting an empty or failed
+    // season can't unmount the chips and strand the user (T15). The rail itself
+    // still renders only when there are episodes; otherwise the section shows a
+    // loading spinner or a "No episodes available" empty state.
+    val showsEpisodesSection = isEpisodicType && (state.seasons.isNotEmpty() || state.episodes.isNotEmpty())
+    // Whether a focusable episode-navigation element (the rail or the season
+    // chips) sits above the cast / similar rails — drives their
+    // Up-return-to-hero fallback.
+    val hasEpisodeNavAbove = showsEpisodeRail || showsSeasonChips
     val showsCastSection = !isAudiobook && detail.cast.isNotEmpty()
     val showsSimilarRail = !isAudiobook && detail.type != "episode" && state.moreLikeThis.isNotEmpty()
     val showsDetailsSection = !isAudiobook && remember(detail) { detail.hasTvDetailFacts() }
@@ -398,7 +409,7 @@ private fun TvDetailContent(
                             )
                         }
 
-                        if (showsEpisodeRail) {
+                        if (showsEpisodesSection) {
                             // Anchor the window when focus ENTERS the episodes
                             // section (chips or cards): both land the body at
                             // the same scroll offset, so focusing "Season N"
@@ -449,8 +460,9 @@ private fun TvDetailContent(
                                 horizontalContentPadding = Spacing.safeArea,
                                 firstItemFocusRequester = firstCastFocus,
                                 // Cast is the first body rail only when there is no
-                                // episode rail above it; Up then returns to the hero.
-                                onDirectionUp = if (showsEpisodeRail) null else returnToHero,
+                                // episode rail or season chips above it; Up then
+                                // returns to the hero.
+                                onDirectionUp = if (hasEpisodeNavAbove) null else returnToHero,
                                 onCastMemberClick = { member ->
                                     viewModel.openPerson(member, onOpenPerson)
                                 },
@@ -482,7 +494,7 @@ private fun TvDetailContent(
                                     horizontalPadding = Spacing.safeArea,
                                     rowTopPadding = 0.dp,
                                     firstItemFocusRequester = firstSimilarFocus,
-                                    onDirectionUp = if (!showsEpisodeRail && !showsCastSection) {
+                                    onDirectionUp = if (!hasEpisodeNavAbove && !showsCastSection) {
                                         returnToHero
                                     } else {
                                         null
@@ -490,7 +502,7 @@ private fun TvDetailContent(
                                     // When Similar is the first body rail (movie with no
                                     // episode rail and no cast), Up returns to the hero
                                     // Play button instead of relying on geometry.
-                                    upFocusRequester = if (!showsEpisodeRail && !showsCastSection) {
+                                    upFocusRequester = if (!hasEpisodeNavAbove && !showsCastSection) {
                                         playFocus
                                     } else {
                                         null
@@ -579,7 +591,14 @@ private fun HeroActionRow(
     // Series/season use the next-up episode's versions + the next-up selection;
     // everything else uses the container's.
     val selectorVersions = if (isSeriesOrSeason) (nextUpDetail?.versions ?: emptyList()) else detail.versions
-    val selectorSelectedFileId = if (isSeriesOrSeason) state.selectedNextUpFileId else state.selectedFileId
+    val selectorSelectedFileId = (if (isSeriesOrSeason) state.selectedNextUpFileId else state.selectedFileId)
+        // Drop a persisted/explicit fileId that no longer exists in the current
+        // version set (e.g. the file was deleted since it was pinned). Otherwise
+        // Play would launch a nonexistent fileId while the pill shows a valid
+        // fallback version — so playback and the UI diverge (T22a). Falling to
+        // null lets selectTvDetailDisplayVersion pick the pill's displayed
+        // version, keeping Play and the UI in agreement.
+        ?.takeIf { fileId -> selectorVersions.any { it.fileId == fileId } }
     val selectorAudioIndex = if (isSeriesOrSeason) state.selectedNextUpAudioIndex else state.selectedAudioIndex
     val selectorSubtitleIndex =
         if (isSeriesOrSeason) state.selectedNextUpSubtitleIndex else state.selectedSubtitleIndex
@@ -910,14 +929,44 @@ private fun EpisodesSection(
             )
         }
 
-        TvDetailEpisodeRail(
-            episodes = state.episodes,
-            currentContentId = currentEpisodeRailContentId(detail, state),
-            onEpisodeSelected = onEpisodeSelected,
-            // Up returns to the hero only when the season chips aren't above the
-            // rail (the chips own the Up traversal when present).
-            onDirectionUp = if (showsSeasonChips) null else onReturnToHero,
-        )
+        when {
+            // Spinner while a newly-selected season loads, instead of leaving the
+            // previous season's episodes under the new season header (T15b). The
+            // quiet refreshOnReturn reload does not set episodesLoading, so this
+            // never flashes on returning to the page.
+            state.episodesLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.safeArea, vertical = 24.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+            // A season that legitimately has zero episodes (or a load that failed
+            // and left nothing to show): keep the section and chips mounted and
+            // say so, rather than unmounting everything and stranding the user
+            // (T15a).
+            state.episodes.isEmpty() -> {
+                Text(
+                    text = "No episodes available",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                    color = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(horizontal = Spacing.safeArea, vertical = 8.dp),
+                )
+            }
+            else -> {
+                TvDetailEpisodeRail(
+                    episodes = state.episodes,
+                    currentContentId = currentEpisodeRailContentId(detail, state),
+                    onEpisodeSelected = onEpisodeSelected,
+                    // Up returns to the hero only when the season chips aren't above
+                    // the rail (the chips own the Up traversal when present).
+                    onDirectionUp = if (showsSeasonChips) null else onReturnToHero,
+                )
+            }
+        }
     }
 }
 

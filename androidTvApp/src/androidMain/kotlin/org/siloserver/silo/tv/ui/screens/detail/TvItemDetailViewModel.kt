@@ -285,7 +285,7 @@ class TvItemDetailViewModel(
             else -> null
         }
         val season = _uiState.value.selectedSeason
-        if (seriesId != null && season != null) loadEpisodes(seriesId, season)
+        if (seriesId != null && season != null) loadEpisodes(seriesId, season, quiet = true)
     }
 
     fun onToggleFavorite() {
@@ -444,24 +444,44 @@ class TvItemDetailViewModel(
 
     private var episodeLoadJob: kotlinx.coroutines.Job? = null
     private var moreLikeThisJob: Job? = null
+    // The season number the currently-shown episodes/next-up actually belong to.
+    // Lets a failed load revert the optimistic season selection so the chips and
+    // the rail stay consistent (T15).
+    private var loadedSeason: Int? = null
 
-    private fun loadEpisodes(seriesContentId: String, seasonNumber: Int) {
+    /**
+     * Loads a season's episodes. [quiet] suppresses the loading spinner and is
+     * used by [refreshOnReturn], whose contract is a no-flash background refresh
+     * of the season already on screen.
+     */
+    private fun loadEpisodes(seriesContentId: String, seasonNumber: Int, quiet: Boolean = false) {
         // Cancel any in-flight episode load so a slower response for a
         // previously-selected season can't overwrite episodes/next-up for the
         // season the user is now on (rapid season switches / the initial
         // firstRegular load racing a route-driven season load).
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
-            _uiState.update { it.copy(episodesLoading = true) }
+            if (!quiet) _uiState.update { it.copy(episodesLoading = true) }
             when (val r = catalogRepository.getEpisodes(seriesContentId, seasonNumber)) {
                 is ApiResult.Success -> {
                     val episodes = withLocalProgress(r.data.episodes.sortedBy { ep -> ep.episodeNumber })
+                    loadedSeason = seasonNumber
                     _uiState.update { it.copy(episodesLoading = false, episodes = episodes) }
                     refreshNextUp(episodes)
                 }
                 else -> {
-                    _uiState.update { it.copy(episodesLoading = false, episodes = emptyList()) }
-                    refreshNextUp(emptyList())
+                    // Quiet-failure contract (T15): a failed season load must NOT
+                    // wipe the episode rail / next-up already on screen (that
+                    // kills the hero Play button and the rail). Keep what's shown
+                    // and revert the optimistic season selection to the season the
+                    // loaded episodes actually belong to, so the chips and the
+                    // rail stay in agreement.
+                    _uiState.update {
+                        it.copy(
+                            episodesLoading = false,
+                            selectedSeason = loadedSeason ?: it.selectedSeason,
+                        )
+                    }
                 }
             }
         }

@@ -187,12 +187,18 @@ class TvPersonDetailViewModel(
                     it.copy(
                         isLoadingItems = false,
                         pagingError = result.message.ifBlank { "Failed to load works" },
+                        // A failed reset-load left hasMore=false, which permanently
+                        // disables loadMoreIfNeeded and dead-ends the grid on an
+                        // empty "No titles found." with no way back. Keep the paging
+                        // path alive so the load can recover (T22b).
+                        hasMore = if (reset) true else it.hasMore,
                     )
                 }
                 is ApiResult.NetworkError -> _uiState.update {
                     it.copy(
                         isLoadingItems = false,
                         pagingError = "Network error. Check your connection.",
+                        hasMore = if (reset) true else it.hasMore,
                     )
                 }
             }
