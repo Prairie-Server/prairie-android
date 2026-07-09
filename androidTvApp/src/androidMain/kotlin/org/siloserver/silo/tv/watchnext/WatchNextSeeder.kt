@@ -9,6 +9,10 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -27,6 +31,8 @@ class WatchNextSeeder(
     private val context: Context,
     private val repository: WatchNextRepository,
 ) {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun seedNow() {
         val request = OneTimeWorkRequestBuilder<WatchNextSyncWorker>()
@@ -54,15 +60,20 @@ class WatchNextSeeder(
     }
 
     fun clear() {
-        repository.clearAll()
-        // Cancel BOTH the periodic refresh and any in-flight one-shot seed —
-        // without the one-shot cancel, a seedNow() that's mid-flight when
-        // the user signs out (or switches profile) can repopulate the
-        // launcher rows immediately after [WatchNextRepository.clearAll].
+        // Cancel FIRST, then wipe. Cancel BOTH the periodic refresh and any
+        // in-flight one-shot seed — without cancelling before the wipe, a
+        // seedNow() that's mid-flight when the user signs out (or switches
+        // profile) races [WatchNextRepository.clearAll] and can re-insert the
+        // previous user's tiles onto the shared launcher after the wipe. The
+        // sync worker is cooperative (checks isStopped / ensureActive), so
+        // cancelling before the delete stops it before it can repopulate.
         WorkManager.getInstance(context).apply {
             cancelUniqueWork(WatchNextSyncWorker.UNIQUE_NAME_PERIODIC)
             cancelUniqueWork(WatchNextSyncWorker.UNIQUE_NAME_ONESHOT)
         }
+        // Cross-process ContentResolver deletes are binder I/O: run them off
+        // the caller's (main) thread so clear() stays cheap for call sites.
+        scope.launch { repository.clearAll() }
     }
 
     private val networkConstraints = Constraints.Builder()

@@ -31,16 +31,22 @@ class WatchNextSyncWorker(
             is ApiResult.NetworkError -> return@withContext Result.retry()
         }
 
-        val nowMs = System.currentTimeMillis()
+        // Cooperative cancellation: a profile switch / sign-out cancels this
+        // unique work (see WatchNextSeeder.clear). Bail out AFTER the network
+        // fetch and BEFORE writing to the shared launcher provider so a
+        // cancelled sync can't repopulate the previous profile's tiles.
+        if (isStopped) return@withContext Result.success()
+
         val fields = sections.asSequence()
             .filter { it.sectionType in WATCH_NEXT_SECTION_TYPES }
             .flatMap { section ->
                 section.items.asSequence().mapNotNull { item ->
-                    WatchNextProgramMapper.map(item, section.sectionType, nowMs)
+                    WatchNextProgramMapper.map(item, section.sectionType)
                 }
             }
             .toList()
 
+        if (isStopped) return@withContext Result.success()
         repository.diffAndApply(fields)
         Result.success()
     }
