@@ -136,6 +136,9 @@ object TvPlaybackFormatting {
         if (selectedAudioTrackIndex != null && selectedAudioTrackIndex in tracks.indices) {
             return selectedAudioTrackIndex
         }
+        // Server-resolved effective track beats the isDefault flag (Apple
+        // parity: selected → effective → default → first).
+        version?.effectiveAudioTrackIndex?.takeIf { it in tracks.indices }?.let { return it }
         val defaultIndex = tracks.indexOfFirst { it.isDefault }
         if (defaultIndex >= 0) return defaultIndex
         return 0
@@ -370,10 +373,18 @@ object TvPlaybackFormatting {
             hearingImpairedSubtitleTokenRegex.containsMatchIn(title)
     }
 
-    /** Mirrors `isBitmapSubtitleCodecOrMime` (PGS / VobSub / DVB / HDMV). */
+    /**
+     * Mirrors `isBitmapSubtitleCodecOrMime` (PGS / VobSub / DVB / HDMV).
+     * Normalization strips ALL non-alphanumerics so ffprobe names
+     * ("dvb_subtitle", "hdmv_pgs_subtitle"), short names ("dvbsub"/"dvbsubs")
+     * and Media3 mimes classify identically — Apple parity with
+     * `ApplePlaybackRoutePlanner`'s bitmap token set.
+     */
     private fun isBitmapSubtitle(codec: String?): Boolean {
-        val n = codec?.trim()?.lowercase(Locale.US)?.replace('_', '-') ?: return false
-        return n.contains("pgs") || n.contains("hdmv") || n.contains("dvd") || n.contains("dvbsubs")
+        val n = codec?.filter { it.isLetterOrDigit() }?.lowercase(Locale.US)
+            ?.takeIf { it.isNotEmpty() } ?: return false
+        return n.contains("pgs") || n.contains("hdmv") || n.contains("dvd") ||
+            n.contains("dvbsub") || n.contains("vobsub")
     }
 
     private fun subtitleTitle(track: SubtitleTrack, ordinal: Int): String {

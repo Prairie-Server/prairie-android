@@ -245,7 +245,7 @@ fun MovieDetailContent(
                             TrackSelectorRow(
                                 icon = Icons.Outlined.AudioFile,
                                 label = "Audio",
-                                value = formatAudioValueLabel(audioTracks, selectedAudioIndex),
+                                value = formatAudioValueLabel(audioTracks, selectedAudioIndex, selectedVersion?.effectiveAudioTrackIndex),
                                 onClick = { showAudioPicker = true },
                             )
                         }

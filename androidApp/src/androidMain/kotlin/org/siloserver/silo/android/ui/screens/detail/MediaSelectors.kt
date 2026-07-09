@@ -372,13 +372,20 @@ fun formatVersionValueLabel(version: FileVersion?, isAuto: Boolean): String {
  * Selector value for the Audio row, matching the iOS phone detail
  * (`DetailPlaybackFormatting.audioValueLabel` with `annotateAuto = false`):
  * the resolved track is named outright with no "Auto -" prefix, for both the
- * auto and the explicit case. Auto resolves to the file's default track, else
- * the first. [selectedIndex] null = Auto. (The annotated "Auto - <track>"
- * form is tvOS-only on Apple, so the phone omits it.)
+ * auto and the explicit case. Auto resolves to the server's effective track
+ * ([effectiveIndex] = `FileVersion.effectiveAudioTrackIndex`), else the file's
+ * default track, else the first — Apple parity: selected → effective →
+ * default → first. [selectedIndex] null = Auto. (The annotated
+ * "Auto - <track>" form is tvOS-only on Apple, so the phone omits it.)
  */
-fun formatAudioValueLabel(tracks: List<AudioTrack>, selectedIndex: Int?): String {
+fun formatAudioValueLabel(
+    tracks: List<AudioTrack>,
+    selectedIndex: Int?,
+    effectiveIndex: Int? = null,
+): String {
     if (tracks.isEmpty()) return "Unknown"
     val resolved = selectedIndex?.takeIf { it in tracks.indices }
+        ?: effectiveIndex?.takeIf { it in tracks.indices }
         ?: tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 }
         ?: 0
     return formatAudioLabel(tracks[resolved])

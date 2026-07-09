@@ -97,6 +97,45 @@ class TvPlaybackFormattingTest {
         assertTrue(opts[1].isSelected)
     }
 
+    @Test fun audioValueLabel_effectiveIndexBeatsDefaultWhenAuto() {
+        // The server-resolved effective track sits between an explicit pick and
+        // the isDefault flag (Apple parity: selected → effective → default → first).
+        val v = fileVersion(
+            audio = listOf(
+                audioTrack(codec = "aac", layout = "stereo", lang = "eng", default = true),
+                audioTrack(codec = "eac3", layout = "5.1", lang = "fre"),
+            ),
+            effectiveAudioIndex = 1,
+        )
+        assertEquals("Auto - EAC3 5.1 - French", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        // An explicit selection still wins over the effective index.
+        assertEquals("AAC Stereo - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = 0))
+    }
+
+    @Test fun audioValueLabel_outOfRangeEffectiveIndexFallsBackToDefault() {
+        val v = fileVersion(
+            audio = listOf(
+                audioTrack(codec = "aac", layout = "stereo", lang = "eng"),
+                audioTrack(codec = "eac3", layout = "5.1", lang = "fre", default = true),
+            ),
+            effectiveAudioIndex = 7,
+        )
+        assertEquals("Auto - EAC3 5.1 - French", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+    }
+
+    @Test fun audioOptions_effectiveIndexSelectedWhenNoSelection() {
+        val v = fileVersion(
+            audio = listOf(
+                audioTrack(codec = "aac", lang = "eng", default = true),
+                audioTrack(codec = "eac3", lang = "fre"),
+            ),
+            effectiveAudioIndex = 1,
+        )
+        val opts = TvPlaybackFormatting.audioOptions(v, selectedAudioTrackIndex = null)
+        assertFalse(opts[0].isSelected)
+        assertTrue(opts[1].isSelected)
+    }
+
     // --- subtitleValueLabel / subtitleOptions ---
 
     @Test fun subtitleValueLabel_offForMinusOne() {
@@ -212,6 +251,41 @@ class TvPlaybackFormattingTest {
         assertEquals("Auto - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
+    @Test fun subtitleValueLabel_autoSkipsDvbBitmapForTextTrack() {
+        // ffprobe reports DVB as "dvb_subtitle"; the old '_'→'-' normalization
+        // never matched its "dvbsubs" token, so the bitmap track leaked past
+        // the resolver's text-track preference. Alphanumeric-only
+        // normalization classifies it as bitmap (Apple token-set parity).
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(lang = "fre", codec = "dvb_subtitle"),
+                subtitleTrack(lang = "fre", codec = "subrip"),
+            ),
+        )
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(
+            preferredLanguage = "fr",
+            mode = "auto",
+            audioLanguage = "eng",
+        )
+        assertEquals("Auto - SubRip - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
+    @Test fun subtitleValueLabel_autoSkipsVobsubBitmapForTextTrack() {
+        // "vobsub" is in Apple's bitmap token set but was missing here.
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(lang = "eng", codec = "vobsub"),
+                subtitleTrack(lang = "eng", codec = "srt"),
+            ),
+        )
+        val ctx = TvPlaybackFormatting.SubtitleAutoContext(
+            preferredLanguage = "en",
+            mode = "auto",
+            audioLanguage = "jpn",
+        )
+        assertEquals("Auto - SubRip - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+    }
+
     @Test fun resolvedAudioLanguage_returnsAutoTrackLanguage() {
         val v = fileVersion(
             audio = listOf(
@@ -297,6 +371,7 @@ class TvPlaybackFormattingTest {
         container: String? = null,
         fileSize: Long = 0,
         audio: List<AudioTrack>? = null,
+        effectiveAudioIndex: Int? = null,
         subtitles: List<SubtitleTrack>? = null,
     ): FileVersion = FileVersion(
         fileId = fileId,
@@ -306,6 +381,7 @@ class TvPlaybackFormattingTest {
         container = container,
         fileSize = fileSize,
         audioTracks = audio,
+        effectiveAudioTrackIndex = effectiveAudioIndex,
         subtitleTracks = subtitles,
     )
 

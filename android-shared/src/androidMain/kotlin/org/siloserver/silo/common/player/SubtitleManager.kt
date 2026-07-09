@@ -685,18 +685,25 @@ private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
     return candidates
 }
 
+/**
+ * Bitmap (image-based) subtitle detection over codec names and mimes.
+ * Normalization strips ALL non-alphanumerics so ffprobe names
+ * ("dvb_subtitle", "hdmv_pgs_subtitle", "dvd_subtitle"), short names
+ * ("dvbsub"/"dvbsubs"/"vobsub") and the Media3 mimes
+ * (`MimeTypes.APPLICATION_PGS` / `APPLICATION_DVBSUBS`) all classify
+ * identically — Apple parity with `ApplePlaybackRoutePlanner`'s token set.
+ */
 fun isBitmapSubtitleCodecOrMime(codecOrMime: String?): Boolean {
     val normalized = codecOrMime
-        ?.trim()
+        ?.filter { it.isLetterOrDigit() }
         ?.lowercase()
-        ?.replace('_', '-')
+        ?.takeIf { it.isNotEmpty() }
         ?: return false
-    return normalized == MimeTypes.APPLICATION_PGS ||
-        normalized == MimeTypes.APPLICATION_DVBSUBS ||
-        normalized.contains("pgs") ||
+    return normalized.contains("pgs") ||
         normalized.contains("hdmv") ||
         normalized.contains("dvd") ||
-        normalized.contains("dvbsubs")
+        normalized.contains("dvbsub") ||
+        normalized.contains("vobsub")
 }
 
 private fun Format.subtitleCodecOrMime(): String? =

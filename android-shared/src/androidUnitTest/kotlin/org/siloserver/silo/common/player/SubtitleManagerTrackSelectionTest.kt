@@ -10,7 +10,9 @@ import androidx.media3.common.util.UnstableApi
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 @OptIn(UnstableApi::class)
 class SubtitleManagerTrackSelectionTest {
@@ -216,6 +218,30 @@ class SubtitleManagerTrackSelectionTest {
         assertEquals(1, configurations.size)
         assertEquals("English", configurations.single().label)
         assertEquals(MimeTypes.TEXT_VTT, configurations.single().mimeType)
+    }
+
+    @Test
+    fun bitmapSubtitleClassificationCoversFfprobeAndMedia3Names() {
+        // Apple's ApplePlaybackRoutePlanner token set (ffprobe names) plus the
+        // Media3 mimes must all classify as bitmap regardless of separator
+        // style — the old '_'→'-' normalization missed "dvb_subtitle" and
+        // never knew "vobsub" at all.
+        listOf(
+            "pgs",
+            "hdmv_pgs_subtitle",
+            "dvd_subtitle",
+            "dvb_subtitle",
+            "dvbsub",
+            "dvbsubs",
+            "vobsub",
+            MimeTypes.APPLICATION_PGS,
+            MimeTypes.APPLICATION_DVBSUBS,
+        ).forEach { codec ->
+            assertTrue(isBitmapSubtitleCodecOrMime(codec), "expected bitmap: $codec")
+        }
+        listOf("subrip", "srt", "ass", "webvtt", "mov_text", null, " ").forEach { codec ->
+            assertFalse(isBitmapSubtitleCodecOrMime(codec), "expected text: $codec")
+        }
     }
 
     private fun subtitle(
