@@ -85,29 +85,15 @@ fun PlaybackStatsSheet(
                     .verticalScroll(rememberScrollState())
                     .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onBack != null) {
-                        IconButton(
-                            onClick = {
-                                scope.launch { sheetState.hide() }
-                                onBack()
-                            },
-                            modifier = Modifier.padding(end = 4.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                contentDescription = "Back to playback settings",
-                                tint = Color.White,
-                            )
+                PlayerSheetHeader(
+                    title = "Playback Stats",
+                    onBack = onBack?.let { back ->
+                        {
+                            scope.launch { sheetState.hide() }
+                            back()
                         }
-                    }
-                    Text(
-                        text = "Playback Stats",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                    },
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Current stream",

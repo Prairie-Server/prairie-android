@@ -908,6 +908,9 @@ fun DetailFactsList(
     val rows = buildDetailFacts(detail)
     if (rows.isEmpty()) return
 
+    SectionHeader(title = "Details")
+    Spacer(modifier = Modifier.height(14.dp))
+
     // iOS PhoneDetailFactsSection: thin 1px dividers (white 0.08) between
     // rows, label 11pt bold tracking 1.2 (0.5 alpha) width 100, value 14pt
     // regular, top-aligned, hspacing 16, row vpad 12.

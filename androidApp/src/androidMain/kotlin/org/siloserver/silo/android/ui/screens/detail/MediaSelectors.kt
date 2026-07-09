@@ -392,7 +392,11 @@ fun formatSubtitleValueLabel(tracks: List<SubtitleTrack>, selectedIndex: Int?): 
         return "Auto - $resolved"
     }
     if (selectedIndex == -1) return "Off"
-    val track = tracks.getOrNull(selectedIndex) ?: return "Auto - None"
+    // A stale explicit index (track list shrank under the selection) must not
+    // claim "Auto"; fall back to the default track's label like the audio
+    // formatter does.
+    val track = tracks.getOrNull(selectedIndex)
+        ?: return tracks.firstOrNull { it.isDefault }?.let { formatSubtitleLabel(it) } ?: "None"
     return formatSubtitleLabel(track)
 }
 

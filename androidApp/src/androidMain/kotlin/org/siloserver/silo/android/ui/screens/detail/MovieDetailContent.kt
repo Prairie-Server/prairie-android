@@ -314,8 +314,8 @@ fun MovieDetailContent(
         }
 
         item(contentType = "detail-facts") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SectionHeader(title = "Details")
+            // Header renders inside DetailFactsList, gated on having facts.
+            Column {
                 DetailFactsList(detail = detail)
             }
         }
