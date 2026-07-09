@@ -97,15 +97,6 @@ sealed class Route(val route: String) {
         }
     }
 
-    /** Full contents of one home section (the "See All" target). */
-    data class HomeSectionItems(val sectionId: String) : Route(
-        "home/section/${Uri.encode(sectionId)}"
-    ) {
-        companion object {
-            const val ROUTE = "home/section/{sectionId}"
-        }
-    }
-
     data class PersonDetail(val personId: Long) : Route("person/$personId") {
         companion object {
             const val ROUTE = "person/{personId}"

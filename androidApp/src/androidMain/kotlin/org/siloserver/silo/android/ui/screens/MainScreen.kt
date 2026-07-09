@@ -239,9 +239,6 @@ fun MainScreen(
                                     ).route,
                                 )
                             },
-                            onSeeAllClick = { sectionId ->
-                                navController.navigate(Route.HomeSectionItems(sectionId).route)
-                            },
                             viewModel = homeViewModel,
                             activeProfile = headerState.activeProfile,
                             onSearchClick = { navController.navigate(Route.Search().route) },

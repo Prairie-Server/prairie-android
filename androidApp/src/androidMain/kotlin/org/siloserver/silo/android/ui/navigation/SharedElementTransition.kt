@@ -5,7 +5,12 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
 /**
@@ -40,6 +45,37 @@ val LocalNavAnimatedVisibilityScope = compositionLocalOf<AnimatedVisibilityScope
 fun heroSharedKey(contentId: String): String = "hero-$contentId"
 
 /**
+ * Per-screen registry that lets only ONE visible node own a hero key at a
+ * time. The same item can appear in several home rows at once (Continue
+ * Watching + a genre row); if both register `sharedBounds` under the same key,
+ * the transition machinery treats them as a match and "morphs" between two
+ * live cards — posters flicker and draw into the overlay above everything
+ * while scrolling. Screens that can show duplicates provide a registry; the
+ * first composed instance claims the key (released on dispose), later
+ * duplicates render as plain cards — they still navigate, just without the
+ * morph. The detail screen provides no registry, so the hero target always
+ * registers and pairs with whichever card holds the claim.
+ */
+class HeroClaimRegistry {
+    private val owners = mutableMapOf<String, Any>()
+
+    fun tryClaim(key: String, owner: Any): Boolean {
+        val current = owners[key]
+        if (current == null) {
+            owners[key] = owner
+            return true
+        }
+        return current === owner
+    }
+
+    fun release(key: String, owner: Any) {
+        if (owners[key] === owner) owners.remove(key)
+    }
+}
+
+val LocalHeroClaimRegistry = compositionLocalOf<HeroClaimRegistry?> { null }
+
+/**
  * Tags this node as the hero shared element for [contentId]. When both the
  * shared-transition scope and a destination visibility scope are available, a
  * source (poster) and target (detail backdrop) carrying the same id animate their
@@ -56,6 +92,20 @@ fun Modifier.heroSharedBounds(contentId: String?): Modifier {
     if (contentId.isNullOrBlank()) return this
     val sharedScope = LocalSharedTransitionScope.current ?: return this
     val visibilityScope = LocalNavAnimatedVisibilityScope.current ?: return this
+    val registry = LocalHeroClaimRegistry.current
+    if (registry != null) {
+        val key = heroSharedKey(contentId)
+        val owner = remember { Any() }
+        var claimed by remember(key) { mutableStateOf(false) }
+        DisposableEffect(key) {
+            claimed = registry.tryClaim(key, owner)
+            onDispose {
+                registry.release(key, owner)
+                claimed = false
+            }
+        }
+        if (!claimed) return this
+    }
     return with(sharedScope) {
         this@heroSharedBounds.sharedBounds(
             sharedContentState = rememberSharedContentState(key = heroSharedKey(contentId)),

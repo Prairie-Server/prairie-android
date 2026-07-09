@@ -424,17 +424,6 @@ fun AppNavigation(
         }
 
         // ---- Requests ----
-        composable(
-            route = Route.HomeSectionItems.ROUTE,
-        ) {
-            org.siloserver.silo.android.ui.screens.home.HomeSectionItemsScreen(
-                onItemClick = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
-                },
-                onBackClick = { navController.popBackStack() },
-            )
-        }
-
         composable(Route.Requests.route) {
             RequestsScreen(
                 onBackClick = { navController.popBackStack() },

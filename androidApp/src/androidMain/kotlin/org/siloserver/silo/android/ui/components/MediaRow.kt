@@ -18,6 +18,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +54,9 @@ fun MediaRow(
     title: String,
     items: List<SectionItem>,
     onItemClick: (String) -> Unit,
+    /** Direct-resume action for the backdrop card's center play glyph;
+     *  null keeps the glyph decorative. Never applied to book items. */
+    onItemPlay: ((SectionItem) -> Unit)? = null,
     onSeeAllClick: (() -> Unit)? = null,
     showProgress: Boolean = false,
     cardStyle: CardStyle = CardStyle.Poster,
@@ -137,6 +143,15 @@ fun MediaRow(
             }
         }
 
+        // Horizontal rows live inside the vertically scrolling feed; with stock
+        // touch slop a mostly-vertical drag that wobbles sideways gets captured
+        // by the row and the feed "sticks". Raising slop only inside the row
+        // demands clearer horizontal intent before the row claims the gesture —
+        // the parent column (outside this provider) keeps stock sensitivity.
+        val rowViewConfiguration = remember(LocalViewConfiguration.current) {
+            HorizontalBiasViewConfiguration(LocalViewConfiguration.current)
+        }
+        CompositionLocalProvider(LocalViewConfiguration provides rowViewConfiguration) {
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -163,6 +178,11 @@ fun MediaRow(
                             actions = cardActions(item),
                             overlayIcon = if (rowItem.isBook) Icons.AutoMirrored.Filled.MenuBook else Icons.Default.PlayArrow,
                             overlayContentDescription = if (rowItem.isBook) "Read" else "Play",
+                            onOverlayClick = if (!rowItem.isBook && onItemPlay != null) {
+                                { onItemPlay(item) }
+                            } else {
+                                null
+                            },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -185,5 +205,18 @@ fun MediaRow(
                 }
             }
         }
+        }
     }
+}
+
+
+/**
+ * [ViewConfiguration] that inflates touch slop for content that scrolls
+ * horizontally inside a vertical feed, so incidental sideways wobble during a
+ * vertical drag doesn't lock the gesture to the row.
+ */
+private class HorizontalBiasViewConfiguration(
+    private val base: ViewConfiguration,
+) : ViewConfiguration by base {
+    override val touchSlop: Float get() = base.touchSlop * 1.75f
 }
