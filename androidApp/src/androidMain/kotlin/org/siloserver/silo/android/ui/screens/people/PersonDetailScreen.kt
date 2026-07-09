@@ -30,7 +30,9 @@ import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,6 +76,7 @@ private val LargePadding = 24.dp
  *   - top header: 132dp portrait + name + metadata badges + bio
  *   - filmography: filter row (All / Movies / Series) → poster grid
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonDetailScreen(
     onBackClick: () -> Unit,
@@ -98,6 +101,11 @@ fun PersonDetailScreen(
                 )
             }
             state.person != null -> {
+                PullToRefreshBox(
+                    isRefreshing = state.isLoading,
+                    onRefresh = { viewModel.reload() },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                 PersonDetailContent(
                     person = state.person!!,
                     isRefreshingMetadata = state.isRefreshingMetadata,
@@ -112,6 +120,7 @@ fun PersonDetailScreen(
                     onLoadMore = viewModel::loadMoreIfNeeded,
                     onItemClick = onItemClick,
                 )
+                }
             }
             else -> Unit
         }
@@ -427,12 +436,10 @@ private fun FilterChip(
 
 @Composable
 private fun ExternalProfileSection(person: Person) {
+    // Provider ids (TMDB/IMDb/TVDB/Plex) are internal bookkeeping; no other
+    // client surfaces them. Only the homepage is user-facing.
     val rows = buildList {
         person.homepage?.trim()?.takeIf { it.isNotBlank() }?.let { add("Homepage" to it) }
-        person.tmdbId?.trim()?.takeIf { it.isNotBlank() }?.let { add("TMDB" to it) }
-        person.imdbId?.trim()?.takeIf { it.isNotBlank() }?.let { add("IMDb" to it) }
-        person.tvdbId?.trim()?.takeIf { it.isNotBlank() }?.let { add("TVDB" to it) }
-        person.plexGuid?.trim()?.takeIf { it.isNotBlank() }?.let { add("Plex" to it) }
     }
     if (rows.isEmpty()) return
     FlowRow(

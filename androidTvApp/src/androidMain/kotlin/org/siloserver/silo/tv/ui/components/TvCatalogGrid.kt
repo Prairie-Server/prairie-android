@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,7 +22,9 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -29,6 +32,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Button
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.catalog.BrowseItem
@@ -78,10 +83,23 @@ fun TvCatalogGrid(
 ) {
     val gridState: LazyGridState = rememberLazyGridState()
 
-    // Trigger pagination when the user is within 6 items of the end.
+    // Backoff gate against an endless load-more retry storm. When a load-more
+    // completes without growing the list while the server still reports more
+    // pages, the request effectively failed (the consuming ViewModel clears its
+    // loading flag but keeps `hasMore` true, and surfaces the error only when the
+    // list is empty). Without a gate the derived trigger re-arms one doomed
+    // request per round-trip forever. We latch the item count we last asked for
+    // so the trigger will not re-fire until the list actually grows — the user
+    // re-attempts through the focusable retry footer below instead.
+    var loadMoreRequestedSize by remember { mutableStateOf(-1) }
+
+    // Trigger pagination when the user is within 6 items of the end. The
+    // `loadMoreRequestedSize` guard is read inside the derived state so a failed
+    // page (size unchanged) stays gated until a retry or a successful growth.
     val shouldLoadMore by remember(items.size, hasMore, isLoading) {
         derivedStateOf {
             if (!hasMore || isLoading || items.isEmpty()) return@derivedStateOf false
+            if (items.size == loadMoreRequestedSize) return@derivedStateOf false
             val lastVisible = gridState.layoutInfo.visibleItemsInfo
                 .lastOrNull()?.index ?: return@derivedStateOf false
             lastVisible >= items.size - loadMoreThreshold
@@ -89,8 +107,29 @@ fun TvCatalogGrid(
     }
 
     LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore) onLoadMore()
+        if (shouldLoadMore) {
+            loadMoreRequestedSize = items.size
+            onLoadMore()
+        }
     }
+
+    // A filter change / refresh / reset replaces the list, which can land on the
+    // same item count we last requested at. Drop the latch on any list-identity
+    // change — a new first item OR a size change (a refresh can shrink a paged
+    // list back to page size while keeping the same first item) — so a fresh
+    // list is never mistaken for a stalled page. A failed load-more changes
+    // neither key, so the gate correctly holds until the retry footer is used.
+    LaunchedEffect(items.firstOrNull()?.contentId, items.size) {
+        loadMoreRequestedSize = -1
+    }
+
+    // A page we requested has settled (not loading) without adding items while
+    // the server still claims more — treat as a stalled/failed load-more and
+    // offer an explicit, focusable retry instead of silently re-firing.
+    val loadMoreStalled = hasMore &&
+        !isLoading &&
+        items.isNotEmpty() &&
+        loadMoreRequestedSize == items.size
 
     CompositionLocalProvider(LocalBringIntoViewSpec provides TvSmoothBringIntoViewSpec) {
     LazyVerticalGrid(
@@ -158,6 +197,15 @@ fun TvCatalogGrid(
             }
         }
 
+        if (loadMoreStalled) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                // Retrying clears the gate implicitly: onLoadMore re-arms the
+                // ViewModel, and a successful page grows the list so the derived
+                // trigger resumes automatic paging.
+                TvLoadMoreRetryFooter(onRetry = onLoadMore)
+            }
+        }
+
         if (isLoading) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Box(
@@ -171,6 +219,40 @@ fun TvCatalogGrid(
             }
         }
     }
+    }
+}
+
+/**
+ * Focusable "load more failed, tap to retry" footer. Rendered full-span at the
+ * tail of the grid when a load-more page stalls (see [loadMoreStalled] in
+ * [TvCatalogGrid]) so the paging error is recoverable with the D-pad instead of
+ * spinning forever or dead-ending the grid.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvLoadMoreRetryFooter(onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Couldn't load more",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = onRetry,
+                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+            ) {
+                Text("Retry", style = MaterialTheme.typography.labelLarge)
+            }
+        }
     }
 }
 

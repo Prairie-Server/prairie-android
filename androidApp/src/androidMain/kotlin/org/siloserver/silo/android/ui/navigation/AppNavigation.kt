@@ -424,17 +424,6 @@ fun AppNavigation(
         }
 
         // ---- Requests ----
-        composable(
-            route = Route.HomeSectionItems.ROUTE,
-        ) {
-            org.siloserver.silo.android.ui.screens.home.HomeSectionItemsScreen(
-                onItemClick = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
-                },
-                onBackClick = { navController.popBackStack() },
-            )
-        }
-
         composable(Route.Requests.route) {
             RequestsScreen(
                 onBackClick = { navController.popBackStack() },
@@ -564,8 +553,10 @@ fun AppNavigation(
                         navController.navigate(Route.PersonDetail(id).route)
                     }
                 },
-                onAudiobookPlayClick = { contentId, fileId, fromStart ->
-                    navController.navigate(Route.AudiobookPlayer(contentId, fileId, fromStart).route)
+                onAudiobookPlayClick = { contentId, fileId, fromStart, startPosition ->
+                    navController.navigate(
+                        Route.AudiobookPlayer(contentId, fileId, fromStart, startPosition).route,
+                    )
                 },
                 onBookReadClick = { contentId, fileId ->
                     navController.navigate(Route.BookReader(contentId, fileId).route)
@@ -618,6 +609,11 @@ fun AppNavigation(
                 navArgument(Route.AudiobookPlayer.ARG_FROM_START) {
                     type = NavType.BoolType
                     defaultValue = false
+                },
+                navArgument(Route.AudiobookPlayer.ARG_START_POSITION) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 },
             ),
         ) {

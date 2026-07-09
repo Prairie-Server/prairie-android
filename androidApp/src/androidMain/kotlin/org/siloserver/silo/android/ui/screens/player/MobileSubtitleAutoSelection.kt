@@ -2,6 +2,7 @@ package org.siloserver.silo.android.ui.screens.player
 
 import org.siloserver.silo.common.player.isBitmapSubtitleCodecOrMime
 import org.siloserver.silo.model.catalog.AudioTrack
+import org.siloserver.silo.model.catalog.SubtitleTrack
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 
 private val hearingImpairedSubtitleTokenRegex = Regex(
@@ -72,6 +73,67 @@ internal fun resolveMobileAutoSubtitleSelection(
     return targetOrdinal
         ?.let(MobileSubtitleAutoSelection::Select)
         ?: MobileSubtitleAutoSelection.NoChange
+}
+
+/**
+ * Maps the detail screen's pre-playback subtitle pick — an ordinal into the
+ * catalog `FileVersion.subtitleTracks` list — onto the mounted subtitle list
+ * the player actually selects from (TV `resolveInitialSubtitleTrackIndex`
+ * parity). The two lists use different index spaces and orderings, so the
+ * raw ordinal previously either fell out of range (subtitles silently stayed
+ * off) or hit the wrong track. Matches by label first, then by
+ * language + forced flag + codec; unmatched picks fall back to the raw
+ * ordinal when mountable (pre-fix behavior), else null so persisted/auto
+ * selection decides.
+ */
+internal fun resolveInitialMobileSubtitleOrdinal(
+    requestedOrdinal: Int,
+    catalogTracks: List<SubtitleTrack>,
+    mountedSubtitles: List<PlayerSubtitleInfo>,
+): Int? {
+    if (requestedOrdinal == -1) return -1
+    val requested = catalogTracks.getOrNull(requestedOrdinal)
+        ?: return requestedOrdinal.takeIf { it in mountedSubtitles.indices }
+    mountedSubtitles.indexOfFirst { it.matchesCatalogSubtitle(requested) }
+        .takeIf { it >= 0 }
+        ?.let { return it }
+    return requestedOrdinal.takeIf { it in mountedSubtitles.indices }
+}
+
+private fun PlayerSubtitleInfo.matchesCatalogSubtitle(track: SubtitleTrack): Boolean {
+    val targetLabel = track.title?.trim()?.takeIf { it.isNotBlank() }
+    val mountedLabel = label?.trim()?.takeIf { it.isNotBlank() }
+    if (targetLabel != null && mountedLabel != null &&
+        mountedLabel.equals(targetLabel, ignoreCase = true)
+    ) {
+        // Duplicate titles ("English" full + "English" forced/SDH) are only
+        // told apart by the forced flag — a bare label match must not cross
+        // that boundary when the mounted order differs from the catalog's.
+        return (forced == true) == track.forced
+    }
+    val targetLanguage = normalizedSubtitleLanguage(track.language) ?: return false
+    if (normalizedSubtitleLanguage(language) != targetLanguage) return false
+    if ((forced == true) != track.forced) return false
+    val targetCodec = normalizedSubtitleCodec(track.codec)
+    val mountedCodec = normalizedSubtitleCodec(codec ?: subtitleCodecFromUrl(url))
+    return targetCodec == null || mountedCodec == null || targetCodec == mountedCodec
+}
+
+private fun normalizedSubtitleCodec(codecOrMime: String?): String? {
+    val normalized = codecOrMime
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.lowercase()
+        ?.replace('_', '-')
+        ?: return null
+    return when {
+        normalized == "ass" || normalized == "ssa" || normalized.contains("x-ssa") -> "ssa"
+        normalized == "srt" || normalized.contains("subrip") -> "srt"
+        normalized == "vtt" || normalized == "text/vtt" || normalized.contains("webvtt") -> "vtt"
+        normalized.contains("pgs") || normalized.contains("hdmv") -> "pgs"
+        normalized.contains("dvd") || normalized.contains("dvb") -> "dvd"
+        else -> normalized
+    }
 }
 
 private fun bestAutoSubtitleOrdinal(

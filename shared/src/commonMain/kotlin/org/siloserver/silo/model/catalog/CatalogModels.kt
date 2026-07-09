@@ -245,8 +245,21 @@ data class FileVersion(
     @SerialName("added_at") val addedAt: String? = null,
     @SerialName("video_tracks") val videoTracks: List<VideoTrack>? = null,
     @SerialName("audio_tracks") val audioTracks: List<AudioTrack>? = null,
+    // Server-resolved ordinal into audio_tracks for the track playback will
+    // actually use when the user has made no explicit pick — the preview rung
+    // between an explicit selection and the isDefault flag (Apple parity:
+    // selected → effective → default → first).
+    @SerialName("effective_audio_track_index") val effectiveAudioTrackIndex: Int? = null,
     @SerialName("subtitle_tracks") val subtitleTracks: List<SubtitleTrack>? = null,
-    val chapters: List<VersionChapter>? = null
+    val chapters: List<VersionChapter>? = null,
+    // --- Whole-book audiobook stitching (see org.siloserver.silo.audiobook.AudiobookTimeline) ---
+    // The server has no concept of a whole book: it sends each audiobook file as an
+    // individual FileVersion tagged `presentation_kind == "audiobook_part"` with a
+    // `presentation_part_index` (pre-sorted by index). The client stitches these parts
+    // into one virtual whole-book timeline. Defaults keep single-file items unchanged.
+    @SerialName("presentation_kind") val presentationKind: String? = null,
+    @SerialName("presentation_part_index") val presentationPartIndex: Int? = null,
+    @SerialName("presentation_part_total") val presentationPartTotal: Int? = null
 )
 
 /**

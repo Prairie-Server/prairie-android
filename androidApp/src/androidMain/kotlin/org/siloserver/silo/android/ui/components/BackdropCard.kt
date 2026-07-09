@@ -3,6 +3,7 @@ package org.siloserver.silo.android.ui.components
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -35,11 +36,28 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.model.catalog.MediaItemUserState
+
+/**
+ * Reserved height for the text block under a backdrop card: title (bodySmall)
+ * plus up to two label lines (episode subtitle + "Xm left"). Computed from the
+ * ACTUAL line heights at the current density & font scale — a fixed dp constant
+ * doesn't grow with fontScale, so accessibility text sizes (>=~1.25) sheared the
+ * last line. Every card in a row resolves the identical value (theme-driven, not
+ * content-driven), so mixed rows still align. Reserves the tallest stack (an
+ * episode card with a remaining-time line) so shorter movie cards fit too.
+ */
+private val backdropInfoBlockHeight: Dp
+    @Composable get() = with(LocalDensity.current) {
+        val typography = MaterialTheme.typography
+        typography.bodySmall.lineHeight.toDp() +
+            typography.labelSmall.lineHeight.toDp() * 2
+    }
 
 /**
  * Landscape card for "Continue Watching" / "Next Up" sections.
@@ -64,6 +82,9 @@ fun BackdropCard(
     // Center overlay glyph — play for watch/listen, a book for reading.
     overlayIcon: ImageVector = Icons.Default.PlayArrow,
     overlayContentDescription: String = "Play",
+    /** Non-null makes the center glyph a direct action (resume playback);
+     *  null keeps it decorative and the whole card opens the item page. */
+    onOverlayClick: (() -> Unit)? = null,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -112,7 +133,14 @@ fun BackdropCard(
                     .size(40.dp)
                     .align(Alignment.Center)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f)),
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .then(
+                        if (onOverlayClick != null) {
+                            Modifier.clickable(onClick = onOverlayClick)
+                        } else {
+                            Modifier
+                        },
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -139,6 +167,11 @@ fun BackdropCard(
 
         Spacer(modifier = Modifier.height(6.dp))
 
+        // Fixed-height info block: episode cards draw up to three text lines,
+        // movie cards as few as one. In a mixed row (Continue Watching) the
+        // LazyRow's height would otherwise change with whichever items are
+        // visible, bouncing every row below it during horizontal scrolls.
+        Column(modifier = Modifier.height(backdropInfoBlockHeight)) {
         if (seriesTitle != null) {
             // Episode card: show series title, then episode tag + episode title
             Text(
@@ -179,6 +212,8 @@ fun BackdropCard(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
         }
 
         MediaCardContextMenu(

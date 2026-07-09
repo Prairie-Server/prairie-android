@@ -37,6 +37,16 @@ abstract class PersonalListViewModel(
     protected val _uiState = MutableStateFlow(PersonalListUiState())
     val uiState: StateFlow<PersonalListUiState> = _uiState.asStateFlow()
 
+    /**
+     * True once the `init` load has settled with content on screen (a successful
+     * page, or a failure while items are already showing). Screens use this to
+     * gate their ON_RESUME re-fetch on "the initial load actually completed"
+     * instead of counting resume events in composition-scoped state, which is
+     * recreated (and so mis-counts) on every re-entry to the composition.
+     */
+    var hasLoadedOnce: Boolean = false
+        private set
+
     protected abstract suspend fun fetchPage(offset: Int, limit: Int): ApiResult<CatalogResponse>
 
     protected fun loadInitial() {
@@ -81,29 +91,38 @@ abstract class PersonalListViewModel(
                 else it.copy(isLoadingMore = true)
             }
             when (val r = fetchPage(offset, pageSize)) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        items = if (reset) r.data.items else it.items + r.data.items,
-                        hasMore = r.data.hasMore,
-                        total = r.data.total,
-                        error = null,
-                    )
+                is ApiResult.Success -> {
+                    hasLoadedOnce = true
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            items = if (reset) r.data.items else it.items + r.data.items,
+                            hasMore = r.data.hasMore,
+                            total = r.data.total,
+                            error = null,
+                        )
+                    }
                 }
-                is ApiResult.Error -> _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = r.message.ifBlank { "Failed to load" },
-                    )
+                is ApiResult.Error -> {
+                    if (_uiState.value.items.isNotEmpty()) hasLoadedOnce = true
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = r.message.ifBlank { "Failed to load" },
+                        )
+                    }
                 }
-                is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = "Network error: ${r.exception.message ?: "unknown"}",
-                    )
+                is ApiResult.NetworkError -> {
+                    if (_uiState.value.items.isNotEmpty()) hasLoadedOnce = true
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = "Network error: ${r.exception.message ?: "unknown"}",
+                        )
+                    }
                 }
             }
         }

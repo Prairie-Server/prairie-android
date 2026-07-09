@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.content.pm.ActivityInfo
 import android.graphics.Rect
 import android.os.SystemClock
-import android.provider.Settings
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -72,9 +71,11 @@ import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
 import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
 import org.siloserver.silo.common.player.video.isMpvPreferredOriginalPlaybackContainer
 import org.siloserver.silo.model.playback.PlayMethod
+import org.siloserver.silo.model.playback.PlaybackSourceMetadata
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
+import org.siloserver.silo.player.DolbyVisionDetection
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -83,6 +84,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.unit.sp
 
 private const val TAG = "PlayerScreen"
 
@@ -265,6 +272,7 @@ fun PlayerScreen(
                         isHardPlaybackContainer(uiState.container),
                     hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                     hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                    hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                     isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(uiState.streamUrl),
                 ),
             )
@@ -371,26 +379,7 @@ fun PlayerScreen(
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-            // Orientation policy keys off the system rotation lock so we never
-            // jump the phone sideways against the user's preference:
-            //   - Auto-rotate ON  -> SENSOR_LANDSCAPE: Play goes straight to
-            //     fullscreen landscape (the natural video orientation) instead
-            //     of letterboxing a centered band in portrait.
-            //   - Auto-rotate OFF -> USER: a locked phone keeps its current
-            //     orientation and the video letterboxes inside it, exactly as
-            //     before. (The earlier unconditional SENSOR_LANDSCAPE force-
-            //     rotated even locked phones, which is the behavior we avoid.)
-            val autoRotateEnabled = Settings.System.getInt(
-                activity.contentResolver,
-                Settings.System.ACCELEROMETER_ROTATION,
-                0,
-            ) == 1
             val originalOrientation = activity.requestedOrientation
-            activity.requestedOrientation = if (autoRotateEnabled) {
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            } else {
-                ActivityInfo.SCREEN_ORIENTATION_USER
-            }
             refreshRateMatcher.attach(activity)
 
             onDispose {
@@ -400,6 +389,25 @@ fun PlayerScreen(
             }
         } else {
             onDispose { }
+        }
+    }
+
+    // Orientation policy (iOS PlayerOrientationCoordinator parity): entering
+    // the player locks to landscape by default; the persisted "rotateFreely"
+    // opt-out (HUD lock toggle / synced setting) falls back to USER so the
+    // system rotation preference stays in charge. Released on exit by the
+    // immersive effect's originalOrientation restore above.
+    // Wait for the persisted preference before touching the activity: the
+    // resolved flow is null until it arrives, and applying the eager locked
+    // default on the first frame would snap rotateFreely users back to
+    // landscape on every player entry.
+    val orientationLockedResolved by viewModel.orientationLockedResolved.collectAsState()
+    LaunchedEffect(activity, orientationLockedResolved) {
+        val locked = orientationLockedResolved ?: return@LaunchedEffect
+        activity?.requestedOrientation = if (locked) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_USER
         }
     }
 
@@ -484,6 +492,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -558,6 +567,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -608,6 +618,10 @@ fun PlayerScreen(
             val listener = object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
+                }
+
+                override fun onRenderedFirstFrame() {
+                    viewModel.onFirstVideoFrameRendered()
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -905,6 +919,29 @@ fun PlayerScreen(
                 )
             }
         }
+
+        // Non-fatal quality/version-switch message: a dismissable pill over the
+        // still-playing video, not a fatal full-screen error.
+        uiState.versionSwitchMessage?.let { message ->
+            Surface(
+                color = Color(0xFFB45309).copy(alpha = 0.94f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp)
+                    .widthIn(max = 360.dp)
+                    .clickable { viewModel.dismissVersionSwitchMessage() },
+            ) {
+                Text(
+                    text = message,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+        }
     }
 }
 
@@ -981,3 +1018,20 @@ private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
 
 private fun isHardPlaybackContainer(container: String?): Boolean =
     isMpvPreferredOriginalPlaybackContainer(container)
+
+/**
+ * True when the planned source carries Dolby Vision. Feeds
+ * [VideoPlaybackBackendRequest.hasDolbyVisionVideo] so Auto routes DV to
+ * MPV — Media3 has no phone-side DV handling and can play audio+subtitles
+ * over a permanently black video surface. Plain HDR10/HDR10+/HLG stays on
+ * Media3, which plays it correctly (device A/B 2026-07-09); MPV's
+ * slurp-then-idle streaming makes it the worse default for those. The
+ * catalog version list has no per-format field, so plan-less legacy
+ * sessions fall back to Media3 and the failure detectors cover the rest.
+ */
+private fun hasDolbyVisionSource(source: PlaybackSourceMetadata?): Boolean =
+    DolbyVisionDetection.isDolbyVision(
+        dolbyVisionProfile = source?.dolbyVisionProfile,
+        hdrFormat = source?.hdrFormat,
+        videoCodec = source?.videoCodec,
+    )

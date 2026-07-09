@@ -11,7 +11,9 @@ import org.siloserver.silo.network.api.HealthApi
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -234,6 +236,18 @@ class PlaybackSessionLifecycle(
         stopActiveSessionOnStop = true
         _notice.value = null
         _state.value = SessionState.Idle
+    }
+
+    /**
+     * Fire-and-forget [stop] for teardown paths that must not block. [stop]
+     * performs up to two HTTP round-trips (final progress sync + stopSession),
+     * so awaiting it with `runBlocking` from `ViewModel.onCleared` freezes the
+     * main thread for the full network timeout — an ANR on a slow link. The
+     * lifecycle's own singleton scope outlives any ViewModel, and
+     * [NonCancellable] keeps the stop running even if that scope is torn down.
+     */
+    fun stopAsync() {
+        scope.launch(NonCancellable + Dispatchers.IO) { stop() }
     }
 
     // ---- Internal: progress reporter ----------------------------------------

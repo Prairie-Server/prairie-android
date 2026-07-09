@@ -48,10 +48,8 @@ class MobileDetailOpenPerformanceSourceTest {
                 seriesDetail.contains("contentType = \"detail-episodes\"") &&
                 seriesDetail.contains("contentType = \"detail-similar\"") &&
                 detailShared.contains("contentType = { \"season-chip\" }") &&
-                detailShared.contains("contentType = { \"genre-pill\" }") &&
                 castCrew.contains("contentType = { \"cast-member\" }") &&
-                similarRail.contains("contentType = { \"similar-item\" }") &&
-                similarRail.contains("contentType = { \"similar-placeholder\" }"),
+                similarRail.contains("contentType = { \"similar-item\" }"),
             "Opening an item should keep detail sections and rails composition-reusable.",
         )
     }

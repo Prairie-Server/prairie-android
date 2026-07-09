@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -63,9 +64,12 @@ import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
 import org.siloserver.silo.common.pairing.CompanionPairingApproval
 import org.siloserver.silo.common.pairing.CompanionPairingStatus
 import org.siloserver.silo.common.pairing.CompanionPairingTarget
+import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.section.splitFeatured
 import org.siloserver.silo.viewmodel.HomeViewModel
+import org.siloserver.silo.android.ui.navigation.HeroClaimRegistry
+import org.siloserver.silo.android.ui.navigation.LocalHeroClaimRegistry
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val ChromeFadeDistanceDp = 72f
@@ -86,7 +90,6 @@ private const val ChromeFadeDistanceDp = 72f
 fun HomeScreen(
     onItemClick: (String) -> Unit,
     onPlayClick: (String, Double?) -> Unit,
-    onSeeAllClick: (String) -> Unit,
     scrollToTopTick: Int = 0,
     viewModel: HomeViewModel,
     activeProfile: Profile?,
@@ -128,6 +131,11 @@ fun HomeScreen(
         }
     }
 
+    // Home can show the same item in several rows at once; the claim registry
+    // ensures only one visible card owns the hero shared-element key (see
+    // HeroClaimRegistry) so duplicates don't morph into each other.
+    val heroClaims = remember { HeroClaimRegistry() }
+    CompositionLocalProvider(LocalHeroClaimRegistry provides heroClaims) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -185,7 +193,19 @@ fun HomeScreen(
                         HomeSectionRow(
                             section = section,
                             onItemClick = onItemClick,
-                            onSeeAllClick = { onSeeAllClick(section.id) },
+                            onItemPlay = { item ->
+                                // Continue Watching can include audiobooks; the play
+                                // glyph must not drop them into the video player. Home
+                                // has no callback reaching Route.AudiobookPlayer (that
+                                // route needs a fileId SectionItem doesn't carry), so
+                                // send audiobooks to their detail page, which dispatches
+                                // audiobook playback correctly.
+                                if (isAudiobookItemType(item.type)) {
+                                    onItemClick(item.contentId)
+                                } else {
+                                    onPlayClick(item.contentId, item.positionSeconds)
+                                }
+                            },
                             onSetWatched = viewModel::setWatched,
                             onToggleFavorite = viewModel::toggleFavorite,
                             onToggleWatchlist = viewModel::toggleWatchlist,
@@ -222,6 +242,7 @@ fun HomeScreen(
             onApprove = companionPairingViewModel::approveMatchCode,
             onCancel = companionPairingViewModel::cancelMatchCode,
         )
+    }
     }
 }
 

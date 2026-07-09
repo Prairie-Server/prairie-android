@@ -27,6 +27,7 @@ import org.siloserver.silo.tv.data.preferences.SubtitleSize
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -117,35 +118,52 @@ class TvSettingsViewModel(
         loadNotificationPreferences()
     }
 
+    /**
+     * Loads the current user (and derives [UiState.adminVisible]). A transient
+     * failure here would silently drop the Admin dashboard entry for an acting
+     * admin — the fetch is what gates admin visibility — so retry a few times
+     * with a short backoff before surfacing [UiState.userError]. Only the final
+     * attempt's failure is reported; a flaky load recovers and keeps the Admin
+     * entry. Exposed publicly so a screen-level retry can also call it.
+     */
     fun loadUser() {
         viewModelScope.launch {
             _uiState.update { it.copy(userLoading = true, userError = null) }
-            when (val r = authRepository.getCurrentUser()) {
-                is ApiResult.Success -> {
-                    val profile = profileRepository.getActiveProfile()
-                    _uiState.update {
-                        it.copy(
-                            user = r.data,
-                            userLoading = false,
-                            userError = null,
-                            profileName = profile?.name,
-                            profileAvatar = profile?.avatar,
-                            adminVisible = shouldShowClientAdminSurface(isActingAdmin(r.data, profile)),
-                        )
+            repeat(UserLoadMaxAttempts) { attempt ->
+                val isLastAttempt = attempt == UserLoadMaxAttempts - 1
+                when (val r = authRepository.getCurrentUser()) {
+                    is ApiResult.Success -> {
+                        val profile = profileRepository.getActiveProfile()
+                        _uiState.update {
+                            it.copy(
+                                user = r.data,
+                                userLoading = false,
+                                userError = null,
+                                profileName = profile?.name,
+                                profileAvatar = profile?.avatar,
+                                adminVisible = shouldShowClientAdminSurface(isActingAdmin(r.data, profile)),
+                            )
+                        }
+                        return@launch
+                    }
+                    is ApiResult.Error -> if (isLastAttempt) {
+                        _uiState.update {
+                            it.copy(
+                                userLoading = false,
+                                userError = r.message.ifBlank { "Failed to load user" },
+                            )
+                        }
+                    }
+                    is ApiResult.NetworkError -> if (isLastAttempt) {
+                        _uiState.update {
+                            it.copy(
+                                userLoading = false,
+                                userError = "Network error: ${r.exception.message ?: "unknown"}",
+                            )
+                        }
                     }
                 }
-                is ApiResult.Error -> _uiState.update {
-                    it.copy(
-                        userLoading = false,
-                        userError = r.message.ifBlank { "Failed to load user" },
-                    )
-                }
-                is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(
-                        userLoading = false,
-                        userError = "Network error: ${r.exception.message ?: "unknown"}",
-                    )
-                }
+                if (!isLastAttempt) delay(UserLoadRetryDelayMs)
             }
         }
     }
@@ -654,4 +672,11 @@ class TvSettingsViewModel(
         val resumeRewindSeconds: Int,
         val passOutThreshold: Int,
     )
+
+    private companion object {
+        // Retry the user load a few times before surfacing an error, so a
+        // flaky fetch doesn't silently strip the Admin entry from an admin.
+        const val UserLoadMaxAttempts = 3
+        const val UserLoadRetryDelayMs = 400L
+    }
 }

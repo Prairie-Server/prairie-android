@@ -14,6 +14,7 @@ import org.siloserver.silo.model.section.SectionItem
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
+import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.port.NoOpUserItemStatePort
 import org.siloserver.silo.repository.port.UserItemStatePort
 import org.siloserver.silo.tv.ui.util.isTvHiddenMediaType
@@ -76,6 +77,15 @@ data class TvItemDetailUiState(
     val selectedNextUpAudioIndex: Int? = null,
     val selectedNextUpSubtitleIndex: Int? = null,
     val preferredQuality: String = "auto",
+    // Cascaded subtitle preferences that annotate the selector row's Auto
+    // preview ("Auto - <track>" / "Auto - None") so it previews the SAME track
+    // the player would auto-select. ItemDetail (unlike WatchDetail) carries no
+    // per-item effective_* fields, so these are sourced from the active profile
+    // (matching the profile fallback in TvVideoPlaybackStarter); showForced
+    // defaults to true when unset, as the player state does.
+    val preferredSubtitleLanguage: String? = null,
+    val subtitleMode: String? = null,
+    val showForcedSubtitles: Boolean = true,
 )
 
 /**
@@ -91,6 +101,7 @@ class TvItemDetailViewModel(
     private val catalogRepository: CatalogRepository,
     private val personalDataRepository: PersonalDataRepository,
     private val playerSettingsStore: PlayerSettingsStore,
+    private val profileRepository: ProfileRepository,
     metadataAiRepository: org.siloserver.silo.repository.MetadataAiRepository,
     private val contentId: String,
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
@@ -127,6 +138,29 @@ class TvItemDetailViewModel(
         }
     }
 
+    /**
+     * Loads the cascaded subtitle preferences that annotate the selector row's
+     * Auto preview. This screen loads an [ItemDetail], which carries no per-item
+     * `effective_*` subtitle fields (only [org.siloserver.silo.model.catalog.WatchDetail]
+     * does), so — unlike [TvVideoPlaybackStarter], which reads the WatchDetail
+     * effective fields first — these come purely from the active profile
+     * (`subtitle_language` / `subtitle_mode` / `show_forced_subtitles`), the
+     * same fallback the starter drops to. showForced defaults to true when unset,
+     * matching the player state and the starter's `?: true`.
+     */
+    private fun loadSubtitlePreferences() {
+        viewModelScope.launch {
+            val profile = runCatching { profileRepository.getActiveProfile() }.getOrNull()
+            _uiState.update {
+                it.copy(
+                    preferredSubtitleLanguage = profile?.subtitleLanguage,
+                    subtitleMode = profile?.subtitleMode,
+                    showForcedSubtitles = profile?.showForcedSubtitles ?: true,
+                )
+            }
+        }
+    }
+
     private fun observePreferredQuality() {
         viewModelScope.launch {
             playerSettingsStore.preferredQualityFlow.collect { quality ->
@@ -155,6 +189,7 @@ class TvItemDetailViewModel(
         viewModelScope.launch {
             runCatching { playerSettingsStore.refreshFromServer() }
         }
+        loadSubtitlePreferences()
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             seedCachedDetail()
@@ -285,7 +320,7 @@ class TvItemDetailViewModel(
             else -> null
         }
         val season = _uiState.value.selectedSeason
-        if (seriesId != null && season != null) loadEpisodes(seriesId, season)
+        if (seriesId != null && season != null) loadEpisodes(seriesId, season, quiet = true)
     }
 
     fun onToggleFavorite() {
@@ -444,24 +479,44 @@ class TvItemDetailViewModel(
 
     private var episodeLoadJob: kotlinx.coroutines.Job? = null
     private var moreLikeThisJob: Job? = null
+    // The season number the currently-shown episodes/next-up actually belong to.
+    // Lets a failed load revert the optimistic season selection so the chips and
+    // the rail stay consistent (T15).
+    private var loadedSeason: Int? = null
 
-    private fun loadEpisodes(seriesContentId: String, seasonNumber: Int) {
+    /**
+     * Loads a season's episodes. [quiet] suppresses the loading spinner and is
+     * used by [refreshOnReturn], whose contract is a no-flash background refresh
+     * of the season already on screen.
+     */
+    private fun loadEpisodes(seriesContentId: String, seasonNumber: Int, quiet: Boolean = false) {
         // Cancel any in-flight episode load so a slower response for a
         // previously-selected season can't overwrite episodes/next-up for the
         // season the user is now on (rapid season switches / the initial
         // firstRegular load racing a route-driven season load).
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
-            _uiState.update { it.copy(episodesLoading = true) }
+            if (!quiet) _uiState.update { it.copy(episodesLoading = true) }
             when (val r = catalogRepository.getEpisodes(seriesContentId, seasonNumber)) {
                 is ApiResult.Success -> {
                     val episodes = withLocalProgress(r.data.episodes.sortedBy { ep -> ep.episodeNumber })
+                    loadedSeason = seasonNumber
                     _uiState.update { it.copy(episodesLoading = false, episodes = episodes) }
                     refreshNextUp(episodes)
                 }
                 else -> {
-                    _uiState.update { it.copy(episodesLoading = false, episodes = emptyList()) }
-                    refreshNextUp(emptyList())
+                    // Quiet-failure contract (T15): a failed season load must NOT
+                    // wipe the episode rail / next-up already on screen (that
+                    // kills the hero Play button and the rail). Keep what's shown
+                    // and revert the optimistic season selection to the season the
+                    // loaded episodes actually belong to, so the chips and the
+                    // rail stay in agreement.
+                    _uiState.update {
+                        it.copy(
+                            episodesLoading = false,
+                            selectedSeason = loadedSeason ?: it.selectedSeason,
+                        )
+                    }
                 }
             }
         }

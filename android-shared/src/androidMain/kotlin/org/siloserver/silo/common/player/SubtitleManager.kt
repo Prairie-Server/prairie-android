@@ -16,6 +16,8 @@ import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.common.text.Cue
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
@@ -229,10 +231,17 @@ class SubtitleManager {
         }
         val edgeColor = parseHexColor(appearance.textOutlineColor)
         val typeface = typefaceFor(appearance.fontFamily)
+        // Box renders through windowColor: Media3's SubtitlePainter draws the
+        // window as one block behind the whole cue with INNER_PADDING_RATIO
+        // (12.5% of the text size) of horizontal breathing room, whereas
+        // backgroundColor is a per-line BackgroundColorSpan that hugs the
+        // glyphs (QA 2026-07-08: "SRT subtitles with box should have more
+        // padding"). The MPV route pads via MpvSubtitleStyle's border-size
+        // floor instead.
         return CaptionStyleCompat(
             foreground,
-            background,
             Color.TRANSPARENT,
+            background,
             edgeType,
             edgeColor,
             typeface,
@@ -423,6 +432,48 @@ internal fun displayedSubtitleContentFrameRect(
     )
 }
 
+/**
+ * Neutralizes the WebVTT default full-width cue size so the Box subtitle
+ * background hugs the text (media3 SubtitlePainter expands the window rect to
+ * the full cue-region width when size is set). NEEDS ON-DEVICE VERIFICATION
+ * across SRT-as-VTT, native SRT, positioned WebVTT, and PGS.
+ *
+ * WebvttCueParser defaults every cue to `size == 1.0` (full width), and the
+ * Silo server serves all sidecar text subs (including converted SRT) as .vtt —
+ * so nearly every sidecar cue would otherwise trigger a full-width opaque band
+ * behind the text under the Box style. Only the full-width default is stripped:
+ *
+ *  - Bitmap cues (PGS/DVBSUB) render their own pixels — never touched.
+ *  - Text cues with an intentional narrower size (0 < size < 1, size != 1) use
+ *    size for real positioning and are left alone.
+ *  - Text cues already at `DIMEN_UNSET` (native in-container SubRip) are
+ *    unchanged — they already produce the intended snug box.
+ *
+ * Stripping the full-width default is harmless for non-Box styles: the window
+ * color is transparent there, and text still lays out across the full region.
+ */
+internal fun neutralizeFullWidthCueSize(cue: Cue): Cue {
+    if (cue.bitmap != null || cue.text == null) return cue
+    // 1.0 is WebvttCueParser's full-width default (the band trigger). Any other
+    // value — including DIMEN_UNSET — is either an intentional narrower region
+    // or an already-snug cue, so leave the layout untouched.
+    if (cue.size == 1f) {
+        return cue.buildUpon().setSize(Cue.DIMEN_UNSET).build()
+    }
+    return cue
+}
+
+internal fun neutralizeFullWidthCueSizes(cueGroup: CueGroup): CueGroup {
+    if (cueGroup.cues.isEmpty()) return cueGroup
+    var changed = false
+    val mapped = cueGroup.cues.map { original ->
+        val next = neutralizeFullWidthCueSize(original)
+        if (next !== original) changed = true
+        next
+    }
+    return if (changed) CueGroup(mapped, cueGroup.presentationTimeUs) else cueGroup
+}
+
 @UnstableApi
 private class SubtitleVideoRectSync(playerView: PlayerView) :
     View.OnLayoutChangeListener,
@@ -448,12 +499,33 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
             observedPlayer?.removeListener(this)
             observedPlayer = currentPlayer
             currentPlayer?.addListener(this)
+            // PlayerView pulls the raw getCurrentCues() at setPlayer time (before
+            // this listener exists), so re-push the neutralized cues once on bind
+            // to override that initial full-width write for an already-playing
+            // player (e.g. an engine swap mid-cue).
+            currentPlayer?.let { forwardNeutralizedCues(playerView, it.currentCues) }
         }
         applyRect(playerView)
     }
 
     override fun onVideoSizeChanged(videoSize: VideoSize) {
         update()
+    }
+
+    /**
+     * Both screens re-install this sync via `syncSubtitleVideoBounds` right after
+     * `view.player = …`, so this listener is registered after PlayerView's own
+     * cue listener and its neutralized `setCues` runs last, winning the frame.
+     * See [neutralizeFullWidthCueSize] for why the size is stripped.
+     */
+    override fun onCues(cueGroup: CueGroup) {
+        val playerView = playerViewRef.get() ?: return
+        forwardNeutralizedCues(playerView, cueGroup)
+    }
+
+    private fun forwardNeutralizedCues(playerView: PlayerView, cueGroup: CueGroup) {
+        val subtitleView = playerView.subtitleView ?: return
+        subtitleView.setCues(neutralizeFullWidthCueSizes(cueGroup).cues)
     }
 
     override fun onLayoutChange(
@@ -613,18 +685,25 @@ private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
     return candidates
 }
 
+/**
+ * Bitmap (image-based) subtitle detection over codec names and mimes.
+ * Normalization strips ALL non-alphanumerics so ffprobe names
+ * ("dvb_subtitle", "hdmv_pgs_subtitle", "dvd_subtitle"), short names
+ * ("dvbsub"/"dvbsubs"/"vobsub") and the Media3 mimes
+ * (`MimeTypes.APPLICATION_PGS` / `APPLICATION_DVBSUBS`) all classify
+ * identically — Apple parity with `ApplePlaybackRoutePlanner`'s token set.
+ */
 fun isBitmapSubtitleCodecOrMime(codecOrMime: String?): Boolean {
     val normalized = codecOrMime
-        ?.trim()
+        ?.filter { it.isLetterOrDigit() }
         ?.lowercase()
-        ?.replace('_', '-')
+        ?.takeIf { it.isNotEmpty() }
         ?: return false
-    return normalized == MimeTypes.APPLICATION_PGS ||
-        normalized == MimeTypes.APPLICATION_DVBSUBS ||
-        normalized.contains("pgs") ||
+    return normalized.contains("pgs") ||
         normalized.contains("hdmv") ||
         normalized.contains("dvd") ||
-        normalized.contains("dvbsubs")
+        normalized.contains("dvbsub") ||
+        normalized.contains("vobsub")
 }
 
 private fun Format.subtitleCodecOrMime(): String? =

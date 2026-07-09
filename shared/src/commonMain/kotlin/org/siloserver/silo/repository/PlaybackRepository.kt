@@ -32,6 +32,7 @@ class PlaybackRepository(
         clientPlaybackContext: ClientPlaybackContext? = null,
         preserveDirectAudioSelection: Boolean = false,
         playMethod: PlayMethod? = null,
+        disableProgressPersistence: Boolean = false,
     ): ApiResult<PlaybackSessionResponse> =
         playbackApi.startPlayback(
             StartPlaybackRequest(
@@ -51,6 +52,7 @@ class PlaybackRepository(
                 hdrDetails = capabilities.hdrDetails,
                 audioPassthrough = capabilities.audioPassthrough,
                 clientPlaybackContext = clientPlaybackContext,
+                disableProgressPersistence = disableProgressPersistence,
             ),
         )
 

@@ -20,6 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +66,11 @@ fun LoginScreen(
     val state by viewModel.uiState.collectAsState()
     var showPassword by remember { mutableStateOf(false) }
 
+    // Coming from server setup the next action is always typing a username;
+    // focus it immediately so the keyboard stays up across the transition.
+    val usernameFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { usernameFocus.requestFocus() }
+
     LaunchedEffect(signupEnabled) { viewModel.setSignupEnabled(signupEnabled) }
     LaunchedEffect(state.loginSuccess) {
         if (state.loginSuccess) {
@@ -103,6 +110,7 @@ fun LoginScreen(
                 label = "Username",
                 value = state.username,
                 onValueChange = viewModel::onUsernameChanged,
+                modifier = Modifier.focusRequester(usernameFocus),
                 placeholder = "yourname",
                 imeAction = ImeAction.Next,
             )

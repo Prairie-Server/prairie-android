@@ -52,8 +52,13 @@ internal fun TvAudiobookDetailHero(
     overview: String?,
     modifier: Modifier = Modifier,
 ) {
-    val selectedFileId = state.selectedFileId ?: detail.versions.firstOrNull()?.fileId
+    // Play/Resume launch with a book-global position and NO part fileId: the
+    // shared player VM stitches the whole-book timeline and resolves which part
+    // contains the position (pinning Part 1's fileId here seeks it past the end
+    // of Part 1). Mirrors Apple `TVAudiobookViewModel.performPrimary` and the
+    // phone AudiobookDetailContent.
     val resumePosition = audiobookResumePositionSeconds(detail)
+    val isFinished = audiobookIsFinished(detail)
 
     Box(
         modifier = modifier
@@ -152,16 +157,24 @@ internal fun TvAudiobookDetailHero(
                 ) {
                     TvPrimaryPillButton(
                         icon = Icons.Filled.PlayArrow,
-                        title = audiobookPlayLabel(resumePosition),
+                        title = audiobookPlayLabel(resumePosition, isFinished),
                         focusRequester = playFocus,
                         onClick = {
+                            // Resume → stored whole-book position; finished with no
+                            // resume → restart at 0; fresh → null (VM resolves from
+                            // its own furthest-position snapshot). Never a part fileId.
+                            val startPosition = when {
+                                resumePosition != null -> resumePosition
+                                isFinished -> 0.0
+                                else -> null
+                            }
                             onPlay(
                                 detail.contentId,
-                                selectedFileId,
+                                null,
                                 state.selectedAudioIndex,
                                 state.selectedSubtitleIndex,
                                 detail.type,
-                                resumePosition,
+                                startPosition,
                             )
                         },
                     )
@@ -171,7 +184,7 @@ internal fun TvAudiobookDetailHero(
                         onClick = {
                             onPlay(
                                 detail.contentId,
-                                selectedFileId,
+                                null,
                                 state.selectedAudioIndex,
                                 state.selectedSubtitleIndex,
                                 detail.type,
@@ -241,10 +254,21 @@ private fun audiobookResumePositionSeconds(detail: ItemDetail): Double? {
     return position
 }
 
-private fun audiobookPlayLabel(resumePosition: Double?): String {
-    return if (resumePosition != null) {
-        "Resume ${formatAudiobookTime(resumePosition)}"
-    } else {
-        "Play"
+/** A book counts as finished when the server marks it played, or the stored
+ *  whole-book position sits within 5s of the end. Mirrors the phone
+ *  AudiobookDetailContent `isFinished` gating. */
+private fun audiobookIsFinished(detail: ItemDetail): Boolean {
+    val userData = detail.userData ?: return false
+    if (userData.played == true) return true
+    val position = userData.positionSeconds ?: return false
+    val duration = userData.durationSeconds ?: return false
+    return duration > 0 && position > 0 && position >= duration - 5
+}
+
+private fun audiobookPlayLabel(resumePosition: Double?, isFinished: Boolean): String {
+    return when {
+        resumePosition != null -> "Resume ${formatAudiobookTime(resumePosition)}"
+        isFinished -> "Play Again"
+        else -> "Play"
     }
 }

@@ -15,9 +15,13 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 
 /**
- * Per-profile store for the "last selected library tab" UI state on the
- * Libraries screen. Each profile keeps its own selection across launches
- * (file-per-profile DataStore, hashed profileId in filename).
+ * Per-profile, per-server store for the "last selected library tab" UI state on
+ * the Libraries screen. Each profile keeps its own selection across launches
+ * (file-per-profile DataStore, hashed profileId in filename); within that file
+ * the selection is partitioned by the active serverId — mirroring
+ * [TvLibraryScopeStore]'s `scopeKey(serverId, …)` scheme — so a selection made
+ * on one server can't leak to another server whose profile shares the same id
+ * string.
  *
  * No server flush — this is pure local UI continuity, not a setting.
  * When no profile is active (during sign-in / profile-selection), reads
@@ -56,7 +60,8 @@ class TvLibrarySelectionStore(
             emit(null)
             return@flow
         }
-        emit(storeFor(profileId).data.first()[SelectedLibraryKey])
+        val serverId = tokenManager.getCurrentServerId() ?: DEFAULT_SERVER_ID
+        emit(storeFor(profileId).data.first()[selectedLibraryKey(serverId)])
     }
 
     /**
@@ -72,16 +77,20 @@ class TvLibrarySelectionStore(
                     emit(null)
                     return@flow
                 }
+                val serverId = tokenManager.getCurrentServerId() ?: DEFAULT_SERVER_ID
+                val key = selectedLibraryKey(serverId)
                 val store = storeFor(profileId)
-                store.data.collect { prefs -> emit(prefs[SelectedLibraryKey]) }
+                store.data.collect { prefs -> emit(prefs[key]) }
             }
         }
 
     suspend fun setSelectedLibraryId(id: Int?) {
         val profileId = tokenManager.getProfileId() ?: return
+        val serverId = tokenManager.getCurrentServerId() ?: DEFAULT_SERVER_ID
+        val key = selectedLibraryKey(serverId)
         storeFor(profileId).edit { prefs ->
-            if (id == null) prefs.remove(SelectedLibraryKey)
-            else prefs[SelectedLibraryKey] = id
+            if (id == null) prefs.remove(key)
+            else prefs[key] = id
         }
     }
 
@@ -91,11 +100,17 @@ class TvLibrarySelectionStore(
      */
     suspend fun getSelectedLibraryId(): Int? {
         val profileId = tokenManager.getProfileId() ?: return null
-        return storeFor(profileId).data.first()[SelectedLibraryKey]
+        val serverId = tokenManager.getCurrentServerId() ?: DEFAULT_SERVER_ID
+        return storeFor(profileId).data.first()[selectedLibraryKey(serverId)]
     }
 
     companion object {
-        private val SelectedLibraryKey = intPreferencesKey("selected_library_id")
+        private const val DEFAULT_SERVER_ID = "default"
+
+        // Per-server-partitioned key, mirroring [TvLibraryScopeStore.scopeKey]
+        // so two servers under one profile keep independent selections.
+        private fun selectedLibraryKey(serverId: String) =
+            intPreferencesKey("selected_library_$serverId")
 
         // Filename pattern aligns with [AndroidPlayerSettingsStore.fileNameFor].
         private fun fileNameFor(profileId: String): String =

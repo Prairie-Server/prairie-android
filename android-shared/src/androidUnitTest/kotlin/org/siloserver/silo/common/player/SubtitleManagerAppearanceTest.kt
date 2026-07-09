@@ -41,7 +41,10 @@ class SubtitleManagerAppearanceTest {
             )
         )
 
-        assertEquals(0xBF000000.toInt(), style.backgroundColor)
+        // Box paints through windowColor (Media3 pads the window block around
+        // the cue); the glyph-hugging backgroundColor stays transparent.
+        assertEquals(0xBF000000.toInt(), style.windowColor)
+        assertEquals(0x00000000, style.backgroundColor)
         assertEquals(CaptionStyleCompat.EDGE_TYPE_NONE, style.edgeType)
     }
 
@@ -56,6 +59,7 @@ class SubtitleManagerAppearanceTest {
         )
 
         assertEquals(0x00000000, style.backgroundColor)
+        assertEquals(0x00000000, style.windowColor)
         assertEquals(CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, style.edgeType)
     }
 
@@ -70,6 +74,7 @@ class SubtitleManagerAppearanceTest {
         )
 
         assertEquals(0x00000000, style.backgroundColor)
+        assertEquals(0x00000000, style.windowColor)
         assertEquals(CaptionStyleCompat.EDGE_TYPE_OUTLINE, style.edgeType)
     }
 

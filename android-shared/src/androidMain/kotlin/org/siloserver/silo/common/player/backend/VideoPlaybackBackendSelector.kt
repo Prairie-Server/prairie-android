@@ -19,6 +19,14 @@ object VideoPlaybackBackendSelector {
                 request.isAdaptiveHlsStream -> VideoPlaybackBackendKind.Media3
                 request.delivery == PlaybackDelivery.SERVER_REMUX_HLS -> VideoPlaybackBackendKind.Media3
                 request.delivery == PlaybackDelivery.SERVER_TRANSCODE_HLS -> VideoPlaybackBackendKind.Media3
+                // Dolby Vision must outrank a planned Media3 engine: the plan
+                // is computed without phone-side DV knowledge, and Media3 has
+                // no DV handling — direct-play DV on that path can decode
+                // audio+subtitles over a permanently black surface. Plain
+                // HDR10/HDR10+/HLG stays on Media3, which handles it fine
+                // (verified by A/B on device). Transcoded output is exempt
+                // (server already resolved HDR); MPV handles DV via gpu-next.
+                request.hasDolbyVisionVideo && request.playMethod != PlayMethod.TRANSCODE -> VideoPlaybackBackendKind.Mpv
                 request.plannedEngine == PlaybackEngineKind.MEDIA3_DIRECT -> VideoPlaybackBackendKind.Media3
                 request.plannedEngine == PlaybackEngineKind.MEDIA3_PROGRESSIVE_REMUX -> VideoPlaybackBackendKind.Media3
                 request.plannedEngine == PlaybackEngineKind.MEDIA3_HLS -> VideoPlaybackBackendKind.Media3

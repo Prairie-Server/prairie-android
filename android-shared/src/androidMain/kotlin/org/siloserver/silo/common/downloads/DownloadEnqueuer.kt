@@ -349,8 +349,14 @@ class DownloadEnqueuer(
             // it for ebooks too, not just audiobooks.
             author = detail?.audiobook?.authorNames ?: detail?.ebook?.authorNames,
             narrator = detail?.audiobook?.narratorNames,
-            durationSeconds = detail?.audiobook?.totalDurationSeconds?.toDouble()
-                ?: version?.duration,
+            // Truthful PER-FILE duration: a download is one file, and for a
+            // multi-part audiobook the offline player treats this as the
+            // stream's length — the whole-book total would run the slider and
+            // resume in whole-book space against a single part's bytes. Fall
+            // back to the audiobook total only when the file has no probed
+            // duration.
+            durationSeconds = version?.duration?.takeIf { it > 0.0 }
+                ?: detail?.audiobook?.totalDurationSeconds?.toDouble(),
             chapters = version?.chapters,
             updatedAtMs = System.currentTimeMillis(),
         )

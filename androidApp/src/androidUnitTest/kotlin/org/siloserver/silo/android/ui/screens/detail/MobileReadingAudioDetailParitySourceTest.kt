@@ -43,7 +43,7 @@ class MobileReadingAudioDetailParitySourceTest {
         )
         assertTrue(
             audiobookDetail.contains("Text(\"Start Over\")") &&
-                audiobookDetail.contains("onPlayFromStartClick(playableVersion.fileId)"),
+                audiobookDetail.contains("onPlayFromStartClick()"),
             "Audiobook detail should keep the iOS Start Over action visible next to Play/Resume.",
         )
         assertTrue(

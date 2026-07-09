@@ -385,6 +385,7 @@ data class StartPlaybackRequest(
     @SerialName("hdr_details") val hdrDetails: HdrCapabilities? = null,
     @SerialName("audio_passthrough") val audioPassthrough: AudioPassthroughCapabilities? = null,
     @SerialName("client_playback_context") val clientPlaybackContext: ClientPlaybackContext? = null,
+    @SerialName("disable_progress_persistence") val disableProgressPersistence: Boolean = false,
 )
 
 @Serializable

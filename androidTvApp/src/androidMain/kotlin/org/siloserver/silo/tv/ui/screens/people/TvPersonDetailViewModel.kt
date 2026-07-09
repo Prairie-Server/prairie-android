@@ -124,9 +124,17 @@ class TvPersonDetailViewModel(
     }
 
     fun applyFilter(filter: TvPersonMediaFilter) {
-        if (filter == _uiState.value.selectedFilter) return
+        // Re-selecting the active filter is a no-op — unless its load failed, in
+        // which case the chip doubles as a retry so the grid can't dead-end.
+        val state = _uiState.value
+        if (filter == state.selectedFilter && state.pagingError == null) return
         _uiState.update { it.copy(selectedFilter = filter, items = emptyList()) }
         loadItems(filter, reset = true)
+    }
+
+    /** Re-runs the failed page-0 load for the active filter (retry button). */
+    fun retryItems() {
+        loadItems(_uiState.value.selectedFilter, reset = true)
     }
 
     private var itemsGeneration = 0
@@ -187,12 +195,18 @@ class TvPersonDetailViewModel(
                     it.copy(
                         isLoadingItems = false,
                         pagingError = result.message.ifBlank { "Failed to load works" },
+                        // A failed reset-load left hasMore=false, which permanently
+                        // disables loadMoreIfNeeded and dead-ends the grid on an
+                        // empty "No titles found." with no way back. Keep the paging
+                        // path alive so the load can recover (T22b).
+                        hasMore = if (reset) true else it.hasMore,
                     )
                 }
                 is ApiResult.NetworkError -> _uiState.update {
                     it.copy(
                         isLoadingItems = false,
                         pagingError = "Network error. Check your connection.",
+                        hasMore = if (reset) true else it.hasMore,
                     )
                 }
             }

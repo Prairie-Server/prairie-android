@@ -43,6 +43,7 @@ import org.siloserver.silo.viewmodel.FavoritesViewModel
 import org.siloserver.silo.viewmodel.HistoryViewModel
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.viewmodel.PersonalListUiState
+import org.siloserver.silo.viewmodel.PersonalListViewModel
 import org.siloserver.silo.viewmodel.WatchlistViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -64,6 +65,7 @@ fun TvFavoritesScreen(
     viewModel: FavoritesViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    PersonalListResumeRefresh(viewModel)
     PersonalGrid(
         title = "Favorites",
         icon = Icons.Filled.Favorite,
@@ -84,6 +86,7 @@ fun TvWatchlistScreen(
     viewModel: WatchlistViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    PersonalListResumeRefresh(viewModel)
     PersonalGrid(
         title = "Watchlist",
         icon = Icons.Outlined.BookmarkBorder,
@@ -104,6 +107,7 @@ fun TvHistoryScreen(
     viewModel: HistoryViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    PersonalListResumeRefresh(viewModel)
     PersonalGrid(
         title = "Watch History",
         icon = Icons.Filled.History,
@@ -114,6 +118,35 @@ fun TvHistoryScreen(
         onRetry = viewModel::retry,
         onInitialContentFocus = onInitialContentFocus,
     )
+}
+
+/**
+ * Re-pull a personal list when the screen returns to the foreground. TV has no
+ * pull-to-refresh, and these lists load once in `init` and never re-fetch on
+ * their own. Card long-press toggles (favorite/watchlist/watched) write only to
+ * per-card optimistic state, so an item removed here — or on any other surface —
+ * would otherwise linger as a ghost entry until this back-stack entry is popped.
+ * ON_RESUME re-fetch is the least-invasive self-heal (mirrors the other TV
+ * screens). Gating on [PersonalListViewModel.hasLoadedOnce] (VM-scoped, not
+ * composition-scoped) keeps the first-entry replay suppressed naturally: the
+ * `init` load's isLoading=true covers the very first resume, and re-entering
+ * the composition can't reset the gate the way a remembered flag did.
+ */
+@Composable
+private fun PersonalListResumeRefresh(viewModel: PersonalListViewModel) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                val current = viewModel.uiState.value
+                if (viewModel.hasLoadedOnce && !current.isLoading && !current.isRefreshing) {
+                    viewModel.refresh()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

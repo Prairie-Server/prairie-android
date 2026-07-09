@@ -128,7 +128,12 @@ fun TvProfileSelectionScreen(
     }
 
     when {
-        state.isLoading -> TvLoadingScreen()
+        // Gate the full-screen spinner on an empty grid (true first load).
+        // An ON_RESUME reload sets isLoading=true too; showing the spinner
+        // then would unmount the existing grid and warp/lose focus, so
+        // stale-while-revalidate — keep the grid up during a refresh, like
+        // the error branch already does.
+        state.isLoading && state.profiles.isEmpty() -> TvLoadingScreen()
         state.error != null && state.profiles.isEmpty() -> TvErrorScreen(
             message = state.error!!,
             onRetry = viewModel::loadProfiles,

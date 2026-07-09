@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,13 +29,22 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import org.siloserver.silo.android.ui.screens.personal.FavoritesGridContent
+import org.siloserver.silo.android.ui.screens.personal.WatchlistGridContent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,6 +71,27 @@ fun RecommendationsScreen(
     viewModel: RecommendationsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Self-heal the "For You" fallback. The shared VM loads only in init{} and
+    // survives tab switches (saveState/restoreState), so an empty server
+    // response would otherwise leave the tab dead until a profile switch or
+    // restart. Re-load on ON_RESUME whenever the feed is still empty — returning
+    // to the tab after watching something re-fetches without any user action.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentState by rememberUpdatedState(state)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                currentState.sections.isEmpty() &&
+                !currentState.isLoading &&
+                !currentState.isRefreshing
+            ) {
+                viewModel.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     when {
         state.isLoading && state.sections.isEmpty() -> {
@@ -101,6 +130,53 @@ fun RecommendationsScreen(
             }
         }
 
+        state.sections.isEmpty() -> {
+            // iOS savedListsFallback: when the server has nothing to suggest
+            // (e.g. embeddings disabled), the shortcut row becomes an inline
+            // selector — Watchlist by default — over the saved-list grid,
+            // instead of navigating away or showing an empty promise.
+            var savedListSelection by rememberSaveable { mutableStateOf(SavedList.Watchlist) }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Spacer(modifier = Modifier.height(contentTopPadding + 8.dp))
+                SavedShortcutsRow(
+                    onWatchlistClick = { savedListSelection = SavedList.Watchlist },
+                    onFavoritesClick = { savedListSelection = SavedList.Favorites },
+                    selection = savedListSelection,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "No recommendations yet — showing your saved titles.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                // Explicit retry so the fallback is recoverable in place — the
+                // embedded grids below carry their own pull-to-refresh, so we do
+                // NOT wrap them in another PullToRefreshBox (nesting misbehaves).
+                OutlinedButton(
+                    onClick = { viewModel.refresh() },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    Text("Check again")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                when (savedListSelection) {
+                    SavedList.Watchlist -> WatchlistGridContent(
+                        onItemClick = onItemClick,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 96.dp),
+                    )
+                    SavedList.Favorites -> FavoritesGridContent(
+                        onItemClick = onItemClick,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 96.dp),
+                    )
+                }
+            }
+        }
+
         else -> {
             PullToRefreshBox(
                 isRefreshing = state.isRefreshing,
@@ -129,28 +205,23 @@ fun RecommendationsScreen(
                         )
                     }
 
-                    if (state.sections.isEmpty()) {
-                        item {
-                            RecommendationsEmptyState(
-                                modifier = Modifier.padding(top = 24.dp),
-                            )
-                        }
-                    } else {
-                        items(
-                            items = state.sections,
-                            key = { it.id },
-                        ) { section ->
-                            HomeSectionRow(
-                                section = section,
-                                onItemClick = onItemClick,
-                            )
-                        }
+                    items(
+                        items = state.sections,
+                        key = { it.id },
+                    ) { section ->
+                        HomeSectionRow(
+                            section = section,
+                            onItemClick = onItemClick,
+                        )
                     }
                 }
             }
         }
     }
 }
+
+/** Which saved list the empty-state fallback is showing. */
+private enum class SavedList { Watchlist, Favorites }
 
 /**
  * Watchlist / Favorites pill row. Mirrors iOS `SavedShortcutsRow` (phone):
@@ -162,6 +233,8 @@ private fun SavedShortcutsRow(
     onWatchlistClick: () -> Unit,
     onFavoritesClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Non-null renders the pills as an inline selector (fallback mode). */
+    selection: SavedList? = null,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -172,11 +245,13 @@ private fun SavedShortcutsRow(
             title = "Watchlist",
             icon = Icons.Filled.Bookmark,
             onClick = onWatchlistClick,
+            selected = selection == SavedList.Watchlist,
         )
         SavedShortcutPill(
             title = "Favorites",
             icon = Icons.Filled.Favorite,
             onClick = onFavoritesClick,
+            selected = selection == SavedList.Favorites,
         )
     }
 }
@@ -186,12 +261,13 @@ private fun SavedShortcutPill(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
+    selected: Boolean = false,
 ) {
     OutlinedButton(
         onClick = onClick,
         shape = CircleShape,
         contentPadding = PaddingValues(horizontal = 15.dp),
-        border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.3f)),
+        border = BorderStroke(1.5.dp, Color.White.copy(alpha = if (selected) 0.9f else 0.3f)),
         colors = ButtonDefaults.outlinedButtonColors(
             contentColor = MaterialTheme.colorScheme.onSurface,
         ),
@@ -212,36 +288,3 @@ private fun SavedShortcutPill(
     }
 }
 
-/**
- * iOS phone empty state: a sparkles glyph, a 14sp-bold headline, and a 12sp
- * caption explaining the screen will learn what the viewer likes.
- */
-@Composable
-private fun RecommendationsEmptyState(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.AutoAwesome,
-            contentDescription = null,
-            modifier = Modifier.size(44.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-        )
-        Text(
-            text = "No recommendations yet",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = "Watch some content and we'll learn what you like.",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Normal,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-    }
-}

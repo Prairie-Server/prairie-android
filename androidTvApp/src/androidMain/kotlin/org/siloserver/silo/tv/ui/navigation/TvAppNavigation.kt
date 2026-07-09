@@ -36,6 +36,7 @@ import org.siloserver.silo.tv.ui.screens.servers.TvServerListScreen
 import org.siloserver.silo.tv.ui.screens.servers.TvServerSwitchDestination
 import org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherLobbyScreen
 import org.siloserver.silo.common.overlays.ProvideCardOverlays
+import org.siloserver.silo.common.settings.LibraryPlaybackPrefsStore
 import org.siloserver.silo.common.settings.OverlayPrefsStore
 import org.siloserver.silo.tv.watchnext.WatchNextSeeder
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +52,23 @@ import org.koin.core.qualifier.named
  * Settings-reachable grids (favorites, watchlist, history, collections) are
  * also top-level routes so they can cover the full screen.
  */
+// The unauthenticated chain where content deep links stay queued: routes the
+// graph passes through BEFORE the authenticated Main shell. A queued content
+// deep link stays queued while the current destination is one of these (an
+// unauthenticated/mid-auth launch, consumed once auth completes and lands on
+// Main); any other route means the session is authenticated and the link is
+// consumed immediately (see the deep-link collector in [TvAppNavigation]).
+private val preMainAuthRoutes: Set<String> = setOf(
+    TvRoute.ServerSetup.route,
+    TvRoute.Setup.route,
+    TvRoute.Signup.route,
+    TvRoute.Login.ROUTE,
+    TvRoute.ServerList.route,
+    TvRoute.ProfileSelection.route,
+    TvRoute.CreateProfile.route,
+    TvRoute.EditProfile.ROUTE,
+)
+
 @Composable
 fun TvAppNavigation(
     startDestination: String,
@@ -62,6 +80,7 @@ fun TvAppNavigation(
     val authRepository: AuthRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
+    val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
     val pendingDeepLink: MutableStateFlow<Uri?> =
         koinInject(qualifier = named("pendingDeepLink"))
@@ -105,17 +124,37 @@ fun TvAppNavigation(
             // ARE the sign-in path.
             // The combine with currentBackStackEntryFlow makes this re-fire
             // when the graph lands on Main with the link still queued.
-            val onMainShell = entry.destination.route == TvRoute.Main.route
-            if (!onMainShell) return@collect
+            // Any authenticated route consumes the link right away: ItemDetail,
+            // Player, and AudiobookPlayer are root-NavHost destinations, so the
+            // navigate calls below work from anywhere (a warm launcher click
+            // while the user sits on a detail/player screen navigates
+            // immediately). Immediate consumption also means a queued link can
+            // never go stale on an authenticated session.
+            val route = entry.destination.route
+            if (route == null || route in preMainAuthRoutes) return@collect // unauthenticated flow: keep queued until Main
             val contentId = uri.pathSegments.lastOrNull() ?: run {
                 pendingDeepLink.value = null
                 return@collect
             }
             when (uri.host) {
                 "item" -> navController.navigate(TvRoute.ItemDetail(contentId).route)
-                "play" -> navController.navigate(
-                    TvRoute.Player(contentId, fileId = null).route,
-                )
+                "play" -> {
+                    // The Watch Next mapper tags play intents with the item type
+                    // (`silo://play/<contentId>?type=<type>`) so audiobook tiles
+                    // route to [TvRoute.AudiobookPlayer] instead of the video
+                    // player. Older already-published tiles carry no type param —
+                    // [tvPlayDestinationFor] treats a null type as non-audiobook
+                    // and falls through to [TvRoute.Player], preserving today's
+                    // behavior for movie/episode tiles.
+                    val itemType = uri.getQueryParameter("type")
+                    navController.navigate(
+                        tvPlayDestinationFor(
+                            itemType = itemType,
+                            contentId = contentId,
+                            fileId = null,
+                        ),
+                    )
+                }
             }
             pendingDeepLink.value = null
         }
@@ -209,6 +248,20 @@ fun TvAppNavigation(
                         TvServerSwitchDestination.ProfileSelection ->
                             TvRoute.ProfileSelection.route
                         TvServerSwitchDestination.Login -> TvRoute.Login().route
+                    }
+                    // Landing straight on Home means the target server is already
+                    // authenticated, so no Login/ProfileSelection callback fires to
+                    // refresh state. Do the hygiene here: drop the previous
+                    // server's per-profile caches and re-seed Watch Next so its
+                    // launcher tiles and cached prefs don't ghost. The
+                    // Login/ProfileSelection destinations re-seed via their own
+                    // callbacks — only the already-authed path needs this.
+                    if (destination == TvServerSwitchDestination.Home) {
+                        libraryPlaybackPrefsStore.clear()
+                        overlayPrefsStore.clear()
+                        watchNextSeeder.clear()
+                        watchNextSeeder.seedNow()
+                        watchNextSeeder.enqueuePeriodic()
                     }
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
@@ -309,7 +362,13 @@ fun TvAppNavigation(
         composable(TvRoute.Main.route) {
             TvMainShell(
                 onOpenItemDetail = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route)
+                    // launchSingleTop collapses a double-OK on the same card into
+                    // one ItemDetail entry (consecutive identical contentId), so
+                    // Back doesn't appear inert against a duplicate. Distinct
+                    // pushes are unaffected — their route args differ.
+                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onOpenLibraryCollectionDetail = { libraryId, collectionId, title ->
                     navController.navigate(
@@ -320,17 +379,43 @@ fun TvAppNavigation(
                     navController.navigate(TvRoute.CollectionDetail(collectionId, title).route)
                 },
                 onSignedOut = {
-                    // Drop our Watch Next rows + cancel the periodic refresh so
-                    // the launcher doesn't keep showing the signed-out user's
-                    // progress.
-                    watchNextSeeder.clear()
-                    navController.navigate(TvRoute.ServerSetup.route) {
-                        popUpTo(TvRoute.Main.route) { inclusive = true }
+                    scope.launch {
+                        // Full sign-out teardown — parity with the Settings and
+                        // ProfileSelection sign-out paths. Clearing Watch Next
+                        // alone left the tokens, profileId, and server session
+                        // alive, so a relaunch resumed the previous user. Drop
+                        // credentials and per-profile caches before navigating.
+                        // The Settings sign-out path may have already logged out
+                        // server-side and cleared tokens — only hit the network
+                        // when a session still exists so we don't 401 a second
+                        // logout. The local clears below are idempotent and run
+                        // unconditionally (the Settings path doesn't clear
+                        // Watch Next, so that teardown must still happen here).
+                        if (!tokenManager.getAccessToken().isNullOrBlank()) {
+                            authRepository.logout()
+                        }
+                        profileRepository.clearProfile()
+                        tokenManager.clearTokens()
+                        libraryPlaybackPrefsStore.clear()
+                        overlayPrefsStore.clear()
+                        // Drop our Watch Next rows + cancel the periodic refresh so
+                        // the launcher doesn't keep showing the signed-out user's
+                        // progress.
+                        watchNextSeeder.clear()
+                        navController.navigate(TvRoute.ServerSetup.route) {
+                            popUpTo(TvRoute.Main.route) { inclusive = true }
+                        }
                     }
                 },
                 onSwitchProfile = {
                     scope.launch {
                         profileRepository.clearProfile()
+                        // Library/overlay prefs are per-profile — drop the caches
+                        // so the next profile's prefs don't ghost-render the
+                        // previous user's rows. Parity with the Settings
+                        // switch-profile path.
+                        libraryPlaybackPrefsStore.clear()
+                        overlayPrefsStore.clear()
                         // Clear the previous profile's Watch Next rows before
                         // landing on the picker; the new profile will re-seed
                         // via [onProfileSelected].
@@ -406,7 +491,12 @@ fun TvAppNavigation(
                     )
                 },
                 onItemDetail = { itemContentId ->
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route)
+                    // launchSingleTop suppresses the exact double-tap dupe; a
+                    // distinct related item (always a different contentId) still
+                    // pushes normally.
+                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 // Season switching REPLACES the current detail entry so paging
                 // through seasons never stacks pages — one Back returns to the
@@ -419,10 +509,14 @@ fun TvAppNavigation(
                     }
                 },
                 onSeriesClick = { seriesId ->
-                    navController.navigate(TvRoute.ItemDetail(seriesId).route)
+                    navController.navigate(TvRoute.ItemDetail(seriesId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onSeasonClick = { seriesId, selectedSeason ->
-                    navController.navigate(TvRoute.ItemDetail(seriesId, selectedSeason).route)
+                    navController.navigate(TvRoute.ItemDetail(seriesId, selectedSeason).route) {
+                        launchSingleTop = true
+                    }
                 },
                 // Watch Together: the entry dialog resolves a room snapshot; route
                 // host-with-selection straight to the synced player (carrying
@@ -458,7 +552,9 @@ fun TvAppNavigation(
             TvPersonDetailScreen(
                 personId = personId,
                 onOpenItemDetail = { itemContentId ->
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route)
+                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -664,7 +760,9 @@ fun TvAppNavigation(
                 collectionId = collectionId,
                 title = title,
                 onItemClick = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route)
+                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -690,7 +788,9 @@ fun TvAppNavigation(
                 collectionId = collectionId,
                 title = title,
                 onItemClick = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route)
+                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onBack = { navController.popBackStack() },
             )

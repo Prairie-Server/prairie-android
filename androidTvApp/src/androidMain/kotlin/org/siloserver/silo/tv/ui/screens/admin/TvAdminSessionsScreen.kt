@@ -51,9 +51,13 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+
+/** How long a control-result message stays visible before auto-dismiss. */
+private const val ControlMessageVisibleMs = 4_000L
 
 // ---------------------------------------------------------------------------
 // ViewModel (co-located, mirrors the phone's AdminSessionsViewModel)
@@ -65,6 +69,11 @@ data class TvAdminSessionsUiState(
     val error: String? = null,
     /** One-shot user-facing message after a control action. */
     val message: String? = null,
+    /**
+     * Bumped on every [message] write so a repeated identical message (e.g. two
+     * "Session paused" in a row) still restarts the auto-dismiss timer.
+     */
+    val messageNonce: Int = 0,
 )
 
 /**
@@ -105,11 +114,24 @@ class TvAdminSessionsViewModel(
         viewModelScope.launch {
             when (val result = repository.sessionControl(sessionId, action, request)) {
                 is ApiResult.Success -> {
-                    _uiState.update { it.copy(message = controlSuccessMessage(action)) }
+                    _uiState.update {
+                        it.copy(
+                            message = controlSuccessMessage(action),
+                            messageNonce = it.messageNonce + 1,
+                        )
+                    }
                     load()
                 }
-                is ApiResult.Error, is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(message = result.errorMessage("Failed to ${action.wire} session"))
+                is ApiResult.Error, is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(
+                            message = result.errorMessage("Failed to ${action.wire} session"),
+                            messageNonce = it.messageNonce + 1,
+                        )
+                    }
+                    // Refresh on failure too: a failed terminate/stop must not be
+                    // silent — reload so the list reflects the session's real state.
+                    load()
                 }
             }
         }
@@ -163,10 +185,16 @@ fun TvAdminSessionsScreen(
 
     BackHandler(enabled = true) { onBack() }
 
-    // Consume one-shot control messages so the flag doesn't stick (no snackbar
-    // on TV — the list refresh after a successful action is the feedback).
-    androidx.compose.runtime.LaunchedEffect(state.message) {
-        if (state.message != null) viewModel.consumeMessage()
+    // Surface control-result messages long enough to read (no snackbar on TV),
+    // then auto-dismiss. Consuming on the same composition made the message
+    // visible for <1 frame; hold it briefly so success/failure feedback lands.
+    // Keyed on the nonce (not the text) so an identical back-to-back message
+    // still restarts the timer instead of vanishing on the old deadline.
+    androidx.compose.runtime.LaunchedEffect(state.messageNonce) {
+        if (state.message != null) {
+            delay(ControlMessageVisibleMs)
+            viewModel.consumeMessage()
+        }
     }
 
     Column(

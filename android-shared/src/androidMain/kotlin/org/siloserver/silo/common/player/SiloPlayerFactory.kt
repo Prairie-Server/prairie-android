@@ -192,11 +192,27 @@ class SiloPlayerFactory(
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
-            .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(30_000)
-            .setSuppressPlaybackOnUnsuitableOutput(true)
+
+        // Form-factor-gated output guards. On phones/tablets these are the
+        // right defaults, but both misfire on Android TV during HDMI/eARC
+        // audio-route renegotiation (e.g. a soundbar power-cycle):
+        //  - handleAudioBecomingNoisy pauses on ACTION_AUDIO_BECOMING_NOISY,
+        //    which is really the phone "headphones unplugged" behavior applied
+        //    to the wrong form factor — a transient ARC route change would
+        //    pause playback with no user action (and the MPV engine has no
+        //    such handling, so gating it also keeps the two engines aligned).
+        //  - suppressPlaybackOnUnsuitableOutput is a Media3 no-op on TV below
+        //    API 35 (Wear-gated), but on API 35+ TVs a transient "no suitable
+        //    output" during the same renegotiation could suppress playback.
+        // Keep both on phone/tablet; skip both on TV.
+        if (!isTv) {
+            builder
+                .setHandleAudioBecomingNoisy(true)
+                .setSuppressPlaybackOnUnsuitableOutput(true)
+        }
 
         // Always prefer seamless frame-rate changes. Non-seamless mode
         // switches cause a short black frame and are jarring on both TVs

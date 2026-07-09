@@ -63,6 +63,8 @@ import org.siloserver.silo.model.catalog.CatalogFiltersResponse
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun FilterSheet(
+    viewDensity: CatalogViewDensity,
+    onSelectDensity: (CatalogViewDensity) -> Unit,
     currentFilters: CatalogFilterState,
     availableFilters: CatalogFiltersResponse?,
     mediaType: BrowseFacetMediaType,
@@ -122,6 +124,24 @@ fun FilterSheet(
                     enabled = draft.canResetFilters,
                 ) {
                     Text("Reset")
+                }
+            }
+
+            // View density lives here rather than beside the sort controls,
+            // where the layout options read as extra sort choices.
+            Text(
+                text = "View",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CatalogViewDensity.entries.forEach { density ->
+                    FilterChip(
+                        selected = viewDensity == density,
+                        onClick = { onSelectDensity(density) },
+                        label = { Text(density.label) },
+                    )
                 }
             }
 

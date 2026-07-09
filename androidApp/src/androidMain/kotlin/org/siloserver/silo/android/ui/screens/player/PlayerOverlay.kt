@@ -1,7 +1,5 @@
 package org.siloserver.silo.android.ui.screens.player
 
-import android.app.Activity
-import android.content.pm.ActivityInfo
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -10,10 +8,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
@@ -106,12 +107,11 @@ fun PlayerOverlay(
     val gatedFastForwardHold: (Boolean) -> Unit = if (!inRoom) onFastForwardHold else { _: Boolean -> }
 
     // Orientation lock — toggled from the top-bar lock icon (iOS parity).
-    // Default false: respect system rotation lock (PlayerScreen sets the
-    // initial requestedOrientation to USER). When the user taps the lock,
-    // we override to LANDSCAPE; tapping again returns control to USER.
-    var isOrientationLocked by remember { mutableStateOf(false) }
+    // Persisted via the orientation-mode setting (default landscape-locked,
+    // like iOS's PlayerOrientationCoordinator); PlayerScreen applies the
+    // matching requestedOrientation whenever the setting changes.
+    val isOrientationLocked by viewModel.orientationLocked.collectAsState()
     val context = LocalContext.current
-    val activity = context as? Activity
 
     val introSkipState by viewModel.introSkipState.collectAsState()
     val sleepTimerState by viewModel.sleepTimerState.collectAsState()
@@ -120,10 +120,19 @@ fun PlayerOverlay(
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val subtitleTools by viewModel.subtitleTools.collectAsState()
-    val cycleVideoGravity: () -> Unit = {
-        val nextGravity = nextMobileVideoGravity(videoGravity)
-        viewModel.onSetVideoGravity(nextGravity)
-        Toast.makeText(context, mobileVideoGravityLabel(nextGravity), Toast.LENGTH_SHORT).show()
+    // Pinch-to-scale (iOS parity): pinch-out steps Fit -> Fill -> Stretch,
+    // pinch-in steps back, clamped at both ends. No-op steps (already at an
+    // end) skip the toast so a clamped pinch stays quiet.
+    val stepVideoGravity: (Boolean) -> Unit = { expand ->
+        val nextGravity = if (expand) {
+            nextMobileVideoGravity(videoGravity)
+        } else {
+            previousMobileVideoGravity(videoGravity)
+        }
+        if (nextGravity != videoGravity) {
+            viewModel.onSetVideoGravity(nextGravity)
+            Toast.makeText(context, mobileVideoGravityLabel(nextGravity), Toast.LENGTH_SHORT).show()
+        }
     }
     // Remote "display_message" from the control socket — show transiently.
     val remoteMessage by viewModel.remoteMessage.collectAsState()
@@ -154,8 +163,9 @@ fun PlayerOverlay(
                 onSeek = gatedSeek,
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+                seekEnabled = seekEnabled,
                 onFastForwardHold = gatedFastForwardHold,
-                onCycleVideoGravity = cycleVideoGravity,
+                onPinchVideoGravity = stepVideoGravity,
                 onDismiss = handleBack,
                 modifier = Modifier.zIndex(0f),
             )
@@ -180,6 +190,7 @@ fun PlayerOverlay(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(top = 64.dp)
                 .zIndex(3f),
         ) {
@@ -203,6 +214,7 @@ fun PlayerOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(top = 16.dp, start = 16.dp),
             contentAlignment = Alignment.TopStart,
         ) {
@@ -216,6 +228,7 @@ fun PlayerOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(top = 64.dp)
                     .zIndex(10f),
                 contentAlignment = Alignment.TopCenter,
@@ -242,6 +255,7 @@ fun PlayerOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(top = 16.dp),
                 contentAlignment = Alignment.TopCenter,
             ) {
@@ -297,6 +311,7 @@ fun PlayerOverlay(
                 intro = state.intro,
                 hasChapters = state.chapters.isNotEmpty(),
                 hasTracks = state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty(),
+                hasMultipleVersions = state.versions.size > 1,
                 isOrientationLocked = isOrientationLocked,
                 seekEnabled = seekEnabled,
                 playPauseEnabled = playPauseEnabled,
@@ -306,22 +321,18 @@ fun PlayerOverlay(
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
                 onToggleOrientationLock = {
-                    val nextLocked = !isOrientationLocked
-                    isOrientationLocked = nextLocked
-                    activity?.requestedOrientation = if (nextLocked) {
-                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                    } else {
-                        ActivityInfo.SCREEN_ORIENTATION_USER
-                    }
+                    viewModel.onSetOrientationLocked(!isOrientationLocked)
                 },
                 onOpenChapters = { chaptersSheetVisible = true },
                 onOpenTracks = { tracksSheetVisible = true },
+                onOpenQuality = { showQualitySelector = true },
                 onOpenSettings = { settingsSheetVisible = true },
             )
         }
 
         val bottomEndSlotModifier = Modifier
             .align(Alignment.BottomEnd)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(bottom = 120.dp, end = 24.dp)
             .zIndex(2f)
 
@@ -397,6 +408,7 @@ fun PlayerOverlay(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(top = 16.dp, end = 16.dp)
                 .zIndex(2f),
         ) {
@@ -466,6 +478,11 @@ fun PlayerOverlay(
                 subtitleSearchVisible = false
                 viewModel.onSearchSheetClosed()
             },
+            onBack = {
+                subtitleSearchVisible = false
+                tracksSheetVisible = true
+                viewModel.onSearchSheetClosed()
+            },
         )
     }
 
@@ -480,6 +497,11 @@ fun PlayerOverlay(
             onCancelJob = viewModel::cancelAiJob,
             onDismiss = {
                 aiTranslateVisible = false
+                viewModel.onTranslateSheetClosed()
+            },
+            onBack = {
+                aiTranslateVisible = false
+                tracksSheetVisible = true
                 viewModel.onTranslateSheetClosed()
             },
         )
@@ -518,16 +540,6 @@ fun PlayerOverlay(
             settingsSheetVisible = false
             sleepTimerVisible = true
         },
-        onOpenChapters = {
-            settingsSheetVisible = false
-            chaptersSheetVisible = true
-        },
-        hasChapters = state.chapters.isNotEmpty(),
-        onOpenQuality = {
-            settingsSheetVisible = false
-            showQualitySelector = true
-        },
-        hasMultipleVersions = state.versions.size > 1,
         stats = state.stats,
         onOpenPlaybackStats = {
             settingsSheetVisible = false
@@ -544,11 +556,16 @@ fun PlayerOverlay(
         isVisible = statsSheetVisible,
         stats = state.stats,
         onDismiss = { statsSheetVisible = false },
+        onBack = {
+            statsSheetVisible = false
+            settingsSheetVisible = true
+        },
     )
 
-    // Chapters picker — opened from the "Chapters" row in PlayerSettingsSheet.
-    // Selecting a row seeks the player to the chapter's startSeconds. Hidden
-    // entirely (and the parent row hidden) when the active version has no
+    // Chapters picker — opened from the HUD chapters button (HUD product
+    // decision: chapters + tracks + quality; no longer reachable from the
+    // gear sheet). Selecting a row seeks the player to the chapter's
+    // startSeconds. The HUD button hides when the active version has no
     // embedded chapters.
     ChaptersSheet(
         isVisible = chaptersSheetVisible,
@@ -568,6 +585,10 @@ fun PlayerOverlay(
         appearance = viewModel.subtitleAppearance.collectAsState().value,
         onUpdate = viewModel::onSetSubtitleAppearance,
         onDismiss = { subtitleStyleVisible = false },
+        onBack = {
+            subtitleStyleVisible = false
+            settingsSheetVisible = true
+        },
     )
 
     // Sleep timer picker — opened from the "Sleep Timer" row in
@@ -579,6 +600,10 @@ fun PlayerOverlay(
         onStart = viewModel::onStartSleepTimer,
         onCancel = viewModel::onCancelSleepTimer,
         onDismiss = { sleepTimerVisible = false },
+        onBack = {
+            sleepTimerVisible = false
+            settingsSheetVisible = true
+        },
     )
 }
 
@@ -612,9 +637,18 @@ private fun SleepTimerChip(remainingSeconds: Int) {
     }
 }
 
+// Directional gravity steps, clamped at both ends (iOS nextVideoGravity /
+// previousVideoGravity in MobilePlayerGestureLayer — no wrap-around).
 internal fun nextMobileVideoGravity(current: String): String = when (current) {
     "fit" -> "fill"
     "fill" -> "stretch"
+    "stretch" -> "stretch"
+    else -> "fill"
+}
+
+internal fun previousMobileVideoGravity(current: String): String = when (current) {
+    "stretch" -> "fill"
+    "fill" -> "fit"
     else -> "fit"
 }
 

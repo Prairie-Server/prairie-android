@@ -62,7 +62,7 @@ import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.playback.nextEpisodeAfter
 import org.siloserver.silo.playback.resolveAudioTrackOrdinal
-import org.siloserver.silo.playback.resolveSubtitleTrackOrdinal
+import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
 import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.repository.CatalogRepository
@@ -132,6 +132,12 @@ class PlayerViewModel(
     companion object {
         private const val TAG = "PlayerViewModel"
         private const val CONTROLS_AUTO_HIDE_MS = 3_000L
+        // Silent-black-screen watchdog window (matches TV's FIRST_FRAME_WATCHDOG_MS).
+        // If playback is rolling but no first video frame lands within this window,
+        // treat it as an engine failure and run the recovery ladder. NOTE: may need
+        // on-device tuning against phone remux cold-start (a slow cold remux could
+        // legitimately roll audio before the first frame).
+        private const val FIRST_FRAME_WATCHDOG_MS = 8_000L
         // Record a durable position roughly every 10s of content time (matches the
         // server reporter cadence) to bound DB/outbox churn.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
@@ -141,6 +147,10 @@ class PlayerViewModel(
         /** iOS resolveOnDeckItems: section pools feeding the On Deck carousel. */
         private val ON_DECK_SECTION_TYPES = setOf("continue_watching", "in_progress", "next_up")
         private const val ON_DECK_MAX_ITEMS = 12
+        // Stored orientation-mode values — raw-value parity with iOS
+        // `PlayerOrientationMode` so the device-scoped setting round-trips.
+        private const val ORIENTATION_MODE_LANDSCAPE_LOCKED = "landscapeLocked"
+        private const val ORIENTATION_MODE_ROTATE_FREELY = "rotateFreely"
     }
 
     /**
@@ -173,6 +183,13 @@ class PlayerViewModel(
     data class PlayerUiState(
         val isLoading: Boolean = true,
         val error: String? = null,
+        /**
+         * Transient, dismissable message for a failed quality/version switch.
+         * Unlike [error] it does NOT gate the video surface — the previous
+         * version keeps playing underneath, so the viewer isn't dropped to a
+         * black screen for a switch that simply couldn't be honored.
+         */
+        val versionSwitchMessage: String? = null,
         val title: String = "",
         val subtitle: String = "",
         /**
@@ -321,6 +338,23 @@ class PlayerViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0)
     val videoGravity: StateFlow<String> = playerSettingsStore.videoGravityFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, "fit")
+    // iOS parity (PlayerOrientationCoordinator): the phone player defaults to
+    // landscape-locked; "rotateFreely" is the persisted opt-out written by the
+    // HUD lock toggle. Any other stored value (including the legacy "auto"
+    // default) locks, matching iOS's landscapeLocked default on new clients.
+    // Display flow (HUD lock icon/label, toggle): never null — the eager `true`
+    // default just means the lock icon shows locked until the setting resolves.
+    val orientationLocked: StateFlow<Boolean> = playerSettingsStore.orientationModeFlow
+        .map { it != ORIENTATION_MODE_ROTATE_FREELY }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    // Apply flow: same resolution, but null until the persisted preference has
+    // actually arrived. PlayerScreen keys its requestedOrientation effect on
+    // this and does NOTHING while null — the factory-scoped VM's first frame
+    // would otherwise report the eager locked default and snap rotateFreely
+    // users back to SENSOR_LANDSCAPE on every player entry.
+    val orientationLockedResolved: StateFlow<Boolean?> = playerSettingsStore.orientationModeFlow
+        .map { it != ORIENTATION_MODE_ROTATE_FREELY }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val autoSkipIntroEnabled: StateFlow<Boolean> = playerSettingsStore.autoSkipIntroFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val autoPlayNextEnabled: StateFlow<Boolean> = playerSettingsStore.autoPlayNextFlow
@@ -344,7 +378,21 @@ class PlayerViewModel(
     // strongest videoEnded flag seen) so resolveNextEpisode can commit the card.
     private var pendingApproachingEndVideoEnded: Boolean? = null
     private var upNextCountdownJob: Job? = null
-    private var engineSwitchFallbackAttempted = false
+    // Engines for which an engine-switch failure ([onEngineSwitchFailed]) has
+    // already been escalated. Replaces the old one-shot boolean so repeated
+    // SET_ENGINE failures — or a re-armed black-screen watchdog — for the SAME
+    // engine don't re-enter the ladder, while a black screen on a LATER fallback
+    // engine can still escalate. Nullable on purpose: a plan-less session keys
+    // on null, so it still escalates exactly once instead of bypassing the
+    // guard. Cleared on every fresh load/version switch; the ladder terminates
+    // because the planner stops offering direct engines once attemptedEngines
+    // is exhausted.
+    private val engineSwitchFailureEngines = mutableSetOf<PlaybackEngineKind?>()
+    // Auto-dismiss timer for the transient version-switch failure pill. A new
+    // failure cancels the prior job so a stale one can't clear the fresh
+    // message early (repeated identical failures used to be dismissed within a
+    // second by an uncancelled, message-equality-gated coroutine).
+    private var versionSwitchMessageJob: Job? = null
     private var persistNextSubtitleSelection = false
 
     // Recovery ladder state — mirrors TvPlayerViewModel. The planner picks the
@@ -510,7 +558,7 @@ class PlayerViewModel(
         // AutoPlayGuard streak intentionally PERSISTS across episodes.)
         autoAdvanceHandled = false
         pendingApproachingEndVideoEnded = null
-        engineSwitchFallbackAttempted = false
+        engineSwitchFailureEngines.clear()
         persistNextSubtitleSelection = false
         resetPlaybackRecoveryState()
         upNextCountdownJob?.cancel()
@@ -615,8 +663,31 @@ class PlayerViewModel(
             ?: watchDetail?.let { findPreferredVersion(it, preferredFileId, null) }
             ?: 0
         val version = versions.getOrNull(versionIndex)
+        // Resolve the detail screen's explicit pick FIRST: the persisted/auto
+        // chain below is suppressed only when the pick actually RESOLVES, so an
+        // unmatchable pick falls through to persisted → auto instead of Off.
+        // The pick is an ordinal into the catalog subtitle list — translate it
+        // onto the mounted list before selecting (TV parity); using it raw
+        // either missed range (subtitles stayed off) or selected the wrong
+        // track. resolveInitialMobileSubtitleOrdinal returns null when a real
+        // pick can't be matched to the mounted list; it maps an explicit -1
+        // (deliberate Off from the detail page) to -1, a resolved pick that is
+        // honored and persisted like any other explicit choice.
+        val requestedSubtitleIndex = initialSubtitleTrackIndex?.let { requested ->
+            resolveInitialMobileSubtitleOrdinal(
+                requestedOrdinal = requested,
+                catalogTracks = version?.subtitleTracks.orEmpty(),
+                mountedSubtitles = playbackState.subtitleUrls,
+            )
+        }
+        // A RESOLVED explicit pick (including an explicit -1 Off) wins over the
+        // persisted/auto chain. A pick that failed to resolve (null) does NOT
+        // suppress it — otherwise one unmatchable pick would strand playback on
+        // Off and (via onSubtitleSelectionApplied) persist that Off for every
+        // future playback.
+        val explicitSubtitlePickResolved = requestedSubtitleIndex != null
         val localTrackSelection = version?.fileId
-            ?.takeIf { initialAudioTrackIndex == null || initialSubtitleTrackIndex == null }
+            ?.takeIf { initialAudioTrackIndex == null || !explicitSubtitlePickResolved }
             ?.let { fileId -> userItemStatePort.localTrackSelection(playbackState.contentId, fileId) }
         val persistedAudioIndex = if (initialAudioTrackIndex == null) {
             version?.audioTracks
@@ -624,13 +695,21 @@ class PlayerViewModel(
         } else {
             null
         }
-        val persistedSubtitleIndex = if (initialSubtitleTrackIndex == null) {
-            version?.subtitleTracks
-                ?.let { tracks -> resolveSubtitleTrackOrdinal(tracks, localTrackSelection?.subtitleFingerprint) }
+        val persistedSubtitleIndex = if (!explicitSubtitlePickResolved) {
+            // Selections are recorded against the MOUNTED subtitle list
+            // (onSubtitleSelectionApplied fingerprints uiState.subtitleTracks,
+            // i.e. PlayerSubtitleInfo) — restore against the same list. The
+            // previous catalog-list resolution used a different index space
+            // (demux stream index), so saved choices never matched and player
+            // subtitle overrides silently failed to stick.
+            resolveMountedSubtitleOrdinal(
+                playbackState.subtitleUrls,
+                localTrackSelection?.subtitleFingerprint,
+            )
         } else {
             null
         }
-        val autoSubtitleSelection = if (initialSubtitleTrackIndex == null && persistedSubtitleIndex == null) {
+        val autoSubtitleSelection = if (!explicitSubtitlePickResolved && persistedSubtitleIndex == null) {
             resolveMobileAutoSubtitleSelection(
                 audioTracks = version?.audioTracks ?: emptyList(),
                 selectedAudioIndex = playbackState.audioTrackIndex,
@@ -642,7 +721,7 @@ class PlayerViewModel(
         } else {
             MobileSubtitleAutoSelection.NoChange
         }
-        val resolvedSubtitleIndex = initialSubtitleTrackIndex
+        val resolvedSubtitleIndex = requestedSubtitleIndex
             ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
             ?: persistedSubtitleIndex
                 ?.takeIf { it == -1 || it in playbackState.subtitleUrls.indices }
@@ -652,7 +731,9 @@ class PlayerViewModel(
                 MobileSubtitleAutoSelection.Disable -> -1
                 MobileSubtitleAutoSelection.NoChange -> -1
             }
-        persistNextSubtitleSelection = initialSubtitleTrackIndex != null || persistedSubtitleIndex != null
+        // Persist only a resolved explicit pick or a restored persisted choice —
+        // never an Off produced by a failed explicit pick.
+        persistNextSubtitleSelection = explicitSubtitlePickResolved || persistedSubtitleIndex != null
 
         _uiState.update {
             it.copy(
@@ -693,6 +774,12 @@ class PlayerViewModel(
                 showUpNext = false,
                 upNextVideoEnded = false,
                 upNextCountdownSeconds = null,
+                // T11: clear the subtitle-refresh nonce on every fresh mount.
+                // It is bumped once per post-download refresh; without this
+                // reset a later backend recreation (version switch / recovery
+                // fallback) would see a stale nonce>0 and re-fire a spurious
+                // second refresh racing the primary mount effect.
+                subtitleRefreshNonce = 0,
                 preferredAudioLanguage = playbackState.preferredAudioLanguage,
                 preferredTextLanguage = playbackState.preferredTextLanguage,
             )
@@ -866,6 +953,9 @@ class PlayerViewModel(
                 ),
             )
         }
+        // Swapping to a new engine re-arms the black-screen watchdog so a black
+        // frame on the fallback engine is escalated too (not just the first one).
+        rearmFirstFrameWatchdog()
         _uiState.update {
             it.copy(
                 isLoading = false,
@@ -993,6 +1083,9 @@ class PlayerViewModel(
                             )
                         }
                     }
+                    // Adopting a new server route swaps the effective engine/route,
+                    // so re-arm the black-screen watchdog for the adopted stream.
+                    rearmFirstFrameWatchdog()
                 }
                 is ApiResult.Error -> _uiState.update { current ->
                     if (!current.matchesServerRecovery(recoveryIdentity)) {
@@ -1016,6 +1109,11 @@ class PlayerViewModel(
         cancelRecoveryJob()
         attemptedEngines.clear()
         transientNetworkRetries = 0
+        // Fresh load / version switch / exit: re-arm the first-frame watchdog
+        // for the next mount. (Recovery paths that adopt a new engine/route
+        // mid-session — applyAlternateDirectFallback, startServerRecoveryFallback
+        // — re-arm it themselves; they don't come through here.)
+        rearmFirstFrameWatchdog()
     }
 
     private fun cancelRecoveryJob() {
@@ -1047,13 +1145,19 @@ class PlayerViewModel(
 
     fun onEngineSwitchFailed(message: String) {
         val state = _uiState.value
+        // Per-engine scoping (TV parity): escalate at most once per distinct
+        // engine. Repeated SET_ENGINE failures — or a re-armed black-screen
+        // watchdog firing again — for the SAME engine must not re-enter the
+        // ladder and emit duplicate route events, but a black screen on a LATER
+        // fallback engine still needs to escalate. `add` returns false when the
+        // engine was already handled; a null plan keys on null so a plan-less
+        // session gets exactly one escalation instead of bypassing the guard.
         if (
-            !engineSwitchFallbackAttempted &&
+            engineSwitchFailureEngines.add(state.playbackPlan?.engine) &&
             state.sessionId != null &&
             state.streamUrl != null &&
             state.versions.getOrNull(state.selectedVersionIndex) != null
         ) {
-            engineSwitchFallbackAttempted = true
             // Don't blindly transcode: prefer another direct engine, then fall
             // through the plan's remux/transcode ladder. A transcode-only source
             // can't be rescued by a remux that copies the same streams.
@@ -1163,8 +1267,54 @@ class PlayerViewModel(
      * user intends to play. `isPaused` is the user's intent and must not be overwritten here,
      * otherwise a buffering glitch flips the pause icon and defeats scheduleControlsHide.
      */
+    /** Set once Media3 renders the first video frame of the current item. */
+    private var firstVideoFrameRendered = false
+    private var firstFrameWatchdogJob: Job? = null
+
+    fun onFirstVideoFrameRendered() {
+        firstVideoFrameRendered = true
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
+    }
+
+    /**
+     * Re-arm the black-screen watchdog for a freshly swapped engine/route. The
+     * watchdog is one-shot per armed engine (see [onPlayingChanged]); without
+     * clearing the rendered latch and cancelling the previous engine's job, a
+     * black screen on the NEW (fallback) engine would never be detected — the
+     * ladder would stall on permanent black-with-audio. The next
+     * [onPlayingChanged] with isPlaying=true re-arms it for the new engine.
+     */
+    private fun rearmFirstFrameWatchdog() {
+        firstVideoFrameRendered = false
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
+    }
+
     fun onPlayingChanged(isPlaying: Boolean) {
         _uiState.update { it.copy(isPlaying = isPlaying) }
+        // Silent-black-screen watchdog (QA 2026-07-08: a DV Profile 7 remux played
+        // audio over a permanently black surface with NO Media3 decoder error — the
+        // error-driven recovery ladder never fires, and the client can't tell a
+        // stock server (DV copied → black) from a newer one (RPUs stripped → plays
+        // fine). If playback is rolling and no first video frame lands within the
+        // window, treat it as an engine failure: the ladder prefers another direct
+        // engine (MPV plays the HDR10 base layer) before conceding a server
+        // transcode. Guarded on !firstVideoFrameRendered so it can't fire on a
+        // session that has started audio and rendered video normally.
+        if (isPlaying && !firstVideoFrameRendered && firstFrameWatchdogJob == null) {
+            firstFrameWatchdogJob = viewModelScope.launch {
+                delay(FIRST_FRAME_WATCHDOG_MS)
+                if (!firstVideoFrameRendered && _uiState.value.isPlaying) {
+                    Log.w(TAG, "No first video frame after ${FIRST_FRAME_WATCHDOG_MS}ms — engine fallback")
+                    onEngineSwitchFailed("Video never started (black screen)")
+                }
+                // A skipped/expired watchdog must not keep the slot occupied —
+                // rearmFirstFrameWatchdog() + the next isPlaying=true need a
+                // null job to arm a fresh one for the swapped engine.
+                firstFrameWatchdogJob = null
+            }
+        }
         // Controls should auto-hide once real playback resumes after a pause.
         if (isPlaying && !_uiState.value.isPaused && _uiState.value.showControls) {
             scheduleControlsHide()
@@ -1891,6 +2041,15 @@ class PlayerViewModel(
         viewModelScope.launch { playerSettingsStore.setVideoGravity(value) }
     }
 
+    /** HUD lock toggle — persisted like iOS's `setPlayerOrientationMode`. */
+    fun onSetOrientationLocked(locked: Boolean) {
+        viewModelScope.launch {
+            playerSettingsStore.setOrientationMode(
+                if (locked) ORIENTATION_MODE_LANDSCAPE_LOCKED else ORIENTATION_MODE_ROTATE_FREELY,
+            )
+        }
+    }
+
     fun onSetAutoSkipIntro(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoSkipIntro(value) }
     }
@@ -1954,12 +2113,24 @@ class PlayerViewModel(
      * Select a different file version for playback.
      * Stops the current session and starts a new one with the selected version.
      */
-    fun onSelectVersion(index: Int) {
+    fun onSelectVersion(index: Int) = startVersionPlayback(index)
+
+    /**
+     * Starts playback of [versions][index]. [isRecovery] marks a re-start of the
+     * previously-playing version after a failed switch: it skips the "already on
+     * this version" dedupe (recovery re-selects the version the failed attempt
+     * had already written into selectedVersionIndex) and tells
+     * [failVersionSwitch] that a further failure is terminal. Recovery never
+     * writes an invalid selectedVersionIndex — the dedupe is bypassed by the
+     * flag, not by a sentinel.
+     */
+    private fun startVersionPlayback(index: Int, isRecovery: Boolean = false) {
         val currentState = _uiState.value
         val versions = currentState.versions
         if (index < 0 || index >= versions.size) return
-        if (index == currentState.selectedVersionIndex) return
+        if (!isRecovery && index == currentState.selectedVersionIndex) return
 
+        val previousVersionIndex = currentState.selectedVersionIndex
         val currentPosition = currentState.position
         resetPlaybackRecoveryState()
 
@@ -1975,7 +2146,7 @@ class PlayerViewModel(
             }
             // Cancel any in-flight intro skip countdown — we're loading a new version.
             introAutoSkipController.reset()
-            engineSwitchFallbackAttempted = false
+            engineSwitchFailureEngines.clear()
 
             _uiState.update { it.copy(isLoading = true, selectedVersionIndex = index, sessionId = null) }
 
@@ -2032,21 +2203,15 @@ class PlayerViewModel(
                             )) {
                                 is ApiResult.Success -> fallback.data
                                 is ApiResult.Error -> {
-                                    _uiState.update {
-                                        it.copy(
-                                            isLoading = false,
-                                            error = "Failed to switch version: ${fallback.message}",
-                                        )
-                                    }
+                                    failVersionSwitch(previousVersionIndex, fallback.message, isRecovery)
                                     return@launch
                                 }
                                 is ApiResult.NetworkError -> {
-                                    _uiState.update {
-                                        it.copy(
-                                            isLoading = false,
-                                            error = "Network error: ${fallback.exception.message}",
-                                        )
-                                    }
+                                    failVersionSwitch(
+                                        previousVersionIndex,
+                                        fallback.exception.message ?: "Network error",
+                                        isRecovery,
+                                    )
                                     return@launch
                                 }
                             }
@@ -2104,18 +2269,78 @@ class PlayerViewModel(
                     // sessionId/fileId so any prior cancellation does not carry over.
                     startIntroAutoSkipObserver()
                 }
-                is ApiResult.Error -> {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "Failed to switch version: ${result.message}")
-                    }
-                }
-                is ApiResult.NetworkError -> {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "Network error: ${result.exception.message}")
-                    }
-                }
+                is ApiResult.Error -> failVersionSwitch(previousVersionIndex, result.message, isRecovery)
+                is ApiResult.NetworkError ->
+                    failVersionSwitch(
+                        previousVersionIndex,
+                        result.exception.message ?: "Network error",
+                        isRecovery,
+                    )
             }
         }
+    }
+
+    /**
+     * Handles a failed quality/version switch. The requested version's session
+     * was already stopped.
+     *
+     * On the FIRST failure ([isRecovery] false) we surface a dismissable pill
+     * and restart the version that was playing via
+     * [startVersionPlayback]`(previousIndex, isRecovery = true)`. If that
+     * recovery restart ALSO fails ([isRecovery] true) the player is genuinely
+     * dead — no session, stale streamUrl — so we raise a persistent error
+     * screen (pre-PR behavior) rather than a transient pill that leaves a
+     * black player behind.
+     */
+    private fun failVersionSwitch(previousIndex: Int, rawReason: String, isRecovery: Boolean) {
+        if (isRecovery) {
+            versionSwitchMessageJob?.cancel()
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    versionSwitchMessage = null,
+                    error = "Failed to switch version: $rawReason",
+                )
+            }
+            return
+        }
+        showVersionSwitchMessage(humanizeVersionSwitchFailure(rawReason))
+        val versions = _uiState.value.versions
+        if (previousIndex in versions.indices) {
+            startVersionPlayback(previousIndex, isRecovery = true)
+        } else {
+            _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    /**
+     * Shows the transient version-switch pill and (re)arms its 4s auto-dismiss.
+     * A single [versionSwitchMessageJob] is held and cancelled before each new
+     * timer so a stale coroutine can never dismiss the current message early;
+     * once armed the timer clears the message unconditionally.
+     */
+    private fun showVersionSwitchMessage(message: String) {
+        versionSwitchMessageJob?.cancel()
+        _uiState.update { it.copy(versionSwitchMessage = message) }
+        versionSwitchMessageJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(4000)
+            _uiState.update { it.copy(versionSwitchMessage = null) }
+        }
+    }
+
+    private fun humanizeVersionSwitchFailure(raw: String): String = when {
+        raw.contains("No lower resolution version", ignoreCase = true) ->
+            "That quality isn't available for this title."
+        raw.contains("transcod", ignoreCase = true) ->
+            "Couldn't switch quality — transcoding unavailable."
+        raw.isBlank() -> "Couldn't switch quality."
+        else -> "Couldn't switch quality: $raw"
+    }
+
+    /** Dismisses the transient version-switch message. */
+    fun dismissVersionSwitchMessage() {
+        versionSwitchMessageJob?.cancel()
+        _uiState.update { it.copy(versionSwitchMessage = null) }
     }
 
     /** Toggle controls visibility. */

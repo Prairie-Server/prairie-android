@@ -111,8 +111,13 @@ fun TvInboxScreen(
         val cursor = nextCursor
         if (shouldLoadMore && cursor != null && !isLoadingMore) {
             isLoadingMore = true
-            repository.loadMore(cursor)
-            isLoadingMore = false
+            // try/finally so a key change that cancels this coroutine mid-load
+            // can't strand isLoadingMore=true and permanently wedge pagination.
+            try {
+                repository.loadMore(cursor)
+            } finally {
+                isLoadingMore = false
+            }
         }
     }
 
@@ -121,13 +126,25 @@ fun TvInboxScreen(
     val hasUnread = unreadCount > 0
 
     // Focus the first actionable row once data is present. The Mark-all card is
-    // the first focusable when unread; otherwise the first notification card.
+    // the first focusable when unread; otherwise the first notification card —
+    // both wear [firstRowFocusRequester], so re-requesting it after the Mark-all
+    // card disappears lands focus on the first notification row.
     val firstRowFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
+    // Set by the Mark-all card's onClick: clicking it removes the focused card
+    // from composition and drops focus, so we refocus the first notification row
+    // once the unread state clears. An explicit flag — rather than inferring a
+    // hasUnread true→false transition — so an incoming notification being read
+    // elsewhere can't yank focus mid-browse.
+    var pendingMarkAllRefocus by remember { mutableStateOf(false) }
     LaunchedEffect(cards.isNotEmpty(), hasUnread) {
-        if (!initialFocusRequested && cards.isNotEmpty()) {
+        if (cards.isNotEmpty() && !initialFocusRequested) {
             runCatching { firstRowFocusRequester.requestFocus() }
             initialFocusRequested = true
+        }
+        if (pendingMarkAllRefocus && !hasUnread && cards.isNotEmpty()) {
+            pendingMarkAllRefocus = false
+            runCatching { firstRowFocusRequester.requestFocus() }
         }
     }
 
@@ -176,7 +193,10 @@ fun TvInboxScreen(
                     item(key = "mark-all-read") {
                         MarkAllReadCard(
                             focusRequester = firstRowFocusRequester,
-                            onClick = { scope.launch { repository.markAllRead() } },
+                            onClick = {
+                                pendingMarkAllRefocus = true
+                                scope.launch { repository.markAllRead() }
+                            },
                         )
                     }
                 }

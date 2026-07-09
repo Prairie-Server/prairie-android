@@ -112,11 +112,13 @@ import org.siloserver.silo.cast.SiloCastQualityOption
 import org.siloserver.silo.cast.SiloCastTrack
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.playback.PlaybackSourceMetadata
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.siloserver.silo.model.settings.legacyPosition
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
+import org.siloserver.silo.player.DolbyVisionDetection
 import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
 import org.siloserver.silo.tv.R
 import org.siloserver.silo.tv.cast.TvSiloCastPlayerAdapter
@@ -124,10 +126,12 @@ import org.siloserver.silo.tv.cast.TvSiloCastReceiver
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -135,6 +139,13 @@ import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 
 private const val CONTROLS_AUTO_HIDE_MS = 5_000L
+// Cap on how long the client waits for a SET_ENGINE round-trip before treating
+// the switch as failed. The service builds the engine (MPV native init can be
+// slow) under NonCancellable while holding engineSwitchMutex, so this must be
+// long enough not to abort a legitimately slow init, yet short enough to
+// recover from a wedged init instead of stranding a permanent black screen and
+// blocking every later switch behind the held mutex. 25s splits that range.
+private const val ENGINE_SWITCH_TIMEOUT_MS = 25_000L
 // Skip back is 10s; skip forward is 30s, matching tvOS (gobackward.10 /
 // goforward.30).
 private const val SKIP_BACK_MS = 10_000L
@@ -342,6 +353,7 @@ fun TvPlayerScreen(
                         isHardPlaybackContainer(state.container),
                     hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
                     hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
+                    hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                     isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(state.streamUrl),
                 ),
             )
@@ -357,19 +369,29 @@ fun TvPlayerScreen(
     DisposableEffect(siloCastReceiver, viewModel, contentId) {
         val adapter = TvSiloCastPlayerAdapter(
             play = {
-                viewModel.setPaused(false)
-                latestSiloCastMediaController?.play()
+                // Watch Together is authoritative for transport: suppress
+                // SiloCast transport while in a room so a caster can't desync
+                // members, mirroring the realtime remote path's
+                // remoteTransportSuppressed gate. Non-room casting is unchanged.
+                if (!viewModel.remoteTransportSuppressed) {
+                    viewModel.setPaused(false)
+                    latestSiloCastMediaController?.play()
+                }
             },
             pause = {
-                viewModel.setPaused(true)
-                latestSiloCastMediaController?.pause()
+                if (!viewModel.remoteTransportSuppressed) {
+                    viewModel.setPaused(true)
+                    latestSiloCastMediaController?.pause()
+                }
             },
-            playPause = viewModel::onPlayPause,
+            playPause = { if (!viewModel.remoteTransportSuppressed) viewModel.onPlayPause() },
             seek = { seconds ->
-                viewModel.seekImmediate(seconds)
-                latestSiloCastMediaController?.seekTo((seconds * 1_000).toLong())
+                if (!viewModel.remoteTransportSuppressed) {
+                    viewModel.seekImmediate(seconds)
+                    latestSiloCastMediaController?.seekTo((seconds * 1_000).toLong())
+                }
             },
-            stop = viewModel::remoteStop,
+            stop = { if (!viewModel.remoteTransportSuppressed) viewModel.remoteStop() },
             selectAudio = { index -> viewModel.remoteSelectAudio(index.toInt()) },
             selectSubtitle = { index -> viewModel.remoteSelectSubtitle(index?.toInt() ?: -1) },
             setPlaybackSpeed = { speed ->
@@ -506,7 +528,11 @@ fun TvPlayerScreen(
         if (roomController != null) {
             roomController.onUserSeek(target / 1000.0)
         } else {
-            controller.seekTo(target)
+            // seekImmediate pre-writes uiState.position (like room seeks) so the
+            // credits-crossing check treats this as a local seek, not natural
+            // playback reaching the credits point. The seekRequests collector
+            // applies it to the controller.
+            viewModel.seekImmediate(target / 1000.0)
         }
         if (revealControls) {
             viewModel.setControlsVisible(true)
@@ -666,7 +692,13 @@ fun TvPlayerScreen(
                 !latestShowLeaveDialog
             ) {
                 if (event.action == KeyEvent.ACTION_UP) {
-                    viewModel.setControlsVisible(false)
+                    // While scrubbing, Back cancels the in-flight scrub (drop the
+                    // preview, keep playing) rather than hiding the whole overlay.
+                    if (playerState.isScrubbing) {
+                        viewModel.cancelScrub()
+                    } else {
+                        viewModel.setControlsVisible(false)
+                    }
                 }
                 return@handler true
             }
@@ -994,9 +1026,21 @@ fun TvPlayerScreen(
                 isHardPlaybackContainer(state.container),
             hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
             hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
+            hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
-        val switchResult = controller.awaitEngineSwitch(engineRequest)
+        // Bound the await: a wedged engine build would otherwise suspend here
+        // forever (never firing onEngineSwitchFailed), leaving a black screen.
+        // On timeout, awaitEngineSwitch's invokeOnCancellation cancels the
+        // pending SET_ENGINE future so nothing leaks; treat it as a failure so
+        // the recovery ladder runs.
+        val switchResult = try {
+            withTimeout(ENGINE_SWITCH_TIMEOUT_MS) {
+                controller.awaitEngineSwitch(engineRequest)
+            }
+        } catch (_: TimeoutCancellationException) {
+            EngineSwitchResult(success = false, swapped = false)
+        }
         if (!switchResult.success) {
             viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
             return@LaunchedEffect
@@ -1046,9 +1090,19 @@ fun TvPlayerScreen(
                 isHardPlaybackContainer(state.container),
             hasStyledSubtitles = state.subtitleUrls.any { it.isStyledSubtitle() },
             hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
+            hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
-        val switchResult = controller.awaitEngineSwitch(engineRequest)
+        // Same bounded await as the initial prepare effect: a wedged engine
+        // build must not strand a black screen. On timeout the pending future is
+        // cancelled (no leak) and we fall through to the failure path.
+        val switchResult = try {
+            withTimeout(ENGINE_SWITCH_TIMEOUT_MS) {
+                controller.awaitEngineSwitch(engineRequest)
+            }
+        } catch (_: TimeoutCancellationException) {
+            EngineSwitchResult(success = false, swapped = false)
+        }
         if (!switchResult.success) {
             viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
             return@LaunchedEffect
@@ -1217,9 +1271,14 @@ fun TvPlayerScreen(
         state.hudOpen,
         state.showSubtitleMenu,
         state.showSubtitleStyleDialog,
+        state.isScrubbing,
     ) {
+        // Never auto-hide mid-scrub: hiding the scrubber would tear down the
+        // in-flight preview under the user. The timer re-arms once the scrub
+        // commits or cancels (isScrubbing flips back to false).
         if (state.showControls && !state.isPaused && !state.hudOpen &&
-            !state.showSubtitleMenu && !state.showSubtitleStyleDialog
+            !state.showSubtitleMenu && !state.showSubtitleStyleDialog &&
+            !state.isScrubbing
         ) {
             delay(CONTROLS_AUTO_HIDE_MS)
             viewModel.setControlsVisible(false)
@@ -1382,7 +1441,10 @@ fun TvPlayerScreen(
                             if (roomController != null) {
                                 roomController.onUserSeek(targetSec)
                             } else {
-                                mediaController?.seekTo((targetSec * 1000).toLong())
+                                // seekImmediate pre-writes position so a scrub
+                                // committed into the credits region isn't mistaken
+                                // for natural playback crossing the credits point.
+                                viewModel.seekImmediate(targetSec)
                             }
                             viewModel.setControlsVisible(true)
                         },
@@ -1509,7 +1571,20 @@ fun TvPlayerScreen(
                             chapters = state.chapters,
                             onSelectChapter = { idx ->
                                 viewModel.onSeekToChapter(idx)?.let { sec ->
-                                    mediaController?.seekTo((sec * 1000).toLong())
+                                    if (roomController != null) {
+                                        // In a room, route through the same gated
+                                        // path as scrub-commit / performRelativeSeek:
+                                        // transport authority decides (a guest is a
+                                        // no-op) and a permitted seek broadcasts.
+                                        if (tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek) == TransportGate.Send) {
+                                            roomController.onUserSeek(sec)
+                                        }
+                                    } else {
+                                        // Solo: seekImmediate pre-writes position so a
+                                        // chapter jump into credits isn't mistaken for
+                                        // natural playback crossing the credits point.
+                                        viewModel.seekImmediate(sec)
+                                    }
                                 }
                             },
                             onDismiss = { viewModel.closeHUD() },
@@ -2383,6 +2458,24 @@ private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
 
 internal fun isHardPlaybackContainer(container: String?): Boolean =
     isMpvPreferredOriginalPlaybackContainer(container)
+
+/**
+ * True when the planned source carries Dolby Vision. Feeds
+ * [VideoPlaybackBackendRequest.hasDolbyVisionVideo] so Auto routes DV to
+ * MPV — Media3 has no reliable TV-side DV handling and can play
+ * audio+subtitles over a permanently black video surface. Plain
+ * HDR10/HDR10+/HLG stays on Media3, which plays it correctly; MPV's
+ * slurp-then-idle streaming makes it the worse default for those. Routes
+ * through the shared [DolbyVisionDetection] predicate so the TV, phone, and
+ * routing layers recognize the same signals (structured profile plus the
+ * HDR-format tokens, including a bare `dv`) and never diverge from Apple.
+ */
+private fun hasDolbyVisionSource(source: PlaybackSourceMetadata?): Boolean =
+    DolbyVisionDetection.isDolbyVision(
+        dolbyVisionProfile = source?.dolbyVisionProfile,
+        hdrFormat = source?.hdrFormat,
+        videoCodec = source?.videoCodec,
+    )
 
 private const val TAG = "TvPlayerScreen"
 

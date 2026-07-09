@@ -17,13 +17,15 @@ import org.siloserver.silo.model.section.SectionItem
  *
  * @param section The resolved section containing items.
  * @param onItemClick Callback with content ID when a card is tapped.
- * @param onSeeAllClick Callback when the "See All" button is tapped.
  * @param modifier Compose modifier.
  */
 @Composable
 fun HomeSectionRow(
     section: ResolvedSection,
     onItemClick: (String) -> Unit,
+    onItemPlay: ((SectionItem) -> Unit)? = null,
+    /** Optional See All affordance — used by Libraries/Reading hub rows;
+     *  Home rows pass nothing (removed for iOS parity). */
     onSeeAllClick: (() -> Unit)? = null,
     onSetWatched: ((String, Boolean) -> Unit)? = null,
     onToggleFavorite: ((String, Boolean) -> Unit)? = null,
@@ -45,6 +47,8 @@ fun HomeSectionRow(
         items = section.items,
         onItemClick = onItemClick,
         onSeeAllClick = onSeeAllClick,
+        // Direct resume only where a resume point exists — the CW/next-up rows.
+        onItemPlay = if (useBackdrop) onItemPlay else null,
         showProgress = showProgress,
         cardStyle = cardStyle,
         modifier = modifier,

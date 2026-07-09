@@ -14,16 +14,14 @@ import kotlinx.coroutines.delay
 
 private data class SleepOption(val label: String, val choice: SleepTimerChoice)
 
+// Apple's set: Off / 15 / 30 / 60 minutes only — no end-of-chapter /
+// end-of-book boundary (SleepTimerChoice was trimmed to Off / Minutes). Matches
+// the phone AudiobookSleepTimerSheet.
 private val SLEEP_OPTIONS = listOf(
     SleepOption("Off", SleepTimerChoice.Off),
-    SleepOption("5 minutes", SleepTimerChoice.Minutes(5)),
-    SleepOption("10 minutes", SleepTimerChoice.Minutes(10)),
     SleepOption("15 minutes", SleepTimerChoice.Minutes(15)),
     SleepOption("30 minutes", SleepTimerChoice.Minutes(30)),
-    SleepOption("45 minutes", SleepTimerChoice.Minutes(45)),
     SleepOption("60 minutes", SleepTimerChoice.Minutes(60)),
-    SleepOption("End of chapter", SleepTimerChoice.EndOfChapter),
-    SleepOption("End of book", SleepTimerChoice.EndOfBook),
 )
 
 /** Focusable sleep-timer overlay mapping rows to the shared VM's

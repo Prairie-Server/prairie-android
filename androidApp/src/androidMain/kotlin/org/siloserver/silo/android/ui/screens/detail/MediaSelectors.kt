@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -32,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,24 +40,16 @@ import org.siloserver.silo.android.ui.theme.DarkSurfaceVariant
 import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.player.DolbyVisionDetection
 
+/**
+ * Full-width box row for one playback track group (Video / Audio /
+ * Subtitles) — the phone counterpart of the TV detail's selector row.
+ * Icon + group label on the left, the current value (ellipsized) and a
+ * chevron on the right; tap opens the matching bottom-sheet picker.
+ */
 @Composable
-fun VersionSelectorButton(
-    version: FileVersion,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    SelectorChip(
-        icon = Icons.Outlined.HighQuality,
-        label = "Version",
-        value = formatVersionMenuLabel(version),
-        onClick = onClick,
-        modifier = modifier,
-    )
-}
-
-@Composable
-private fun SelectorChip(
+fun TrackSelectorRow(
     icon: ImageVector,
     label: String,
     value: String,
@@ -66,11 +58,12 @@ private fun SelectorChip(
 ) {
     Row(
         modifier = modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(DarkSurfaceVariant.copy(alpha = 0.7f))
             .border(1.dp, DarkOutline, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -93,6 +86,8 @@ private fun SelectorChip(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
         )
         Icon(
             imageVector = Icons.Outlined.KeyboardArrowDown,
@@ -109,8 +104,8 @@ private fun SelectorChip(
 @Composable
 fun VersionPickerSheet(
     versions: List<FileVersion>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
+    selectedIndex: Int?,
+    onSelect: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -124,6 +119,22 @@ fun VersionPickerSheet(
             modifier = Modifier.heightIn(max = 400.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
+            item {
+                PickerItem(
+                    title = "Auto",
+                    subtitle = "Best available version",
+                    badges = emptyList(),
+                    isSelected = selectedIndex == null,
+                    onClick = { onSelect(null) },
+                )
+                if (versions.isNotEmpty()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
+
             itemsIndexed(versions) { index, version ->
                 PickerItem(
                     title = formatVersionTitle(version),
@@ -147,8 +158,8 @@ fun VersionPickerSheet(
 @Composable
 fun AudioPickerSheet(
     tracks: List<AudioTrack>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
+    selectedIndex: Int?,
+    onSelect: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -162,6 +173,22 @@ fun AudioPickerSheet(
             modifier = Modifier.heightIn(max = 400.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
+            item {
+                PickerItem(
+                    title = "Auto",
+                    subtitle = "Use the file default track",
+                    badges = emptyList(),
+                    isSelected = selectedIndex == null,
+                    onClick = { onSelect(null) },
+                )
+                if (tracks.isNotEmpty()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
+
             itemsIndexed(tracks) { index, track ->
                 PickerItem(
                     title = formatAudioTitle(track, index),
@@ -185,8 +212,8 @@ fun AudioPickerSheet(
 @Composable
 fun SubtitlePickerSheet(
     tracks: List<SubtitleTrack>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
+    selectedIndex: Int?,
+    onSelect: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -200,6 +227,20 @@ fun SubtitlePickerSheet(
             modifier = Modifier.heightIn(max = 400.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
+            item {
+                PickerItem(
+                    title = "Auto",
+                    subtitle = "Use the file default track",
+                    badges = emptyList(),
+                    isSelected = selectedIndex == null,
+                    onClick = { onSelect(null) },
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+
             // Off option
             item {
                 PickerItem(
@@ -316,6 +357,64 @@ private fun BadgePill(text: String) {
 
 // ── Label formatting ──────────────────────────────────────────
 
+/**
+ * Selector value for the Video row. Auto (no item-level override)
+ * previews what it resolves to — "Auto - 1080p · HEVC" — mirroring the
+ * TV client's `versionValueLabel` (QA 2026-07-08 / Apple parity).
+ */
+fun formatVersionValueLabel(version: FileVersion?, isAuto: Boolean): String {
+    if (version == null) return "Auto"
+    val label = formatVersionMenuLabel(version)
+    return if (isAuto) "Auto - $label" else label
+}
+
+/**
+ * Selector value for the Audio row, matching the iOS phone detail
+ * (`DetailPlaybackFormatting.audioValueLabel` with `annotateAuto = false`):
+ * the resolved track is named outright with no "Auto -" prefix, for both the
+ * auto and the explicit case. Auto resolves to the server's effective track
+ * ([effectiveIndex] = `FileVersion.effectiveAudioTrackIndex`), else the file's
+ * default track, else the first — Apple parity: selected → effective →
+ * default → first. [selectedIndex] null = Auto. (The annotated
+ * "Auto - <track>" form is tvOS-only on Apple, so the phone omits it.)
+ */
+fun formatAudioValueLabel(
+    tracks: List<AudioTrack>,
+    selectedIndex: Int?,
+    effectiveIndex: Int? = null,
+): String {
+    if (tracks.isEmpty()) return "Unknown"
+    val resolved = selectedIndex?.takeIf { it in tracks.indices }
+        ?: effectiveIndex?.takeIf { it in tracks.indices }
+        ?: tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 }
+        ?: 0
+    return formatAudioLabel(tracks[resolved])
+}
+
+/**
+ * Selector value for the Subtitles row, matching the iOS phone detail
+ * (`DetailPlaybackFormatting.subtitleValueLabel` with no `autoContext`).
+ *
+ * [selectedIndex] null = Auto: the phone shows a bare "Auto". The player's
+ * real subtitle resolver (preferred-language / audio-match / forced / SDH
+ * rules in `resolveMobileAutoSubtitleSelection`) — never the catalog
+ * `isDefault` flag — decides at playback, so previewing a concrete track from
+ * `isDefault` could contradict what actually plays. A lone track is named
+ * outright since Auto can only land there. -1 = Off.
+ */
+fun formatSubtitleValueLabel(tracks: List<SubtitleTrack>, selectedIndex: Int?): String {
+    if (selectedIndex == null) {
+        val single = tracks.singleOrNull() ?: return "Auto"
+        return formatSubtitleLabel(single)
+    }
+    if (selectedIndex == -1) return "Off"
+    // A stale explicit index (the track list shrank under the selection) still
+    // means subtitles ARE requested — surface "On" rather than a bare track
+    // label (which reads as an explicit pick) or "Auto" (mirrors iOS).
+    val track = tracks.getOrNull(selectedIndex) ?: return "On"
+    return formatSubtitleLabel(track)
+}
+
 fun formatVersionMenuLabel(version: FileVersion): String {
     val parts = mutableListOf<String>()
     formatResolutionLabel(version.resolution)?.let { parts.add(it) }
@@ -421,7 +520,7 @@ private fun formatHdrLabel(version: FileVersion): String? {
 
     return when {
         hdrFormat == null -> "HDR"
-        "dolby" in hdrFormat || "dovi" in hdrFormat || "dv" == hdrFormat -> "HDR"
+        DolbyVisionDetection.hdrFormatIndicatesDolbyVision(hdrFormat) -> "HDR"
         "hdr10+" in hdrFormat || "hdr10plus" in hdrFormat -> "HDR10+"
         "hdr10" in hdrFormat || "pq" in hdrFormat -> "HDR10"
         "hlg" in hdrFormat -> "HLG"

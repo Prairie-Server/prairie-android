@@ -39,6 +39,7 @@ open class PlaybackSessionManager(
         audioTrackIndex: Int? = null,
         qualityPreference: String? = null,
         startPosition: Double? = null,
+        disableProgressPersistence: Boolean = false,
     ): ApiResult<PlaybackSessionResponse> = startSessionInternal(
         fileId = fileId,
         profileId = profileId,
@@ -50,6 +51,7 @@ open class PlaybackSessionManager(
         clientPlaybackContext = null,
         preserveDirectAudioSelection = false,
         playMethod = null,
+        disableProgressPersistence = disableProgressPersistence,
     )
 
     suspend fun startSessionV2(
@@ -74,6 +76,7 @@ open class PlaybackSessionManager(
         clientPlaybackContext = clientPlaybackContext,
         preserveDirectAudioSelection = preserveDirectAudioSelection,
         playMethod = playMethod,
+        disableProgressPersistence = false,
     )
 
     private suspend fun startSessionInternal(
@@ -87,6 +90,7 @@ open class PlaybackSessionManager(
         clientPlaybackContext: ClientPlaybackContext?,
         preserveDirectAudioSelection: Boolean,
         playMethod: PlayMethod?,
+        disableProgressPersistence: Boolean,
     ): ApiResult<PlaybackSessionResponse> {
         Log.i(
             TAG,
@@ -110,6 +114,7 @@ open class PlaybackSessionManager(
             clientPlaybackContext = clientPlaybackContext,
             preserveDirectAudioSelection = preserveDirectAudioSelection,
             playMethod = playMethod,
+            disableProgressPersistence = disableProgressPersistence,
         )
         when (result) {
             is ApiResult.Success -> Log.i(

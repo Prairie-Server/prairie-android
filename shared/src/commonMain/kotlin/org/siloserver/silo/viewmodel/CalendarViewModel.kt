@@ -90,7 +90,12 @@ class CalendarViewModel(
     fun load() {
         val generation = ++loadGeneration
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            // Recompute "today" on every fetch so a resident/always-on app self-
+            // corrects after midnight: the "Today" highlight + header and
+            // isCurrentWeek (which gates the Today button) stay accurate without
+            // requiring the user to press Today first. weekStart is untouched so
+            // the visible week — and thus the fetched range — doesn't shift.
+            _uiState.update { it.copy(isLoading = true, error = null, today = todayProvider()) }
             fetch(generation)
         }
     }
@@ -98,7 +103,7 @@ class CalendarViewModel(
     fun refresh() {
         val generation = ++loadGeneration
         viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshing = true, error = null) }
+            _uiState.update { it.copy(isRefreshing = true, error = null, today = todayProvider()) }
             fetch(generation)
             if (generation == loadGeneration) {
                 _uiState.update { it.copy(isRefreshing = false) }

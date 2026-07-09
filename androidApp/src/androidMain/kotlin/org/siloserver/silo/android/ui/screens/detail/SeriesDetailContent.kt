@@ -17,8 +17,6 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -29,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +78,6 @@ fun SeriesDetailContent(
 ) {
     val dominantColor by rememberDominantColor(detail.backdropUrl, fallback = SiloBackground)
     var showRatingSheet by remember { mutableStateOf(false) }
-    var hideUnwatchedEpisodeStills by rememberSaveable(detail.contentId) { mutableStateOf(true) }
 
     val eyebrow = HeroMetadata.seriesEyebrow(detail)
     val sourceTokens = HeroMetadata.seriesSourceTokens(detail)
@@ -176,27 +172,6 @@ fun SeriesDetailContent(
                         trailingText = episodeCountSubtitle,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(
-                        onClick = { hideUnwatchedEpisodeStills = !hideUnwatchedEpisodeStills },
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .size(40.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (hideUnwatchedEpisodeStills) {
-                                Icons.Outlined.VisibilityOff
-                            } else {
-                                Icons.Outlined.Visibility
-                            },
-                            contentDescription = if (hideUnwatchedEpisodeStills) {
-                                "Show episode spoilers"
-                            } else {
-                                "Hide episode spoilers"
-                            },
-                            tint = DetailPrimaryText,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
                     // "Download season N" — only when a season is selected
                     // AND the parent screen wired the callback.
                     val seasonNumberForDownload = selectedSeason?.seasonNumber
@@ -269,7 +244,6 @@ fun SeriesDetailContent(
                             onEpisodeDetailClick = onEpisodeDetailClick,
                             onEpisodeDownloadClick = onEpisodeDownloadClick,
                             episodeDownloadState = episodeDownloadState,
-                            blurUnwatchedEpisodeStills = hideUnwatchedEpisodeStills,
                         )
                     }
                 }
@@ -279,7 +253,7 @@ fun SeriesDetailContent(
         if (detail.cast.isNotEmpty()) {
             item(contentType = "detail-cast") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Cast", title = "& Crew")
+                    SectionHeader(title = "Cast & Crew")
                     CastCrewSection(
                         cast = detail.cast,
                         crew = detail.crew,
@@ -289,30 +263,16 @@ fun SeriesDetailContent(
             }
         }
 
-        if (detail.genres.isNotEmpty()) {
-            item(contentType = "detail-genres") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Tags", title = "Genres")
-                    GenrePillRow(genres = detail.genres)
-                }
-            }
-        }
-
         item(contentType = "detail-facts") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SectionHeader(label = "Info", title = "Details")
-                DetailFactsList(detail = detail)
-            }
+            // Header renders inside DetailFactsList, gated on having facts.
+            DetailFactsList(detail = detail)
         }
 
         item(contentType = "detail-similar") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SectionHeader(label = "Recommended", title = "More Like This")
-                SimilarRail(
-                    contentId = detail.contentId,
-                    onSelect = onItemDetailClick,
-                )
-            }
+            SimilarRail(
+                contentId = detail.contentId,
+                onSelect = onItemDetailClick,
+            )
         }
 
         item(contentType = "detail-spacer") {

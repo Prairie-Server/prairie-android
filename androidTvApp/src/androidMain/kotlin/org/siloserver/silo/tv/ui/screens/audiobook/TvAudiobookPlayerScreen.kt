@@ -74,7 +74,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.common.player.AudiobookPlayerViewModel
 import org.siloserver.silo.common.player.SiloPlaybackService
-import org.siloserver.silo.common.player.SleepTimerChoice
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvPoster
@@ -197,10 +196,17 @@ fun TvAudiobookPlayerScreen(
         }
     }
 
-    // 4 Hz position poll (MediaController doesn't push position updates).
+    // 4 Hz position poll (MediaController doesn't push position updates). The
+    // current stream URI rides along so the VM can tie cross-part settle to
+    // stream identity, not just engine time.
     LaunchedEffect(controller) {
         while (true) {
-            controller?.let { viewModel.onPositionChanged(it.currentPosition / 1000.0) }
+            controller?.let {
+                viewModel.onPositionChanged(
+                    it.currentPosition / 1000.0,
+                    it.currentMediaItem?.localConfiguration?.uri?.toString(),
+                )
+            }
             delay(250)
         }
     }
@@ -349,7 +355,6 @@ fun TvAudiobookPlayerScreen(
                                 modifier = Modifier.focusProperties { up = playPauseFocus },
                                 speedLabel = tvAudiobookSpeedLabel(state.playbackSpeed),
                                 sleepLabel = tvAudiobookSleepLabel(
-                                    choice = sleepChoice,
                                     minutesLeft = state.sleepTimerMinutesLeft,
                                 ),
                                 showChapters = hasChapters,
@@ -787,14 +792,8 @@ private fun tvAudiobookSpeedLabel(speed: Float): String {
 }
 
 private fun tvAudiobookSleepLabel(
-    choice: SleepTimerChoice,
     minutesLeft: Int?,
-): String = when {
-    minutesLeft != null -> "${minutesLeft}m"
-    choice == SleepTimerChoice.EndOfChapter -> "Chapter"
-    choice == SleepTimerChoice.EndOfBook -> "Book"
-    else -> "Sleep"
-}
+): String = if (minutesLeft != null) "${minutesLeft}m" else "Sleep"
 
 private fun tvAudiobookSkipLabel(
     skipBackSeconds: Int,

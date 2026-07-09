@@ -157,7 +157,17 @@ class MainTvActivity : ComponentActivity() {
             if (isAuthenticatedForCast() &&
                 lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
             ) {
-                get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).start()
+                val receiver = get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java)
+                receiver.start()
+                // The lifecycle check above is a TOCTOU: the activity can stop
+                // between the check and start(), so onStop()'s stop() lands
+                // BEFORE this start() and the receiver keeps advertising while
+                // backgrounded. Compensate after the fact — start()/stop() are
+                // @Synchronized and stop() is idempotent, so every interleaving
+                // terminates with the receiver stopped when backgrounded.
+                if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                    receiver.stop()
+                }
             }
         }
     }
@@ -250,7 +260,21 @@ class MainTvActivity : ComponentActivity() {
     private fun launchAuthenticatedStartupWarmup(startRoute: String) {
         if (startRoute != TvRoute.Main.route) return
         lifecycleScope.launch(Dispatchers.IO) {
-            get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).start()
+            // Re-check the lifecycle before starting the cast receiver: a
+            // cold-start followed by an immediate Home can dispatch this after
+            // onStop()'s stop() already ran, leaving NSD advertising + the cast
+            // socket up while backgrounded. Mirrors the onStart() guard.
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                val receiver = get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java)
+                receiver.start()
+                // Same TOCTOU compensation as onStart(): if the activity
+                // stopped between the check and start(), undo the start —
+                // start()/stop() are @Synchronized and stop() is idempotent,
+                // so every interleaving ends stopped when backgrounded.
+                if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                    receiver.stop()
+                }
+            }
             warmAuthenticatedStartup(
                 authRepository = get(AuthRepository::class.java),
                 profileRepository = get(ProfileRepository::class.java),

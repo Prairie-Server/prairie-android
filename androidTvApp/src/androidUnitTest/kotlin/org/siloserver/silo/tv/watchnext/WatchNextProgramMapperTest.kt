@@ -28,10 +28,9 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(id = "abc"),
             sectionType = "continue_watching",
-            nowMs = 1_000L,
         )
         assertEquals(WatchNextProgramMapper.WATCH_NEXT_TYPE_CONTINUE, fields?.watchNextType)
-        assertEquals("silo://play/abc", fields?.intentUri)
+        assertEquals("silo://play/abc?type=movie", fields?.intentUri)
         assertEquals("continue_watching:abc", fields?.externalId)
     }
 
@@ -40,7 +39,6 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(id = "xyz"),
             sectionType = "next_up",
-            nowMs = 1_000L,
         )
         assertEquals(WatchNextProgramMapper.WATCH_NEXT_TYPE_NEXT, fields?.watchNextType)
         assertEquals("silo://item/xyz", fields?.intentUri)
@@ -51,7 +49,6 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(),
             sectionType = "random_recommendations",
-            nowMs = 1_000L,
         )
         assertNull(fields)
     }
@@ -61,7 +58,6 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(posterUrl = "P", backdropUrl = "B"),
             sectionType = "continue_watching",
-            nowMs = 1_000L,
         )
         assertEquals("B", fields?.posterArtUri)
     }
@@ -71,7 +67,6 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(posterUrl = "P", backdropUrl = null),
             sectionType = "continue_watching",
-            nowMs = 1_000L,
         )
         assertEquals("P", fields?.posterArtUri)
     }
@@ -81,7 +76,6 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(posterUrl = null, backdropUrl = null),
             sectionType = "continue_watching",
-            nowMs = 1_000L,
         )
         assertNull(fields)
     }
@@ -91,40 +85,38 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(progressUpdatedAt = "2026-01-01T00:00:00Z"),
             sectionType = "continue_watching",
-            nowMs = 999L,
         )
         // 2026-01-01T00:00:00Z = 1767225600000 ms
         assertEquals(1_767_225_600_000L, fields?.lastEngagementTimeMs)
     }
 
     @Test
-    fun `falls back to nowMs when progressUpdatedAt missing`() {
+    fun `leaves lastEngagementTimeMs null when progressUpdatedAt missing`() {
         val fields = WatchNextProgramMapper.map(
             sectionItem(progressUpdatedAt = null),
             sectionType = "continue_watching",
-            nowMs = 42L,
         )
-        assertEquals(42L, fields?.lastEngagementTimeMs)
+        // Never re-stamped to "now" — the provider keeps any prior value.
+        assertNull(fields?.lastEngagementTimeMs)
     }
 
     @Test
-    fun `falls back to nowMs when progressUpdatedAt unparseable`() {
+    fun `leaves lastEngagementTimeMs null when progressUpdatedAt unparseable`() {
         val fields = WatchNextProgramMapper.map(
             sectionItem(progressUpdatedAt = "not-a-date"),
             sectionType = "continue_watching",
-            nowMs = 42L,
         )
-        assertEquals(42L, fields?.lastEngagementTimeMs)
+        assertNull(fields?.lastEngagementTimeMs)
     }
 
     @Test
-    fun `movie type maps to PROGRAM_TYPE_MOVIE`() {
+    fun `movie type maps to PROGRAM_TYPE_MOVIE with 16-9 art`() {
         val fields = WatchNextProgramMapper.map(
             sectionItem(type = "movie"),
             sectionType = "continue_watching",
-            nowMs = 1L,
         )
         assertEquals(WatchNextProgramMapper.PROGRAM_TYPE_MOVIE, fields?.programType)
+        assertEquals(WatchNextProgramMapper.ASPECT_RATIO_16_9, fields?.posterArtAspectRatio)
     }
 
     @Test
@@ -132,8 +124,26 @@ class WatchNextProgramMapperTest {
         val fields = WatchNextProgramMapper.map(
             sectionItem(type = "episode"),
             sectionType = "next_up",
-            nowMs = 1L,
         )
         assertEquals(WatchNextProgramMapper.PROGRAM_TYPE_TV_EPISODE, fields?.programType)
+    }
+
+    @Test
+    fun `audiobook type maps to PROGRAM_TYPE_ALBUM with square art`() {
+        val fields = WatchNextProgramMapper.map(
+            sectionItem(type = "audiobook"),
+            sectionType = "continue_watching",
+        )
+        assertEquals(WatchNextProgramMapper.PROGRAM_TYPE_ALBUM, fields?.programType)
+        assertEquals(WatchNextProgramMapper.ASPECT_RATIO_1_1, fields?.posterArtAspectRatio)
+    }
+
+    @Test
+    fun `play intent carries url-encoded item type for deep-link routing`() {
+        val fields = WatchNextProgramMapper.map(
+            sectionItem(id = "bk1", type = "audiobook"),
+            sectionType = "continue_watching",
+        )
+        assertEquals("silo://play/bk1?type=audiobook", fields?.intentUri)
     }
 }

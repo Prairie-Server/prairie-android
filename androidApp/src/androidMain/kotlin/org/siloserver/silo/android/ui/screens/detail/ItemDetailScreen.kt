@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,7 +51,9 @@ import org.siloserver.silo.model.ebook.isInAppReadableEbookVersion
 import org.siloserver.silo.model.ebook.isSupportedEbookVersion
 import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
+import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.network.ServerRegistry
+import org.siloserver.silo.playback.selectPlaybackVersion
 import org.koin.compose.koinInject
 import org.siloserver.silo.metadata.DescriptionTranslationPhase
 import org.siloserver.silo.model.feature.MetadataAiFeatureStore
@@ -74,7 +79,7 @@ fun ItemDetailScreen(
     onPersonClick: (String) -> Unit,
     onSeriesClick: (String) -> Unit,
     onSeasonClick: (String, Int) -> Unit,
-    onAudiobookPlayClick: (contentId: String, fileId: Int?, fromStart: Boolean) -> Unit = { _, _, _ -> },
+    onAudiobookPlayClick: (contentId: String, fileId: Int?, fromStart: Boolean, startPosition: Double?) -> Unit = { _, _, _, _ -> },
     onBookReadClick: (String, Int?) -> Unit = { _, _ -> },
     onWatchTogether: (String, Int?) -> Unit = { _, _ -> },
     viewModel: ItemDetailViewModel,
@@ -122,7 +127,14 @@ fun ItemDetailScreen(
 
     val downloadStorage: DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
+    // The auto-version PREVIEW must name the version playback will actually
+    // pick, which depends on the user's preferred quality (see
+    // MobileVideoPlaybackStarter). Read it so the Video/Audio/Subtitle rows
+    // describe the real file rather than defaulting to versions[0].
+    val playerSettingsStore: PlayerSettingsStore = koinInject()
+    val preferredQuality by playerSettingsStore.preferredQualityFlow.collectAsState(initial = null)
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingCancelDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingDownloadQualityAction by remember { mutableStateOf<((DownloadQuality) -> Unit)?>(null) }
     var pendingDownloadEstimate by remember {
         mutableStateOf<org.siloserver.silo.model.download.DownloadSizeEstimate?>(null)
@@ -172,10 +184,18 @@ fun ItemDetailScreen(
         qualityAction: (DownloadQuality) -> Unit,
         estimate: org.siloserver.silo.model.download.DownloadSizeEstimate? = null,
     ) {
-        if (!downloadState.isDownloaded && downloadState.progress == null) {
-            runDownloadQualityAction(requirePermission = true, estimate = estimate, action = qualityAction)
-        } else {
-            runDownloadAction(requirePermission = false, action = directAction)
+        when {
+            !downloadState.isDownloaded && downloadState.progress == null -> {
+                runDownloadQualityAction(requirePermission = true, estimate = estimate, action = qualityAction)
+            }
+            // In flight — the tap cancels, so confirm before discarding
+            // the partial download (iOS parity).
+            !downloadState.isDownloaded -> {
+                pendingCancelDownloadAction = {
+                    runDownloadAction(requirePermission = false, action = directAction)
+                }
+            }
+            else -> runDownloadAction(requirePermission = false, action = directAction)
         }
     }
 
@@ -319,14 +339,21 @@ fun ItemDetailScreen(
                             selectedFileId = effectiveAudiobookFileId,
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
-                            onPlayClick = { fileId ->
-                                onAudiobookPlayClick(detail.contentId, fileId, false)
+                            // Resume/Play: no fileId — the player VM resolves
+                            // the part from the stored whole-book position.
+                            onPlayClick = {
+                                onAudiobookPlayClick(detail.contentId, null, false, null)
                             },
-                            onPlayFromStartClick = { fileId ->
-                                onAudiobookPlayClick(detail.contentId, fileId, true)
+                            onPlayFromStartClick = {
+                                onAudiobookPlayClick(detail.contentId, null, true, null)
                             },
-                            onChapterClick = { _ ->
-                                onAudiobookPlayClick(detail.contentId, effectiveAudiobookFileId, false)
+                            // Parts play from a whole-book (global) offset.
+                            onPlayFromPositionClick = { startPosition ->
+                                onAudiobookPlayClick(detail.contentId, null, false, startPosition)
+                            },
+                            // Chapters jump to their global start offset.
+                            onChapterClick = { chapter ->
+                                onAudiobookPlayClick(detail.contentId, null, false, chapter.startSeconds)
                             },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
@@ -565,7 +592,43 @@ fun ItemDetailScreen(
                         // worker's upsertLocal progress + status transitions
                         // flow through to the DownloadButton.
                         val downloadRecords by viewModel.downloads.collectAsState()
-                        val selectedVersion = detail.versions.getOrNull(effectiveSelectedVersionIndex)
+                        // Auto preview must resolve through the SAME shared
+                        // selector as playback (lastFileId → preferred-quality
+                        // rank → bestAvailable), not just lastFileId-else-[0] —
+                        // otherwise the previewed version (and the audio/subtitle
+                        // lists derived from it) can describe a file playback
+                        // won't use. An explicit user pick still wins. TV parity:
+                        // selectTvDetailDisplayVersion does the same.
+                        val videoDisplayVersionIndex = if (
+                            state.hasExplicitVersionSelection || detail.versions.isEmpty()
+                        ) {
+                            effectiveSelectedVersionIndex
+                        } else if (preferredQuality == null) {
+                            // The quality pref hasn't emitted from DataStore yet
+                            // (a frame or two): don't auto-resolve against a
+                            // missing pref — it would name a version the arriving
+                            // pref immediately contradicts (first-frame flash).
+                            // lastFileId is pref-independent and always wins in
+                            // selectPlaybackVersion, so it can be shown at once;
+                            // otherwise hold the bare "Auto" placeholder (-1 →
+                            // no resolved version) until the pref lands.
+                            detail.userData?.lastFileId
+                                ?.let { lastFileId ->
+                                    detail.versions.indexOfFirst { it.fileId == lastFileId }
+                                        .takeIf { it >= 0 }
+                                }
+                                ?: -1
+                        } else {
+                            val resolvedFileId = selectPlaybackVersion(
+                                detail.versions,
+                                detail.userData?.lastFileId,
+                                preferredQuality,
+                            ).fileId
+                            detail.versions.indexOfFirst { it.fileId == resolvedFileId }
+                                .takeIf { it >= 0 }
+                                ?: effectiveSelectedVersionIndex
+                        }
+                        val selectedVersion = detail.versions.getOrNull(videoDisplayVersionIndex)
                         val selectedLocalDownload = selectedVersion?.let { version ->
                             localDownloadFor(version.fileId)
                         }
@@ -580,9 +643,10 @@ fun ItemDetailScreen(
                             detail = detail,
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
-                            selectedVersionIndex = effectiveSelectedVersionIndex,
-                            selectedAudioIndex = state.selectedAudioIndex,
-                            selectedSubtitleIndex = state.selectedSubtitleIndex,
+                            selectedVersionIndex = videoDisplayVersionIndex,
+                            isAutoVersion = !state.hasExplicitVersionSelection,
+                            selectedAudioIndex = explicitAudioIndex,
+                            selectedSubtitleIndex = explicitSubtitleIndex,
                             onPlayClick = {
                                 onPlayClick(
                                     detail.contentId,
@@ -598,9 +662,15 @@ fun ItemDetailScreen(
                             userRating = state.userRating,
                             onSetRating = { viewModel.setRating(it) },
                             onClearRating = { viewModel.clearRating() },
-                            onVersionSelected = { viewModel.selectVersion(it) },
-                            onAudioSelected = { viewModel.selectAudioTrack(it) },
-                            onSubtitleSelected = { viewModel.selectSubtitle(it) },
+                            onVersionSelected = { index ->
+                                if (index != null) viewModel.selectVersion(index) else viewModel.selectAutoVersion()
+                            },
+                            onAudioSelected = { index ->
+                                if (index != null) viewModel.selectAudioTrack(index) else viewModel.selectAutoAudioTrack()
+                            },
+                            onSubtitleSelected = { index ->
+                                if (index != null) viewModel.selectSubtitle(index) else viewModel.selectAutoSubtitle()
+                            },
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
                             onSeriesClick = seriesId?.let { resolvedSeriesId ->
@@ -610,6 +680,36 @@ fun ItemDetailScreen(
                                 { onSeasonClick(seriesId, seasonNumber) }
                             } else {
                                 null
+                            },
+                            seasons = state.seasons,
+                            selectedSeasonNumber = state.selectedSeasonNumber,
+                            episodes = state.episodes,
+                            isLoadingEpisodes = state.isLoadingEpisodes,
+                            onSeasonSelected = { viewModel.selectSeason(it) },
+                            onEpisodePlayClick = { contentId, resumePositionSeconds ->
+                                onPlayClick(contentId, null, null, null, resumePositionSeconds)
+                            },
+                            onEpisodeDetailClick = onItemDetailClick,
+                            onEpisodeDownloadClick = { ep ->
+                                val episodeState = detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = downloadRecords,
+                                )
+                                runDownloadTap(
+                                    downloadState = episodeState,
+                                    directAction = { viewModel.onEpisodeDownloadTapped(ep) },
+                                    qualityAction = { quality ->
+                                        viewModel.onEpisodeDownloadTapped(ep, downloadQuality = quality)
+                                    },
+                                    estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
+                                        .estimate(fileSizes = ep.files.map { it.fileSize }),
+                                )
+                            },
+                            episodeDownloadState = { ep ->
+                                detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = downloadRecords,
+                                )
                             },
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
@@ -684,6 +784,29 @@ fun ItemDetailScreen(
             SiloCastTargetPickerSheet(
                 launchRequest = request,
                 onDismiss = { pendingSiloCastLaunchRequest = null },
+            )
+        }
+
+        pendingCancelDownloadAction?.let { confirmAction ->
+            AlertDialog(
+                onDismissRequest = { pendingCancelDownloadAction = null },
+                title = { Text("Cancel download?") },
+                text = { Text("The partially downloaded data will be discarded.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            pendingCancelDownloadAction = null
+                            confirmAction()
+                        },
+                    ) {
+                        Text("Discard Download")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingCancelDownloadAction = null }) {
+                        Text("Keep Download")
+                    }
+                },
             )
         }
 

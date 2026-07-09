@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
+import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
@@ -101,6 +102,7 @@ fun TvPersonDetailScreen(
                 state = state,
                 onFilterSelected = viewModel::applyFilter,
                 onLoadMore = viewModel::loadMoreIfNeeded,
+                onRetryItems = viewModel::retryItems,
                 onOpenItemDetail = onOpenItemDetail,
             )
         }
@@ -113,6 +115,7 @@ private fun TvPersonDetailContent(
     state: TvPersonDetailUiState,
     onFilterSelected: (TvPersonMediaFilter) -> Unit,
     onLoadMore: () -> Unit,
+    onRetryItems: () -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val firstItemFocusRequester = remember { FocusRequester() }
@@ -154,6 +157,17 @@ private fun TvPersonDetailContent(
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 17.sp),
                 color = Color.White.copy(alpha = 0.62f),
             )
+            // A failed page-0 load leaves the grid with nothing focusable below
+            // the chips — give the D-pad an explicit retry (matches the grid's
+            // load-more retry footer) instead of dead-ending on "No titles found.".
+            if (state.items.isEmpty()) {
+                Button(
+                    onClick = onRetryItems,
+                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+                ) {
+                    Text("Retry", style = MaterialTheme.typography.labelLarge)
+                }
+            }
         }
 
         TvCatalogGrid(

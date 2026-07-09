@@ -102,46 +102,6 @@ object AudiobookChapters {
             chapters[current - 1].startSeconds
         }
     }
-
-    // ── Sleep-timer boundary math ────────────────────────────────────────
-    // Used by the player's end-of-chapter / end-of-book sleep watcher. The VM
-    // resolves the target boundary once (at apply time, against the then-current
-    // position) and then watches for the playback position crossing it.
-
-    /**
-     * End (seconds) of the chapter containing [positionSeconds]: the boundary
-     * an "end of chapter" sleep timer should fire on. Past the last chapter
-     * this is the last chapter's end; `null` when there are no chapters.
-     *
-     * A position exactly on a boundary belongs to the *later* chapter
-     * (start-inclusive, matching [currentIndex]), so it resolves to that
-     * chapter's end rather than the one just finished.
-     */
-    fun currentChapterEndSeconds(
-        chapters: List<AudiobookChapter>,
-        positionSeconds: Double,
-    ): Double? = currentChapter(chapters, positionSeconds)?.endSeconds
-
-    /**
-     * End (seconds) of the book: the boundary an "end of book" sleep timer
-     * should fire on. Takes the larger of the reported [durationSeconds] and
-     * the last chapter's end so a missing or short duration still terminates.
-     */
-    fun bookEndSeconds(chapters: List<AudiobookChapter>, durationSeconds: Double): Double {
-        val lastChapterEnd = chapters.lastOrNull()?.endSeconds ?: 0.0
-        return maxOf(durationSeconds, lastChapterEnd)
-    }
-
-    /**
-     * True when playback stepped from before [boundarySeconds] to at-or-after
-     * it between two position samples — i.e. the boundary was crossed on this
-     * tick. False once already past, so the watcher fires exactly once.
-     */
-    fun hasCrossedBoundary(
-        previousSeconds: Double,
-        currentSeconds: Double,
-        boundarySeconds: Double,
-    ): Boolean = previousSeconds < boundarySeconds && currentSeconds >= boundarySeconds
 }
 
 /**

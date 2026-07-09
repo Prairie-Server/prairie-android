@@ -309,7 +309,24 @@ class TvSiloCastReceiver(
                     )
                     return true
                 }
-                launchHandler?.invoke(message.launch)
+                val handler = launchHandler
+                if (handler != null) {
+                    handler.invoke(message.launch)
+                } else {
+                    // No launch handler is wired (setLaunchHandler is never
+                    // called yet), so an authorized, server-matched launch
+                    // would otherwise be silently dropped and the controller
+                    // would hang waiting for state that never changes. Return
+                    // a definitive error so it can surface a failure instead.
+                    session.send(
+                        SiloCastMessage.Error(
+                            SiloCastError(
+                                code = "launch_unsupported",
+                                message = "This TV cannot start playback from the remote yet.",
+                            ),
+                        ),
+                    )
+                }
             }
             is SiloCastMessage.Control -> {
                 if (!requireAuthorized(session)) return true

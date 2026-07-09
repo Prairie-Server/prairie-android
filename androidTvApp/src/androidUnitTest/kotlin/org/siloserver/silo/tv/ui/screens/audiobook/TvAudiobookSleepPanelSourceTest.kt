@@ -11,7 +11,21 @@ class TvAudiobookSleepPanelSourceTest {
     ).readText()
 
     @Test
-    fun sleepTimerOptionsUseScrollableListSoEndOfBookIsReachable() {
+    fun sleepTimerOffersOnlyAppleMinuteChoices() {
+        // Apple's set: Off / 15 / 30 / 60 minutes only. SleepTimerChoice was
+        // trimmed to Off / Minutes, so the boundary options must be gone.
+        assertTrue(source.contains("SleepTimerChoice.Off"))
+        assertTrue(source.contains("SleepTimerChoice.Minutes(15)"))
+        assertTrue(source.contains("SleepTimerChoice.Minutes(30)"))
+        assertTrue(source.contains("SleepTimerChoice.Minutes(60)"))
+        assertFalse(
+            source.contains("EndOfChapter") || source.contains("EndOfBook"),
+            "Sleep timer must not offer end-of-chapter / end-of-book boundaries.",
+        )
+    }
+
+    @Test
+    fun sleepTimerRendersInAScrollableList() {
         assertTrue(source.contains("rememberLazyListState()"))
         assertTrue(source.contains("LazyColumn("))
         assertTrue(source.contains("itemsIndexed(SLEEP_OPTIONS)"))
@@ -19,7 +33,7 @@ class TvAudiobookSleepPanelSourceTest {
         assertTrue(source.contains(".weight(1f)"))
         assertFalse(
             source.contains("SLEEP_OPTIONS.forEachIndexed"),
-            "Sleep timer must not render into a fixed column; the bottom options clip on TV.",
+            "Sleep timer must not render into a fixed column; the current-choice row must scroll into view on TV.",
         )
     }
 }

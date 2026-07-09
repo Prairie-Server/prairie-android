@@ -125,7 +125,9 @@ class TvCreateProfileViewModel(
 
     fun onSubtitleModeSelected(mode: String) {
         _uiState.update {
-            it.copy(subtitleMode = if (mode == "Off") null else mode.lowercase().replace(" ", "_"))
+            // Send the explicit "off" wire value rather than null so an "Off"
+            // choice is honored instead of falling back to the server default.
+            it.copy(subtitleMode = if (mode == "Off") "off" else mode.lowercase().replace(" ", "_"))
         }
     }
 

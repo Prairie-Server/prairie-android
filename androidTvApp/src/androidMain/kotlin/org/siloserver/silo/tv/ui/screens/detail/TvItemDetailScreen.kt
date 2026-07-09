@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.CheckCircle
@@ -72,6 +73,9 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.siloserver.silo.audiobook.AudioPlaybackTrack
+import org.siloserver.silo.audiobook.AudiobookTimeline
+import org.siloserver.silo.audiobook.buildAudiobookTimeline
 import org.siloserver.silo.model.audiobook.AudiobookNarration
 import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.FileVersion
@@ -202,14 +206,36 @@ private fun TvDetailContent(
         runCatching { playFocus.requestFocus() }
     }
 
-    val showsEpisodeRail = detail.type in setOf("series", "season", "episode") &&
-        state.episodes.isNotEmpty()
-    val showsSeasonChips = detail.type in setOf("series", "season", "episode") && state.seasons.size > 1
+    val isEpisodicType = detail.type in setOf("series", "season", "episode")
+    val showsEpisodeRail = isEpisodicType && state.episodes.isNotEmpty()
+    val showsSeasonChips = isEpisodicType && state.seasons.size > 1
+    // Keep the whole Episodes section — and, crucially, the season chips —
+    // mounted whenever the series has seasons, so selecting an empty or failed
+    // season can't unmount the chips and strand the user (T15). The rail itself
+    // still renders only when there are episodes; otherwise the section shows a
+    // loading spinner or a "No episodes available" empty state.
+    val showsEpisodesSection = isEpisodicType && (state.seasons.isNotEmpty() || state.episodes.isNotEmpty())
+    // Whether a focusable episode-navigation element (the rail or the season
+    // chips) sits above the cast / similar rails — drives their
+    // Up-return-to-hero fallback.
+    val hasEpisodeNavAbove = showsEpisodeRail || showsSeasonChips
     val showsCastSection = !isAudiobook && detail.cast.isNotEmpty()
     val showsSimilarRail = !isAudiobook && detail.type != "episode" && state.moreLikeThis.isNotEmpty()
     val showsDetailsSection = !isAudiobook && remember(detail) { detail.hasTvDetailFacts() }
-    val audiobookParts = remember(detail.versions) { detail.versions }
-    val audiobookChapters = remember(detail.versions) { audiobookDisplayChapters(detail.versions) }
+    // Whole-book timeline stitched from the item's audiobook-part files — the
+    // same math the player VM uses. Drives the Parts section (one row per track)
+    // and the stitched, globally-offset chapter list. Null when there are no
+    // audio parts; single-part books yield a single track (no Parts section).
+    val audiobookTimeline = remember(detail.versions, detail.audiobook?.totalDurationSeconds) {
+        buildAudiobookTimeline(
+            versions = detail.versions,
+            serverTotalSeconds = detail.audiobook?.totalDurationSeconds?.toDouble(),
+        )
+    }
+    val audiobookParts = audiobookTimeline?.tracks.orEmpty()
+    val audiobookChapters = remember(audiobookTimeline) {
+        audiobookDisplayChapters(audiobookTimeline, detail.versions)
+    }
     val audiobookSeries = detail.audiobook?.series
     val audiobookOtherNarrations = detail.audiobook?.otherNarrations.orEmpty()
     val audiobookAlsoByAuthor = detail.audiobook?.related?.alsoByAuthor.orEmpty()
@@ -329,15 +355,20 @@ private fun TvDetailContent(
                     ) {
                         if (isAudiobook && audiobookParts.size > 1) {
                             TvAudiobookPartsSection(
-                                parts = audiobookParts,
-                                onPartSelected = { part ->
+                                tracks = audiobookParts,
+                                versions = detail.versions,
+                                // Tap plays from the part's whole-book (global)
+                                // start offset with no part fileId — the VM
+                                // resolves the part. (Pinning the part's fileId +
+                                // 0.0 would resolve to Part 1 at global 0.)
+                                onPartSelected = { track ->
                                     onPlay(
                                         detail.contentId,
-                                        part.fileId,
+                                        null,
                                         state.selectedAudioIndex,
                                         state.selectedSubtitleIndex,
                                         detail.type,
-                                        0.0,
+                                        track.startOffsetSeconds,
                                     )
                                 },
                                 firstRowUpFocusRequester = playFocus,
@@ -398,7 +429,7 @@ private fun TvDetailContent(
                             )
                         }
 
-                        if (showsEpisodeRail) {
+                        if (showsEpisodesSection) {
                             // Anchor the window when focus ENTERS the episodes
                             // section (chips or cards): both land the body at
                             // the same scroll offset, so focusing "Season N"
@@ -449,8 +480,9 @@ private fun TvDetailContent(
                                 horizontalContentPadding = Spacing.safeArea,
                                 firstItemFocusRequester = firstCastFocus,
                                 // Cast is the first body rail only when there is no
-                                // episode rail above it; Up then returns to the hero.
-                                onDirectionUp = if (showsEpisodeRail) null else returnToHero,
+                                // episode rail or season chips above it; Up then
+                                // returns to the hero.
+                                onDirectionUp = if (hasEpisodeNavAbove) null else returnToHero,
                                 onCastMemberClick = { member ->
                                     viewModel.openPerson(member, onOpenPerson)
                                 },
@@ -482,7 +514,7 @@ private fun TvDetailContent(
                                     horizontalPadding = Spacing.safeArea,
                                     rowTopPadding = 0.dp,
                                     firstItemFocusRequester = firstSimilarFocus,
-                                    onDirectionUp = if (!showsEpisodeRail && !showsCastSection) {
+                                    onDirectionUp = if (!hasEpisodeNavAbove && !showsCastSection) {
                                         returnToHero
                                     } else {
                                         null
@@ -490,7 +522,7 @@ private fun TvDetailContent(
                                     // When Similar is the first body rail (movie with no
                                     // episode rail and no cast), Up returns to the hero
                                     // Play button instead of relying on geometry.
-                                    upFocusRequester = if (!showsEpisodeRail && !showsCastSection) {
+                                    upFocusRequester = if (!hasEpisodeNavAbove && !showsCastSection) {
                                         playFocus
                                     } else {
                                         null
@@ -508,7 +540,7 @@ private fun TvDetailContent(
                 title = "Chapters",
                 options = audiobookChapters.mapIndexed { index, chapter ->
                     TvDialogOption(
-                        key = "chapter-$index-${chapter.fileId}",
+                        key = "chapter-$index",
                         title = chapter.title,
                         subtitle = listOf(
                             chapter.partTitle,
@@ -518,9 +550,11 @@ private fun TvDetailContent(
                             .joinToString("  "),
                         onClick = {
                             chaptersDialogOpen = false
+                            // Jump to the chapter's whole-book (global) start with
+                            // no part fileId — the VM resolves the part.
                             onPlay(
                                 detail.contentId,
-                                chapter.fileId,
+                                null,
                                 state.selectedAudioIndex,
                                 state.selectedSubtitleIndex,
                                 detail.type,
@@ -579,7 +613,14 @@ private fun HeroActionRow(
     // Series/season use the next-up episode's versions + the next-up selection;
     // everything else uses the container's.
     val selectorVersions = if (isSeriesOrSeason) (nextUpDetail?.versions ?: emptyList()) else detail.versions
-    val selectorSelectedFileId = if (isSeriesOrSeason) state.selectedNextUpFileId else state.selectedFileId
+    val selectorSelectedFileId = (if (isSeriesOrSeason) state.selectedNextUpFileId else state.selectedFileId)
+        // Drop a persisted/explicit fileId that no longer exists in the current
+        // version set (e.g. the file was deleted since it was pinned). Otherwise
+        // Play would launch a nonexistent fileId while the pill shows a valid
+        // fallback version — so playback and the UI diverge (T22a). Falling to
+        // null lets selectTvDetailDisplayVersion pick the pill's displayed
+        // version, keeping Play and the UI in agreement.
+        ?.takeIf { fileId -> selectorVersions.any { it.fileId == fileId } }
     val selectorAudioIndex = if (isSeriesOrSeason) state.selectedNextUpAudioIndex else state.selectedAudioIndex
     val selectorSubtitleIndex =
         if (isSeriesOrSeason) state.selectedNextUpSubtitleIndex else state.selectedSubtitleIndex
@@ -729,6 +770,9 @@ private fun HeroActionRow(
                 selectedVersionFileId = selectorSelectedFileId,
                 selectedAudioTrackIndex = selectorAudioIndex,
                 selectedSubtitleTrackIndex = selectorSubtitleIndex,
+                preferredSubtitleLanguage = state.preferredSubtitleLanguage,
+                subtitleMode = state.subtitleMode,
+                showForcedSubtitles = state.showForcedSubtitles,
                 onSelectVersion = if (isSeriesOrSeason) {
                     viewModel::onNextUpVersionSelected
                 } else {
@@ -910,14 +954,44 @@ private fun EpisodesSection(
             )
         }
 
-        TvDetailEpisodeRail(
-            episodes = state.episodes,
-            currentContentId = currentEpisodeRailContentId(detail, state),
-            onEpisodeSelected = onEpisodeSelected,
-            // Up returns to the hero only when the season chips aren't above the
-            // rail (the chips own the Up traversal when present).
-            onDirectionUp = if (showsSeasonChips) null else onReturnToHero,
-        )
+        when {
+            // Spinner while a newly-selected season loads, instead of leaving the
+            // previous season's episodes under the new season header (T15b). The
+            // quiet refreshOnReturn reload does not set episodesLoading, so this
+            // never flashes on returning to the page.
+            state.episodesLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.safeArea, vertical = 24.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+            // A season that legitimately has zero episodes (or a load that failed
+            // and left nothing to show): keep the section and chips mounted and
+            // say so, rather than unmounting everything and stranding the user
+            // (T15a).
+            state.episodes.isEmpty() -> {
+                Text(
+                    text = "No episodes available",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                    color = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(horizontal = Spacing.safeArea, vertical = 8.dp),
+                )
+            }
+            else -> {
+                TvDetailEpisodeRail(
+                    episodes = state.episodes,
+                    currentContentId = currentEpisodeRailContentId(detail, state),
+                    onEpisodeSelected = onEpisodeSelected,
+                    // Up returns to the hero only when the season chips aren't above
+                    // the rail (the chips own the Up traversal when present).
+                    onDirectionUp = if (showsSeasonChips) null else onReturnToHero,
+                )
+            }
+        }
     }
 }
 
@@ -1004,8 +1078,9 @@ private fun DetailsSection(
 
 @Composable
 private fun TvAudiobookPartsSection(
-    parts: List<FileVersion>,
-    onPartSelected: (FileVersion) -> Unit,
+    tracks: List<AudioPlaybackTrack>,
+    versions: List<FileVersion>,
+    onPartSelected: (AudioPlaybackTrack) -> Unit,
     firstRowUpFocusRequester: FocusRequester?,
     modifier: Modifier = Modifier,
 ) {
@@ -1015,12 +1090,13 @@ private fun TvAudiobookPartsSection(
     ) {
         TvDetailSectionHeader(title = "Parts")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            parts.forEachIndexed { index, part ->
+            tracks.forEachIndexed { index, track ->
+                val version = versions.firstOrNull { it.fileId == track.fileId }
                 TvAudiobookDetailActionRow(
-                    title = "Part ${index + 1}",
-                    subtitle = audiobookPartSubtitle(part),
-                    trailing = audiobookDurationLabel(part.duration),
-                    onClick = { onPartSelected(part) },
+                    title = audiobookPartTitle(version, track.index),
+                    subtitle = audiobookPartSubtitle(version),
+                    trailing = audiobookDurationLabel(track.durationSeconds),
+                    onClick = { onPartSelected(track) },
                     upFocusRequester = if (index == 0) firstRowUpFocusRequester else null,
                 )
             }
@@ -1214,35 +1290,66 @@ private fun TvAudiobookDetailActionRow(
 // MARK: - Helpers
 
 private data class TvAudiobookDisplayChapter(
-    val fileId: Int,
     val title: String,
     val partTitle: String,
+    /** Whole-book (global) start offset; the chapter tap seeks here. */
     val startSeconds: Double,
 )
 
-private fun audiobookDisplayChapters(parts: List<FileVersion>): List<TvAudiobookDisplayChapter> =
-    parts.flatMapIndexed { partIndex, part ->
-        val partTitle = "Part ${partIndex + 1}"
-        part.chapters.orEmpty().mapIndexed { chapterIndex, chapter ->
+/**
+ * Chapter list for the detail dialog, in whole-book (global) space.
+ *
+ * Multi-part books use the stitched [AudiobookTimeline.chapters] (each chapter's
+ * `startSeconds` already offset by its part's start) so a tap jumps to the right
+ * place in the right part. Single-part / no-timeline books keep the single
+ * file's own chapters unchanged, so their behaviour is exactly as before.
+ */
+private fun audiobookDisplayChapters(
+    timeline: AudiobookTimeline?,
+    versions: List<FileVersion>,
+): List<TvAudiobookDisplayChapter> {
+    if (timeline != null && !timeline.isSingle) {
+        return timeline.chapters.map { chapter ->
             TvAudiobookDisplayChapter(
-                fileId = part.fileId,
-                title = audiobookChapterTitle(chapterIndex, chapter),
-                partTitle = partTitle,
+                title = chapter.title?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "Chapter ${chapter.index + 1}",
+                partTitle = "Part ${chapter.trackIndex + 1}",
                 startSeconds = chapter.startSeconds,
             )
         }
     }
+    val file = timeline?.tracks?.firstOrNull()?.fileId
+        ?.let { fileId -> versions.firstOrNull { it.fileId == fileId } }
+        ?: versions.firstOrNull()
+    return file?.chapters.orEmpty().mapIndexed { index, chapter ->
+        TvAudiobookDisplayChapter(
+            title = audiobookChapterTitle(index, chapter),
+            partTitle = "",
+            startSeconds = chapter.startSeconds,
+        )
+    }
+}
 
 private fun audiobookChapterTitle(
     fallbackIndex: Int,
     chapter: VersionChapter,
 ): String = chapter.title.trim().takeIf { it.isNotBlank() } ?: "Chapter ${fallbackIndex + 1}"
 
-private fun audiobookPartSubtitle(part: FileVersion): String? =
+/** Part row label: the file name when present, else "Part {presentationPartIndex}"
+ *  (falling back to the 0-based track [position], displayed 1-based). Mirrors the
+ *  phone AudiobookDetailContent `partTitle`. */
+private fun audiobookPartTitle(version: FileVersion?, position: Int): String {
+    version?.fileName?.takeIf { it.isNotBlank() }?.let { return it }
+    val rawIndex = version?.presentationPartIndex ?: position
+    val displayIndex = if (rawIndex <= 0) rawIndex + 1 else rawIndex
+    return "Part $displayIndex"
+}
+
+private fun audiobookPartSubtitle(part: FileVersion?): String? =
     listOfNotNull(
-        part.codecAudio?.takeIf { it.isNotBlank() }?.uppercase(),
-        part.container?.takeIf { it.isNotBlank() }?.uppercase(),
-        part.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
+        part?.codecAudio?.takeIf { it.isNotBlank() }?.uppercase(),
+        part?.container?.takeIf { it.isNotBlank() }?.uppercase(),
+        part?.bitrate?.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
     )
         .joinToString("  ")
         .takeIf { it.isNotBlank() }

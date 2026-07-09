@@ -38,7 +38,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -704,13 +703,14 @@ fun HeroActionStack(
 
 @Composable
 fun SectionHeader(
-    label: String,
     title: String,
+    label: String? = null,
     trailingText: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    // iOS PhoneSectionHeader: eyebrow label 11pt bold tracking 1.6 (0.55
-    // alpha), title 22pt semibold, trailing 13pt medium, column spacing 4.
+    // iOS PhoneSectionHeader: optional eyebrow label 11pt bold tracking 1.6
+    // (0.55 alpha), title 22pt semibold single-line, trailing 13pt medium,
+    // column spacing 4.
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -721,20 +721,26 @@ fun SectionHeader(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = label.uppercase(),
-                fontSize = 11.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.6.sp,
-                color = SiloOnSurface.copy(alpha = 0.55f),
-            )
+            if (!label.isNullOrBlank()) {
+                Text(
+                    text = label.uppercase(),
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.6.sp,
+                    color = SiloOnSurface.copy(alpha = 0.55f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
                 text = title,
                 fontSize = 22.sp,
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = DetailPrimaryText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         if (!trailingText.isNullOrBlank()) {
@@ -794,35 +800,6 @@ fun SeasonChips(
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
-            }
-        }
-    }
-}
-
-// ── Genre pills ───────────────────────────────────────────────
-
-@Composable
-fun GenrePillRow(
-    genres: List<String>,
-    modifier: Modifier = Modifier,
-) {
-    if (genres.isEmpty()) return
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = SafePadding),
-        horizontalArrangement = Arrangement.spacedBy(SmallPadding),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        items(genres, contentType = { "genre-pill" }) { genre ->
-            Surface(
-                shape = PillShape,
-                color = Color.White.copy(alpha = 0.08f),
-            ) {
-                Text(
-                    text = genre,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = DetailSecondaryText,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                )
             }
         }
     }
@@ -930,6 +907,9 @@ fun DetailFactsList(
 ) {
     val rows = buildDetailFacts(detail)
     if (rows.isEmpty()) return
+
+    SectionHeader(title = "Details")
+    Spacer(modifier = Modifier.height(14.dp))
 
     // iOS PhoneDetailFactsSection: thin 1px dividers (white 0.08) between
     // rows, label 11pt bold tracking 1.2 (0.5 alpha) width 100, value 14pt

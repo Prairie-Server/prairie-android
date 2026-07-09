@@ -58,6 +58,8 @@ fun CatalogGrid(
     isLoadingMore: Boolean,
     hasMore: Boolean,
     onItemClick: (String) -> Unit,
+    /** Per-card caption overriding the year (e.g. date for date sorts). */
+    cardSubtitle: ((BrowseItem) -> String?)? = null,
     onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
     selectedNamePrefix: String? = null,
@@ -109,6 +111,7 @@ fun CatalogGrid(
                     posterUrl = item.posterUrl,
                     posterThumbhash = item.posterThumbhash,
                     year = item.year,
+                    subtitle = cardSubtitle?.invoke(item),
                     type = item.type,
                     userState = userState,
                     onClick = { onItemClick(item.contentId) },

@@ -6,8 +6,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,10 +23,11 @@ import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -38,7 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.theme.SiloBackground
 import org.siloserver.silo.android.ui.util.rememberDominantColor
+import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.ItemDetail
+import org.siloserver.silo.model.catalog.Season
 
 /**
  * Phone movie / episode detail. Cinematic backdrop hero up top, then a
@@ -54,8 +59,9 @@ fun MovieDetailContent(
     isFavorite: Boolean,
     isInWatchlist: Boolean,
     selectedVersionIndex: Int,
-    selectedAudioIndex: Int,
-    selectedSubtitleIndex: Int,
+    isAutoVersion: Boolean,
+    selectedAudioIndex: Int?,
+    selectedSubtitleIndex: Int?,
     onPlayClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
@@ -63,13 +69,24 @@ fun MovieDetailContent(
     userRating: Int? = null,
     onSetRating: (Int) -> Unit = {},
     onClearRating: () -> Unit = {},
-    onVersionSelected: (Int) -> Unit,
-    onAudioSelected: (Int) -> Unit,
-    onSubtitleSelected: (Int) -> Unit,
+    onVersionSelected: (Int?) -> Unit,
+    onAudioSelected: (Int?) -> Unit,
+    onSubtitleSelected: (Int?) -> Unit,
     onPersonClick: (String) -> Unit,
     onItemDetailClick: (String) -> Unit,
     onSeriesClick: (() -> Unit)? = null,
     onSeasonClick: (() -> Unit)? = null,
+    // Episode pages only: the parent series' seasons + the selected
+    // season's siblings, for the in-page season/episode selector.
+    seasons: List<Season> = emptyList(),
+    selectedSeasonNumber: Int = 1,
+    episodes: List<EpisodeListItem> = emptyList(),
+    isLoadingEpisodes: Boolean = false,
+    onSeasonSelected: (Int) -> Unit = {},
+    onEpisodePlayClick: (String, Double?) -> Unit = { _, _ -> },
+    onEpisodeDetailClick: (String) -> Unit = {},
+    onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
+    episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
     isDownloaded: Boolean = false,
     downloadProgress: Float? = null,
     playOnDeviceLabel: String = "Play on device",
@@ -79,7 +96,6 @@ fun MovieDetailContent(
     translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var showMediaInfo by remember { mutableStateOf(false) }
     var showVersionPicker by remember { mutableStateOf(false) }
     var showAudioPicker by remember { mutableStateOf(false) }
     var showSubtitlePicker by remember { mutableStateOf(false) }
@@ -90,11 +106,8 @@ fun MovieDetailContent(
     val selectedVersion = detail.versions.getOrNull(selectedVersionIndex)
     val audioTracks = selectedVersion?.audioTracks.orEmpty()
     val subtitleTracks = selectedVersion?.subtitleTracks.orEmpty()
-    val hasMultipleVersions = detail.versions.size > 1
-    val hasAudioOptions = audioTracks.size > 1
-    val hasSubtitleOptions = subtitleTracks.isNotEmpty()
-    val hasMediaInfo = detail.versions.isNotEmpty()
-    val hasOverflow = hasAudioOptions || hasSubtitleOptions || hasMediaInfo || onPlayOnDevice != null ||
+    val hasTrackSelectors = detail.versions.isNotEmpty()
+    val hasOverflow = onPlayOnDevice != null ||
         onSeriesClick != null || onSeasonClick != null || onWatchTogether != null
 
     val eyebrow = if (detail.type == "episode") {
@@ -104,12 +117,6 @@ fun MovieDetailContent(
     }
     val sourceTokens = HeroMetadata.movieSourceTokens(detail)
     val factsLine = HeroMetadata.movieFactsLine(detail)
-
-    val versionLabel = if (hasMultipleVersions && selectedVersion != null) {
-        formatVersionMenuLabel(selectedVersion)
-    } else {
-        null
-    }
 
     // iOS below-fold section spacing is 36 (hero→first section 32). Use 36
     // uniformly — the closest single-value match to the iOS column rhythm.
@@ -140,56 +147,8 @@ fun MovieDetailContent(
                     onToggleWatched = onToggleWatched,
                     userRating = userRating,
                     onRateClick = { showRatingSheet = true },
-                    versionLabel = versionLabel,
-                    onVersionClick = if (hasMultipleVersions) {
-                        { showVersionPicker = true }
-                    } else {
-                        null
-                    },
                     overflow = if (hasOverflow) {
                         { dismiss ->
-                            if (hasAudioOptions) {
-                                DropdownMenuItem(
-                                    text = { Text("Audio") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.AudioFile, contentDescription = null)
-                                    },
-                                    trailingIcon = {
-                                        Text(formatAudioLabel(audioTracks.getOrNull(selectedAudioIndex)))
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        showAudioPicker = true
-                                    },
-                                )
-                            }
-                            if (hasSubtitleOptions) {
-                                DropdownMenuItem(
-                                    text = { Text("Subtitles") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.ClosedCaption, contentDescription = null)
-                                    },
-                                    trailingIcon = {
-                                        Text(formatSubtitleLabel(subtitleTracks.getOrNull(selectedSubtitleIndex)))
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        showSubtitlePicker = true
-                                    },
-                                )
-                            }
-                            if (hasMediaInfo) {
-                                DropdownMenuItem(
-                                    text = { Text("Media Info") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.Info, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        showMediaInfo = true
-                                    },
-                                )
-                            }
                             if (onPlayOnDevice != null) {
                                 DropdownMenuItem(
                                     text = { Text(playOnDeviceLabel) },
@@ -248,13 +207,118 @@ fun MovieDetailContent(
                         null
                     },
                 )
+                // Downloaded confirmation under the action row — the circle
+                // button's filled state alone is easy to miss (QA 2026-07-08);
+                // iOS pairs its green check with an accessible "Downloaded".
+                if (isDownloaded) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.DownloadDone,
+                            contentDescription = null,
+                            tint = Color(0xFF30D158),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = "Downloaded",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.85f),
+                        )
+                    }
+                }
+                // Box-style track group list (Video / Audio / Subtitles) —
+                // TV & Apple parity; Auto rows preview the resolved track.
+                if (hasTrackSelectors) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TrackSelectorRow(
+                            icon = Icons.Outlined.HighQuality,
+                            label = "Video",
+                            value = formatVersionValueLabel(selectedVersion, isAutoVersion),
+                            onClick = { showVersionPicker = true },
+                        )
+                        if (audioTracks.isNotEmpty()) {
+                            TrackSelectorRow(
+                                icon = Icons.Outlined.AudioFile,
+                                label = "Audio",
+                                value = formatAudioValueLabel(audioTracks, selectedAudioIndex, selectedVersion?.effectiveAudioTrackIndex),
+                                onClick = { showAudioPicker = true },
+                            )
+                        }
+                        TrackSelectorRow(
+                            icon = Icons.Outlined.ClosedCaption,
+                            label = "Subtitles",
+                            value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
+                            onClick = { showSubtitlePicker = true },
+                        )
+                    }
+                }
+            }
+        }
+
+        // Episode pages: season chips + this season's episodes as the first
+        // below-fold section, mirroring iOS's episode detail. Tapping a
+        // sibling navigates to its own detail page.
+        // Keep the section mounted whenever the parent series has seasons —
+        // an empty (or failed) season must still show the chips so the user
+        // can switch back, mirroring SeriesDetailContent. Gating on episodes
+        // alone stranded the user with no way out of an empty season.
+        if (detail.type == "episode" && (seasons.isNotEmpty() || episodes.isNotEmpty() || isLoadingEpisodes)) {
+            item(contentType = "detail-episodes") {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SectionHeader(
+                        label = if (selectedSeasonNumber == 0) "Specials" else "Season $selectedSeasonNumber",
+                        title = "Episodes",
+                    )
+                    if (seasons.size > 1) {
+                        SeasonChips(
+                            seasons = seasons,
+                            selectedSeasonNumber = selectedSeasonNumber,
+                            onSeasonSelected = onSeasonSelected,
+                        )
+                    }
+                    when {
+                        isLoadingEpisodes -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                        episodes.isEmpty() -> {
+                            Text(
+                                text = "No episodes available",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DetailTertiaryText,
+                                modifier = Modifier.padding(horizontal = SafePadding),
+                            )
+                        }
+                        else -> {
+                            EpisodeList(
+                                episodes = episodes,
+                                onEpisodePlayClick = onEpisodePlayClick,
+                                onEpisodeDetailClick = onEpisodeDetailClick,
+                                onEpisodeDownloadClick = onEpisodeDownloadClick,
+                                episodeDownloadState = episodeDownloadState,
+                                highlightContentId = detail.contentId,
+                            )
+                        }
+                    }
+                }
             }
         }
 
         if (detail.cast.isNotEmpty()) {
             item(contentType = "detail-cast") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Cast", title = "& Crew")
+                    SectionHeader(title = "Cast & Crew")
                     CastCrewSection(
                         cast = detail.cast,
                         crew = detail.crew,
@@ -264,33 +328,19 @@ fun MovieDetailContent(
             }
         }
 
-        if (detail.genres.isNotEmpty()) {
-            item(contentType = "detail-genres") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Tags", title = "Genres")
-                    GenrePillRow(genres = detail.genres)
-                }
-            }
-        }
-
         item(contentType = "detail-facts") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SectionHeader(label = "Info", title = "Details")
-                DetailFactsList(detail = detail)
-            }
+            // Header renders inside DetailFactsList, gated on having facts.
+            DetailFactsList(detail = detail)
         }
 
         // Hide the similar rail on episode pages — viewers usually want
         // the next episode, not a tangentially related title.
         if (detail.type != "episode") {
             item(contentType = "detail-similar") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Recommended", title = "More Like This")
-                    SimilarRail(
-                        contentId = detail.contentId,
-                        onSelect = onItemDetailClick,
-                    )
-                }
+                SimilarRail(
+                    contentId = detail.contentId,
+                    onSelect = onItemDetailClick,
+                )
             }
         }
 
@@ -302,7 +352,7 @@ fun MovieDetailContent(
     if (showVersionPicker) {
         VersionPickerSheet(
             versions = detail.versions,
-            selectedIndex = selectedVersionIndex,
+            selectedIndex = selectedVersionIndex.takeUnless { isAutoVersion },
             onSelect = { index ->
                 onVersionSelected(index)
                 showVersionPicker = false
@@ -311,7 +361,7 @@ fun MovieDetailContent(
         )
     }
 
-    if (showAudioPicker && hasAudioOptions) {
+    if (showAudioPicker && audioTracks.isNotEmpty()) {
         AudioPickerSheet(
             tracks = audioTracks,
             selectedIndex = selectedAudioIndex,
@@ -323,7 +373,7 @@ fun MovieDetailContent(
         )
     }
 
-    if (showSubtitlePicker && hasSubtitleOptions) {
+    if (showSubtitlePicker) {
         SubtitlePickerSheet(
             tracks = subtitleTracks,
             selectedIndex = selectedSubtitleIndex,
@@ -332,13 +382,6 @@ fun MovieDetailContent(
                 showSubtitlePicker = false
             },
             onDismiss = { showSubtitlePicker = false },
-        )
-    }
-
-    if (showMediaInfo && hasMediaInfo) {
-        MediaInfoSheet(
-            versions = detail.versions,
-            onDismiss = { showMediaInfo = false },
         )
     }
 
