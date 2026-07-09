@@ -51,7 +51,9 @@ import org.siloserver.silo.model.ebook.isInAppReadableEbookVersion
 import org.siloserver.silo.model.ebook.isSupportedEbookVersion
 import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
+import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.network.ServerRegistry
+import org.siloserver.silo.playback.selectPlaybackVersion
 import org.koin.compose.koinInject
 import org.siloserver.silo.metadata.DescriptionTranslationPhase
 import org.siloserver.silo.model.feature.MetadataAiFeatureStore
@@ -125,6 +127,12 @@ fun ItemDetailScreen(
 
     val downloadStorage: DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
+    // The auto-version PREVIEW must name the version playback will actually
+    // pick, which depends on the user's preferred quality (see
+    // MobileVideoPlaybackStarter). Read it so the Video/Audio/Subtitle rows
+    // describe the real file rather than defaulting to versions[0].
+    val playerSettingsStore: PlayerSettingsStore = koinInject()
+    val preferredQuality by playerSettingsStore.preferredQualityFlow.collectAsState(initial = null)
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingCancelDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingDownloadQualityAction by remember { mutableStateOf<((DownloadQuality) -> Unit)?>(null) }
@@ -577,7 +585,28 @@ fun ItemDetailScreen(
                         // worker's upsertLocal progress + status transitions
                         // flow through to the DownloadButton.
                         val downloadRecords by viewModel.downloads.collectAsState()
-                        val selectedVersion = detail.versions.getOrNull(effectiveSelectedVersionIndex)
+                        // Auto preview must resolve through the SAME shared
+                        // selector as playback (lastFileId → preferred-quality
+                        // rank → bestAvailable), not just lastFileId-else-[0] —
+                        // otherwise the previewed version (and the audio/subtitle
+                        // lists derived from it) can describe a file playback
+                        // won't use. An explicit user pick still wins. TV parity:
+                        // selectTvDetailDisplayVersion does the same.
+                        val videoDisplayVersionIndex = if (
+                            state.hasExplicitVersionSelection || detail.versions.isEmpty()
+                        ) {
+                            effectiveSelectedVersionIndex
+                        } else {
+                            val resolvedFileId = selectPlaybackVersion(
+                                detail.versions,
+                                detail.userData?.lastFileId,
+                                preferredQuality,
+                            ).fileId
+                            detail.versions.indexOfFirst { it.fileId == resolvedFileId }
+                                .takeIf { it >= 0 }
+                                ?: effectiveSelectedVersionIndex
+                        }
+                        val selectedVersion = detail.versions.getOrNull(videoDisplayVersionIndex)
                         val selectedLocalDownload = selectedVersion?.let { version ->
                             localDownloadFor(version.fileId)
                         }
@@ -592,7 +621,7 @@ fun ItemDetailScreen(
                             detail = detail,
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
-                            selectedVersionIndex = effectiveSelectedVersionIndex,
+                            selectedVersionIndex = videoDisplayVersionIndex,
                             isAutoVersion = !state.hasExplicitVersionSelection,
                             selectedAudioIndex = explicitAudioIndex,
                             selectedSubtitleIndex = explicitSubtitleIndex,
