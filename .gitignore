@@ -51,3 +51,6 @@ Thumbs.db
 media-fixtures/*
 !media-fixtures/README.md
 !media-fixtures/manifest.md
+
+# Local review notes (not for publishing)
+docs/reviews/
