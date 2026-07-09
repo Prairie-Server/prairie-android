@@ -202,11 +202,21 @@ class ItemDetailViewModel(
                 viewModelScope.launch { downloadsRepository.delete(record.id) }
             }
             DetailDownloadTapAction.Start, DetailDownloadTapAction.ReplaceAndStart -> viewModelScope.launch {
+                // Episode pages load the episode itself as `detail`, so the
+                // parent reference supplies the series id/title for grouping.
                 downloadEnqueuer.startEpisode(
-                    seriesContentId = detail.contentId,
+                    seriesContentId = if (detail.type == "series") {
+                        detail.contentId
+                    } else {
+                        detail.seriesId ?: detail.contentId
+                    },
                     episodeContentId = episode.contentId,
                     fileId = fileId,
-                    seriesTitle = detail.title,
+                    seriesTitle = if (detail.type == "series") {
+                        detail.title
+                    } else {
+                        detail.seriesTitle ?: detail.title
+                    },
                     seasonNumber = episode.seasonNumber,
                     episodeNumber = episode.episodeNumber,
                     episodeTitle = episode.title,
@@ -272,6 +282,15 @@ class ItemDetailViewModel(
                     if (detail.type == "series") {
                         loadSeasons(detail.contentId)
                     }
+                    // For episodes, load the parent series' seasons + this
+                    // season's siblings so the page can offer the selector.
+                    if (detail.type == "episode") {
+                        val seriesId = detail.seriesId
+                        val seasonNumber = detail.seasonNumber
+                        if (seriesId != null && seasonNumber != null) {
+                            loadEpisodeSiblings(seriesId, seasonNumber)
+                        }
+                    }
                     // For books, learn whether the server converts Kindle formats to
                     // EPUB, so the "Read" affordance can offer mobi/azw/azw3 in-app.
                     if (isBookLikeItemType(detail.type)) {
@@ -335,6 +354,8 @@ class ItemDetailViewModel(
         }
         if (current.type == "series") {
             loadEpisodes(current.contentId, _uiState.value.selectedSeasonNumber)
+        } else if (current.type == "episode") {
+            current.seriesId?.let { loadEpisodes(it, _uiState.value.selectedSeasonNumber) }
         }
     }
 
@@ -450,12 +471,32 @@ class ItemDetailViewModel(
         }
     }
 
+    /** Episode pages: seasons + this season's siblings, mirroring iOS's
+     *  episode detail (the episode's own season stays selected; no series
+     *  download roll-up — that's a series-page concern). */
+    private fun loadEpisodeSiblings(seriesId: String, seasonNumber: Int) {
+        _uiState.update { it.copy(selectedSeasonNumber = seasonNumber) }
+        loadEpisodes(seriesId, seasonNumber)
+        viewModelScope.launch {
+            when (val result = catalogRepository.getSeasons(seriesId)) {
+                is ApiResult.Success -> {
+                    val seasons = result.data.seasons.sortedForDisplay()
+                    _uiState.update { it.copy(seasons = seasons) }
+                }
+                else -> { /* Season load failure is non-critical */ }
+            }
+        }
+    }
+
     /**
-     * Selects a season and loads its episodes.
+     * Selects a season and loads its episodes. Works from both the series
+     * page and an episode page (where the loaded detail is the episode and
+     * the series id comes from its parent reference).
      */
     fun selectSeason(seasonNumber: Int) {
         _uiState.update { it.copy(selectedSeasonNumber = seasonNumber) }
-        val seriesId = _uiState.value.detail?.contentId ?: return
+        val detail = _uiState.value.detail ?: return
+        val seriesId = if (detail.type == "series") detail.contentId else detail.seriesId ?: return
         loadEpisodes(seriesId, seasonNumber)
     }
 
@@ -576,6 +617,21 @@ class ItemDetailViewModel(
         }
     }
 
+    /** Back to Auto — clears the version override and, like [selectVersion],
+     *  the file-specific audio/subtitle overrides with it. */
+    fun selectAutoVersion() {
+        _uiState.update {
+            it.copy(
+                selectedVersionIndex = 0,
+                selectedAudioIndex = 0,
+                selectedSubtitleIndex = -1,
+                hasExplicitVersionSelection = false,
+                hasExplicitAudioSelection = false,
+                hasExplicitSubtitleSelection = false,
+            )
+        }
+    }
+
     fun selectAudioTrack(index: Int) {
         _uiState.update {
             it.copy(
@@ -585,11 +641,31 @@ class ItemDetailViewModel(
         }
     }
 
+    /** Back to Auto — playback falls through to the file's default track. */
+    fun selectAutoAudioTrack() {
+        _uiState.update {
+            it.copy(
+                selectedAudioIndex = 0,
+                hasExplicitAudioSelection = false,
+            )
+        }
+    }
+
     fun selectSubtitle(index: Int) {
         _uiState.update {
             it.copy(
                 selectedSubtitleIndex = index,
                 hasExplicitSubtitleSelection = true,
+            )
+        }
+    }
+
+    /** Back to Auto — distinct from an explicit -1 ("Off") selection. */
+    fun selectAutoSubtitle() {
+        _uiState.update {
+            it.copy(
+                selectedSubtitleIndex = -1,
+                hasExplicitSubtitleSelection = false,
             )
         }
     }

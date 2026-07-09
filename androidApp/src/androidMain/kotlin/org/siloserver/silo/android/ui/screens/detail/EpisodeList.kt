@@ -1,7 +1,7 @@
 package org.siloserver.silo.android.ui.screens.detail
 
-import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,18 +29,14 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.siloserver.silo.android.ui.util.playbackResumePosition
 import org.siloserver.silo.common.overlays.CardOverlayVariant
 import org.siloserver.silo.common.overlays.CardOverlays
@@ -66,7 +61,8 @@ fun EpisodeList(
     onEpisodeDetailClick: (String) -> Unit,
     onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
     episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
-    blurUnwatchedEpisodeStills: Boolean = false,
+    /** Episode pages: the episode whose detail is open, marked "Now viewing". */
+    highlightContentId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -80,7 +76,7 @@ fun EpisodeList(
                 onDetailClick = { onEpisodeDetailClick(episode.contentId) },
                 onDownloadClick = onEpisodeDownloadClick?.let { cb -> { cb(episode) } },
                 downloadState = episodeDownloadState(episode),
-                blurUnwatchedEpisodeStills = blurUnwatchedEpisodeStills,
+                isCurrent = episode.contentId == highlightContentId,
             )
         }
     }
@@ -93,13 +89,11 @@ private fun EpisodeRow(
     onDetailClick: () -> Unit,
     onDownloadClick: (() -> Unit)? = null,
     downloadState: DetailDownloadState = DetailDownloadState(),
-    blurUnwatchedEpisodeStills: Boolean = false,
+    isCurrent: Boolean = false,
 ) {
     val overlayState = LocalCardOverlayUiState.current
     val userData = episode.userData
     val isPlayed = userData?.played == true
-    var isStillRevealed by rememberSaveable(episode.contentId) { mutableStateOf(false) }
-    val shouldHideStill = blurUnwatchedEpisodeStills && !isPlayed && !isStillRevealed
     val progress = episodeProgressFraction(
         positionSeconds = userData?.positionSeconds,
         durationSeconds = userData?.durationSeconds,
@@ -113,21 +107,22 @@ private fun EpisodeRow(
                 .width(160.dp)
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(8.dp))
+                .then(
+                    // iOS PhoneEpisodeRail: the open episode gets a white
+                    // border + "NOW VIEWING" tag.
+                    if (isCurrent) {
+                        Modifier.border(1.5.dp, Color.White, RoundedCornerShape(8.dp))
+                    } else {
+                        Modifier
+                    },
+                )
                 .clickable(onClick = onPlayClick),
         ) {
             ThumbhashImage(
                 url = episode.stillUrl,
                 thumbhash = episode.stillThumbhash,
                 contentDescription = episode.title,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (shouldHideStill && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            Modifier.blur(12.dp)
-                        } else {
-                            Modifier
-                        },
-                    ),
+                modifier = Modifier.fillMaxWidth(),
             )
 
             // Card-overlay badge layer (resolution / codec / HDR, etc.).
@@ -141,33 +136,22 @@ private fun EpisodeRow(
                 )
             }
 
-            if (shouldHideStill) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.62f)),
-                )
+            if (isCurrent) {
                 Text(
-                    text = "Spoiler hidden",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.86f),
+                    text = "NOW VIEWING",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.sp,
+                        letterSpacing = 0.8.sp,
+                    ),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 10.dp, bottom = 8.dp),
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color.White)
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
                 )
-                IconButton(
-                    onClick = { isStillRevealed = true },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(34.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Visibility,
-                        contentDescription = "Reveal episode still",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
             }
 
             Box(

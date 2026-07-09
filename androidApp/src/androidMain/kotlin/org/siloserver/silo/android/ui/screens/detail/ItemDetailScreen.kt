@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -123,6 +126,7 @@ fun ItemDetailScreen(
     val downloadStorage: DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingCancelDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingDownloadQualityAction by remember { mutableStateOf<((DownloadQuality) -> Unit)?>(null) }
     var pendingDownloadEstimate by remember {
         mutableStateOf<org.siloserver.silo.model.download.DownloadSizeEstimate?>(null)
@@ -172,10 +176,18 @@ fun ItemDetailScreen(
         qualityAction: (DownloadQuality) -> Unit,
         estimate: org.siloserver.silo.model.download.DownloadSizeEstimate? = null,
     ) {
-        if (!downloadState.isDownloaded && downloadState.progress == null) {
-            runDownloadQualityAction(requirePermission = true, estimate = estimate, action = qualityAction)
-        } else {
-            runDownloadAction(requirePermission = false, action = directAction)
+        when {
+            !downloadState.isDownloaded && downloadState.progress == null -> {
+                runDownloadQualityAction(requirePermission = true, estimate = estimate, action = qualityAction)
+            }
+            // In flight — the tap cancels, so confirm before discarding
+            // the partial download (iOS parity).
+            !downloadState.isDownloaded -> {
+                pendingCancelDownloadAction = {
+                    runDownloadAction(requirePermission = false, action = directAction)
+                }
+            }
+            else -> runDownloadAction(requirePermission = false, action = directAction)
         }
     }
 
@@ -581,8 +593,9 @@ fun ItemDetailScreen(
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
                             selectedVersionIndex = effectiveSelectedVersionIndex,
-                            selectedAudioIndex = state.selectedAudioIndex,
-                            selectedSubtitleIndex = state.selectedSubtitleIndex,
+                            isAutoVersion = !state.hasExplicitVersionSelection,
+                            selectedAudioIndex = explicitAudioIndex,
+                            selectedSubtitleIndex = explicitSubtitleIndex,
                             onPlayClick = {
                                 onPlayClick(
                                     detail.contentId,
@@ -598,9 +611,15 @@ fun ItemDetailScreen(
                             userRating = state.userRating,
                             onSetRating = { viewModel.setRating(it) },
                             onClearRating = { viewModel.clearRating() },
-                            onVersionSelected = { viewModel.selectVersion(it) },
-                            onAudioSelected = { viewModel.selectAudioTrack(it) },
-                            onSubtitleSelected = { viewModel.selectSubtitle(it) },
+                            onVersionSelected = { index ->
+                                if (index != null) viewModel.selectVersion(index) else viewModel.selectAutoVersion()
+                            },
+                            onAudioSelected = { index ->
+                                if (index != null) viewModel.selectAudioTrack(index) else viewModel.selectAutoAudioTrack()
+                            },
+                            onSubtitleSelected = { index ->
+                                if (index != null) viewModel.selectSubtitle(index) else viewModel.selectAutoSubtitle()
+                            },
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
                             onSeriesClick = seriesId?.let { resolvedSeriesId ->
@@ -610,6 +629,36 @@ fun ItemDetailScreen(
                                 { onSeasonClick(seriesId, seasonNumber) }
                             } else {
                                 null
+                            },
+                            seasons = state.seasons,
+                            selectedSeasonNumber = state.selectedSeasonNumber,
+                            episodes = state.episodes,
+                            isLoadingEpisodes = state.isLoadingEpisodes,
+                            onSeasonSelected = { viewModel.selectSeason(it) },
+                            onEpisodePlayClick = { contentId, resumePositionSeconds ->
+                                onPlayClick(contentId, null, null, null, resumePositionSeconds)
+                            },
+                            onEpisodeDetailClick = onItemDetailClick,
+                            onEpisodeDownloadClick = { ep ->
+                                val episodeState = detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = downloadRecords,
+                                )
+                                runDownloadTap(
+                                    downloadState = episodeState,
+                                    directAction = { viewModel.onEpisodeDownloadTapped(ep) },
+                                    qualityAction = { quality ->
+                                        viewModel.onEpisodeDownloadTapped(ep, downloadQuality = quality)
+                                    },
+                                    estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
+                                        .estimate(fileSizes = ep.files.map { it.fileSize }),
+                                )
+                            },
+                            episodeDownloadState = { ep ->
+                                detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = downloadRecords,
+                                )
                             },
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
@@ -684,6 +733,29 @@ fun ItemDetailScreen(
             SiloCastTargetPickerSheet(
                 launchRequest = request,
                 onDismiss = { pendingSiloCastLaunchRequest = null },
+            )
+        }
+
+        pendingCancelDownloadAction?.let { confirmAction ->
+            AlertDialog(
+                onDismissRequest = { pendingCancelDownloadAction = null },
+                title = { Text("Cancel download?") },
+                text = { Text("The partially downloaded data will be discarded.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            pendingCancelDownloadAction = null
+                            confirmAction()
+                        },
+                    ) {
+                        Text("Discard Download")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingCancelDownloadAction = null }) {
+                        Text("Keep Download")
+                    }
+                },
             )
         }
 
