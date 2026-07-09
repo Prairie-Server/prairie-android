@@ -965,7 +965,8 @@ private fun buildDetailFacts(detail: ItemDetail): List<Pair<String, String>> = b
     if (detail.studios.isNotEmpty()) add("Studio" to detail.studios.joinToString(", "))
     if (detail.networks.isNotEmpty()) add("Network" to detail.networks.joinToString(", "))
     if (detail.countries.isNotEmpty()) add("Country" to detail.countries.joinToString(", "))
-    if (detail.genres.isNotEmpty()) add("Genres" to detail.genres.joinToString(", "))
+    // Genres are already carried by the hero facts line (HeroMetadata); iOS's
+    // detail facts list omits them, so listing them here duplicated them.
 }
 
 private fun runtimeText(minutes: Int): String {

@@ -238,5 +238,8 @@ fun MediaRow(
 private class HorizontalBiasViewConfiguration(
     private val base: ViewConfiguration,
 ) : ViewConfiguration by base {
-    override val touchSlop: Float get() = base.touchSlop * 1.75f
+    // Bumped 1.75 -> 2.25 (Jim QA 2026-07-09: rows still too grabby on Pixel,
+    // vertical scroll getting hijacked by incidental horizontal activation).
+    // Governs only when horizontal scroll STARTS, not fling velocity.
+    override val touchSlop: Float get() = base.touchSlop * 2.25f
 }

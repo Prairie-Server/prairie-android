@@ -249,12 +249,14 @@ fun MovieDetailContent(
                                 onClick = { showAudioPicker = true },
                             )
                         }
-                        TrackSelectorRow(
-                            icon = Icons.Outlined.ClosedCaption,
-                            label = "Subtitles",
-                            value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
-                            onClick = { showSubtitlePicker = true },
-                        )
+                        if (subtitleTracks.isNotEmpty()) {
+                            TrackSelectorRow(
+                                icon = Icons.Outlined.ClosedCaption,
+                                label = "Subtitles",
+                                value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
+                                onClick = { showSubtitlePicker = true },
+                            )
+                        }
                     }
                 }
             }

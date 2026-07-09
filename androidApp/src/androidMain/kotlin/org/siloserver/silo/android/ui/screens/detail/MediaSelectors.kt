@@ -369,14 +369,13 @@ fun formatVersionValueLabel(version: FileVersion?, isAuto: Boolean): String {
 }
 
 /**
- * Selector value for the Audio row, matching the iOS phone detail
- * (`DetailPlaybackFormatting.audioValueLabel` with `annotateAuto = false`):
- * the resolved track is named outright with no "Auto -" prefix, for both the
- * auto and the explicit case. Auto resolves to the server's effective track
- * ([effectiveIndex] = `FileVersion.effectiveAudioTrackIndex`), else the file's
- * default track, else the first — Apple parity: selected → effective →
- * default → first. [selectedIndex] null = Auto. (The annotated
- * "Auto - <track>" form is tvOS-only on Apple, so the phone omits it.)
+ * Selector value for the Audio row. Auto (no item-level override) previews
+ * what it resolves to with an "Auto - <track>" prefix, mirroring the Video row
+ * and the TV client's tvOS-style annotation (Jim 2026-07-09: apply "Auto -" to
+ * all three rows for consistency). Auto resolves to the server's effective
+ * track ([effectiveIndex] = `FileVersion.effectiveAudioTrackIndex`), else the
+ * file's default track, else the first — selected → effective → default →
+ * first. [selectedIndex] null = Auto; an explicit pick is named outright.
  */
 fun formatAudioValueLabel(
     tracks: List<AudioTrack>,
@@ -388,24 +387,27 @@ fun formatAudioValueLabel(
         ?: effectiveIndex?.takeIf { it in tracks.indices }
         ?: tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 }
         ?: 0
-    return formatAudioLabel(tracks[resolved])
+    val label = formatAudioLabel(tracks[resolved])
+    return if (selectedIndex == null) "Auto - $label" else label
 }
 
 /**
- * Selector value for the Subtitles row, matching the iOS phone detail
- * (`DetailPlaybackFormatting.subtitleValueLabel` with no `autoContext`).
+ * Selector value for the Subtitles row.
  *
- * [selectedIndex] null = Auto: the phone shows a bare "Auto". The player's
- * real subtitle resolver (preferred-language / audio-match / forced / SDH
- * rules in `resolveMobileAutoSubtitleSelection`) — never the catalog
- * `isDefault` flag — decides at playback, so previewing a concrete track from
- * `isDefault` could contradict what actually plays. A lone track is named
- * outright since Auto can only land there. -1 = Off.
+ * [selectedIndex] null = Auto. The player's real subtitle resolver
+ * (preferred-language / audio-match / forced / SDH rules in
+ * `resolveMobileAutoSubtitleSelection`) decides the concrete track at playback,
+ * and it needs profile prefs + the selected audio track that the detail page
+ * doesn't have — so a multi-track Auto stays a bare "Auto" (previewing a
+ * fabricated track could contradict what actually plays). When Auto can only
+ * land on one track (a lone track), we DO know the result, so we show it in the
+ * tvOS-style "Auto - <track>" form for consistency with the Video/Audio rows
+ * (Jim 2026-07-09). -1 = Off.
  */
 fun formatSubtitleValueLabel(tracks: List<SubtitleTrack>, selectedIndex: Int?): String {
     if (selectedIndex == null) {
         val single = tracks.singleOrNull() ?: return "Auto"
-        return formatSubtitleLabel(single)
+        return "Auto - ${formatSubtitleLabel(single)}"
     }
     if (selectedIndex == -1) return "Off"
     // A stale explicit index (the track list shrank under the selection) still
