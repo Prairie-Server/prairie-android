@@ -703,7 +703,6 @@ fun LibrariesScreen(
                         onItemClick = onItemClick,
                         onPlayClick = onPlayClick,
                         onRetry = viewModel::retryCurrentTab,
-                        onSeeAllClick = viewModel::showBrowseFromRecommended,
                         onActiveBackdropChange = { url, thumbhash ->
                             heroBackdropUrl = url
                             heroBackdropThumbhash = thumbhash
@@ -758,7 +757,6 @@ private fun RecommendedTabContent(
     onItemClick: (String) -> Unit,
     onPlayClick: (String, Double?) -> Unit,
     onRetry: () -> Unit,
-    onSeeAllClick: () -> Unit,
     onActiveBackdropChange: (url: String?, thumbhash: String?) -> Unit,
 ) {
     when {
@@ -832,10 +830,11 @@ private fun RecommendedTabContent(
                     items = regularSections,
                     key = { section -> section.id },
                 ) { section ->
+                    // No "See All" — iOS has no such affordance (H3, Jim
+                    // 2026-07-10); the row omits it when onSeeAllClick is null.
                     HomeSectionRow(
                         section = section,
                         onItemClick = onItemClick,
-                        onSeeAllClick = { onSeeAllClick() },
                     )
                 }
 

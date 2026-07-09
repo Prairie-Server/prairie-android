@@ -112,7 +112,6 @@ fun ReadingHubScreen(
             },
             onRetry = viewModel::retryCurrentTab,
             onRefreshLibraries = viewModel::refresh,
-            onShowBrowse = viewModel::showBrowseFromRecommended,
             onLoadMore = viewModel::loadMoreCatalog,
             onGenreChanged = viewModel::selectBrowseGenre,
             onSortChanged = viewModel::selectBrowseSort,
@@ -278,7 +277,6 @@ private fun ReadingHubContent(
     onCollectionClick: (String) -> Unit,
     onRetry: () -> Unit,
     onRefreshLibraries: () -> Unit,
-    onShowBrowse: () -> Unit,
     onLoadMore: () -> Unit,
     onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
@@ -330,7 +328,6 @@ private fun ReadingHubContent(
                         state = state,
                         onItemClick = onItemClick,
                         onRetry = onRetry,
-                        onShowBrowse = onShowBrowse,
                     )
                     LibrariesSubtab.Browse -> ReadingBrowseTab(
                         state = state,
@@ -375,7 +372,6 @@ private fun ReadingRecommendedTab(
     state: ReadingHubUiState,
     onItemClick: (String) -> Unit,
     onRetry: () -> Unit,
-    onShowBrowse: () -> Unit,
 ) {
     when {
         state.isLoadingSections && state.sections.isEmpty() -> {
@@ -407,10 +403,10 @@ private fun ReadingRecommendedTab(
                     key = { section -> section.id },
                     contentType = { "reading-section-row" },
                 ) { section ->
+                    // No "See All" — iOS parity (H3, Jim 2026-07-10).
                     HomeSectionRow(
                         section = section.readingFriendlySection(),
                         onItemClick = onItemClick,
-                        onSeeAllClick = { onShowBrowse() },
                     )
                 }
             }
