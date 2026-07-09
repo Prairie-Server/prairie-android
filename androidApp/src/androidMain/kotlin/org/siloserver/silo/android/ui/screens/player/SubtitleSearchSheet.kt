@@ -78,13 +78,18 @@ fun SubtitleSearchSheet(
     onSearch: (String) -> Unit,
     onDownload: (SubtitleResult) -> Unit,
     onDismiss: () -> Unit,
+    // Tracks-submenu back affordance: closes this sheet and reopens the parent
+    // TracksSheet (wired in PlayerOverlay). Null falls back to a plain dismiss.
+    onBack: (() -> Unit)? = null,
 ) {
     var selectedLanguage by remember { mutableStateOf(defaultLanguage) }
     var languageMenuExpanded by remember { mutableStateOf(false) }
 
-    // Auto-dismiss when download completes (one-shot flag in VM).
+    // On successful download return to the tracks sheet (via onBack) so the
+    // freshly added track is visible, rather than dropping onto bare player
+    // controls. One-shot flag in VM.
     LaunchedEffect(tools.downloadCompleted) {
-        if (tools.downloadCompleted) onDismiss()
+        if (tools.downloadCompleted) (onBack ?: onDismiss)()
     }
 
     ModalBottomSheet(
@@ -109,12 +114,9 @@ fun SubtitleSearchSheet(
                     ),
                 ),
         ) {
-            Text(
-                text = "Search Subtitles",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+            PlayerSheetHeader(
+                title = "Search Subtitles",
+                onBack = onBack,
             )
 
             Row(

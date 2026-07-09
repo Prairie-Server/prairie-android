@@ -70,6 +70,9 @@ fun AiTranslateSheet(
     onSubmit: (kind: String, sourceIndex: Int, sourceLanguage: String, targetLanguage: String) -> Unit,
     onCancelJob: () -> Unit,
     onDismiss: () -> Unit,
+    // Tracks-submenu back affordance: closes this sheet and reopens the parent
+    // TracksSheet (wired in PlayerOverlay). Null falls back to a plain dismiss.
+    onBack: (() -> Unit)? = null,
 ) {
     val aiStatus = tools.aiStatus
     val sourceTracks = remember(subtitleTracks) { subtitleTracks.filter(::isTranslatableSource) }
@@ -90,8 +93,10 @@ fun AiTranslateSheet(
     LaunchedEffect(Unit) {
         if (canTranscribe) onRefreshQuota()
     }
+    // On job completion return to the tracks sheet (via onBack) so the freshly
+    // generated track is visible, rather than dropping onto bare player controls.
     LaunchedEffect(tools.jobJustCompleted) {
-        if (tools.jobJustCompleted) onDismiss()
+        if (tools.jobJustCompleted) (onBack ?: onDismiss)()
     }
 
     ModalBottomSheet(
@@ -112,12 +117,9 @@ fun AiTranslateSheet(
                     ),
                 ),
         ) {
-            Text(
-                text = "Translate with AI",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+            PlayerSheetHeader(
+                title = "Translate with AI",
+                onBack = onBack,
             )
 
             val activeJob = tools.activeJob

@@ -163,6 +163,7 @@ fun PlayerOverlay(
                 onSeek = gatedSeek,
                 onSkipForward = { gatedSeek((state.position + 10.0).coerceAtMost(state.duration)) },
                 onSkipBackward = { gatedSeek((state.position - 10.0).coerceAtLeast(0.0)) },
+                seekEnabled = seekEnabled,
                 onFastForwardHold = gatedFastForwardHold,
                 onPinchVideoGravity = stepVideoGravity,
                 onDismiss = handleBack,
@@ -477,6 +478,11 @@ fun PlayerOverlay(
                 subtitleSearchVisible = false
                 viewModel.onSearchSheetClosed()
             },
+            onBack = {
+                subtitleSearchVisible = false
+                tracksSheetVisible = true
+                viewModel.onSearchSheetClosed()
+            },
         )
     }
 
@@ -491,6 +497,11 @@ fun PlayerOverlay(
             onCancelJob = viewModel::cancelAiJob,
             onDismiss = {
                 aiTranslateVisible = false
+                viewModel.onTranslateSheetClosed()
+            },
+            onBack = {
+                aiTranslateVisible = false
+                tracksSheetVisible = true
                 viewModel.onTranslateSheetClosed()
             },
         )

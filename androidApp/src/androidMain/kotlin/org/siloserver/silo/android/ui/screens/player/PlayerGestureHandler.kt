@@ -74,6 +74,11 @@ fun PlayerGestureHandler(
     onSeek: (Double) -> Unit,
     onSkipForward: () -> Unit,
     onSkipBackward: () -> Unit,
+    // When false (a Watch Together guest without seek authority), the outer
+    // double-tap skip bands fall through to a controls toggle rather than
+    // firing a gated no-op skip and flashing a "+10s" badge that lies about a
+    // position that never moves. Mirrors PlayerControls' seekEnabled gating.
+    seekEnabled: Boolean = true,
     onFastForwardHold: (Boolean) -> Unit = {},
     // Called once per completed pinch: true = pinch-out (step toward
     // fill/stretch), false = pinch-in (step back toward fit).
@@ -89,6 +94,7 @@ fun PlayerGestureHandler(
     // tears down the coroutine and drops in-flight taps and double-taps).
     val currentPosition by rememberUpdatedState(position)
     val currentDuration by rememberUpdatedState(duration)
+    val currentSeekEnabled by rememberUpdatedState(seekEnabled)
 
     var seekDragStartPosition by remember { mutableDoubleStateOf(0.0) }
     var seekDragAccumulator by remember { mutableFloatStateOf(0f) }
@@ -183,6 +189,9 @@ fun PlayerGestureHandler(
                         // controls toggle.
                         val skipZoneWidth = size.width * SkipZoneFraction
                         when {
+                            // Guest without seek authority: no gated no-op skip,
+                            // no lying flash — behave like the center band.
+                            !currentSeekEnabled -> onToggleControls()
                             offset.x < skipZoneWidth -> {
                                 onSkipBackward()
                                 skipFlash = SkipFlash(forward = false, nonce = ++skipFlashNonce)
