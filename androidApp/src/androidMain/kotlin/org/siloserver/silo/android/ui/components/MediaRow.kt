@@ -143,11 +143,26 @@ fun MediaRow(
             }
         }
 
-        // Horizontal rows live inside the vertically scrolling feed; with stock
-        // touch slop a mostly-vertical drag that wobbles sideways gets captured
-        // by the row and the feed "sticks". Raising slop only inside the row
-        // demands clearer horizontal intent before the row claims the gesture —
-        // the parent column (outside this provider) keeps stock sensitivity.
+        // Horizontal rows live inside the vertically scrolling feed. iOS gets
+        // this "for free": the nested horizontal/vertical UIScrollViews claim by
+        // dominant drag direction at a small shared threshold, and a card tap is
+        // cancelled the moment either scroll begins — so a sideways flick scrolls
+        // the row and never fires the tap (MediaRow.swift does zero gesture
+        // tuning). Compose has no native direction arbitration between the row's
+        // scroll and the parent column's, so a mostly-vertical drag that wobbles
+        // sideways past stock slop lets the row claim the gesture and the feed
+        // "sticks". We raise slop only for the row's scroll gesture to demand
+        // clearer horizontal intent before it claims — the parent column (outside
+        // this provider) keeps stock sensitivity.
+        //
+        // Crucially the card's own tap/click detector must NOT inherit the
+        // inflated slop: if it did, its tap-cancel radius would widen to match,
+        // leaving a dead band (~stock..inflated dp) where a horizontal nudge is
+        // too small for the row to scroll yet still counts as a tap — opening the
+        // detail page or firing the center play glyph on a flick. So each card
+        // re-provides the base ViewConfiguration, restoring a tight (stock) tap
+        // radius: a horizontal drift past stock slop cancels the tap the way iOS
+        // does, even in the band below the row's scroll threshold.
         val baseViewConfiguration = LocalViewConfiguration.current
         val rowViewConfiguration = remember(baseViewConfiguration) {
             HorizontalBiasViewConfiguration(baseViewConfiguration)
@@ -163,6 +178,7 @@ fun MediaRow(
                 contentType = { rowItem -> rowItem.contentType },
             ) { rowItem ->
                 val item = rowItem.item
+                CompositionLocalProvider(LocalViewConfiguration provides baseViewConfiguration) {
                 when (cardStyle) {
                     CardStyle.Backdrop -> {
                         BackdropCard(
@@ -204,6 +220,7 @@ fun MediaRow(
                         )
                     }
                 }
+                }
             }
         }
         }
@@ -212,9 +229,11 @@ fun MediaRow(
 
 
 /**
- * [ViewConfiguration] that inflates touch slop for content that scrolls
- * horizontally inside a vertical feed, so incidental sideways wobble during a
- * vertical drag doesn't lock the gesture to the row.
+ * [ViewConfiguration] that inflates touch slop for the horizontal scroll
+ * gesture of a row nested inside a vertical feed, so incidental sideways wobble
+ * during a vertical drag doesn't lock the gesture to the row. Applied only to
+ * the row's scroll; the cards re-provide the base configuration so their tap
+ * radius stays tight (see the provider setup in [MediaRow]).
  */
 private class HorizontalBiasViewConfiguration(
     private val base: ViewConfiguration,
