@@ -985,6 +985,12 @@ class TvPlayerViewModel(
     }
 
     private fun startIntroAutoSkipObserver() {
+        // Auto-skip is a local transport action: in a Watch Together room only
+        // the host's transport may move position, so never auto-skip in a room
+        // (a guest jump would fight the host's broadcast in a yank-back loop).
+        // The manual Skip Intro button is a separate, gate-checked path and
+        // stays available.
+        if (roomId != null) return
         introObserveJob?.cancel()
         introObserveJob = introAutoSkipController.observe(
             position = _uiState

@@ -124,10 +124,12 @@ import org.siloserver.silo.tv.cast.TvSiloCastReceiver
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -135,6 +137,13 @@ import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 
 private const val CONTROLS_AUTO_HIDE_MS = 5_000L
+// Cap on how long the client waits for a SET_ENGINE round-trip before treating
+// the switch as failed. The service builds the engine (MPV native init can be
+// slow) under NonCancellable while holding engineSwitchMutex, so this must be
+// long enough not to abort a legitimately slow init, yet short enough to
+// recover from a wedged init instead of stranding a permanent black screen and
+// blocking every later switch behind the held mutex. 25s splits that range.
+private const val ENGINE_SWITCH_TIMEOUT_MS = 25_000L
 // Skip back is 10s; skip forward is 30s, matching tvOS (gobackward.10 /
 // goforward.30).
 private const val SKIP_BACK_MS = 10_000L
@@ -357,19 +366,29 @@ fun TvPlayerScreen(
     DisposableEffect(siloCastReceiver, viewModel, contentId) {
         val adapter = TvSiloCastPlayerAdapter(
             play = {
-                viewModel.setPaused(false)
-                latestSiloCastMediaController?.play()
+                // Watch Together is authoritative for transport: suppress
+                // SiloCast transport while in a room so a caster can't desync
+                // members, mirroring the realtime remote path's
+                // remoteTransportSuppressed gate. Non-room casting is unchanged.
+                if (!viewModel.remoteTransportSuppressed) {
+                    viewModel.setPaused(false)
+                    latestSiloCastMediaController?.play()
+                }
             },
             pause = {
-                viewModel.setPaused(true)
-                latestSiloCastMediaController?.pause()
+                if (!viewModel.remoteTransportSuppressed) {
+                    viewModel.setPaused(true)
+                    latestSiloCastMediaController?.pause()
+                }
             },
-            playPause = viewModel::onPlayPause,
+            playPause = { if (!viewModel.remoteTransportSuppressed) viewModel.onPlayPause() },
             seek = { seconds ->
-                viewModel.seekImmediate(seconds)
-                latestSiloCastMediaController?.seekTo((seconds * 1_000).toLong())
+                if (!viewModel.remoteTransportSuppressed) {
+                    viewModel.seekImmediate(seconds)
+                    latestSiloCastMediaController?.seekTo((seconds * 1_000).toLong())
+                }
             },
-            stop = viewModel::remoteStop,
+            stop = { if (!viewModel.remoteTransportSuppressed) viewModel.remoteStop() },
             selectAudio = { index -> viewModel.remoteSelectAudio(index.toInt()) },
             selectSubtitle = { index -> viewModel.remoteSelectSubtitle(index?.toInt() ?: -1) },
             setPlaybackSpeed = { speed ->
@@ -1006,7 +1025,18 @@ fun TvPlayerScreen(
             hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
-        val switchResult = controller.awaitEngineSwitch(engineRequest)
+        // Bound the await: a wedged engine build would otherwise suspend here
+        // forever (never firing onEngineSwitchFailed), leaving a black screen.
+        // On timeout, awaitEngineSwitch's invokeOnCancellation cancels the
+        // pending SET_ENGINE future so nothing leaks; treat it as a failure so
+        // the recovery ladder runs.
+        val switchResult = try {
+            withTimeout(ENGINE_SWITCH_TIMEOUT_MS) {
+                controller.awaitEngineSwitch(engineRequest)
+            }
+        } catch (_: TimeoutCancellationException) {
+            EngineSwitchResult(success = false, swapped = false)
+        }
         if (!switchResult.success) {
             viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
             return@LaunchedEffect
@@ -1058,7 +1088,16 @@ fun TvPlayerScreen(
             hasSoftwareOnlyVideoCodec = state.softwareOnlyVideoCodec,
             isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(url),
         )
-        val switchResult = controller.awaitEngineSwitch(engineRequest)
+        // Same bounded await as the initial prepare effect: a wedged engine
+        // build must not strand a black screen. On timeout the pending future is
+        // cancelled (no leak) and we fall through to the failure path.
+        val switchResult = try {
+            withTimeout(ENGINE_SWITCH_TIMEOUT_MS) {
+                controller.awaitEngineSwitch(engineRequest)
+            }
+        } catch (_: TimeoutCancellationException) {
+            EngineSwitchResult(success = false, swapped = false)
+        }
         if (!switchResult.success) {
             viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
             return@LaunchedEffect
@@ -1527,10 +1566,20 @@ fun TvPlayerScreen(
                             chapters = state.chapters,
                             onSelectChapter = { idx ->
                                 viewModel.onSeekToChapter(idx)?.let { sec ->
-                                    // seekImmediate pre-writes position so a chapter
-                                    // jump into credits isn't mistaken for natural
-                                    // playback crossing the credits point.
-                                    viewModel.seekImmediate(sec)
+                                    if (roomController != null) {
+                                        // In a room, route through the same gated
+                                        // path as scrub-commit / performRelativeSeek:
+                                        // transport authority decides (a guest is a
+                                        // no-op) and a permitted seek broadcasts.
+                                        if (tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek) == TransportGate.Send) {
+                                            roomController.onUserSeek(sec)
+                                        }
+                                    } else {
+                                        // Solo: seekImmediate pre-writes position so a
+                                        // chapter jump into credits isn't mistaken for
+                                        // natural playback crossing the credits point.
+                                        viewModel.seekImmediate(sec)
+                                    }
                                 }
                             },
                             onDismiss = { viewModel.closeHUD() },
