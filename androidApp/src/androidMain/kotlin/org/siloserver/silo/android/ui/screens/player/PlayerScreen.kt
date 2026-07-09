@@ -83,6 +83,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.unit.sp
 
 private const val TAG = "PlayerScreen"
 
@@ -900,6 +906,29 @@ fun PlayerScreen(
                     onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
                     onSelectAudio = { viewModel.onSelectAudio(it) },
                     onSelectVersion = { viewModel.onSelectVersion(it) },
+                )
+            }
+        }
+
+        // Non-fatal quality/version-switch message: a dismissable pill over the
+        // still-playing video, not a fatal full-screen error.
+        uiState.versionSwitchMessage?.let { message ->
+            Surface(
+                color = Color(0xFFB45309).copy(alpha = 0.94f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp)
+                    .widthIn(max = 360.dp)
+                    .clickable { viewModel.dismissVersionSwitchMessage() },
+            ) {
+                Text(
+                    text = message,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 )
             }
         }

@@ -177,6 +177,13 @@ class PlayerViewModel(
     data class PlayerUiState(
         val isLoading: Boolean = true,
         val error: String? = null,
+        /**
+         * Transient, dismissable message for a failed quality/version switch.
+         * Unlike [error] it does NOT gate the video surface — the previous
+         * version keeps playing underneath, so the viewer isn't dropped to a
+         * black screen for a switch that simply couldn't be honored.
+         */
+        val versionSwitchMessage: String? = null,
         val title: String = "",
         val subtitle: String = "",
         /**
@@ -356,6 +363,9 @@ class PlayerViewModel(
     private var pendingApproachingEndVideoEnded: Boolean? = null
     private var upNextCountdownJob: Job? = null
     private var engineSwitchFallbackAttempted = false
+    // Prevents a failed version switch from recursing while it restores the
+    // previously-playing version.
+    private var versionSwitchRecovering = false
     private var persistNextSubtitleSelection = false
 
     // Recovery ladder state — mirrors TvPlayerViewModel. The planner picks the
@@ -1999,6 +2009,7 @@ class PlayerViewModel(
         if (index < 0 || index >= versions.size) return
         if (index == currentState.selectedVersionIndex) return
 
+        val previousVersionIndex = currentState.selectedVersionIndex
         val currentPosition = currentState.position
         resetPlaybackRecoveryState()
 
@@ -2071,21 +2082,14 @@ class PlayerViewModel(
                             )) {
                                 is ApiResult.Success -> fallback.data
                                 is ApiResult.Error -> {
-                                    _uiState.update {
-                                        it.copy(
-                                            isLoading = false,
-                                            error = "Failed to switch version: ${fallback.message}",
-                                        )
-                                    }
+                                    failVersionSwitch(previousVersionIndex, fallback.message)
                                     return@launch
                                 }
                                 is ApiResult.NetworkError -> {
-                                    _uiState.update {
-                                        it.copy(
-                                            isLoading = false,
-                                            error = "Network error: ${fallback.exception.message}",
-                                        )
-                                    }
+                                    failVersionSwitch(
+                                        previousVersionIndex,
+                                        fallback.exception.message ?: "Network error",
+                                    )
                                     return@launch
                                 }
                             }
@@ -2143,18 +2147,66 @@ class PlayerViewModel(
                     // sessionId/fileId so any prior cancellation does not carry over.
                     startIntroAutoSkipObserver()
                 }
-                is ApiResult.Error -> {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "Failed to switch version: ${result.message}")
-                    }
-                }
-                is ApiResult.NetworkError -> {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "Network error: ${result.exception.message}")
-                    }
+                is ApiResult.Error -> failVersionSwitch(previousVersionIndex, result.message)
+                is ApiResult.NetworkError ->
+                    failVersionSwitch(previousVersionIndex, result.exception.message ?: "Network error")
+            }
+        }
+    }
+
+    /**
+     * Handles a failed quality/version switch. The requested version's session
+     * was already stopped, so rather than stranding the viewer on a black
+     * error screen we surface a dismissable message and restart the version
+     * that was playing. [versionSwitchRecovering] guards against recursion if
+     * the restore itself were to fail.
+     */
+    private fun failVersionSwitch(previousIndex: Int, rawReason: String) {
+        val message = humanizeVersionSwitchFailure(rawReason)
+        if (versionSwitchRecovering) {
+            // The restore attempt also failed — give up gracefully with a
+            // non-fatal message rather than looping.
+            versionSwitchRecovering = false
+            _uiState.update { it.copy(isLoading = false, versionSwitchMessage = message) }
+            return
+        }
+        _uiState.update { it.copy(versionSwitchMessage = message) }
+        val versions = _uiState.value.versions
+        if (previousIndex in versions.indices) {
+            // Force a distinct selectedVersionIndex so onSelectVersion doesn't
+            // early-return, then restart the previously-working version.
+            versionSwitchRecovering = true
+            _uiState.update { it.copy(selectedVersionIndex = -1) }
+            onSelectVersion(previousIndex)
+            versionSwitchRecovering = false
+        } else {
+            _uiState.update { it.copy(isLoading = false) }
+        }
+        // Auto-dismiss the pill after a few seconds.
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(4000)
+            _uiState.update { current ->
+                if (current.versionSwitchMessage == message) {
+                    current.copy(versionSwitchMessage = null)
+                } else {
+                    current
                 }
             }
         }
+    }
+
+    private fun humanizeVersionSwitchFailure(raw: String): String = when {
+        raw.contains("No lower resolution version", ignoreCase = true) ->
+            "That quality isn't available for this title."
+        raw.contains("transcod", ignoreCase = true) ->
+            "Couldn't switch quality — transcoding unavailable."
+        raw.isBlank() -> "Couldn't switch quality."
+        else -> "Couldn't switch quality: $raw"
+    }
+
+    /** Dismisses the transient version-switch message. */
+    fun dismissVersionSwitchMessage() {
+        _uiState.update { it.copy(versionSwitchMessage = null) }
     }
 
     /** Toggle controls visibility. */
