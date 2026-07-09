@@ -148,8 +148,9 @@ fun MediaRow(
         // by the row and the feed "sticks". Raising slop only inside the row
         // demands clearer horizontal intent before the row claims the gesture —
         // the parent column (outside this provider) keeps stock sensitivity.
-        val rowViewConfiguration = remember(LocalViewConfiguration.current) {
-            HorizontalBiasViewConfiguration(LocalViewConfiguration.current)
+        val baseViewConfiguration = LocalViewConfiguration.current
+        val rowViewConfiguration = remember(baseViewConfiguration) {
+            HorizontalBiasViewConfiguration(baseViewConfiguration)
         }
         CompositionLocalProvider(LocalViewConfiguration provides rowViewConfiguration) {
         LazyRow(
