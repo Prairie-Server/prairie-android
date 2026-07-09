@@ -494,16 +494,24 @@ class ItemDetailViewModel(
      * the series id comes from its parent reference).
      */
     fun selectSeason(seasonNumber: Int) {
+        // Capture the currently-loaded season BEFORE the optimistic write so a
+        // failed load can revert the header/chips to it — otherwise the new
+        // season header would sit above the old season's still-loaded episodes.
+        val previousSeasonNumber = _uiState.value.selectedSeasonNumber
         _uiState.update { it.copy(selectedSeasonNumber = seasonNumber) }
         val detail = _uiState.value.detail ?: return
         val seriesId = if (detail.type == "series") detail.contentId else detail.seriesId ?: return
-        loadEpisodes(seriesId, seasonNumber)
+        loadEpisodes(seriesId, seasonNumber, revertSeasonOnError = previousSeasonNumber)
     }
 
     private fun loadEpisodes(
         seriesId: String,
         seasonNumber: Int,
         seasonsForDownloadRollup: List<Season>? = null,
+        // When a user-initiated season switch fails to load, revert the
+        // selection to this season so chips + list stay consistent. A
+        // successful-but-empty season keeps the new selection (empty state).
+        revertSeasonOnError: Int? = null,
     ) {
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
@@ -527,11 +535,21 @@ class ItemDetailViewModel(
                     }
                 }
                 is ApiResult.Error -> {
-                    _uiState.update { it.copy(isLoadingEpisodes = false) }
+                    _uiState.update {
+                        it.copy(
+                            isLoadingEpisodes = false,
+                            selectedSeasonNumber = revertSeasonOnError ?: it.selectedSeasonNumber,
+                        )
+                    }
                     seasonsForDownloadRollup?.let { loadAllEpisodeFileIds(seriesId, it) }
                 }
                 is ApiResult.NetworkError -> {
-                    _uiState.update { it.copy(isLoadingEpisodes = false) }
+                    _uiState.update {
+                        it.copy(
+                            isLoadingEpisodes = false,
+                            selectedSeasonNumber = revertSeasonOnError ?: it.selectedSeasonNumber,
+                        )
+                    }
                     seasonsForDownloadRollup?.let { loadAllEpisodeFileIds(seriesId, it) }
                 }
             }

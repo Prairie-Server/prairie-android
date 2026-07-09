@@ -263,7 +263,11 @@ fun MovieDetailContent(
         // Episode pages: season chips + this season's episodes as the first
         // below-fold section, mirroring iOS's episode detail. Tapping a
         // sibling navigates to its own detail page.
-        if (detail.type == "episode" && (episodes.isNotEmpty() || isLoadingEpisodes)) {
+        // Keep the section mounted whenever the parent series has seasons —
+        // an empty (or failed) season must still show the chips so the user
+        // can switch back, mirroring SeriesDetailContent. Gating on episodes
+        // alone stranded the user with no way out of an empty season.
+        if (detail.type == "episode" && (seasons.isNotEmpty() || episodes.isNotEmpty() || isLoadingEpisodes)) {
             item(contentType = "detail-episodes") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SectionHeader(
@@ -277,24 +281,35 @@ fun MovieDetailContent(
                             onSeasonSelected = onSeasonSelected,
                         )
                     }
-                    if (isLoadingEpisodes) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator()
+                    when {
+                        isLoadingEpisodes -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator()
+                            }
                         }
-                    } else {
-                        EpisodeList(
-                            episodes = episodes,
-                            onEpisodePlayClick = onEpisodePlayClick,
-                            onEpisodeDetailClick = onEpisodeDetailClick,
-                            onEpisodeDownloadClick = onEpisodeDownloadClick,
-                            episodeDownloadState = episodeDownloadState,
-                            highlightContentId = detail.contentId,
-                        )
+                        episodes.isEmpty() -> {
+                            Text(
+                                text = "No episodes available",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DetailTertiaryText,
+                                modifier = Modifier.padding(horizontal = SafePadding),
+                            )
+                        }
+                        else -> {
+                            EpisodeList(
+                                episodes = episodes,
+                                onEpisodePlayClick = onEpisodePlayClick,
+                                onEpisodeDetailClick = onEpisodeDetailClick,
+                                onEpisodeDownloadClick = onEpisodeDownloadClick,
+                                episodeDownloadState = episodeDownloadState,
+                                highlightContentId = detail.contentId,
+                            )
+                        }
                     }
                 }
             }
