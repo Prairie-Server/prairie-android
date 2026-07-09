@@ -330,9 +330,7 @@ fun MovieDetailContent(
 
         item(contentType = "detail-facts") {
             // Header renders inside DetailFactsList, gated on having facts.
-            Column {
-                DetailFactsList(detail = detail)
-            }
+            DetailFactsList(detail = detail)
         }
 
         // Hide the similar rail on episode pages — viewers usually want

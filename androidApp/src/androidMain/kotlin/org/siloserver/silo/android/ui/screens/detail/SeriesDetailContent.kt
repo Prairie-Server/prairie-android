@@ -265,9 +265,7 @@ fun SeriesDetailContent(
 
         item(contentType = "detail-facts") {
             // Header renders inside DetailFactsList, gated on having facts.
-            Column {
-                DetailFactsList(detail = detail)
-            }
+            DetailFactsList(detail = detail)
         }
 
         item(contentType = "detail-similar") {
