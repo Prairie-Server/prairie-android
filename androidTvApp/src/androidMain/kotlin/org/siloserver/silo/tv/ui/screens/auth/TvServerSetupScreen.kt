@@ -138,17 +138,12 @@ fun TvServerSetupScreen(
     }
     LaunchedEffect(isActivePairing) {
         if (!isActivePairing) {
-            // First sign-in (no URL yet): land on the SETUP WITH PHONE card so
-            // the viewer decides between the two paths instead of being
-            // dropped into the URL field. Returning users (URL pre-filled
-            // after a sign-out) keep the field focused.
-            runCatching {
-                if (viewModel.uiState.value.serverUrl.isBlank()) {
-                    phoneSetupFocus.requestFocus()
-                } else {
-                    focusRequester.requestFocus()
-                }
-            }
+            // Always land on the server-address field, matching tvOS
+            // (TVServerSetupView `.defaultFocus(.host)`). The user chooses "Set
+            // up with phone" by navigating to it — we don't pre-select it for
+            // them (Jim TV QA 2026-07-10). Returning users keep the pre-filled
+            // field focused too.
+            runCatching { focusRequester.requestFocus() }
         }
     }
     LaunchedEffect(pairingStatus) {
