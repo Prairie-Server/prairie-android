@@ -93,6 +93,7 @@ import org.siloserver.silo.android.ui.screens.home.FeaturedCarousel
 import org.siloserver.silo.android.ui.screens.home.HomeSectionRow
 import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
 import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
+import org.siloserver.silo.android.ui.util.formatCardDate
 import org.siloserver.silo.android.ui.util.rememberDominantColor
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.catalog.BrowseItem
@@ -834,6 +835,7 @@ private fun BrowseTabContent(
             }
         }
 
+        // Sort chips on their own row.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -849,6 +851,24 @@ private fun BrowseTabContent(
                     colors = libraryChipColors(state.browseSort == sort),
                 )
             }
+        }
+
+        // View-density on its own labelled row so it no longer reads as another
+        // sort option sitting beside the sort chips (Jim QA 2026-07-09). iOS
+        // phone has no density control; its FilterSheet groups it under "View".
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "View",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             CatalogViewDensity.entries.forEach { density ->
                 FilterChip(
                     selected = state.catalogDensity == density,
@@ -894,6 +914,13 @@ private fun BrowseTabContent(
                     hasMore = state.catalogHasMore,
                     onItemClick = onItemClick,
                     onLoadMore = onLoadMore,
+                    // Date sorts surface the sorted-by date under each card
+                    // (mirrors the standalone BrowseScreen), Jim QA 2026-07-09.
+                    cardSubtitle = when (state.browseSort.sortField) {
+                        "added_at" -> { item -> formatCardDate(item.addedAt) }
+                        "release_date" -> { item -> formatCardDate(item.releaseDate) }
+                        else -> null
+                    },
                     selectedNamePrefix = state.selectedNamePrefix,
                     onNamePrefixSelected = onNamePrefixChanged,
                     viewDensity = state.catalogDensity,
