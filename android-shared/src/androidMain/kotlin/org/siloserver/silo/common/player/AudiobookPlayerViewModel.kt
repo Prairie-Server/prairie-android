@@ -3,8 +3,11 @@ package org.siloserver.silo.common.player
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.audiobook.AudioPlaybackTrack
 import org.siloserver.silo.audiobook.AudiobookChapter
 import org.siloserver.silo.audiobook.AudiobookChapters
+import org.siloserver.silo.audiobook.AudiobookTimeline
+import org.siloserver.silo.audiobook.buildAudiobookTimeline
 import org.siloserver.silo.common.audiobook.AudiobookBookmarksStore
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
@@ -33,6 +36,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.random.Random
 
 /**
@@ -143,6 +147,48 @@ class AudiobookPlayerViewModel(
      *  the persisted default; once seeded, in-session speed changes win. */
     private var speedSeeded = false
 
+    // ── Multi-part (whole-book) timeline state ────────────────────────────
+    //
+    // Faithful port of Apple's AudioPlayerViewModel: the server has no concept
+    // of a whole book, so the client stitches the item's audiobook-part files
+    // into one virtual [AudiobookTimeline] and drives playback ONE PART AT A
+    // TIME. The engine (Media3, wired in the Compose layer) always plays a
+    // single part's stream and reports a *part-local* time; this VM converts to
+    // whole-book (global) time for the UI and for durable resume, and reports
+    // part-local time to the per-part playback session.
+    //
+    // Only populated on the ONLINE streaming path. Offline / no-audio-part items
+    // leave it null and behave exactly as the pre-timeline single-file player.
+
+    /** Whole-book timeline for the current item, or null for the single-file
+     *  fallback (offline playback, or an item with no stitched audio parts). */
+    private var timeline: AudiobookTimeline? = null
+
+    /** Index of the part currently loaded in the engine. Null until the first
+     *  part loads or on the single-file fallback. */
+    private var activeTrackIndex: Int? = null
+
+    /** Invalidates an in-flight [loadTrack] when the user seeks again, the book
+     *  advances, or the player closes while `/playback/start` is still on the
+     *  wire (Apple `loadGeneration`). */
+    private var loadGeneration = 0
+
+    /** Serializes book loads so a slower, older [loadDetail] cannot overwrite the
+     *  context of a newer one (Apple `startGeneration`). Kept separate from
+     *  [loadGeneration], which every cross-part [loadTrack] bumps. */
+    private var startGeneration = 0
+
+    /** Set while the player is tearing down so an in-flight cross-part load
+     *  aborts instead of resurrecting a stopped session (Apple `isClosing`). */
+    private var isClosing = false
+
+    /** The part-local start position the engine is being pointed at during a
+     *  cross-part load. While non-null the engine's reported time still belongs
+     *  to the outgoing part for a frame or two (the 4Hz poller is decoupled from
+     *  the stream swap), so position mapping and end-of-part detection are
+     *  suppressed until the newly-loaded stream settles near this value. */
+    private var pendingTrackLoadLocalStart: Double? = null
+
     init {
         observeAudiobookSettings()
         if (contentId.isNotBlank()) {
@@ -175,9 +221,13 @@ class AudiobookPlayerViewModel(
     }
 
     private fun loadDetail() {
+        // Bump the start generation before the item-detail load so a slower,
+        // older load can't overwrite the context of a newer one (Apple parity).
+        val generation = ++startGeneration
         viewModelScope.launch {
             when (val r = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
+                    if (generation != startGeneration) return@launch
                     val d = r.data
                     if (hasRequestedFileId && requestedFileId == null) {
                         _uiState.update {
@@ -233,6 +283,28 @@ class AudiobookPlayerViewModel(
                         requestedFileId = selectedVersion.fileId,
                         allowFallback = !hasRequestedFileId,
                     )
+                    // Stitch the item's audiobook-part files into one whole-book
+                    // timeline (Apple parity). Used for the ONLINE path only; the
+                    // whole-book total stays the exposed [durationSeconds]. Null
+                    // when there are no audio parts — the single-file fallback
+                    // below then behaves exactly as before.
+                    val builtTimeline = buildAudiobookTimeline(
+                        versions = d.versions,
+                        serverTotalSeconds = d.audiobook?.totalDurationSeconds?.toDouble(),
+                    )
+                    val wholeBookDuration = builtTimeline?.totalSeconds
+                        ?: d.audiobook?.totalDurationSeconds?.toDouble()
+                        ?: selectedVersion.duration
+                    // Offline playback streams a single file, so keep that file's
+                    // own chapters; the online whole-book path uses the timeline's
+                    // globally-offset chapters so the slider/chapter math all runs
+                    // in whole-book space.
+                    val displayChapters =
+                        if (offlineMedia == null && builtTimeline != null && !builtTimeline.isSingle) {
+                            builtTimeline.toWholeBookChapters()
+                        } else {
+                            selectedVersion.chapters.orEmpty()
+                        }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -242,9 +314,8 @@ class AudiobookPlayerViewModel(
                             overview = d.overview,
                             coverUrl = d.posterUrl,
                             coverThumbhash = d.posterThumbhash,
-                            durationSeconds = d.audiobook?.totalDurationSeconds?.toDouble()
-                                ?: selectedVersion.duration,
-                            chapters = selectedVersion.chapters.orEmpty(),
+                            durationSeconds = wholeBookDuration,
+                            chapters = displayChapters,
                             selectedFileId = selectedVersion.fileId,
                             streamUrl = offlineMedia?.fileUrl,
                             sessionId = null,
@@ -263,52 +334,34 @@ class AudiobookPlayerViewModel(
                         return@launch
                     }
 
-                    // Audiobooks are audio-only; their sole "video" stream is
-                    // an embedded cover-art still (mjpeg/png/jpeg). The server's
-                    // resolver gates DIRECT play on the client decoding the
-                    // file's video codec, so advertise the still-image codecs
-                    // to keep audiobooks on DIRECT instead of a pointless
-                    // audio-only transcode. Scoped here so real video playback
-                    // (PlayerViewModel) keeps its true decoder list.
-                    val capabilities = capabilityDetector.detect().let { caps ->
-                        caps.copy(
-                            codecsVideo = (caps.codecsVideo + AUDIOBOOK_COVER_ART_CODECS)
-                                .distinct(),
+                    if (generation != startGeneration) return@launch
+
+                    // RESUME (Apple start()): clamp the stored whole-book position
+                    // to [0, total] and load the part that contains it. This
+                    // replaces the old "start part 1 at the book-global position".
+                    // [resolvePlaybackStartPosition] keeps override > detail > 0
+                    // precedence; there is no whole-book server session, so the
+                    // session-position input is 0.
+                    val startGlobal = resolvePlaybackStartPosition(
+                        overridePosition = explicitStartOverride,
+                        sessionPosition = 0.0,
+                        detailPosition = resumePosition,
+                    )
+
+                    if (builtTimeline == null) {
+                        // No stitched audio parts: fall back to the single-file
+                        // session so degenerate items still play.
+                        startSingleFileSession(
+                            fileId = selectedVersion.fileId,
+                            profileId = profileId,
+                            startGlobal = startGlobal,
                         )
+                        return@launch
                     }
-                    when (val playback = playbackSessionManager.startSession(
-                        fileId = selectedVersion.fileId,
-                        profileId = profileId,
-                        capabilities = capabilities,
-                        startPosition = requestStartPosition,
-                    )) {
-                        is ApiResult.Success -> applySession(
-                            session = playback.data,
-                            seekSeconds = resolvePlaybackStartPosition(
-                                overridePosition = explicitStartOverride,
-                                sessionPosition = playback.data.position,
-                                detailPosition = resumePosition,
-                            ),
-                        )
-                        is ApiResult.Error -> _uiState.update {
-                            it.copy(
-                                streamUrl = null,
-                                sessionId = null,
-                                isPlaying = false,
-                                isPaused = true,
-                                error = playback.message.ifBlank { "Audiobook playback failed" },
-                            )
-                        }
-                        is ApiResult.NetworkError -> _uiState.update {
-                            it.copy(
-                                streamUrl = null,
-                                sessionId = null,
-                                isPlaying = false,
-                                isPaused = true,
-                                error = playback.exception.message ?: "Network error",
-                            )
-                        }
-                    }
+
+                    timeline = builtTimeline
+                    activeTrackIndex = null
+                    loadTrack(atGlobalTime = startGlobal, autoplay = true)
                 }
                 is ApiResult.Error -> loadOfflineOnly(error = r.message)
                 is ApiResult.NetworkError -> loadOfflineOnly(error = r.exception.message)
@@ -316,9 +369,201 @@ class AudiobookPlayerViewModel(
         }
     }
 
+    /** Clamp a whole-book time to `[0, total]` (Apple `clampGlobal`). */
+    private fun clampGlobal(value: Double): Double {
+        if (!value.isFinite()) return 0.0
+        return value.coerceIn(0.0, _uiState.value.durationSeconds.coerceAtLeast(0.0))
+    }
+
     /**
-     * Apply a started session to UI state, honoring the server's
-     * `play_method`. Mirrors the video player's
+     * Load the part of the book containing [atGlobalTime] and point the engine
+     * at the file-local offset within it (Apple `loadTrack(at:autoplay:)`).
+     *
+     * When the target lands in the part already loaded, the stream stays put and
+     * we issue a file-local engine seek. Otherwise the current part's session is
+     * retired and a fresh per-part session is started for the new part's file —
+     * a fresh prepare per part is expected (playback is not gapless across parts,
+     * mirroring Apple).
+     *
+     * On the single-file fallback ([timeline] null) callers use [seekTo] /
+     * [startSingleFileSession] instead; this method is a no-op there.
+     */
+    private fun loadTrack(atGlobalTime: Double, autoplay: Boolean) {
+        val tl = timeline ?: return
+        val clamped = clampGlobal(atGlobalTime)
+        val index = tl.trackIndexAt(clamped)
+        val track = tl.tracks.firstOrNull { it.index == index } ?: return
+        val localTime = tl.localTimeFor(clamped, track)
+
+        if (activeTrackIndex == index && _uiState.value.sessionId != null) {
+            // Same part: keep the stream, seek the engine to the file-local
+            // offset. pendingSeek is consumed by the Compose layer as a
+            // controller.seekTo in part-local (stream) space.
+            _uiState.update { it.copy(positionSeconds = clamped) }
+            if (autoplay) _uiState.update { it.copy(isPaused = false) }
+            _pendingSeek.value = localTime
+            return
+        }
+
+        // Cross-part load. Suppress engine-time mapping/end-detection until the
+        // new stream settles near [localTime] (the poller can still report the
+        // outgoing part for a frame), and set the target position now so the UI
+        // doesn't flash the old part's time. activeTrackIndex is updated in
+        // [applyStartedSession] AFTER the outgoing session is retired so the
+        // retire reports the correct (outgoing) part-local position.
+        pendingTrackLoadLocalStart = localTime
+        _uiState.update { it.copy(positionSeconds = clamped) }
+        if (autoplay) _uiState.update { it.copy(isPaused = false) }
+
+        val generation = ++loadGeneration
+        viewModelScope.launch {
+            val profileId = profileRepository.getActiveProfileId()
+            if (profileId == null) {
+                _uiState.update { it.copy(error = "No active profile") }
+                return@launch
+            }
+            retireActiveSession()
+            when (val playback = startPartSession(track.fileId, profileId, localTime)) {
+                is ApiResult.Success -> {
+                    if (generation != loadGeneration || isClosing) {
+                        // Superseded by a newer seek/advance or a close while the
+                        // request was in flight — release the session we no
+                        // longer need (Apple parity).
+                        runCatching { playbackSessionManager.stopSession(playback.data.sessionId) }
+                        return@launch
+                    }
+                    applyStartedSession(
+                        session = playback.data,
+                        localSeek = localTime,
+                        globalPosition = clamped,
+                        trackIndex = index,
+                        fileId = track.fileId,
+                    )
+                }
+                is ApiResult.Error -> {
+                    if (generation != loadGeneration) return@launch
+                    pendingTrackLoadLocalStart = null
+                    _uiState.update {
+                        it.copy(
+                            streamUrl = null,
+                            sessionId = null,
+                            isPlaying = false,
+                            isPaused = true,
+                            error = playback.message.ifBlank { "Audiobook playback failed" },
+                        )
+                    }
+                }
+                is ApiResult.NetworkError -> {
+                    if (generation != loadGeneration) return@launch
+                    pendingTrackLoadLocalStart = null
+                    _uiState.update {
+                        it.copy(
+                            streamUrl = null,
+                            sessionId = null,
+                            isPlaying = false,
+                            isPaused = true,
+                            error = playback.exception.message ?: "Network error",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Single-file fallback for items with no stitched audio parts ([timeline]
+     * null). Preserves the pre-timeline behaviour: one session for the file,
+     * whole-file position == whole-book position.
+     */
+    private suspend fun startSingleFileSession(
+        fileId: Int,
+        profileId: String,
+        startGlobal: Double,
+    ) {
+        when (val playback = startPartSession(fileId, profileId, startGlobal)) {
+            is ApiResult.Success -> applyStartedSession(
+                session = playback.data,
+                localSeek = startGlobal,
+                globalPosition = startGlobal,
+                trackIndex = null,
+                fileId = fileId,
+            )
+            is ApiResult.Error -> _uiState.update {
+                it.copy(
+                    streamUrl = null,
+                    sessionId = null,
+                    isPlaying = false,
+                    isPaused = true,
+                    error = playback.message.ifBlank { "Audiobook playback failed" },
+                )
+            }
+            is ApiResult.NetworkError -> _uiState.update {
+                it.copy(
+                    streamUrl = null,
+                    sessionId = null,
+                    isPlaying = false,
+                    isPaused = true,
+                    error = playback.exception.message ?: "Network error",
+                )
+            }
+        }
+    }
+
+    /**
+     * Start a per-part playback session for [fileId] at the file-local
+     * [startPosition] (Apple `startSession(for:localTime:)`). Audiobooks are
+     * audio-only; their sole "video" stream is an embedded cover-art still
+     * (mjpeg/png/jpeg). The server's resolver gates DIRECT play on the client
+     * decoding the file's video codec, so advertise the still-image codecs to
+     * keep audiobooks on DIRECT instead of a pointless audio-only transcode.
+     * Scoped here so real video playback (PlayerViewModel) keeps its true
+     * decoder list.
+     *
+     * Started with `disableProgressPersistence = true` (Apple sets this on every
+     * per-part session) so the session never persists the part-local position as
+     * the book's position. Whole-book resume is driven separately by routing the
+     * durable sink through the global position (see [savePosition]). Both the
+     * multi-part part-session start and the single-file fallback
+     * ([startSingleFileSession]) flow through here, so no audiobook session ever
+     * persists a part-local position.
+     */
+    private suspend fun startPartSession(
+        fileId: Int,
+        profileId: String,
+        startPosition: Double,
+    ): ApiResult<PlaybackSessionResponse> {
+        val capabilities = capabilityDetector.detect().let { caps ->
+            caps.copy(
+                codecsVideo = (caps.codecsVideo + AUDIOBOOK_COVER_ART_CODECS)
+                    .distinct(),
+            )
+        }
+        return playbackSessionManager.startSession(
+            fileId = fileId,
+            profileId = profileId,
+            capabilities = capabilities,
+            startPosition = startPosition,
+            disableProgressPersistence = true,
+        )
+    }
+
+    /**
+     * Retire the currently-loaded part's session before crossing a part
+     * boundary (Apple `retireActiveSession`): report its final part-local
+     * position, then stop it. Uses [activeTrackIndex] as it stands (still the
+     * outgoing part) to compute the part-local position.
+     */
+    private suspend fun retireActiveSession() {
+        val sessionId = _uiState.value.sessionId ?: return
+        val local = sessionLocalPosition(_uiState.value)
+        _uiState.update { it.copy(sessionId = null) }
+        runCatching { playbackSessionManager.reportProgress(sessionId, local, isPaused = true) }
+        runCatching { playbackSessionManager.stopSession(sessionId) }
+    }
+
+    /**
+     * Apply a started session to UI state, honoring the server's `play_method`.
+     * Mirrors the video player's
      * [org.siloserver.silo.android.ui.screens.player.PlayerViewModel] handling:
      * a DIRECT session streams [PlaybackSessionResponse.streamUrl] as-is, while
      * REMUX / TRANSCODE require an explicit transcode start whose HLS manifest
@@ -327,17 +572,30 @@ class AudiobookPlayerViewModel(
      *
      * Audiobooks have no video resolution, so the transcode resolution is left
      * empty — the server keeps audio-only delivery.
+     *
+     * [localSeek] is the file-local offset the engine seeks to (fed to the
+     * Compose layer via [resumePositionSeconds]); [globalPosition] is the
+     * whole-book position shown in the UI; [trackIndex] becomes [activeTrackIndex]
+     * (null on the single-file fallback).
      */
-    private suspend fun applySession(
+    private suspend fun applyStartedSession(
         session: PlaybackSessionResponse,
-        seekSeconds: Double,
+        localSeek: Double,
+        globalPosition: Double,
+        trackIndex: Int?,
+        fileId: Int,
     ) {
         // Server stream URLs are relative (e.g. /playback/stream/...). The
         // Compose layer hands them straight to Media3, so they must be
         // absolute here or OkHttp fails the open with "Malformed URL".
         val serverUrl = playbackSessionManager.getServerUrl()
-        val resolvedStartPosition = seekSeconds.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
-        _resumePosition.value = resolvedStartPosition.takeIf { it > 0.0 }
+        val resolvedLocalSeek = localSeek.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+        activeTrackIndex = trackIndex
+        // The Compose layer applies resumePositionSeconds as the *stream* start
+        // position, so it is file-local. For a multi-part load, hold engine-time
+        // mapping suppressed until the stream settles near this value.
+        pendingTrackLoadLocalStart = if (trackIndex != null) resolvedLocalSeek else null
+        _resumePosition.value = resolvedLocalSeek.takeIf { it > 0.0 }
         if (session.playMethod == PlayMethod.TRANSCODE || session.playMethod == PlayMethod.REMUX) {
             val mode = if (session.playMethod == PlayMethod.REMUX) {
                 PlaybackSessionManager.TranscodeMode.REMUX
@@ -346,7 +604,7 @@ class AudiobookPlayerViewModel(
             }
             when (val r = playbackSessionManager.startTranscodeFallback(
                 session = session,
-                seekSeconds = resolvedStartPosition,
+                seekSeconds = resolvedLocalSeek,
                 resolution = "",
                 mode = mode,
             )) {
@@ -354,27 +612,34 @@ class AudiobookPlayerViewModel(
                     it.copy(
                         streamUrl = resolvePlaybackStreamUrl(serverUrl, r.data.streamUrl),
                         sessionId = r.data.sessionId,
-                        positionSeconds = resolvedStartPosition,
+                        selectedFileId = fileId,
+                        positionSeconds = globalPosition,
                         error = null,
                     )
                 }
-                is ApiResult.Error -> _uiState.update {
-                    it.copy(
-                        streamUrl = null,
-                        sessionId = null,
-                        isPlaying = false,
-                        isPaused = true,
-                        error = r.message.ifBlank { "Audiobook transcode failed" },
-                    )
+                is ApiResult.Error -> {
+                    pendingTrackLoadLocalStart = null
+                    _uiState.update {
+                        it.copy(
+                            streamUrl = null,
+                            sessionId = null,
+                            isPlaying = false,
+                            isPaused = true,
+                            error = r.message.ifBlank { "Audiobook transcode failed" },
+                        )
+                    }
                 }
-                is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(
-                        streamUrl = null,
-                        sessionId = null,
-                        isPlaying = false,
-                        isPaused = true,
-                        error = r.exception.message ?: "Network error",
-                    )
+                is ApiResult.NetworkError -> {
+                    pendingTrackLoadLocalStart = null
+                    _uiState.update {
+                        it.copy(
+                            streamUrl = null,
+                            sessionId = null,
+                            isPlaying = false,
+                            isPaused = true,
+                            error = r.exception.message ?: "Network error",
+                        )
+                    }
                 }
             }
         } else {
@@ -382,10 +647,31 @@ class AudiobookPlayerViewModel(
                 it.copy(
                     streamUrl = resolvePlaybackStreamUrl(serverUrl, session.streamUrl),
                     sessionId = session.sessionId,
-                    positionSeconds = resolvedStartPosition,
+                    selectedFileId = fileId,
+                    positionSeconds = globalPosition,
                     error = null,
                 )
             }
+        }
+    }
+
+    /**
+     * On the current part ending, cross into the next part (Apple
+     * `advanceAfterTrackEnd`): the next part starts just past the current one's
+     * end; if that maps to a new part still within the book, load it playing,
+     * otherwise it's end-of-book (park at the total, pause, final sync).
+     */
+    private fun advanceAfterTrackEnd(active: AudioPlaybackTrack) {
+        val tl = timeline ?: return
+        val nextStart = active.startOffsetSeconds + active.durationSeconds + TRACK_END_EPSILON
+        val total = _uiState.value.durationSeconds
+        if (tl.trackIndexAt(nextStart) != active.index && nextStart < total) {
+            loadTrack(atGlobalTime = nextStart, autoplay = true)
+        } else {
+            _uiState.update {
+                it.copy(positionSeconds = total, isPaused = true, isPlaying = false)
+            }
+            savePosition()
         }
     }
 
@@ -424,12 +710,49 @@ class AudiobookPlayerViewModel(
         }
     }
 
-    /** Update local position tracker. Driven by Media3 player callback in
-     *  the Compose layer. */
+    /**
+     * Update the position tracker. Driven by the Compose layer's 4Hz poll of the
+     * Media3 controller, whose [seconds] is the *part-local* stream time.
+     *
+     * On the whole-book (multi-part) path this converts to whole-book (global)
+     * time via the active track's offset and drives end-of-part advance; on the
+     * single-file fallback ([timeline]/[activeTrackIndex] absent) part-local ==
+     * whole-book and this is the pre-timeline behaviour.
+     */
     fun onPositionChanged(seconds: Double) {
+        val tl = timeline
+        val active = activeTrackIndex?.let { idx -> tl?.tracks?.firstOrNull { it.index == idx } }
+
+        // During a cross-part load the poller can still report the outgoing
+        // part for a frame or two; ignore engine time until the freshly-loaded
+        // stream settles near the requested file-local start, holding the target
+        // position set by loadTrack.
+        val awaiting = pendingTrackLoadLocalStart
+        if (awaiting != null) {
+            if (abs(seconds - awaiting) <= TRACK_LOAD_SETTLE_TOLERANCE) {
+                pendingTrackLoadLocalStart = null
+            } else {
+                return
+            }
+        }
+
+        val global = if (tl != null && active != null) {
+            tl.globalTimeFor(seconds, active)
+        } else {
+            seconds
+        }
         val previous = _uiState.value.positionSeconds
-        _uiState.update { it.copy(positionSeconds = seconds) }
-        maybeFireSleepBoundary(previous, seconds)
+        _uiState.update { it.copy(positionSeconds = global) }
+        maybeFireSleepBoundary(previous, global)
+
+        // End-of-part: once the engine plays (near) the end of a non-final part,
+        // cross into the next part. Guarded to while actually playing so a pause
+        // parked at the boundary doesn't auto-advance.
+        if (tl != null && active != null && !tl.isSingle && !_uiState.value.isPaused) {
+            if (seconds >= active.durationSeconds - TRACK_END_EPSILON) {
+                advanceAfterTrackEnd(active)
+            }
+        }
     }
 
     /** Reflect Media3's *actual* playing state (false while buffering/seeking).
@@ -457,13 +780,24 @@ class AudiobookPlayerViewModel(
     val pendingSeekToSeconds: StateFlow<Double?> = _pendingSeek.asStateFlow()
 
     fun seekBy(deltaSeconds: Double) {
-        val target = (_uiState.value.positionSeconds + deltaSeconds)
-            .coerceIn(0.0, _uiState.value.durationSeconds.coerceAtLeast(0.0))
-        _pendingSeek.value = target
+        seekTo(_uiState.value.positionSeconds + deltaSeconds)
     }
 
+    /**
+     * Seek in whole-book (global) space. On the multi-part path this may cross a
+     * part boundary — [loadTrack] then retires the current part and loads the
+     * one containing the target (Apple `seek(to:)`); a same-part target is a
+     * file-local engine seek. On the single-file fallback ([timeline] null) it
+     * is the pre-timeline direct seek.
+     */
     fun seekTo(seconds: Double) {
-        _pendingSeek.value = seconds.coerceAtLeast(0.0)
+        val tl = timeline
+        if (tl == null) {
+            _pendingSeek.value = seconds
+                .coerceIn(0.0, _uiState.value.durationSeconds.coerceAtLeast(0.0))
+            return
+        }
+        loadTrack(atGlobalTime = seconds, autoplay = !_uiState.value.isPaused)
     }
 
     fun consumePendingSeek() { _pendingSeek.value = null }
@@ -688,8 +1022,14 @@ class AudiobookPlayerViewModel(
         if (state.durationSeconds <= 0) return  // metadata not loaded yet
         viewModelScope.launch {
             if (state.positionSeconds > 0) {
-                // Durable local projection + content-level outbox op (drained via
-                // syncProgress, furthest-wins). fileId is the playing version.
+                // SINK 2 — whole-book durable resume. Records the WHOLE-BOOK
+                // (global) position against the WHOLE-BOOK total via a durable
+                // local projection + a content-level outbox op drained through
+                // syncProgress (furthest-position-wins). This is what powers
+                // resume + Continue Listening, and is what the multi-part fix
+                // protects: positionSeconds is now global, so a part-local
+                // position is never persisted here as the book's position.
+                // fileId is the currently-playing part.
                 userItemStatePort.recordPosition(
                     contentId = contentId,
                     fileId = state.selectedFileId ?: requestedFileId ?: 0,
@@ -740,6 +1080,10 @@ class AudiobookPlayerViewModel(
     fun flushPosition() = savePosition()
 
     fun stopPlaybackSession() {
+        // Invalidate any in-flight cross-part load so it can't resurrect a
+        // session after we clear state here (Apple close() bumps loadGeneration).
+        loadGeneration++
+        pendingTrackLoadLocalStart = null
         val state = _uiState.value
         val sessionId = state.sessionId
         _uiState.update {
@@ -753,10 +1097,13 @@ class AudiobookPlayerViewModel(
         if (sessionId == null) return
         if (stoppingSessionId == sessionId) return
         stoppingSessionId = sessionId
+        // Capture the part-local session position now, before state is cleared.
+        val sessionLocal = sessionLocalPosition(state)
         viewModelScope.launch {
             try {
                 withContext(NonCancellable + Dispatchers.IO) {
                     if (state.positionSeconds > 0) {
+                        // SINK 2: whole-book global position + whole-book total.
                         userItemStatePort.recordPosition(
                             contentId = contentId,
                             fileId = state.selectedFileId ?: requestedFileId ?: 0,
@@ -764,9 +1111,10 @@ class AudiobookPlayerViewModel(
                             durationSeconds = state.durationSeconds,
                         )
                     }
+                    // SINK 1: part-local position to the retiring session.
                     reportAndStopSession(
                         sessionId = sessionId,
-                        positionSeconds = state.positionSeconds,
+                        positionSeconds = sessionLocal,
                         isPaused = true,
                     )
                     // Inside NonCancellable so a teardown-cancelled viewModelScope
@@ -782,14 +1130,36 @@ class AudiobookPlayerViewModel(
         }
     }
 
+    /**
+     * SINK 1 — per-part playback session. Reports the PART-LOCAL position (the
+     * session streams a single part; admin activity + session keepalive) rather
+     * than the whole-book position. Distinct from [savePosition]'s SINK 2 which
+     * carries the whole-book position for durable resume.
+     */
     private suspend fun reportSessionProgress(state: AudiobookPlayerUiState) {
         val sessionId = state.sessionId ?: return
         runCatching {
             playbackSessionManager.reportProgress(
                 sessionId = sessionId,
-                position = state.positionSeconds,
+                position = sessionLocalPosition(state),
                 isPaused = state.isPaused,
             )
+        }
+    }
+
+    /**
+     * The active part's file-local position for [state]'s whole-book
+     * [AudiobookPlayerUiState.positionSeconds] — what the per-part session must
+     * be reported. On the single-file fallback ([timeline]/[activeTrackIndex]
+     * absent) this is the whole-book position unchanged.
+     */
+    private fun sessionLocalPosition(state: AudiobookPlayerUiState): Double {
+        val tl = timeline
+        val active = activeTrackIndex?.let { idx -> tl?.tracks?.firstOrNull { it.index == idx } }
+        return if (tl != null && active != null) {
+            tl.localTimeFor(state.positionSeconds, active)
+        } else {
+            state.positionSeconds
         }
     }
 
@@ -809,15 +1179,21 @@ class AudiobookPlayerViewModel(
     }
 
     override fun onCleared() {
+        // Invalidate any in-flight cross-part load so it can't resurrect a
+        // session during teardown (Apple close(): isClosing + loadGeneration).
+        isClosing = true
+        loadGeneration++
+        pendingTrackLoadLocalStart = null
         sleepTimerJob?.cancel()
         positionSaveJob?.cancel()
         val state = _uiState.value
         state.sessionId?.let { sessionId ->
             runCatching {
                 runBlocking(Dispatchers.IO) {
+                    // SINK 1: report the retiring session in part-local space.
                     reportAndStopSession(
                         sessionId = sessionId,
-                        positionSeconds = state.positionSeconds,
+                        positionSeconds = sessionLocalPosition(state),
                         isPaused = true,
                     )
                 }
@@ -828,6 +1204,16 @@ class AudiobookPlayerViewModel(
 
     companion object {
         private const val TAG = "AudiobookPlayerViewModel"
+
+        /** Epsilon (seconds) for end-of-part detection and the next-part start
+         *  probe, mirroring Apple's 0.01s in advanceAfterTrackEnd. */
+        private const val TRACK_END_EPSILON = 0.25
+
+        /** Tolerance (seconds) within which the freshly-loaded part's stream is
+         *  considered "settled" at its file-local start, after which engine-time
+         *  mapping resumes. Wide enough to absorb the ~250ms poll cadence and a
+         *  fresh prepare's initial seek. */
+        private const val TRACK_LOAD_SETTLE_TOLERANCE = 3.0
 
         /** Still-image codecs ffprobe reports for embedded audiobook cover
          *  art. Advertised as "video" so the server resolves these audio-only
@@ -881,3 +1267,17 @@ class AudiobookPlayerViewModel(
  *  model that [AudiobookChapters] math operates on. */
 private fun List<VersionChapter>.toAudiobookChapters(): List<AudiobookChapter> =
     map { AudiobookChapter(startSeconds = it.startSeconds, endSeconds = it.endSeconds) }
+
+/** Project the whole-book timeline's globally-offset chapters onto the UI's
+ *  [VersionChapter] shape so the slider / chapter math runs in whole-book
+ *  (global) space for multi-part books. Ordered by start (already sorted by
+ *  [buildAudiobookTimeline]). */
+private fun AudiobookTimeline.toWholeBookChapters(): List<VersionChapter> =
+    chapters.map { chapter ->
+        VersionChapter(
+            index = chapter.index,
+            title = chapter.title.orEmpty(),
+            startSeconds = chapter.startSeconds,
+            endSeconds = chapter.endSeconds ?: chapter.startSeconds,
+        )
+    }

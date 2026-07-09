@@ -61,6 +61,7 @@ class PlaybackSessionLifecycleTest {
                 audioTrackIndex: Int?,
                 qualityPreference: String?,
                 startPosition: Double?,
+                disableProgressPersistence: Boolean,
             ): ApiResult<PlaybackSessionResponse> {
                 startCallCount++
                 return gate.await()
@@ -502,6 +503,7 @@ class PlaybackSessionLifecycleTest {
                 audioTrackIndex: Int?,
                 qualityPreference: String?,
                 startPosition: Double?,
+                disableProgressPersistence: Boolean,
             ): ApiResult<PlaybackSessionResponse> {
                 startCallCount++
                 lastStartPosition = startPosition
@@ -608,6 +610,8 @@ private open class FakeSessionManager : PlaybackSessionManager(
     var lastProgressSessionId: String? = null
     var lastProgressPosition: Double? = null
 
+    var lastDisableProgressPersistence: Boolean? = null
+
     override suspend fun startSession(
         fileId: Int,
         profileId: String,
@@ -615,9 +619,11 @@ private open class FakeSessionManager : PlaybackSessionManager(
         audioTrackIndex: Int?,
         qualityPreference: String?,
         startPosition: Double?,
+        disableProgressPersistence: Boolean,
     ): ApiResult<PlaybackSessionResponse> {
         startCallCount++
         lastStartPosition = startPosition
+        lastDisableProgressPersistence = disableProgressPersistence
         return startResults?.takeIf { it.isNotEmpty() }?.removeFirst() ?: startResult
     }
 
