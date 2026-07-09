@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -32,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,23 +41,14 @@ import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.SubtitleTrack
 
+/**
+ * Full-width box row for one playback track group (Video / Audio /
+ * Subtitles) — the phone counterpart of the TV detail's selector row.
+ * Icon + group label on the left, the current value (ellipsized) and a
+ * chevron on the right; tap opens the matching bottom-sheet picker.
+ */
 @Composable
-fun VersionSelectorButton(
-    version: FileVersion,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    SelectorChip(
-        icon = Icons.Outlined.HighQuality,
-        label = "Version",
-        value = formatVersionMenuLabel(version),
-        onClick = onClick,
-        modifier = modifier,
-    )
-}
-
-@Composable
-private fun SelectorChip(
+fun TrackSelectorRow(
     icon: ImageVector,
     label: String,
     value: String,
@@ -66,11 +57,12 @@ private fun SelectorChip(
 ) {
     Row(
         modifier = modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(DarkSurfaceVariant.copy(alpha = 0.7f))
             .border(1.dp, DarkOutline, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -93,6 +85,8 @@ private fun SelectorChip(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
         )
         Icon(
             imageVector = Icons.Outlined.KeyboardArrowDown,
@@ -109,8 +103,8 @@ private fun SelectorChip(
 @Composable
 fun VersionPickerSheet(
     versions: List<FileVersion>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
+    selectedIndex: Int?,
+    onSelect: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -124,6 +118,22 @@ fun VersionPickerSheet(
             modifier = Modifier.heightIn(max = 400.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
+            item {
+                PickerItem(
+                    title = "Auto",
+                    subtitle = "Best available version",
+                    badges = emptyList(),
+                    isSelected = selectedIndex == null,
+                    onClick = { onSelect(null) },
+                )
+                if (versions.isNotEmpty()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
+
             itemsIndexed(versions) { index, version ->
                 PickerItem(
                     title = formatVersionTitle(version),
@@ -147,8 +157,8 @@ fun VersionPickerSheet(
 @Composable
 fun AudioPickerSheet(
     tracks: List<AudioTrack>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
+    selectedIndex: Int?,
+    onSelect: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -162,6 +172,22 @@ fun AudioPickerSheet(
             modifier = Modifier.heightIn(max = 400.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
+            item {
+                PickerItem(
+                    title = "Auto",
+                    subtitle = "Use the file default track",
+                    badges = emptyList(),
+                    isSelected = selectedIndex == null,
+                    onClick = { onSelect(null) },
+                )
+                if (tracks.isNotEmpty()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
+
             itemsIndexed(tracks) { index, track ->
                 PickerItem(
                     title = formatAudioTitle(track, index),
@@ -185,8 +211,8 @@ fun AudioPickerSheet(
 @Composable
 fun SubtitlePickerSheet(
     tracks: List<SubtitleTrack>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
+    selectedIndex: Int?,
+    onSelect: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -200,6 +226,20 @@ fun SubtitlePickerSheet(
             modifier = Modifier.heightIn(max = 400.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
+            item {
+                PickerItem(
+                    title = "Auto",
+                    subtitle = "Use the file default track",
+                    badges = emptyList(),
+                    isSelected = selectedIndex == null,
+                    onClick = { onSelect(null) },
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+
             // Off option
             item {
                 PickerItem(
@@ -315,6 +355,46 @@ private fun BadgePill(text: String) {
 }
 
 // ── Label formatting ──────────────────────────────────────────
+
+/**
+ * Selector value for the Video row. Auto (no item-level override)
+ * previews what it resolves to — "Auto - 1080p · HEVC" — mirroring the
+ * TV client's `versionValueLabel` (QA 2026-07-08 / Apple parity).
+ */
+fun formatVersionValueLabel(version: FileVersion?, isAuto: Boolean): String {
+    if (version == null) return "Auto"
+    val label = formatVersionMenuLabel(version)
+    return if (isAuto) "Auto - $label" else label
+}
+
+/**
+ * Selector value for the Audio row. [selectedIndex] null = Auto, which
+ * resolves to the file's default track (else the first) and previews it
+ * as "Auto - EAC3 5.1".
+ */
+fun formatAudioValueLabel(tracks: List<AudioTrack>, selectedIndex: Int?): String {
+    if (tracks.isEmpty()) return "Unknown"
+    val resolved = selectedIndex?.takeIf { it in tracks.indices }
+        ?: tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 }
+        ?: 0
+    val title = formatAudioLabel(tracks[resolved])
+    return if (selectedIndex == null) "Auto - $title" else title
+}
+
+/**
+ * Selector value for the Subtitles row. [selectedIndex] null = Auto
+ * (previews the file's default track or "None"), -1 = Off.
+ */
+fun formatSubtitleValueLabel(tracks: List<SubtitleTrack>, selectedIndex: Int?): String {
+    if (selectedIndex == null) {
+        val defaultIndex = tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 }
+        val resolved = defaultIndex?.let { formatSubtitleLabel(tracks[it]) } ?: "None"
+        return "Auto - $resolved"
+    }
+    if (selectedIndex == -1) return "Off"
+    val track = tracks.getOrNull(selectedIndex) ?: return "Auto - None"
+    return formatSubtitleLabel(track)
+}
 
 fun formatVersionMenuLabel(version: FileVersion): String {
     val parts = mutableListOf<String>()

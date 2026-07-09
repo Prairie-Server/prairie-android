@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -53,8 +55,9 @@ fun MovieDetailContent(
     isFavorite: Boolean,
     isInWatchlist: Boolean,
     selectedVersionIndex: Int,
-    selectedAudioIndex: Int,
-    selectedSubtitleIndex: Int,
+    isAutoVersion: Boolean,
+    selectedAudioIndex: Int?,
+    selectedSubtitleIndex: Int?,
     onPlayClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
@@ -62,9 +65,9 @@ fun MovieDetailContent(
     userRating: Int? = null,
     onSetRating: (Int) -> Unit = {},
     onClearRating: () -> Unit = {},
-    onVersionSelected: (Int) -> Unit,
-    onAudioSelected: (Int) -> Unit,
-    onSubtitleSelected: (Int) -> Unit,
+    onVersionSelected: (Int?) -> Unit,
+    onAudioSelected: (Int?) -> Unit,
+    onSubtitleSelected: (Int?) -> Unit,
     onPersonClick: (String) -> Unit,
     onItemDetailClick: (String) -> Unit,
     onSeriesClick: (() -> Unit)? = null,
@@ -88,10 +91,8 @@ fun MovieDetailContent(
     val selectedVersion = detail.versions.getOrNull(selectedVersionIndex)
     val audioTracks = selectedVersion?.audioTracks.orEmpty()
     val subtitleTracks = selectedVersion?.subtitleTracks.orEmpty()
-    val hasMultipleVersions = detail.versions.size > 1
-    val hasAudioOptions = audioTracks.size > 1
-    val hasSubtitleOptions = subtitleTracks.isNotEmpty()
-    val hasOverflow = hasAudioOptions || hasSubtitleOptions || onPlayOnDevice != null ||
+    val hasTrackSelectors = detail.versions.isNotEmpty()
+    val hasOverflow = onPlayOnDevice != null ||
         onSeriesClick != null || onSeasonClick != null || onWatchTogether != null
 
     val eyebrow = if (detail.type == "episode") {
@@ -101,12 +102,6 @@ fun MovieDetailContent(
     }
     val sourceTokens = HeroMetadata.movieSourceTokens(detail)
     val factsLine = HeroMetadata.movieFactsLine(detail)
-
-    val versionLabel = if (hasMultipleVersions && selectedVersion != null) {
-        formatVersionMenuLabel(selectedVersion)
-    } else {
-        null
-    }
 
     // iOS below-fold section spacing is 36 (hero→first section 32). Use 36
     // uniformly — the closest single-value match to the iOS column rhythm.
@@ -137,44 +132,8 @@ fun MovieDetailContent(
                     onToggleWatched = onToggleWatched,
                     userRating = userRating,
                     onRateClick = { showRatingSheet = true },
-                    versionLabel = versionLabel,
-                    onVersionClick = if (hasMultipleVersions) {
-                        { showVersionPicker = true }
-                    } else {
-                        null
-                    },
                     overflow = if (hasOverflow) {
                         { dismiss ->
-                            if (hasAudioOptions) {
-                                DropdownMenuItem(
-                                    text = { Text("Audio") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.AudioFile, contentDescription = null)
-                                    },
-                                    trailingIcon = {
-                                        Text(formatAudioLabel(audioTracks.getOrNull(selectedAudioIndex)))
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        showAudioPicker = true
-                                    },
-                                )
-                            }
-                            if (hasSubtitleOptions) {
-                                DropdownMenuItem(
-                                    text = { Text("Subtitles") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.ClosedCaption, contentDescription = null)
-                                    },
-                                    trailingIcon = {
-                                        Text(formatSubtitleLabel(subtitleTracks.getOrNull(selectedSubtitleIndex)))
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        showSubtitlePicker = true
-                                    },
-                                )
-                            }
                             if (onPlayOnDevice != null) {
                                 DropdownMenuItem(
                                     text = { Text(playOnDeviceLabel) },
@@ -233,6 +192,35 @@ fun MovieDetailContent(
                         null
                     },
                 )
+                // Box-style track group list (Video / Audio / Subtitles) —
+                // TV & Apple parity; Auto rows preview the resolved track.
+                if (hasTrackSelectors) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TrackSelectorRow(
+                            icon = Icons.Outlined.HighQuality,
+                            label = "Video",
+                            value = formatVersionValueLabel(selectedVersion, isAutoVersion),
+                            onClick = { showVersionPicker = true },
+                        )
+                        if (audioTracks.isNotEmpty()) {
+                            TrackSelectorRow(
+                                icon = Icons.Outlined.AudioFile,
+                                label = "Audio",
+                                value = formatAudioValueLabel(audioTracks, selectedAudioIndex),
+                                onClick = { showAudioPicker = true },
+                            )
+                        }
+                        TrackSelectorRow(
+                            icon = Icons.Outlined.ClosedCaption,
+                            label = "Subtitles",
+                            value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
+                            onClick = { showSubtitlePicker = true },
+                        )
+                    }
+                }
             }
         }
 
@@ -275,7 +263,7 @@ fun MovieDetailContent(
     if (showVersionPicker) {
         VersionPickerSheet(
             versions = detail.versions,
-            selectedIndex = selectedVersionIndex,
+            selectedIndex = selectedVersionIndex.takeUnless { isAutoVersion },
             onSelect = { index ->
                 onVersionSelected(index)
                 showVersionPicker = false
@@ -284,7 +272,7 @@ fun MovieDetailContent(
         )
     }
 
-    if (showAudioPicker && hasAudioOptions) {
+    if (showAudioPicker && audioTracks.isNotEmpty()) {
         AudioPickerSheet(
             tracks = audioTracks,
             selectedIndex = selectedAudioIndex,
@@ -296,7 +284,7 @@ fun MovieDetailContent(
         )
     }
 
-    if (showSubtitlePicker && hasSubtitleOptions) {
+    if (showSubtitlePicker) {
         SubtitlePickerSheet(
             tracks = subtitleTracks,
             selectedIndex = selectedSubtitleIndex,

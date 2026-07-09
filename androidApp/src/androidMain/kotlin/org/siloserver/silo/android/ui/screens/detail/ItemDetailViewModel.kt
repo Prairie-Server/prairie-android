@@ -576,6 +576,21 @@ class ItemDetailViewModel(
         }
     }
 
+    /** Back to Auto — clears the version override and, like [selectVersion],
+     *  the file-specific audio/subtitle overrides with it. */
+    fun selectAutoVersion() {
+        _uiState.update {
+            it.copy(
+                selectedVersionIndex = 0,
+                selectedAudioIndex = 0,
+                selectedSubtitleIndex = -1,
+                hasExplicitVersionSelection = false,
+                hasExplicitAudioSelection = false,
+                hasExplicitSubtitleSelection = false,
+            )
+        }
+    }
+
     fun selectAudioTrack(index: Int) {
         _uiState.update {
             it.copy(
@@ -585,11 +600,31 @@ class ItemDetailViewModel(
         }
     }
 
+    /** Back to Auto — playback falls through to the file's default track. */
+    fun selectAutoAudioTrack() {
+        _uiState.update {
+            it.copy(
+                selectedAudioIndex = 0,
+                hasExplicitAudioSelection = false,
+            )
+        }
+    }
+
     fun selectSubtitle(index: Int) {
         _uiState.update {
             it.copy(
                 selectedSubtitleIndex = index,
                 hasExplicitSubtitleSelection = true,
+            )
+        }
+    }
+
+    /** Back to Auto — distinct from an explicit -1 ("Off") selection. */
+    fun selectAutoSubtitle() {
+        _uiState.update {
+            it.copy(
+                selectedSubtitleIndex = -1,
+                hasExplicitSubtitleSelection = false,
             )
         }
     }

@@ -581,8 +581,9 @@ fun ItemDetailScreen(
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
                             selectedVersionIndex = effectiveSelectedVersionIndex,
-                            selectedAudioIndex = state.selectedAudioIndex,
-                            selectedSubtitleIndex = state.selectedSubtitleIndex,
+                            isAutoVersion = !state.hasExplicitVersionSelection,
+                            selectedAudioIndex = explicitAudioIndex,
+                            selectedSubtitleIndex = explicitSubtitleIndex,
                             onPlayClick = {
                                 onPlayClick(
                                     detail.contentId,
@@ -598,9 +599,15 @@ fun ItemDetailScreen(
                             userRating = state.userRating,
                             onSetRating = { viewModel.setRating(it) },
                             onClearRating = { viewModel.clearRating() },
-                            onVersionSelected = { viewModel.selectVersion(it) },
-                            onAudioSelected = { viewModel.selectAudioTrack(it) },
-                            onSubtitleSelected = { viewModel.selectSubtitle(it) },
+                            onVersionSelected = { index ->
+                                if (index != null) viewModel.selectVersion(index) else viewModel.selectAutoVersion()
+                            },
+                            onAudioSelected = { index ->
+                                if (index != null) viewModel.selectAudioTrack(index) else viewModel.selectAutoAudioTrack()
+                            },
+                            onSubtitleSelected = { index ->
+                                if (index != null) viewModel.selectSubtitle(index) else viewModel.selectAutoSubtitle()
+                            },
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
                             onSeriesClick = seriesId?.let { resolvedSeriesId ->
