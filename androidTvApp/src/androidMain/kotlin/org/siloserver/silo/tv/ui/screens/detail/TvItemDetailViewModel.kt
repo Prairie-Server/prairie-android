@@ -6,10 +6,16 @@ import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.catalog.CastMember
 import org.siloserver.silo.model.catalog.EpisodeListItem
+import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.catalog.sortedForDisplay
+import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
+import org.siloserver.silo.playback.audioTrackFingerprint
+import org.siloserver.silo.playback.resolveAudioTrackOrdinal
+import org.siloserver.silo.playback.resolveSubtitleTrackOrdinal
+import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.model.section.SectionItem
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
@@ -239,6 +245,8 @@ class TvItemDetailViewModel(
                             error = null,
                         )
                     }
+                    // Restore a durably-persisted audio/subtitle override (TM4).
+                    seedPersistedTrackSelection(detail)
                     when (detail.type.lowercase()) {
                         "series" -> loadSeasons(seriesContentId = detail.contentId)
                         "season",
@@ -420,6 +428,11 @@ class TvItemDetailViewModel(
             it.copy(selectedFileId = fileId, selectedAudioIndex = null, selectedSubtitleIndex = null)
         }
         TvDetailTrackSelectionSession.remember(contentId, fileId, audio = null, subtitle = null)
+        // Do NOT persist here: a version switch resets the indexes to null, and
+        // persisting null clears the durable row — which would wipe the newly
+        // selected file's saved override before seedPersistedTrackSelection can
+        // restore it. Only explicit audio/subtitle picks persist.
+        _uiState.value.detail?.let(::seedPersistedTrackSelection)
     }
 
     /** Pre-select an audio track for the next Play (index into the version's audioTracks). */
@@ -427,6 +440,7 @@ class TvItemDetailViewModel(
         _uiState.update { it.copy(selectedAudioIndex = index) }
         val state = _uiState.value
         TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, index, state.selectedSubtitleIndex)
+        persistTrackSelection()
     }
 
     /** Pre-select a subtitle track for the next Play (-1 = Off, null = auto). */
@@ -434,6 +448,71 @@ class TvItemDetailViewModel(
         _uiState.update { it.copy(selectedSubtitleIndex = index) }
         val state = _uiState.value
         TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, state.selectedAudioIndex, index)
+        persistTrackSelection()
+    }
+
+    /** The version behind [TvItemDetailUiState.selectedFileId], or the default
+     *  (first) version when nothing is explicitly selected. */
+    private fun selectedVersionFor(state: TvItemDetailUiState, detail: ItemDetail): FileVersion? {
+        val fileId = state.selectedFileId
+        return if (fileId != null) detail.versions.firstOrNull { it.fileId == fileId }
+        else detail.versions.firstOrNull()
+    }
+
+    /**
+     * Durably persist the current audio/subtitle override for the selected
+     * version's file, so it survives leaving/re-opening the page AND the process
+     * (the in-memory [TvDetailTrackSelectionSession] only covers this process).
+     * Mirrors the phone I7 fix and tvOS TrackSelectionPersistence: record the
+     * catalog track's fingerprint against the shared UserItemStatePort keyed on
+     * (contentId, fileId); Auto (null) clears, explicit Off writes the off
+     * sentinel.
+     */
+    private fun persistTrackSelection() {
+        val state = _uiState.value
+        val detail = state.detail ?: return
+        val version = selectedVersionFor(state, detail) ?: return
+        val subtitleFingerprint = when (val idx = state.selectedSubtitleIndex) {
+            null -> null
+            -1 -> SUBTITLE_OFF_FINGERPRINT
+            else -> version.subtitleTracks.orEmpty().getOrNull(idx)?.let(::subtitleTrackFingerprint)
+        }
+        val audioFingerprint = when (val idx = state.selectedAudioIndex) {
+            null -> null
+            else -> version.audioTracks.orEmpty().getOrNull(idx)?.let(::audioTrackFingerprint)
+        }
+        viewModelScope.launch {
+            userItemState.recordSubtitleTrackSelection(contentId, version.fileId, subtitleFingerprint)
+            userItemState.recordAudioTrackSelection(contentId, version.fileId, audioFingerprint)
+        }
+    }
+
+    /**
+     * Seed the audio/subtitle selection from a previously persisted override for
+     * the selected version's file. Skips when a selection is already set (the
+     * in-memory session recall or the current pick wins), and only applies a
+     * dimension when a saved fingerprint matches a current track.
+     */
+    private fun seedPersistedTrackSelection(detail: ItemDetail) {
+        val state = _uiState.value
+        if (state.selectedSubtitleIndex != null || state.selectedAudioIndex != null) return
+        val version = selectedVersionFor(state, detail) ?: return
+        viewModelScope.launch {
+            val saved = userItemState.localTrackSelection(contentId, version.fileId) ?: return@launch
+            val subOrdinal = resolveSubtitleTrackOrdinal(version.subtitleTracks.orEmpty(), saved.subtitleFingerprint)
+            val audOrdinal = resolveAudioTrackOrdinal(version.audioTracks.orEmpty(), saved.audioFingerprint)
+            if (subOrdinal == null && audOrdinal == null) return@launch
+            _uiState.update {
+                // The ordinals were resolved against `version`; if the user
+                // switched versions while this suspended, they'd index into the
+                // wrong track list — leave the new version untouched.
+                if (selectedVersionFor(it, detail)?.fileId != version.fileId) return@update it
+                it.copy(
+                    selectedSubtitleIndex = it.selectedSubtitleIndex ?: subOrdinal,
+                    selectedAudioIndex = it.selectedAudioIndex ?: audOrdinal,
+                )
+            }
+        }
     }
 
     fun onSeasonSelected(seasonNumber: Int) {

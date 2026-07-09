@@ -66,8 +66,6 @@ import org.koin.compose.viewmodel.koinViewModel
 fun RecommendationsScreen(
     onItemClick: (String) -> Unit,
     contentTopPadding: Dp = 0.dp,
-    onWatchlistClick: () -> Unit = {},
-    onFavoritesClick: () -> Unit = {},
     viewModel: RecommendationsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -178,41 +176,64 @@ fun RecommendationsScreen(
         }
 
         else -> {
-            PullToRefreshBox(
-                isRefreshing = state.isRefreshing,
-                onRefresh = { viewModel.refresh() },
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    // Keep room for the floating bottom nav while preserving iOS
-                    // section rhythm inside the list.
-                    contentPadding = PaddingValues(bottom = 96.dp),
-                    // iOS sectionSpacing (phone) = largePadding (24).
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
-                ) {
-                    item {
-                        Spacer(modifier = Modifier.height(contentTopPadding + 8.dp))
-                    }
-
-                    // iOS renders the SavedShortcutsRow above the sections at all
-                    // times (it is not gated on having recommendations).
-                    item {
-                        SavedShortcutsRow(
-                            onWatchlistClick = onWatchlistClick,
-                            onFavoritesClick = onFavoritesClick,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
-                    }
-
-                    items(
-                        items = state.sections,
-                        key = { it.id },
-                    ) { section ->
-                        HomeSectionRow(
-                            section = section,
-                            onItemClick = onItemClick,
-                        )
+            // Watchlist / Favorites toggle IN PLACE over the recommendations feed
+            // instead of navigating to a separate page (Jim 2026-07-09 — a
+            // deliberate divergence from iOS, which navigates when recs exist).
+            // The pill row is pinned above the content so it is always reachable;
+            // null selection shows the recommendation sections, and re-tapping the
+            // active pill returns to them.
+            var savedListSelection by rememberSaveable { mutableStateOf<SavedList?>(null) }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Spacer(modifier = Modifier.height(contentTopPadding + 8.dp))
+                SavedShortcutsRow(
+                    onWatchlistClick = {
+                        savedListSelection =
+                            if (savedListSelection == SavedList.Watchlist) null else SavedList.Watchlist
+                    },
+                    onFavoritesClick = {
+                        savedListSelection =
+                            if (savedListSelection == SavedList.Favorites) null else SavedList.Favorites
+                    },
+                    selection = savedListSelection,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                when (savedListSelection) {
+                    SavedList.Watchlist -> WatchlistGridContent(
+                        onItemClick = onItemClick,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 96.dp),
+                    )
+                    SavedList.Favorites -> FavoritesGridContent(
+                        onItemClick = onItemClick,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 96.dp),
+                    )
+                    null -> PullToRefreshBox(
+                        isRefreshing = state.isRefreshing,
+                        onRefresh = { viewModel.refresh() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            // Keep room for the floating bottom nav while preserving
+                            // iOS section rhythm inside the list.
+                            contentPadding = PaddingValues(bottom = 96.dp),
+                            // iOS sectionSpacing (phone) = largePadding (24).
+                            verticalArrangement = Arrangement.spacedBy(24.dp),
+                        ) {
+                            items(
+                                items = state.sections,
+                                key = { it.id },
+                            ) { section ->
+                                HomeSectionRow(
+                                    section = section,
+                                    onItemClick = onItemClick,
+                                )
+                            }
+                        }
                     }
                 }
             }

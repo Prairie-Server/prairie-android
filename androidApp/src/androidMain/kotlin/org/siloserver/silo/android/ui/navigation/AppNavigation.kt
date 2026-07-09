@@ -151,7 +151,13 @@ fun AppNavigation(
     // (a poster card, the detail hero) can opt in without threading it through
     // every composable signature in between.
     SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-    CompositionLocalProvider(LocalSharedTransitionScope provides this) {
+    // One hand-off shared by every poster source and the detail hero target, so
+    // the tapped card's unique key reaches the backdrop (iOS pendingZoomSourceID).
+    val heroSourceHandoff = remember { HeroSourceHandoff() }
+    CompositionLocalProvider(
+        LocalSharedTransitionScope provides this,
+        LocalHeroSourceHandoff provides heroSourceHandoff,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,

@@ -858,7 +858,10 @@ private fun HudVideoPane(
                     )
                 }
 
-                val hasQualityChoice = videoQualities.size > 2
+                // The server-transcode quality ladder always offers at least
+                // Auto + Original (plus downscale rungs below the source), so the
+                // row is enabled whenever there is more than one option.
+                val hasQualityChoice = videoQualities.size > 1
                 val selectedQuality = videoQualities.firstOrNull { it.isSelected }
                 val qualityValue = selectedQuality?.label ?: "Auto"
                 HudFocusedSettingRow(

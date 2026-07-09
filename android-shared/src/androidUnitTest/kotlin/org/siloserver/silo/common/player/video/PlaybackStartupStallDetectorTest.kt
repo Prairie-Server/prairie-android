@@ -4,6 +4,7 @@ import org.siloserver.silo.common.player.Playability
 import org.siloserver.silo.model.playback.PlayMethod
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class PlaybackStartupStallDetectorTest {
@@ -80,7 +81,9 @@ class PlaybackStartupStallDetectorTest {
     }
 
     @Test
-    fun nonDirectOrPausedStartupDoesNotTriggerFallback() {
+    fun nonDirectRouteStartupTriggersFallback() {
+        // Non-DIRECT routes (remux/transcode/HLS) that wedge at startup now
+        // trigger the fallback too (TV QA 2026-07-10: remuxes buffered forever).
         val detector = PlaybackStartupStallDetector(startupGraceMs = 10_000)
         detector.onMounted(
             sessionKey = "session-1",
@@ -89,7 +92,7 @@ class PlaybackStartupStallDetectorTest {
             nowMs = 0,
         )
 
-        assertNull(
+        assertNotNull(
             detector.sample(
                 sessionKey = "session-1",
                 nowMs = 20_000,
@@ -100,7 +103,12 @@ class PlaybackStartupStallDetectorTest {
                 bufferedPositionMs = 0,
             ),
         )
+    }
 
+    @Test
+    fun pausedStartupDoesNotTriggerFallback() {
+        // playWhenReady=false (user paused) never triggers, even past the grace.
+        val detector = PlaybackStartupStallDetector(startupGraceMs = 10_000)
         detector.onMounted(
             sessionKey = "session-2",
             playMethod = PlayMethod.DIRECT,
@@ -117,6 +125,58 @@ class PlaybackStartupStallDetectorTest {
                 isBuffering = true,
                 currentPositionMs = 0,
                 bufferedPositionMs = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun midStreamFreezeTriggersFallbackAfterStarted() {
+        // Playback starts and advances, then the position freezes while
+        // buffering → fires after the mid-stream grace, not before.
+        val detector = PlaybackStartupStallDetector(
+            startupGraceMs = 10_000,
+            midStreamGraceMs = 10_000,
+        )
+        detector.onMounted(
+            sessionKey = "session-3",
+            playMethod = PlayMethod.DIRECT,
+            startPositionMs = 0,
+            nowMs = 0,
+        )
+        // Progress: playing, position advanced — latches started + re-anchors.
+        assertNull(
+            detector.sample(
+                sessionKey = "session-3",
+                nowMs = 1_000,
+                playWhenReady = true,
+                isPlaying = true,
+                isBuffering = false,
+                currentPositionMs = 2_000,
+                bufferedPositionMs = 5_000,
+            ),
+        )
+        // Frozen (buffering, no progress) but still within the grace.
+        assertNull(
+            detector.sample(
+                sessionKey = "session-3",
+                nowMs = 5_000,
+                playWhenReady = true,
+                isPlaying = false,
+                isBuffering = true,
+                currentPositionMs = 2_000,
+                bufferedPositionMs = 2_000,
+            ),
+        )
+        // Still frozen past the mid-stream grace → fires.
+        assertNotNull(
+            detector.sample(
+                sessionKey = "session-3",
+                nowMs = 15_000,
+                playWhenReady = true,
+                isPlaying = false,
+                isBuffering = true,
+                currentPositionMs = 2_000,
+                bufferedPositionMs = 2_000,
             ),
         )
     }

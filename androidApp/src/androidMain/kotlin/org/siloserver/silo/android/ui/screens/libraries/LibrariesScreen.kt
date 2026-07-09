@@ -86,13 +86,28 @@ import org.siloserver.silo.android.ui.components.MediaGridDefaults
 import org.siloserver.silo.android.ui.components.MediaRowsSkeleton
 import org.siloserver.silo.android.ui.components.PosterGridSkeleton
 import org.siloserver.silo.android.ui.components.rememberShimmerProgress
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.IconButton
+import org.siloserver.silo.android.ui.screens.browse.BrowsePrefsStore
 import org.siloserver.silo.android.ui.screens.browse.CatalogGrid
 import org.siloserver.silo.android.ui.screens.browse.CatalogViewDensity
+import org.siloserver.silo.android.ui.screens.browse.FilterSheet
+import org.siloserver.silo.android.ui.screens.browse.facetValueLabel
 import org.siloserver.silo.android.ui.screens.browse.normalizeCatalogNamePrefix
+import org.siloserver.silo.catalog.filter.BrowseFacetMediaType
+import org.siloserver.silo.catalog.filter.CatalogFacet
+import org.siloserver.silo.catalog.filter.CatalogFilterQueryBuilder
+import org.siloserver.silo.catalog.filter.CatalogFilterState
+import org.siloserver.silo.model.catalog.CatalogFiltersResponse
+import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.android.ui.screens.home.FeaturedCarousel
 import org.siloserver.silo.android.ui.screens.home.HomeSectionRow
 import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
 import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
+import org.siloserver.silo.android.ui.util.formatCardDate
 import org.siloserver.silo.android.ui.util.rememberDominantColor
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.catalog.BrowseItem
@@ -143,8 +158,14 @@ data class LibrariesUiState(
     val catalogItems: List<BrowseItem> = emptyList(),
     val catalogTotal: Int = 0,
     val catalogHasMore: Boolean = false,
-    val browseGenres: List<String> = emptyList(),
-    val selectedBrowseGenre: String? = null,
+    // Full filter model shared with the standalone Browse screen: facets
+    // (genre/decade/rating/studio/language/series/...), match-all/any, and the
+    // available-filter vocabulary from the server. Genre is a Categories facet
+    // here — no more inline genre chip rail (L3).
+    val filterState: CatalogFilterState = CatalogFilterState(),
+    val availableFilters: CatalogFiltersResponse? = null,
+    val browseMediaType: BrowseFacetMediaType = BrowseFacetMediaType.Video,
+    val preserveFilters: Boolean = true,
     val selectedNamePrefix: String? = null,
     val catalogDensity: CatalogViewDensity = CatalogViewDensity.Normal,
     val browseSort: LibraryBrowseSort = LibraryBrowseSort.RecentlyAdded,
@@ -162,6 +183,7 @@ class LibrariesViewModel(
     private val userItemState: org.siloserver.silo.repository.port.UserItemStatePort =
         org.siloserver.silo.repository.port.NoOpUserItemStatePort,
     private val playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore? = null,
+    private val browsePrefs: BrowsePrefsStore? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(LibrariesUiState())
     val uiState: StateFlow<LibrariesUiState> = _uiState.asStateFlow()
@@ -206,9 +228,18 @@ class LibrariesViewModel(
                     val libraries = result.data
                         .filterNot(::isHiddenAudiobookLibrary)
                         .sortedBy { library -> library.sortOrder }
-                    val selectedLibraryId = _uiState.value.selectedLibraryId
+                    val previousLibraryId = _uiState.value.selectedLibraryId
+                    val selectedLibraryId = previousLibraryId
                         ?.takeIf { currentId -> libraries.any { it.id == currentId } }
                         ?: libraries.firstOrNull()?.id
+                    // When this resolves to a *new* library (first load, or the
+                    // prior one vanished), restore its saved browse filter +
+                    // preserve state — same as selectLibrary — so opening Browse
+                    // on the default library isn't an unfiltered grid for a
+                    // profile with saved filters. An unchanged selection keeps
+                    // whatever filters are already active.
+                    val restoreBrowsePrefs =
+                        selectedLibraryId != null && selectedLibraryId != previousLibraryId
 
                     _uiState.update {
                         it.copy(
@@ -216,6 +247,12 @@ class LibrariesViewModel(
                             libraries = libraries,
                             selectedLibraryId = selectedLibraryId,
                             librariesError = null,
+                            filterState = if (restoreBrowsePrefs)
+                                (browsePrefs?.savedState(selectedLibraryId) ?: CatalogFilterState())
+                            else it.filterState,
+                            preserveFilters = if (restoreBrowsePrefs)
+                                (browsePrefs?.preserveEnabled(selectedLibraryId) ?: true)
+                            else it.preserveFilters,
                         )
                     }
 
@@ -260,8 +297,12 @@ class LibrariesViewModel(
                 catalogItems = emptyList(),
                 catalogTotal = 0,
                 catalogHasMore = false,
-                browseGenres = emptyList(),
-                selectedBrowseGenre = null,
+                // Restore this library's persisted filter/preserve state (iOS
+                // parity) so a preserved selection doesn't flash the unfiltered
+                // grid; default to a clean filter when nothing is saved.
+                filterState = browsePrefs?.savedState(libraryId) ?: CatalogFilterState(),
+                availableFilters = null,
+                preserveFilters = browsePrefs?.preserveEnabled(libraryId) ?: true,
                 selectedNamePrefix = null,
                 catalogError = null,
                 collections = emptyList(),
@@ -277,16 +318,27 @@ class LibrariesViewModel(
         _uiState.value.selectedLibraryId?.let { loadCurrentTab(it, force = false) }
     }
 
-    fun selectBrowseGenre(genre: String?) {
+    /** Apply a new facet/match filter selection, persist it (when preserve is
+     *  on), and reload the catalog. Mirrors BrowseViewModel.applyFilterState. */
+    fun applyFilterState(state: CatalogFilterState) {
+        if (state == _uiState.value.filterState) return
         _uiState.update {
             it.copy(
-                selectedBrowseGenre = genre,
+                filterState = state,
                 catalogItems = emptyList(),
                 catalogTotal = 0,
                 catalogHasMore = false,
             )
         }
+        browsePrefs?.saveState(_uiState.value.selectedLibraryId, state)
         _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
+    }
+
+    fun setPreserveFilters(enabled: Boolean) {
+        val libraryId = _uiState.value.selectedLibraryId
+        browsePrefs?.setPreserveEnabled(libraryId, enabled)
+        _uiState.update { it.copy(preserveFilters = enabled) }
+        if (enabled) browsePrefs?.saveState(libraryId, _uiState.value.filterState)
     }
 
     fun selectBrowseSort(sort: LibraryBrowseSort) {
@@ -397,11 +449,14 @@ class LibrariesViewModel(
             val state = _uiState.value
             val offset = if (reset) 0 else state.catalogItems.size
 
-            if (reset && state.browseGenres.isEmpty()) {
+            if (reset && state.availableFilters == null) {
                 launch {
-                    when (val filters = catalogRepository.getFilters(libraryId)) {
+                    // includeTechnical: resolution + audio/subtitle-language facets
+                    // are only fetched on request (iOS parity). Keep the FULL
+                    // response so the filter sheet has every facet, not just genres.
+                    when (val filters = catalogRepository.getFilters(libraryId, includeTechnical = true)) {
                         is ApiResult.Success -> {
-                            _uiState.update { it.copy(browseGenres = filters.data.genres) }
+                            _uiState.update { it.copy(availableFilters = filters.data) }
                         }
                         else -> Unit
                     }
@@ -426,17 +481,30 @@ class LibrariesViewModel(
             when (
                 val result = catalogRepository.browse(
                     libraryId = libraryId,
-                    genre = state.selectedBrowseGenre,
                     sort = state.browseSort.sortField,
                     order = state.browseSort.sortOrder,
                     offset = offset,
                     limit = pageSize,
                     namePrefix = state.selectedNamePrefix,
+                    // Full facet filtering (genre/decade/rating/studio/language/...)
+                    // via the shared query builder — replaces the single-genre param.
+                    queryGroups = CatalogFilterQueryBuilder.buildGroups(state.filterState),
+                    match = CatalogFilterQueryBuilder.matchParam(state.filterState)
+                        .takeIf { state.filterState.hasActiveFilters },
                 )
             ) {
                 is ApiResult.Success -> {
                     // Overlay local optimistic watched/favorite (mirrors Home/Browse).
                     val overlaid = overlayLocalState(result.data.items)
+                    // Audiobook libraries expose book-native facets
+                    // (author/narrator/series) — detected from the first item.
+                    val detectedMediaType = overlaid.firstOrNull()?.let { first ->
+                        if (isAudiobookItemType(first.type)) {
+                            BrowseFacetMediaType.Audiobook
+                        } else {
+                            BrowseFacetMediaType.Video
+                        }
+                    }
                     _uiState.update {
                         it.copy(
                             isLoadingCatalog = false,
@@ -444,6 +512,7 @@ class LibrariesViewModel(
                             catalogItems = if (reset) overlaid else it.catalogItems + overlaid,
                             catalogTotal = result.data.total,
                             catalogHasMore = result.data.hasMore,
+                            browseMediaType = detectedMediaType ?: it.browseMediaType,
                             catalogError = null,
                         )
                     }
@@ -649,7 +718,6 @@ fun LibrariesScreen(
                         onItemClick = onItemClick,
                         onPlayClick = onPlayClick,
                         onRetry = viewModel::retryCurrentTab,
-                        onSeeAllClick = viewModel::showBrowseFromRecommended,
                         onActiveBackdropChange = { url, thumbhash ->
                             heroBackdropUrl = url
                             heroBackdropThumbhash = thumbhash
@@ -660,10 +728,11 @@ fun LibrariesScreen(
                         onItemClick = onItemClick,
                         onRetry = viewModel::retryCurrentTab,
                         onLoadMore = viewModel::loadMoreCatalog,
-                        onGenreChanged = viewModel::selectBrowseGenre,
                         onSortChanged = viewModel::selectBrowseSort,
                         onNamePrefixChanged = viewModel::selectNamePrefix,
                         onDensityChanged = viewModel::selectViewDensity,
+                        onApplyFilter = viewModel::applyFilterState,
+                        onSetPreserve = viewModel::setPreserveFilters,
                     )
                     LibrariesSubtab.Collections -> CollectionsTabContent(
                         state = state,
@@ -703,7 +772,6 @@ private fun RecommendedTabContent(
     onItemClick: (String) -> Unit,
     onPlayClick: (String, Double?) -> Unit,
     onRetry: () -> Unit,
-    onSeeAllClick: () -> Unit,
     onActiveBackdropChange: (url: String?, thumbhash: String?) -> Unit,
 ) {
     when {
@@ -777,10 +845,11 @@ private fun RecommendedTabContent(
                     items = regularSections,
                     key = { section -> section.id },
                 ) { section ->
+                    // No "See All" — iOS has no such affordance (H3, Jim
+                    // 2026-07-10); the row omits it when onSeeAllClick is null.
                     HomeSectionRow(
                         section = section,
                         onItemClick = onItemClick,
-                        onSeeAllClick = { onSeeAllClick() },
                     )
                 }
 
@@ -798,64 +867,78 @@ private fun BrowseTabContent(
     onItemClick: (String) -> Unit,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
-    onGenreChanged: (String?) -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
     onNamePrefixChanged: (String?) -> Unit,
     onDensityChanged: (CatalogViewDensity) -> Unit,
+    onApplyFilter: (CatalogFilterState) -> Unit,
+    onSetPreserve: (Boolean) -> Unit,
 ) {
+    var showFilterSheet by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(top = LibrariesChromeContentHeight),
     ) {
-        if (state.browseGenres.isNotEmpty()) {
+        // Sort chips + a Filter button that opens the shared FilterSheet. Genre
+        // is now a Categories facet inside the sheet (no inline genre rail, L3),
+        // and view-density moved into the sheet's "View" section (L4).
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FilterChip(
-                    selected = state.selectedBrowseGenre == null,
-                    onClick = { onGenreChanged(null) },
-                    label = { Text("All") },
-                    colors = libraryChipColors(state.selectedBrowseGenre == null),
-                )
-                state.browseGenres.forEach { genre ->
+                LibraryBrowseSort.entries.forEach { sort ->
                     FilterChip(
-                        selected = state.selectedBrowseGenre == genre,
-                        onClick = { onGenreChanged(genre) },
-                        label = { Text(genre) },
-                        colors = libraryChipColors(state.selectedBrowseGenre == genre),
+                        selected = state.browseSort == sort,
+                        onClick = { onSortChanged(sort) },
+                        label = { Text(sort.label) },
+                        colors = libraryChipColors(state.browseSort == sort),
+                    )
+                }
+            }
+            BadgedBox(
+                badge = {
+                    if (state.filterState.activeFacetCount > 0) {
+                        Badge { Text("${state.filterState.activeFacetCount}") }
+                    }
+                },
+            ) {
+                IconButton(onClick = { showFilterSheet = true }) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filters",
                     )
                 }
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            LibraryBrowseSort.entries.forEach { sort ->
-                FilterChip(
-                    selected = state.browseSort == sort,
-                    onClick = { onSortChanged(sort) },
-                    label = { Text(sort.label) },
-                    colors = libraryChipColors(state.browseSort == sort),
-                )
-            }
-            CatalogViewDensity.entries.forEach { density ->
-                FilterChip(
-                    selected = state.catalogDensity == density,
-                    onClick = { onDensityChanged(density) },
-                    label = { Text(density.label) },
-                    colors = libraryChipColors(state.catalogDensity == density),
-                )
+        // Active filter chips — removable capsules, one per selected facet value.
+        if (state.filterState.hasActiveFilters) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CatalogFacet.available(state.browseMediaType).forEach { facet ->
+                    state.filterState.valuesFor(facet).sorted().forEach { value ->
+                        LibraryActiveFilterChip(
+                            label = facetValueLabel(facet, value),
+                            onRemove = { onApplyFilter(state.filterState.toggle(facet, value)) },
+                        )
+                    }
+                }
             }
         }
 
@@ -894,6 +977,13 @@ private fun BrowseTabContent(
                     hasMore = state.catalogHasMore,
                     onItemClick = onItemClick,
                     onLoadMore = onLoadMore,
+                    // Date sorts surface the sorted-by date under each card
+                    // (mirrors the standalone BrowseScreen), Jim QA 2026-07-09.
+                    cardSubtitle = when (state.browseSort.sortField) {
+                        "added_at" -> { item -> formatCardDate(item.addedAt) }
+                        "release_date" -> { item -> formatCardDate(item.releaseDate) }
+                        else -> null
+                    },
                     selectedNamePrefix = state.selectedNamePrefix,
                     onNamePrefixSelected = onNamePrefixChanged,
                     viewDensity = state.catalogDensity,
@@ -901,6 +991,54 @@ private fun BrowseTabContent(
                 )
             }
         }
+    }
+
+    if (showFilterSheet) {
+        FilterSheet(
+            viewDensity = state.catalogDensity,
+            onSelectDensity = onDensityChanged,
+            currentFilters = state.filterState,
+            availableFilters = state.availableFilters,
+            mediaType = state.browseMediaType,
+            preserveFilters = state.preserveFilters,
+            onCommit = onApplyFilter,
+            onSetPreserve = onSetPreserve,
+            onDismiss = { showFilterSheet = false },
+        )
+    }
+}
+
+/**
+ * Removable active-filter capsule chip for the Libraries browse tab (mirrors the
+ * standalone Browse screen's private chip). Removing a chip toggles that one
+ * facet value off.
+ */
+@Composable
+private fun LibraryActiveFilterChip(
+    label: String,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Icon(
+            imageVector = Icons.Filled.Cancel,
+            contentDescription = "Remove filter",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(14.dp)
+                .clickable(onClick = onRemove),
+        )
     }
 }
 

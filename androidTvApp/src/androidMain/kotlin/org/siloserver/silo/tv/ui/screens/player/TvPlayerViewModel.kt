@@ -5,6 +5,7 @@ package org.siloserver.silo.tv.ui.screens.player
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.siloserver.silo.tv.data.preferences.PlaybackQuality
 import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackRecoveryAction
@@ -529,6 +530,11 @@ class TvPlayerViewModel(
      */
     private val preferredFileId: Int? = launchArgs.preferredFileId
     private val preferredQuality: String? = launchArgs.preferredQuality
+    // Session-level video-quality override chosen in the player's Quality menu
+    // (a server transcode ladder, tvOS ApplePlaybackQuality parity). Null =
+    // fall back to the profile/launch preference. Wire values match
+    // [PlaybackQuality]: "auto"/"original"/"2160p"/"1080p"/"720p"/"480p".
+    private var qualityOverride: String? = null
     private val roomId: String? = launchArgs.roomId
     private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
 
@@ -943,7 +949,7 @@ class TvPlayerViewModel(
                         resumePositionOverride = startPositionOverride,
                         audioTrackIndex = initialAudioTrackIndex,
                         subtitleTrackIndex = pendingInitialSubtitleIndex,
-                        preferredQualityOverride = preferredQuality,
+                        preferredQualityOverride = qualityOverride ?: preferredQuality,
                         suppressResumeRewind = suppressResumeRewind,
                     ),
                 )
@@ -986,6 +992,12 @@ class TvPlayerViewModel(
                                 selectedFileId = result.fileId,
                                 fileVersions = result.versions,
                                 selectedFileResolution = result.fileResolution,
+                                // Server-transcode quality ladder for this source
+                                // (tvOS parity) — replaces adaptive-variant options.
+                                videoQualities = transcodeQualityLadder(
+                                    result.fileResolution,
+                                    qualityOverride ?: preferredQuality ?: PlaybackQuality.Auto.wireValue,
+                                ),
                                 mediaFileId = result.mediaFileId,
                                 startPosition = result.startPositionSeconds,
                                 position = result.startPositionSeconds,
@@ -1724,14 +1736,15 @@ class TvPlayerViewModel(
         audio: List<PlayerTrackEntry>,
         subtitle: List<PlayerTrackEntry>,
         video: List<PlayerTrackEntry>,
-        videoQualities: List<VideoQualityOption> = emptyList(),
     ) {
+        // videoQualities is the server-transcode ladder built at session load
+        // (see loadContent) — NOT derived from the mounted adaptive variants, so
+        // it is intentionally not touched here.
         _uiState.update {
             it.copy(
                 audioTracks = audio,
                 subtitleTracks = subtitle,
                 videoTracks = video,
-                videoQualities = videoQualities,
             )
         }
         // The detail-page explicit pick resolves FIRST so a resolved pick can
@@ -1991,6 +2004,70 @@ class TvPlayerViewModel(
 
     fun onVideoQualitySelectionApplied(resolution: String?) {
         _uiState.update { it.copy(selectedFileResolution = resolution) }
+    }
+
+    /**
+     * Switch the in-player video quality (tvOS ApplePlaybackQuality parity): pin
+     * a session-level [qualityOverride] and re-request the session at the current
+     * position so the server transcodes to the chosen rung (or returns to
+     * Auto/Original). [wireValue] is a [PlaybackQuality] wire value.
+     */
+    fun switchQuality(wireValue: String) {
+        val current = qualityOverride ?: preferredQuality ?: PlaybackQuality.Auto.wireValue
+        if (wireValue == current) return
+        qualityOverride = wireValue
+        _uiState.update {
+            it.copy(videoQualities = transcodeQualityLadder(it.selectedFileResolution, wireValue))
+        }
+        val resumeAt = _uiState.value.position.takeIf { it > 0.0 }
+        val staleSessionId = _uiState.value.sessionId
+        // A quality change restarts the session, exactly like onSelectFileVersion
+        // and retry — so share their single-flight guard: supersede any in-flight
+        // switch/retry and stop the old server session first, or loadContent's
+        // adoptActiveSession leaves the previous session orphaned until timeout
+        // and two load pipelines can race.
+        versionSwitchJob?.cancel()
+        versionSwitchJob = viewModelScope.launch {
+            if (staleSessionId != null) {
+                runCatching { playbackSessionManager.stopSession(staleSessionId) }
+            }
+            coroutineContext.ensureActive()
+            loadContent(startPositionOverride = resumeAt, suppressResumeRewind = true)
+        }
+    }
+
+    /**
+     * The server-transcode quality ladder for the current source: Auto + Original
+     * always, plus each downscale rung whose height is below the source (never
+     * offer an upscale). Wire values / labels come from [PlaybackQuality].
+     */
+    private fun transcodeQualityLadder(
+        sourceResolution: String?,
+        selectedWire: String,
+    ): List<VideoQualityOption> {
+        val sourceHeight = sourceResolution?.filter { it.isDigit() }?.toIntOrNull() ?: Int.MAX_VALUE
+        val rungs = listOf(
+            PlaybackQuality.P4K,
+            PlaybackQuality.P1080,
+            PlaybackQuality.P720,
+            PlaybackQuality.P480,
+        ).filter { tierHeight(it) < sourceHeight }
+        return (listOf(PlaybackQuality.Auto, PlaybackQuality.Original) + rungs).map {
+            VideoQualityOption(
+                id = it.wireValue,
+                label = it.label,
+                isSelected = it.wireValue == selectedWire,
+                resolution = it.wireValue,
+            )
+        }
+    }
+
+    private fun tierHeight(q: PlaybackQuality): Int = when (q) {
+        PlaybackQuality.P4K -> 2160
+        PlaybackQuality.P1080 -> 1080
+        PlaybackQuality.P720 -> 720
+        PlaybackQuality.P480 -> 480
+        else -> Int.MAX_VALUE
     }
 
     /**

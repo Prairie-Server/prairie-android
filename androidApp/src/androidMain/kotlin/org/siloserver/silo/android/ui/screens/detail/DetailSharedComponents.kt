@@ -62,7 +62,7 @@ import org.siloserver.silo.android.ui.theme.SiloBackground
 import org.siloserver.silo.android.ui.theme.SiloOnSurface
 import org.siloserver.silo.android.ui.theme.SiloSecondaryText
 import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
-import org.siloserver.silo.android.ui.navigation.heroSharedBounds
+import org.siloserver.silo.android.ui.navigation.heroTarget
 import org.siloserver.silo.android.ui.theme.PillShape
 import org.siloserver.silo.android.ui.util.playbackResumePosition
 import org.siloserver.silo.common.ui.components.ThumbhashImage
@@ -166,9 +166,10 @@ private fun Backdrop(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(heroHeight)
-                // Hero morph target — matches the tapped poster's shared key so
-                // the artwork bounds carry from the list card into this backdrop.
-                .heroSharedBounds(contentId),
+                // Hero morph target — pairs with the exact poster placement the
+                // user tapped (read from the hero hand-off) so the artwork bounds
+                // carry from that list card into this backdrop.
+                .heroTarget(),
         ) {
             ThumbhashImage(
                 url = backdropUrl,
@@ -965,7 +966,8 @@ private fun buildDetailFacts(detail: ItemDetail): List<Pair<String, String>> = b
     if (detail.studios.isNotEmpty()) add("Studio" to detail.studios.joinToString(", "))
     if (detail.networks.isNotEmpty()) add("Network" to detail.networks.joinToString(", "))
     if (detail.countries.isNotEmpty()) add("Country" to detail.countries.joinToString(", "))
-    if (detail.genres.isNotEmpty()) add("Genres" to detail.genres.joinToString(", "))
+    // Genres are already carried by the hero facts line (HeroMetadata); iOS's
+    // detail facts list omits them, so listing them here duplicated them.
 }
 
 private fun runtimeText(minutes: Int): String {

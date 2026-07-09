@@ -37,10 +37,12 @@ class MobileSharedElementSourceTest {
     fun sharedScopesArePublishedFromTheHost() {
         assertTrue(
             appNavigation.contains("SharedTransitionLayout(modifier = Modifier.fillMaxSize())") &&
-                appNavigation.contains("CompositionLocalProvider(LocalSharedTransitionScope provides this)") &&
+                appNavigation.contains("LocalSharedTransitionScope provides this") &&
+                appNavigation.contains("LocalHeroSourceHandoff provides heroSourceHandoff") &&
                 appNavigation.contains("CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this)"),
             "AppNavigation must wrap the NavHost in a SharedTransitionLayout and publish " +
-                "both the shared-transition scope and the per-destination visibility scope.",
+                "the shared-transition scope, the per-destination visibility scope, and the " +
+                "hero source hand-off.",
         )
     }
 
@@ -49,10 +51,12 @@ class MobileSharedElementSourceTest {
         assertTrue(
             sharedElement.contains("val LocalSharedTransitionScope") &&
                 sharedElement.contains("val LocalNavAnimatedVisibilityScope") &&
-                sharedElement.contains("fun Modifier.heroSharedBounds(") &&
+                sharedElement.contains("class HeroSourceHandoff") &&
+                sharedElement.contains("fun Modifier.heroSource(") &&
+                sharedElement.contains("fun Modifier.heroTarget(") &&
                 sharedElement.contains("ResizeMode.RemeasureToBounds"),
-            "SharedElementTransition must expose both scope locals and a heroSharedBounds " +
-                "modifier that remeasures artwork to the animated bounds.",
+            "SharedElementTransition must expose both scope locals, the source hand-off, and " +
+                "heroSource/heroTarget modifiers that remeasure artwork to the animated bounds.",
         )
     }
 
@@ -60,8 +64,13 @@ class MobileSharedElementSourceTest {
     fun posterCardsEnrollAsHeroSources() {
         assertTrue(
             mediaCard.contains("sharedContentId: String? = null") &&
-                mediaCard.contains(".heroSharedBounds(sharedContentId)"),
-            "MediaCard must accept a sharedContentId and tag its poster as the hero source.",
+                mediaCard.contains(".heroSource(heroKey)") &&
+                // Unique per-placement key so duplicate content ids in different
+                // rows never collide (the flicker fix).
+                mediaCard.contains("UUID.randomUUID()") &&
+                mediaCard.contains("heroHandoff?.pendingKey = heroKey"),
+            "MediaCard must derive a unique per-placement hero key, publish it on tap, and " +
+                "tag its poster as the hero source.",
         )
         assertTrue(
             mediaRow.contains("sharedContentId = item.contentId"),
@@ -77,8 +86,9 @@ class MobileSharedElementSourceTest {
     fun detailBackdropIsTheHeroTarget() {
         assertTrue(
             detailShared.contains("contentId = detail.contentId") &&
-                detailShared.contains(".heroSharedBounds(contentId)"),
-            "The detail backdrop must tag itself as the hero target keyed on the content id.",
+                detailShared.contains(".heroTarget()"),
+            "The detail backdrop must tag itself as the hero target that pairs with the " +
+                "tapped poster via the source hand-off.",
         )
     }
 }

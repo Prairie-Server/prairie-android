@@ -24,10 +24,12 @@ class TvAuthFocusSourceTest {
         assertTrue(serverSetupSource.contains(".imePadding()"))
         assertTrue(serverSetupSource.contains("keyboardController?.show()"))
         assertTrue(serverSetupSource.contains("LaunchedEffect(isActivePairing)"))
-        // First sign-in anchors on the SETUP WITH PHONE card; a pre-filled URL
-        // (returning user) keeps the field focus. Both are crash-guarded.
-        assertTrue(serverSetupSource.contains("phoneSetupFocus.requestFocus()"))
-        assertTrue(serverSetupSource.contains("focusRequester.requestFocus()"))
+        // Initial focus always anchors on the server-address field (tvOS
+        // .defaultFocus(.host)); the user chooses "Set up with phone" by
+        // navigating to it — it is NOT auto-focused (Jim TV QA 2026-07-10).
+        // Crash-guarded via runCatching.
+        assertTrue(serverSetupSource.contains("runCatching { focusRequester.requestFocus() }"))
+        assertFalse(serverSetupSource.contains("phoneSetupFocus.requestFocus()"))
     }
 
     @Test

@@ -208,7 +208,12 @@ class MpvPlayer(
         )
         mpv.setOptionString("profile", "fast")
         mpv.setOptionString("msg-level", "all=info")
-        mpv.setOptionString("vo", videoOutput)
+        // Start with NO video output; enable the real vo only once a surface is
+        // attached (attachVideoSurface/detachVideoSurface), mirroring mpv-android.
+        // Hard-setting vo up front means a surface-less start would make mpv open
+        // the GPU context with no surface ("Missing surface pointer"), fatal the
+        // video output, and drop video for the whole session.
+        mpv.setOptionString("vo", "null")
         mpv.setOptionString("ao", audioOutput)
         mpv.setOptionString("gpu-context", "android")
         mpv.setOptionString("opengl-es", "yes")
@@ -1464,6 +1469,10 @@ class MpvPlayer(
         currentSurface = surface
         mpv.attachSurface(surface)
         mpv.setOptionString("force-window", "yes")
+        // Enable the real video output now that a surface exists (mpv-android
+        // pattern). setPropertyString so it applies at runtime, letting video
+        // recover even after a surface-less start.
+        mpv.setPropertyString("vo", videoOutput)
         mpv.setOptionString("vid", "auto")
         applySurfaceFrameRate()
     }
@@ -1488,6 +1497,10 @@ class MpvPlayer(
     private fun detachVideoSurface(surface: Surface?) {
         if (surface != null && currentSurface != null && currentSurface != surface) return
 
+        // Disable the video output BEFORE releasing the surface (mpv-android
+        // pattern) so mpv doesn't keep a dangling GPU context.
+        mpv.setPropertyString("vo", "null")
+        mpv.setOptionString("force-window", "no")
         mpv.detachSurface()
         currentSurface = null
         resetVideoSurfaceSize()

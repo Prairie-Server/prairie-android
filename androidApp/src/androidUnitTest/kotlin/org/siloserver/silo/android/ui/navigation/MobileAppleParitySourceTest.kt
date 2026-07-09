@@ -53,13 +53,21 @@ class MobileAppleParitySourceTest {
             recommendations.contains("SavedShortcutsRow("),
             "For You should expose iOS's saved Watchlist/Favorites shortcut row before recommendations.",
         )
+        // For You Watchlist/Favorites toggle the saved list IN PLACE over the feed
+        // rather than navigating to a separate page — a deliberate divergence from
+        // iOS chosen by Jim (2026-07-09). The saved-list routes still exist and are
+        // reachable from Settings (asserted below), just not from these shortcuts.
         assertTrue(
-            mainScreen.contains("onWatchlistClick = { navController.navigate(Route.Watchlist.route) }"),
-            "The For You Watchlist shortcut should navigate to the existing Watchlist route.",
+            recommendations.contains(
+                "if (savedListSelection == SavedList.Watchlist) null else SavedList.Watchlist",
+            ),
+            "The For You Watchlist shortcut should toggle the saved list in place, not navigate.",
         )
         assertTrue(
-            mainScreen.contains("onFavoritesClick = { navController.navigate(Route.Favorites.route) }"),
-            "The For You Favorites shortcut should navigate to the existing Favorites route.",
+            recommendations.contains(
+                "if (savedListSelection == SavedList.Favorites) null else SavedList.Favorites",
+            ),
+            "The For You Favorites shortcut should toggle the saved list in place, not navigate.",
         )
         assertTrue(
             settings.contains("SettingsSectionHeader(title = \"Library\")"),

@@ -23,6 +23,11 @@ import org.siloserver.silo.repository.EbookReaderRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.viewmodel.applyLocalPlaybackProgress
 import org.siloserver.silo.model.download.DownloadQuality
+import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
+import org.siloserver.silo.playback.audioTrackFingerprint
+import org.siloserver.silo.playback.resolveAudioTrackOrdinal
+import org.siloserver.silo.playback.resolveSubtitleTrackOrdinal
+import org.siloserver.silo.playback.subtitleTrackFingerprint
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -283,6 +288,8 @@ class ItemDetailViewModel(
                             error = null,
                         )
                     }
+                    // Restore a persisted audio/subtitle override for this item.
+                    seedPersistedTrackSelection()
                     // For series, load seasons
                     if (detail.type == "series") {
                         loadSeasons(detail.contentId)
@@ -637,6 +644,8 @@ class ItemDetailViewModel(
                 hasExplicitSubtitleSelection = false,
             )
         }
+        // Restore any saved audio/subtitle override for the newly-selected file.
+        seedPersistedTrackSelection()
     }
 
     /** Back to Auto — clears the version override and, like [selectVersion],
@@ -652,6 +661,7 @@ class ItemDetailViewModel(
                 hasExplicitSubtitleSelection = false,
             )
         }
+        seedPersistedTrackSelection()
     }
 
     fun selectAudioTrack(index: Int) {
@@ -661,6 +671,7 @@ class ItemDetailViewModel(
                 hasExplicitAudioSelection = true,
             )
         }
+        persistTrackSelection()
     }
 
     /** Back to Auto — playback falls through to the file's default track. */
@@ -671,6 +682,7 @@ class ItemDetailViewModel(
                 hasExplicitAudioSelection = false,
             )
         }
+        persistTrackSelection()
     }
 
     fun selectSubtitle(index: Int) {
@@ -680,6 +692,7 @@ class ItemDetailViewModel(
                 hasExplicitSubtitleSelection = true,
             )
         }
+        persistTrackSelection()
     }
 
     /** Back to Auto — distinct from an explicit -1 ("Off") selection. */
@@ -689,6 +702,81 @@ class ItemDetailViewModel(
                 selectedSubtitleIndex = -1,
                 hasExplicitSubtitleSelection = false,
             )
+        }
+        persistTrackSelection()
+    }
+
+    /**
+     * Persist the current audio/subtitle override for the selected version's
+     * file, so it survives leaving and re-opening the detail page (and lines up
+     * with the player, which records the same fingerprints against the same
+     * port). Auto (no explicit pick) writes null to clear any prior override;
+     * an explicit "Off" writes the shared off sentinel; a concrete pick writes
+     * the catalog track's fingerprint. Keyed on (contentId, fileId) — different
+     * versions carry independent selections, matching [selectVersion]'s reset.
+     */
+    private fun persistTrackSelection() {
+        val state = _uiState.value
+        val detail = state.detail ?: return
+        val version = detail.versions.getOrNull(state.selectedVersionIndex) ?: return
+        val subtitleFingerprint = when {
+            !state.hasExplicitSubtitleSelection -> null
+            state.selectedSubtitleIndex == -1 -> SUBTITLE_OFF_FINGERPRINT
+            else -> version.subtitleTracks.orEmpty()
+                .getOrNull(state.selectedSubtitleIndex)
+                ?.let(::subtitleTrackFingerprint)
+        }
+        val audioFingerprint = when {
+            !state.hasExplicitAudioSelection -> null
+            else -> version.audioTracks.orEmpty()
+                .getOrNull(state.selectedAudioIndex)
+                ?.let(::audioTrackFingerprint)
+        }
+        viewModelScope.launch {
+            userItemState.recordSubtitleTrackSelection(detail.contentId, version.fileId, subtitleFingerprint)
+            userItemState.recordAudioTrackSelection(detail.contentId, version.fileId, audioFingerprint)
+        }
+    }
+
+    /**
+     * Seed the audio/subtitle selectors from a previously persisted override
+     * for the selected version's file, so re-opening the detail page restores
+     * what the user last chose. Fingerprints map back to the catalog list via
+     * the shared resolvers (Off -> -1). Only applies a dimension when a saved
+     * fingerprint actually matches a current track, leaving Auto otherwise.
+     */
+    private fun seedPersistedTrackSelection() {
+        val state = _uiState.value
+        val detail = state.detail ?: return
+        val version = detail.versions.getOrNull(state.selectedVersionIndex) ?: return
+        viewModelScope.launch {
+            val saved = userItemState.localTrackSelection(detail.contentId, version.fileId) ?: return@launch
+            val subtitleOrdinal = resolveSubtitleTrackOrdinal(
+                version.subtitleTracks.orEmpty(),
+                saved.subtitleFingerprint,
+            )
+            val audioOrdinal = resolveAudioTrackOrdinal(
+                version.audioTracks.orEmpty(),
+                saved.audioFingerprint,
+            )
+            if (subtitleOrdinal == null && audioOrdinal == null) return@launch
+            _uiState.update {
+                // The ordinals were resolved against `version`; if the user
+                // switched versions while this suspended, they'd index into the
+                // wrong track list — leave the new version untouched.
+                if (it.detail?.versions?.getOrNull(it.selectedVersionIndex)?.fileId != version.fileId) {
+                    return@update it
+                }
+                // Don't clobber a pick the user already made this session.
+                it.copy(
+                    selectedSubtitleIndex = if (it.hasExplicitSubtitleSelection) it.selectedSubtitleIndex
+                    else subtitleOrdinal ?: it.selectedSubtitleIndex,
+                    hasExplicitSubtitleSelection = it.hasExplicitSubtitleSelection || subtitleOrdinal != null,
+                    selectedAudioIndex = if (it.hasExplicitAudioSelection) it.selectedAudioIndex
+                    else audioOrdinal ?: it.selectedAudioIndex,
+                    hasExplicitAudioSelection = it.hasExplicitAudioSelection || audioOrdinal != null,
+                )
+            }
         }
     }
 

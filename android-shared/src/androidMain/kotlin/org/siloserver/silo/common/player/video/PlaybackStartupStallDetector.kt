@@ -4,20 +4,28 @@ import org.siloserver.silo.common.player.Playability
 import org.siloserver.silo.model.playback.PlayMethod
 
 /**
- * Detects the gap between "Media3 accepted this direct file" and "playback
- * actually started." Preflight covers known unsupported tracks and player
- * errors; this covers startup sessions that stay in BUFFERING forever.
+ * Detects a playback session wedged in BUFFERING with no forward progress —
+ * both at STARTUP ("Media3 accepted this but playback never started") and
+ * MID-STREAM ("it was playing, then froze forever"). Preflight covers known
+ * unsupported tracks and player errors; this covers the silent buffer-forever
+ * case that never surfaces an error. Applies to ALL routes (direct, remux,
+ * transcode, HLS) — a wedged compatibility-route remux used to have no watchdog
+ * at all (TV QA 2026-07-10: some remuxes buffer indefinitely).
  */
 class PlaybackStartupStallDetector(
     private val startupGraceMs: Long = DEFAULT_STARTUP_GRACE_MS,
+    private val midStreamGraceMs: Long = DEFAULT_MID_STREAM_GRACE_MS,
     private val startedProgressMs: Long = DEFAULT_STARTED_PROGRESS_MS,
 ) {
     private var sessionKey: String? = null
-    private var playMethod: PlayMethod? = null
-    private var mountedAtMs: Long = 0L
     private var startPositionMs: Long = 0L
     private var started = false
     private var signaled = false
+    // Last time playback made forward progress (or the mount time before it
+    // starts). The stall is measured from here, so the same logic covers a
+    // never-started session and a mid-stream freeze.
+    private var lastProgressPositionMs: Long = 0L
+    private var lastProgressAtMs: Long = 0L
 
     fun onMounted(
         sessionKey: String,
@@ -27,11 +35,11 @@ class PlaybackStartupStallDetector(
     ) {
         if (this.sessionKey == sessionKey) return
         this.sessionKey = sessionKey
-        this.playMethod = playMethod
-        this.mountedAtMs = nowMs
         this.startPositionMs = startPositionMs.coerceAtLeast(0L)
         this.started = false
         this.signaled = false
+        this.lastProgressPositionMs = this.startPositionMs
+        this.lastProgressAtMs = nowMs
     }
 
     fun sample(
@@ -44,14 +52,22 @@ class PlaybackStartupStallDetector(
         bufferedPositionMs: Long,
     ): Playability.StartupStalled? {
         if (sessionKey != this.sessionKey) return null
-        if (isPlaying || currentPositionMs - startPositionMs >= startedProgressMs) {
+
+        // Forward progress (actively playing, or position advanced meaningfully)
+        // re-anchors the stall clock and latches "started".
+        if (isPlaying || currentPositionMs - lastProgressPositionMs >= startedProgressMs) {
+            lastProgressPositionMs = currentPositionMs
+            lastProgressAtMs = nowMs
             started = true
         }
-        if (started || signaled || playMethod != PlayMethod.DIRECT) return null
+
+        if (signaled) return null
         if (!playWhenReady || !isBuffering) return null
 
-        val stalledForMs = nowMs - mountedAtMs
-        if (stalledForMs <= startupGraceMs) return null
+        // Longer grace before playback ever starts (initial handshake/buffer)
+        // than for a mid-stream freeze once it has been playing.
+        val stalledForMs = nowMs - lastProgressAtMs
+        if (stalledForMs <= (if (started) midStreamGraceMs else startupGraceMs)) return null
 
         signaled = true
         return Playability.StartupStalled(
@@ -62,6 +78,7 @@ class PlaybackStartupStallDetector(
 
     companion object {
         const val DEFAULT_STARTUP_GRACE_MS: Long = 20_000L
+        const val DEFAULT_MID_STREAM_GRACE_MS: Long = 20_000L
         const val DEFAULT_STARTED_PROGRESS_MS: Long = 1_500L
     }
 }
