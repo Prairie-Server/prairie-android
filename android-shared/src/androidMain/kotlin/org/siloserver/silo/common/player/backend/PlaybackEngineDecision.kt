@@ -59,7 +59,7 @@ data class PlaybackEngineDecision(
                     request.hasHardContainer -> "hasHardContainer"
                     request.hasStyledSubtitles -> "hasStyledSubtitles"
                     request.hasSoftwareOnlyVideoCodec -> "hasSoftwareOnlyVideoCodec"
-                    request.hasHdrVideo -> "hasHdrVideo"
+                    request.hasDolbyVisionVideo -> "hasDolbyVisionVideo"
                     else -> "default"
                 }
             }

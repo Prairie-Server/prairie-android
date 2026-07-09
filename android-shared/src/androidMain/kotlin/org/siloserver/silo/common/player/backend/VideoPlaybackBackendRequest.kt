@@ -25,10 +25,12 @@ data class VideoPlaybackBackendRequest(
     // True when the selected file version carries HDR video. The Media3
     // ("compatibility") route has no phone-side HDR track handling or
     // tone-mapping fallback, and HDR sources there can decode audio+text
-    // while the video renderer produces no visible frames — so Auto routes
-    // HDR to MPV (gpu-next tone-maps) on supported devices. Route/session
-    // intent (Cast/DRM/HLS/transcode) still wins first.
-    val hasHdrVideo: Boolean = false,
+    // while the video renderer produces no visible frames. Scoped to Dolby
+    // Vision only: plain HDR10/HDR10+/HLG demonstrably plays fine on Media3
+    // (Pixel 10 A/B, 2026-07-09), and MPV's slurp-then-idle streaming pattern
+    // makes it the worse default. Auto routes DV to MPV (gpu-next handles the
+    // RPU); route/session intent (Cast/DRM/HLS/transcode) still wins first.
+    val hasDolbyVisionVideo: Boolean = false,
     // True when the resolved playback URL is an adaptive HLS playlist. Some
     // legacy sessions arrive without a v2 playbackPlan/delivery even though the
     // URL is a master.m3u8; route those to Media3 up front instead of trying MPV

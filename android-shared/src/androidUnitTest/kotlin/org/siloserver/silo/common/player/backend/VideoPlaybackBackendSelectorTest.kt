@@ -224,26 +224,26 @@ class VideoPlaybackBackendSelectorTest {
     }
 
     @Test
-    fun autoRoutesHdrVideoToMpv() {
+    fun autoRoutesDolbyVisionToMpv() {
         assertEquals(
             VideoPlaybackBackendKind.Mpv,
             VideoPlaybackBackendSelector.select(
                 VideoPlaybackBackendRequest(
                     playMethod = PlayMethod.DIRECT,
-                    hasHdrVideo = true,
+                    hasDolbyVisionVideo = true,
                 ),
             ),
         )
     }
 
     @Test
-    fun hdrVideoNeverSelectsMpvBelowDeviceFloor() {
+    fun dolbyVisionNeverSelectsMpvBelowDeviceFloor() {
         assertEquals(
             VideoPlaybackBackendKind.Media3,
             VideoPlaybackBackendSelector.select(
                 VideoPlaybackBackendRequest(
                     playMethod = PlayMethod.DIRECT,
-                    hasHdrVideo = true,
+                    hasDolbyVisionVideo = true,
                     mpvSupportedOnDevice = false,
                 ),
             ),
@@ -251,7 +251,7 @@ class VideoPlaybackBackendSelectorTest {
     }
 
     @Test
-    fun hdrVideoOutranksPlannedMedia3Direct() {
+    fun dolbyVisionOutranksPlannedMedia3Direct() {
         // The v2 plan is computed without phone-side HDR knowledge; a planned
         // MEDIA3_DIRECT must not pull HDR back onto the black-screen path.
         assertEquals(
@@ -260,20 +260,20 @@ class VideoPlaybackBackendSelectorTest {
                 VideoPlaybackBackendRequest(
                     playMethod = PlayMethod.DIRECT,
                     plannedEngine = PlaybackEngineKind.MEDIA3_DIRECT,
-                    hasHdrVideo = true,
+                    hasDolbyVisionVideo = true,
                 ),
             ),
         )
     }
 
     @Test
-    fun hdrVideoStillTranscodesOnMedia3() {
+    fun dolbyVisionStillTranscodesOnMedia3() {
         assertEquals(
             VideoPlaybackBackendKind.Media3,
             VideoPlaybackBackendSelector.select(
                 VideoPlaybackBackendRequest(
                     playMethod = PlayMethod.TRANSCODE,
-                    hasHdrVideo = true,
+                    hasDolbyVisionVideo = true,
                 ),
             ),
         )

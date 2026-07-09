@@ -71,6 +71,7 @@ import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
 import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
 import org.siloserver.silo.common.player.video.isMpvPreferredOriginalPlaybackContainer
 import org.siloserver.silo.model.playback.PlayMethod
+import org.siloserver.silo.model.playback.PlaybackSourceMetadata
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
@@ -264,7 +265,7 @@ fun PlayerScreen(
                         isHardPlaybackContainer(uiState.container),
                     hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                     hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
-                    hasHdrVideo = uiState.activeVersionHasHdrVideo(),
+                    hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                     isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(uiState.streamUrl),
                 ),
             )
@@ -479,7 +480,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
-                hasHdrVideo = uiState.activeVersionHasHdrVideo(),
+                hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -554,7 +555,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
-                hasHdrVideo = uiState.activeVersionHasHdrVideo(),
+                hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -980,10 +981,17 @@ private fun isHardPlaybackContainer(container: String?): Boolean =
     isMpvPreferredOriginalPlaybackContainer(container)
 
 /**
- * True when the active file version carries HDR video. Feeds
- * [VideoPlaybackBackendRequest.hasHdrVideo] so Auto routes HDR sources to
- * MPV — the Media3 route has no phone-side HDR handling and can play
- * audio+subtitles over a permanently black video surface.
+ * True when the planned source carries Dolby Vision. Feeds
+ * [VideoPlaybackBackendRequest.hasDolbyVisionVideo] so Auto routes DV to
+ * MPV — Media3 has no phone-side DV handling and can play audio+subtitles
+ * over a permanently black video surface. Plain HDR10/HDR10+/HLG stays on
+ * Media3, which plays it correctly (device A/B 2026-07-09); MPV's
+ * slurp-then-idle streaming makes it the worse default for those. The
+ * catalog version list has no per-format field, so plan-less legacy
+ * sessions fall back to Media3 and the failure detectors cover the rest.
  */
-private fun PlayerViewModel.PlayerUiState.activeVersionHasHdrVideo(): Boolean =
-    versions.getOrNull(selectedVersionIndex)?.hdr == true
+private fun hasDolbyVisionSource(source: PlaybackSourceMetadata?): Boolean =
+    source?.dolbyVisionProfile != null ||
+    source?.hdrFormat?.let {
+        it.contains("dolby", ignoreCase = true) || it.contains("dovi", ignoreCase = true)
+    } == true
