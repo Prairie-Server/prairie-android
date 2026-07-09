@@ -50,6 +50,8 @@ import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.errorMessage
 import org.siloserver.silo.playback.nextEpisodeAfter
+import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
+import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.playback.trackSelectionFingerprint
 import org.siloserver.silo.repository.SubtitlesRepository
 import kotlinx.coroutines.Dispatchers
@@ -255,8 +257,13 @@ internal fun resolveInitialSubtitleTrackIndex(
     subtitleTracks: List<PlayerTrackEntry>,
     mountedSubtitles: List<PlayerSubtitleInfo>,
 ): Int? {
-    val requested = mountedSubtitles.getOrNull(requestedOrdinal)
-        ?: mountedSubtitles.firstOrNull { it.index == requestedOrdinal }
+    // Key on the STABLE server subtitle index (PlayerSubtitleInfo.index) first,
+    // by identity not list position: a server index gap (a burned/skipped track)
+    // or a downloaded tail entry shifts list positions, so a positional hit would
+    // shadow the correct index-field match and select the wrong subtitle. Only
+    // fall back to positional lookup when nothing carries the requested index.
+    val requested = mountedSubtitles.firstOrNull { it.index == requestedOrdinal }
+        ?: mountedSubtitles.getOrNull(requestedOrdinal)
         ?: return null
 
     return subtitleTracks.firstOrNull { it.matchesMountedSubtitle(requested) }?.index
@@ -901,18 +908,20 @@ class TvPlayerViewModel(
                 )) {
                     is VideoPlayerUiState.Ready -> {
                         val localTrackSelection = result.fileId
-                            ?.takeIf { initialAudioTrackIndex == null || launchArgs.initialSubtitleTrackIndex == null }
                             ?.let { fileId -> userItemStatePort.localTrackSelection(contentId, fileId) }
                         pendingPersistedAudioFingerprint = if (initialAudioTrackIndex == null) {
                             localTrackSelection?.audioFingerprint
                         } else {
                             null
                         }
-                        pendingPersistedSubtitleFingerprint = if (launchArgs.initialSubtitleTrackIndex == null) {
-                            localTrackSelection?.subtitleFingerprint
-                        } else {
-                            null
-                        }
+                        // Keep the persisted subtitle fingerprint even when the
+                        // detail page sent an explicit pick: on TV a pick only
+                        // resolves once Media3 reports its tracks, so an
+                        // unresolvable pick must fall through to persisted (then
+                        // auto) instead of stranding subtitles Off all session.
+                        // The suppression now gates on the pick actually resolving
+                        // (see resolvePendingInitialSubtitle), not the bare intent.
+                        pendingPersistedSubtitleFingerprint = localTrackSelection?.subtitleFingerprint
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -953,6 +962,13 @@ class TvPlayerViewModel(
                                 showNextUp = false,
                                 nextUpVideoEnded = false,
                                 nextUpCountdownSeconds = null,
+                                // T11: clear the subtitle-refresh nonce on every
+                                // fresh mount. It is bumped once per post-download
+                                // refresh; without this reset a later backend
+                                // recreation (version switch / recovery fallback)
+                                // would see a stale nonce>0 and re-fire a spurious
+                                // second refresh racing the primary mount effect.
+                                subtitleRefreshNonce = 0,
                             )
                         }
                         startIntroAutoSkipObserver()
@@ -1223,12 +1239,17 @@ class TvPlayerViewModel(
         return true
     }
 
-    private fun selectedSubtitleTrackIndex(state: UiState): Int {
+    private fun selectedSubtitleTrackIndex(state: UiState): Int? {
+        // Only -1 (Off) when subtitles are GENUINELY off (no track selected).
         val selected = state.subtitleTracks.firstOrNull { it.isSelected } ?: return -1
+        // A selected track that maps to a mounted server subtitle resolves to its
+        // stable server index. A selected track with no mounted match (e.g. an
+        // embedded CEA-608 the player discovered, not in the sidecar list) returns
+        // null = keep-current, so a server-recovery transcode preserves the user's
+        // subtitles instead of forcing them Off.
         return state.subtitleUrls
             .firstOrNull { selected.matchesMountedSubtitle(it) }
             ?.index
-            ?: -1
     }
 
     fun onPositionChanged(positionMs: Long, durationMs: Long) {
@@ -1590,9 +1611,12 @@ class TvPlayerViewModel(
      */
     fun onTracksChanged(audio: List<PlayerTrackEntry>, subtitle: List<PlayerTrackEntry>) {
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
+        // The detail-page explicit pick resolves FIRST so a resolved pick can
+        // suppress the persisted/auto fallback (and an unresolvable one lets it
+        // proceed) before persisted reads its fingerprint.
+        resolvePendingInitialSubtitle(subtitle)
         resolvePendingPersistedTrackSelection(audio, subtitle)
         resolvePendingSubtitleSelection(subtitle)
-        resolvePendingInitialSubtitle(subtitle)
         resolveAutoPreferredTextSubtitle(audio, subtitle)
     }
 
@@ -1610,9 +1634,12 @@ class TvPlayerViewModel(
                 videoQualities = videoQualities,
             )
         }
+        // The detail-page explicit pick resolves FIRST so a resolved pick can
+        // suppress the persisted/auto fallback (and an unresolvable one lets it
+        // proceed) before persisted reads its fingerprint.
+        resolvePendingInitialSubtitle(subtitle)
         resolvePendingPersistedTrackSelection(audio, subtitle)
         resolvePendingSubtitleSelection(subtitle)
-        resolvePendingInitialSubtitle(subtitle)
         resolveAutoPreferredTextSubtitle(audio, subtitle)
     }
 
@@ -1637,7 +1664,16 @@ class TvPlayerViewModel(
             }
             if (subtitle.isEmpty()) return
             pendingPersistedSubtitleFingerprint = null
-            subtitle.firstOrNull { it.selectionFingerprint() == fingerprint }
+            // Saved subtitle choices are fingerprinted on the STABLE server
+            // subtitle index (PlayerSubtitleInfo) — see persistSubtitleTrackSelection
+            // — so resolve against the mounted list, then map the matched server
+            // track onto the Media3 flat text ordinal SubtitleManager selects by.
+            // Matching the flat PlayerTrackEntry fingerprint directly would never
+            // restore, because that ordinal shifts as tracks are discovered.
+            val mounted = resolveMountedSubtitleOrdinal(_uiState.value.subtitleUrls, fingerprint)
+                ?.let { _uiState.value.subtitleUrls.getOrNull(it) }
+                ?: return
+            subtitle.firstOrNull { it.matchesMountedSubtitle(mounted) }
                 ?.let {
                     manualSubtitleSelectionApplied = true
                     _subtitleSelectRequests.tryEmit(it.index)
@@ -1649,9 +1685,13 @@ class TvPlayerViewModel(
         audio: List<PlayerTrackEntry>,
         subtitle: List<PlayerTrackEntry>,
     ) {
+        // manualSubtitleSelectionApplied is set when a persisted choice OR a
+        // RESOLVED explicit detail-page pick was applied — that (not the bare
+        // launch intent) is what suppresses auto. An explicit pick that failed to
+        // resolve leaves the flag clear, so auto still runs instead of stranding
+        // subtitles Off.
         if (manualSubtitleSelectionApplied) return
         if (autoTextSubtitleSelectionAttempted) return
-        if (launchArgs.initialSubtitleTrackIndex != null) return
         if (subtitle.isEmpty()) return
 
         val state = _uiState.value
@@ -1686,6 +1726,10 @@ class TvPlayerViewModel(
         val index = pendingInitialSubtitleIndex ?: return
         if (index == -1) {
             pendingInitialSubtitleIndex = null
+            // An explicit Off from the detail page is a resolved decision: suppress
+            // the persisted/auto fallback so it isn't overridden.
+            manualSubtitleSelectionApplied = true
+            pendingPersistedSubtitleFingerprint = null
             _subtitleSelectRequests.tryEmit(-1)
             return
         }
@@ -1693,11 +1737,21 @@ class TvPlayerViewModel(
         // only act during initial load.
         if (subtitle.isEmpty()) return
         pendingInitialSubtitleIndex = null
-        resolveInitialSubtitleTrackIndex(
+        val resolved = resolveInitialSubtitleTrackIndex(
             requestedOrdinal = index,
             subtitleTracks = subtitle,
             mountedSubtitles = _uiState.value.subtitleUrls,
-        )?.let { _subtitleSelectRequests.tryEmit(it) }
+        )
+        // Suppress the persisted/auto fallback ONLY when the explicit pick actually
+        // resolves onto a mounted track. An unresolvable pick leaves the persisted
+        // fingerprint intact and the manual flag clear, so it falls through to
+        // persisted -> auto instead of being silently dropped (subtitles Off all
+        // session).
+        if (resolved != null) {
+            manualSubtitleSelectionApplied = true
+            pendingPersistedSubtitleFingerprint = null
+            _subtitleSelectRequests.tryEmit(resolved)
+        }
     }
 
     fun onSubtitleSelectionApplied(index: Int) {
@@ -1725,7 +1779,14 @@ class TvPlayerViewModel(
         val fingerprint = if (index == -1) {
             SUBTITLE_OFF_FINGERPRINT
         } else {
-            state.subtitleTracks.firstOrNull { it.index == index }?.selectionFingerprint() ?: return
+            // Fingerprint on the STABLE server subtitle index (PlayerSubtitleInfo),
+            // not the Media3 flat text ordinal (PlayerTrackEntry.index) which shifts
+            // as tracks are discovered — otherwise the saved choice never restores
+            // across sessions (phone parity). Map the selected flat track onto its
+            // mounted server subtitle before fingerprinting.
+            val selected = state.subtitleTracks.firstOrNull { it.index == index } ?: return
+            val mounted = state.subtitleUrls.firstOrNull { selected.matchesMountedSubtitle(it) } ?: return
+            subtitleTrackFingerprint(mounted)
         }
         viewModelScope.launch {
             userItemStatePort.recordSubtitleTrackSelection(contentId, fileId, fingerprint)
