@@ -8,10 +8,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
@@ -186,6 +189,7 @@ fun PlayerOverlay(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(top = 64.dp)
                 .zIndex(3f),
         ) {
@@ -209,6 +213,7 @@ fun PlayerOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(top = 16.dp, start = 16.dp),
             contentAlignment = Alignment.TopStart,
         ) {
@@ -222,6 +227,7 @@ fun PlayerOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(top = 64.dp)
                     .zIndex(10f),
                 contentAlignment = Alignment.TopCenter,
@@ -248,6 +254,7 @@ fun PlayerOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(top = 16.dp),
                 contentAlignment = Alignment.TopCenter,
             ) {
@@ -322,6 +329,7 @@ fun PlayerOverlay(
 
         val bottomEndSlotModifier = Modifier
             .align(Alignment.BottomEnd)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(bottom = 120.dp, end = 24.dp)
             .zIndex(2f)
 
@@ -397,6 +405,7 @@ fun PlayerOverlay(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(top = 16.dp, end = 16.dp)
                 .zIndex(2f),
         ) {

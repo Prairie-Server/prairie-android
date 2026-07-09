@@ -6,10 +6,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.List
@@ -86,6 +89,11 @@ fun PlayerControls(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // Keep every HUD control clear of the display cutout and any
+                // transient system bars (QA: portrait cutouts cropped the
+                // top-right buttons); the 16dp is extra padding on top of the
+                // safe insets, mirroring iOS's safe-area + 16pt edge padding.
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(16.dp),
         ) {
             // Top bar — iOS HStack(spacing: 16): back · spacer · title · spacer ·
