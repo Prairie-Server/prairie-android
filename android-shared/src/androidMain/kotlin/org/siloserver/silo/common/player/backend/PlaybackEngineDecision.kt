@@ -50,6 +50,7 @@ data class PlaybackEngineDecision(
                     request.isAdaptiveHlsStream -> "isAdaptiveHlsStream"
                     request.delivery == PlaybackDelivery.SERVER_REMUX_HLS -> "delivery=server_remux_hls"
                     request.delivery == PlaybackDelivery.SERVER_TRANSCODE_HLS -> "delivery=server_transcode_hls"
+                    request.hasDolbyVisionVideo && request.playMethod != PlayMethod.TRANSCODE -> "hasDolbyVisionVideo"
                     request.plannedEngine == PlaybackEngineKind.MEDIA3_DIRECT -> "plannedEngine=media3_direct"
                     request.plannedEngine == PlaybackEngineKind.MEDIA3_PROGRESSIVE_REMUX -> "plannedEngine=media3_progressive_remux"
                     request.plannedEngine == PlaybackEngineKind.MEDIA3_HLS -> "plannedEngine=media3_hls"
@@ -59,7 +60,6 @@ data class PlaybackEngineDecision(
                     request.hasHardContainer -> "hasHardContainer"
                     request.hasStyledSubtitles -> "hasStyledSubtitles"
                     request.hasSoftwareOnlyVideoCodec -> "hasSoftwareOnlyVideoCodec"
-                    request.hasDolbyVisionVideo -> "hasDolbyVisionVideo"
                     else -> "default"
                 }
             }

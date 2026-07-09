@@ -1,6 +1,8 @@
 package org.siloserver.silo.common.player.backend
 
+import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackDelivery
+import org.siloserver.silo.model.playback.PlaybackEngineKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -69,5 +71,22 @@ class PlaybackEngineDecisionTest {
             .toLogLine()
 
         assertTrue(line.contains("reason=delivery=server_remux_progressive"))
+    }
+
+    @Test
+    fun decisionExplainsDolbyVisionOutranksPlannedMedia3Direct() {
+        // Mirrors the selector: Dolby Vision (non-transcode) outranks a planned
+        // Media3 engine and routes to MPV, so the reason is the DV axis rather
+        // than plannedEngine=media3_direct.
+        val request = VideoPlaybackBackendRequest(
+            plannedEngine = PlaybackEngineKind.MEDIA3_DIRECT,
+            hasDolbyVisionVideo = true,
+            playMethod = PlayMethod.DIRECT,
+        )
+        val line = PlaybackEngineDecision
+            .from(request, selected = VideoPlaybackBackendKind.Mpv, actual = VideoPlaybackBackendKind.Mpv)
+            .toLogLine()
+
+        assertTrue(line.contains("reason=hasDolbyVisionVideo"))
     }
 }
