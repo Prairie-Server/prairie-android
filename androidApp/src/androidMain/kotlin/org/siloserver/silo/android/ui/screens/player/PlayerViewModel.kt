@@ -132,6 +132,12 @@ class PlayerViewModel(
     companion object {
         private const val TAG = "PlayerViewModel"
         private const val CONTROLS_AUTO_HIDE_MS = 3_000L
+        // Silent-black-screen watchdog window (matches TV's FIRST_FRAME_WATCHDOG_MS).
+        // If playback is rolling but no first video frame lands within this window,
+        // treat it as an engine failure and run the recovery ladder. NOTE: may need
+        // on-device tuning against phone remux cold-start (a slow cold remux could
+        // legitimately roll audio before the first frame).
+        private const val FIRST_FRAME_WATCHDOG_MS = 8_000L
         // Record a durable position roughly every 10s of content time (matches the
         // server reporter cadence) to bound DB/outbox churn.
         private const val POSITION_RECORD_INTERVAL_SEC = 10.0
@@ -1082,6 +1088,11 @@ class PlayerViewModel(
         cancelRecoveryJob()
         attemptedEngines.clear()
         transientNetworkRetries = 0
+        // Fresh stream/session mount: re-arm the first-frame watchdog so a
+        // post-recovery MPV mount is itself watched for a silent black screen.
+        firstVideoFrameRendered = false
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
     }
 
     private fun cancelRecoveryJob() {
@@ -1229,8 +1240,35 @@ class PlayerViewModel(
      * user intends to play. `isPaused` is the user's intent and must not be overwritten here,
      * otherwise a buffering glitch flips the pause icon and defeats scheduleControlsHide.
      */
+    /** Set once Media3 renders the first video frame of the current item. */
+    private var firstVideoFrameRendered = false
+    private var firstFrameWatchdogJob: Job? = null
+
+    fun onFirstVideoFrameRendered() {
+        firstVideoFrameRendered = true
+        firstFrameWatchdogJob?.cancel()
+    }
+
     fun onPlayingChanged(isPlaying: Boolean) {
         _uiState.update { it.copy(isPlaying = isPlaying) }
+        // Silent-black-screen watchdog (QA 2026-07-08: a DV Profile 7 remux played
+        // audio over a permanently black surface with NO Media3 decoder error — the
+        // error-driven recovery ladder never fires, and the client can't tell a
+        // stock server (DV copied → black) from a newer one (RPUs stripped → plays
+        // fine). If playback is rolling and no first video frame lands within the
+        // window, treat it as an engine failure: the ladder prefers another direct
+        // engine (MPV plays the HDR10 base layer) before conceding a server
+        // transcode. Guarded on !firstVideoFrameRendered so it can't fire on a
+        // session that has started audio and rendered video normally.
+        if (isPlaying && !firstVideoFrameRendered && firstFrameWatchdogJob == null) {
+            firstFrameWatchdogJob = viewModelScope.launch {
+                delay(FIRST_FRAME_WATCHDOG_MS)
+                if (!firstVideoFrameRendered && _uiState.value.isPlaying) {
+                    Log.w(TAG, "No first video frame after ${FIRST_FRAME_WATCHDOG_MS}ms — engine fallback")
+                    onEngineSwitchFailed("Video never started (black screen)")
+                }
+            }
+        }
         // Controls should auto-hide once real playback resumes after a pause.
         if (isPlaying && !_uiState.value.isPaused && _uiState.value.showControls) {
             scheduleControlsHide()

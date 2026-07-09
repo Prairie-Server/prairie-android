@@ -619,6 +619,10 @@ fun PlayerScreen(
                     viewModel.onPlayingChanged(isPlaying)
                 }
 
+                override fun onRenderedFirstFrame() {
+                    viewModel.onFirstVideoFrameRendered()
+                }
+
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
                     if (playbackState == Player.STATE_ENDED) {
