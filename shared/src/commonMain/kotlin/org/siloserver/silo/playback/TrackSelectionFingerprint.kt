@@ -52,6 +52,25 @@ fun resolveSubtitleTrackOrdinal(
         .takeIf { it >= 0 }
 }
 
+/**
+ * Resolves a saved subtitle fingerprint against the MOUNTED subtitle list
+ * ([PlayerSubtitleInfo]). The mobile player records selections with the
+ * PlayerSubtitleInfo fingerprint overload (its uiState carries the mounted
+ * list), so restoring them must match against the same list — the catalog
+ * [SubtitleTrack] list uses a different index space (demux stream index vs
+ * mounted ordinal) and its fingerprints never match. Distinct name because
+ * a List overload would erase to the same JVM signature.
+ */
+fun resolveMountedSubtitleOrdinal(
+    subtitles: List<PlayerSubtitleInfo>,
+    fingerprint: String?,
+): Int? {
+    val saved = fingerprint.normalizedFingerprintOrNull() ?: return null
+    if (saved == SUBTITLE_OFF_FINGERPRINT) return -1
+    return subtitles.indexOfFirst { subtitleTrackFingerprint(it) == saved }
+        .takeIf { it >= 0 }
+}
+
 fun trackSelectionFingerprint(
     index: Int,
     language: String?,

@@ -62,7 +62,7 @@ import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.playback.nextEpisodeAfter
 import org.siloserver.silo.playback.resolveAudioTrackOrdinal
-import org.siloserver.silo.playback.resolveSubtitleTrackOrdinal
+import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
 import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.repository.CatalogRepository
@@ -636,8 +636,16 @@ class PlayerViewModel(
             null
         }
         val persistedSubtitleIndex = if (initialSubtitleTrackIndex == null) {
-            version?.subtitleTracks
-                ?.let { tracks -> resolveSubtitleTrackOrdinal(tracks, localTrackSelection?.subtitleFingerprint) }
+            // Selections are recorded against the MOUNTED subtitle list
+            // (onSubtitleSelectionApplied fingerprints uiState.subtitleTracks,
+            // i.e. PlayerSubtitleInfo) — restore against the same list. The
+            // previous catalog-list resolution used a different index space
+            // (demux stream index), so saved choices never matched and player
+            // subtitle overrides silently failed to stick.
+            resolveMountedSubtitleOrdinal(
+                playbackState.subtitleUrls,
+                localTrackSelection?.subtitleFingerprint,
+            )
         } else {
             null
         }

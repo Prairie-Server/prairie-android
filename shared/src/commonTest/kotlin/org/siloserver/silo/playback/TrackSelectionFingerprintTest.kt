@@ -47,6 +47,21 @@ class TrackSelectionFingerprintTest {
     }
 
     @Test
+    fun resolvesMountedSubtitleFingerprintBackToMountedOrdinal() {
+        // The mobile player records selections against the mounted list, so
+        // they must round-trip against the SAME list even when the mounted
+        // ordinals differ from the catalog demux indices.
+        val mounted = listOf(
+            PlayerSubtitleInfo(index = 0, codec = "srt", language = "eng", label = "English", url = "/s/0.vtt"),
+            PlayerSubtitleInfo(index = 1, codec = "ass", language = "eng", label = "Signs", forced = true, url = "/s/1.vtt"),
+        )
+
+        assertEquals(-1, resolveMountedSubtitleOrdinal(mounted, SUBTITLE_OFF_FINGERPRINT))
+        assertEquals(1, resolveMountedSubtitleOrdinal(mounted, subtitleTrackFingerprint(mounted[1])))
+        assertNull(resolveMountedSubtitleOrdinal(mounted, null))
+    }
+
+    @Test
     fun blankOrUnknownFingerprintDoesNotResolve() {
         val tracks = listOf(AudioTrack(index = 0, codec = "aac", language = "eng", title = "Stereo"))
 
