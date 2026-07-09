@@ -530,6 +530,15 @@ class TvPlayerViewModel(
     /** Guards [startServerRecoveryFallback] against concurrent fallbacks racing the same session. */
     private var recoveryJob: Job? = null
 
+    /**
+     * Single-flight guard for in-player session restarts ([onSelectFileVersion] +
+     * [retry]). Both await a stopSession round-trip before [loadContent] flips
+     * isLoading; two rapid picks would otherwise run concurrent load pipelines and
+     * orphan a server session. Cancel-and-replace so a fresh pick supersedes an
+     * in-flight one without permanently locking out later switches.
+     */
+    private var versionSwitchJob: Job? = null
+
     /** Same-route retries spent on transient network errors; reset once playback progresses. */
     private var transientNetworkRetries = 0
 
@@ -2250,7 +2259,12 @@ class TvPlayerViewModel(
         if (state.fileVersions.none { it.fileId == fileId }) return
         val resumeAt = state.position.takeIf { it > 0.0 }
         val staleSessionId = state.sessionId
-        viewModelScope.launch {
+        // Single-flight: supersede any in-flight switch/retry so two rapid picks
+        // can't run concurrent load pipelines and orphan a server session. Cancelling
+        // here only interrupts the pre-loadContent stopSession round-trip (loadContent
+        // flips isLoading synchronously), so this never leaves isLoading stuck.
+        versionSwitchJob?.cancel()
+        versionSwitchJob = viewModelScope.launch {
             if (staleSessionId != null) {
                 runCatching { playbackSessionManager.stopSession(staleSessionId) }
             }
@@ -2266,7 +2280,10 @@ class TvPlayerViewModel(
     fun retry() {
         val resumeAt = _uiState.value.position.takeIf { it > 0.0 }
         val staleSessionId = _uiState.value.sessionId
-        viewModelScope.launch {
+        // Share the version-switch single-flight guard: retry also restarts the
+        // session, so a retry and a version pick must not run competing pipelines.
+        versionSwitchJob?.cancel()
+        versionSwitchJob = viewModelScope.launch {
             // Stop the previous server session first so a retry can't orphan it
             // until timeout (loadContent's adoptActiveSession replaces local
             // reporter state but does not stop the old server session).
@@ -2308,9 +2325,15 @@ class TvPlayerViewModel(
         introAutoSkipController.reset()
         val sessionId = _uiState.value.sessionId
         if (sessionId != null) {
-            // Best-effort session stop; viewModelScope is cancelling so this may
-            // not complete — the NonCancellable write above already persisted progress.
-            viewModelScope.launch { sessionLifecycle.stop() }
+            // androidx lifecycle 2.10 closes viewModelScope BEFORE onCleared, so a
+            // launch here never runs and the server session leaks until timeout.
+            // AWAIT the stop under NonCancellable off the main thread — same
+            // survivable approach as the resume-position write above. Best-effort.
+            runCatching {
+                runBlocking(NonCancellable + Dispatchers.IO) {
+                    sessionLifecycle.stop()
+                }
+            }
         }
     }
 
