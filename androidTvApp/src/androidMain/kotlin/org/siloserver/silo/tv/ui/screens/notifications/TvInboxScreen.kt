@@ -131,16 +131,20 @@ fun TvInboxScreen(
     // card disappears lands focus on the first notification row.
     val firstRowFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
-    var wasUnread by remember { mutableStateOf(hasUnread) }
+    // Set by the Mark-all card's onClick: clicking it removes the focused card
+    // from composition and drops focus, so we refocus the first notification row
+    // once the unread state clears. An explicit flag — rather than inferring a
+    // hasUnread true→false transition — so an incoming notification being read
+    // elsewhere can't yank focus mid-browse.
+    var pendingMarkAllRefocus by remember { mutableStateOf(false) }
     LaunchedEffect(cards.isNotEmpty(), hasUnread) {
-        // "Mark all read" flips hasUnread true→false, which removes the focused
-        // Mark-all card from composition and drops focus. The one-shot guard
-        // would otherwise block the refocus, so bypass it on that transition.
-        val markAllDismissed = wasUnread && !hasUnread
-        wasUnread = hasUnread
-        if (cards.isNotEmpty() && (!initialFocusRequested || markAllDismissed)) {
+        if (cards.isNotEmpty() && !initialFocusRequested) {
             runCatching { firstRowFocusRequester.requestFocus() }
             initialFocusRequested = true
+        }
+        if (pendingMarkAllRefocus && !hasUnread && cards.isNotEmpty()) {
+            pendingMarkAllRefocus = false
+            runCatching { firstRowFocusRequester.requestFocus() }
         }
     }
 
@@ -189,7 +193,10 @@ fun TvInboxScreen(
                     item(key = "mark-all-read") {
                         MarkAllReadCard(
                             focusRequester = firstRowFocusRequester,
-                            onClick = { scope.launch { repository.markAllRead() } },
+                            onClick = {
+                                pendingMarkAllRefocus = true
+                                scope.launch { repository.markAllRead() }
+                            },
                         )
                     }
                 }

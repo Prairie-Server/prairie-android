@@ -101,12 +101,17 @@ fun TvRecommendationsScreen(
         visibleSections.isEmpty() -> {
             // The empty fallback must carry a focusable element so the D-pad has
             // somewhere to land and the tab can't strand the user (mirrors the
-            // error branch's focusable retry). Grab focus on entry so returning
-            // to the tab lands here rather than in the top menu.
+            // error branch's focusable retry). Grab focus so first entry lands
+            // here rather than in the top menu — but only once per screen entry
+            // (shared flag with the content branch), so an empty refresh result
+            // can't yank focus away mid-browse.
             val retryFocusRequester = remember { FocusRequester() }
             LaunchedEffect(Unit) {
-                runCatching { retryFocusRequester.requestFocus() }
-                onInitialContentFocus()
+                if (!initialFocusRequested) {
+                    runCatching { retryFocusRequester.requestFocus() }
+                    onInitialContentFocus()
+                    initialFocusRequested = true
+                }
             }
             Box(
                 modifier = Modifier

@@ -113,11 +113,13 @@ fun TvCatalogGrid(
         }
     }
 
-    // A filter change / refresh / reset replaces the list (new first item), which
-    // can land on the same item count we last requested at. Drop the latch on any
-    // list-identity change so a fresh list is never mistaken for a stalled page.
-    // Pagination appends keep the same first item, so the latch survives them.
-    LaunchedEffect(items.firstOrNull()?.contentId) {
+    // A filter change / refresh / reset replaces the list, which can land on the
+    // same item count we last requested at. Drop the latch on any list-identity
+    // change — a new first item OR a size change (a refresh can shrink a paged
+    // list back to page size while keeping the same first item) — so a fresh
+    // list is never mistaken for a stalled page. A failed load-more changes
+    // neither key, so the gate correctly holds until the retry footer is used.
+    LaunchedEffect(items.firstOrNull()?.contentId, items.size) {
         loadMoreRequestedSize = -1
     }
 

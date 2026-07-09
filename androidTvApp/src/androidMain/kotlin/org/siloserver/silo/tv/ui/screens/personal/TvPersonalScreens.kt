@@ -127,21 +127,19 @@ fun TvHistoryScreen(
  * per-card optimistic state, so an item removed here — or on any other surface —
  * would otherwise linger as a ghost entry until this back-stack entry is popped.
  * ON_RESUME re-fetch is the least-invasive self-heal (mirrors the other TV
- * screens). The first resume is skipped because `init` already loaded page 0.
+ * screens). Gating on [PersonalListViewModel.hasLoadedOnce] (VM-scoped, not
+ * composition-scoped) keeps the first-entry replay suppressed naturally: the
+ * `init` load's isLoading=true covers the very first resume, and re-entering
+ * the composition can't reset the gate the way a remembered flag did.
  */
 @Composable
 private fun PersonalListResumeRefresh(viewModel: PersonalListViewModel) {
-    var hasResumedOnce by remember { mutableStateOf(false) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                if (!hasResumedOnce) {
-                    hasResumedOnce = true
-                    return@LifecycleEventObserver
-                }
                 val current = viewModel.uiState.value
-                if (!current.isLoading && !current.isRefreshing) {
+                if (viewModel.hasLoadedOnce && !current.isLoading && !current.isRefreshing) {
                     viewModel.refresh()
                 }
             }

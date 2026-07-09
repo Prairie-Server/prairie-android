@@ -9,6 +9,7 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.tv.ui.util.visibleOnTv
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -141,6 +142,10 @@ class TvSearchViewModel(
     }
 
     fun submitSearch() {
+        // Bump the generation (mirroring onQueryChanged) so a cancelled in-flight
+        // load-more's response fails the stale-generation guard instead of
+        // writing over the submitted search's results.
+        searchGeneration += 1
         searchJob?.cancel()
         loadMoreJob?.cancel()
         val query = _uiState.value.query
@@ -206,6 +211,12 @@ class TvSearchViewModel(
             offset = offset,
             limit = pageSize,
         )
+
+        // safeApiCall upstream swallows CancellationException into NetworkError —
+        // rethrow so a cancelled coroutine can't write any state from beyond the grave.
+        if (result is ApiResult.NetworkError && result.exception is CancellationException) {
+            throw result.exception
+        }
 
         // Drop a page fetched for a query/filter the user has already moved past,
         // so it can neither replace nor append onto the current generation.
