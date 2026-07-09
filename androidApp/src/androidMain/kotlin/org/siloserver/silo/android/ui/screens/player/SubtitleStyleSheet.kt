@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,6 +62,9 @@ fun SubtitleStyleSheet(
     appearance: SubtitleAppearance,
     onUpdate: (SubtitleAppearance) -> Unit,
     onDismiss: () -> Unit,
+    // Gear-submenu back affordance: dismisses this sheet and reopens the
+    // parent settings sheet (wired in PlayerOverlay).
+    onBack: (() -> Unit)? = null,
 ) {
     if (!isVisible) return
 
@@ -83,6 +88,10 @@ fun SubtitleStyleSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // Cap below the top edge + keep content flings from
+                // dismissing the sheet — see PlayerSheetSupport.
+                .heightIn(max = playerSheetMaxHeight())
+                .nestedScroll(PlayerSheetFlingGuard)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
@@ -97,12 +106,14 @@ fun SubtitleStyleSheet(
                     .fillMaxWidth()
                     .verticalScroll(scrollState),
             ) {
-                Text(
-                    text = "Subtitle Style",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+                PlayerSheetHeader(
+                    title = "Subtitle Style",
+                    onBack = onBack?.let { back ->
+                        {
+                            scope.launch { sheetState.hide() }
+                            back()
+                        }
+                    },
                 )
 
                 // ---- Text section ------------------------------------------------

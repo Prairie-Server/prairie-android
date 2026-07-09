@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,6 +96,11 @@ fun PlayerSettingsSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // Keep the sheet (and its drag handle) below the top screen
+                // edge, and keep content flings from dismissing the sheet —
+                // see PlayerSheetSupport.
+                .heightIn(max = playerSheetMaxHeight())
+                .nestedScroll(PlayerSheetFlingGuard)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(

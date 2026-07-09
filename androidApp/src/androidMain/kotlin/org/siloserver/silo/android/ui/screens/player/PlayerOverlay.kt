@@ -545,6 +545,10 @@ fun PlayerOverlay(
         isVisible = statsSheetVisible,
         stats = state.stats,
         onDismiss = { statsSheetVisible = false },
+        onBack = {
+            statsSheetVisible = false
+            settingsSheetVisible = true
+        },
     )
 
     // Chapters picker — opened from the HUD chapters button (HUD product
@@ -570,6 +574,10 @@ fun PlayerOverlay(
         appearance = viewModel.subtitleAppearance.collectAsState().value,
         onUpdate = viewModel::onSetSubtitleAppearance,
         onDismiss = { subtitleStyleVisible = false },
+        onBack = {
+            subtitleStyleVisible = false
+            settingsSheetVisible = true
+        },
     )
 
     // Sleep timer picker — opened from the "Sleep Timer" row in
@@ -581,6 +589,10 @@ fun PlayerOverlay(
         onStart = viewModel::onStartSleepTimer,
         onCancel = viewModel::onCancelSleepTimer,
         onDismiss = { sleepTimerVisible = false },
+        onBack = {
+            sleepTimerVisible = false
+            settingsSheetVisible = true
+        },
     )
 }
 

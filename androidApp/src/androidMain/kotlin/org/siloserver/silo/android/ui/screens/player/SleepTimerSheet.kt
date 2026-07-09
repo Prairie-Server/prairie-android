@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +49,9 @@ fun SleepTimerSheet(
     onStart: (Int) -> Unit,
     onCancel: () -> Unit,
     onDismiss: () -> Unit,
+    // Gear-submenu back affordance: dismisses this sheet and reopens the
+    // parent settings sheet (wired in PlayerOverlay).
+    onBack: (() -> Unit)? = null,
 ) {
     if (!isVisible) return
 
@@ -70,6 +74,9 @@ fun SleepTimerSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // Keep the sheet handle below the top screen edge — see
+                // PlayerSheetSupport.
+                .heightIn(max = playerSheetMaxHeight())
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
@@ -80,12 +87,14 @@ fun SleepTimerSheet(
                 ),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Sleep Timer",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 4.dp),
+                PlayerSheetHeader(
+                    title = "Sleep Timer",
+                    onBack = onBack?.let { back ->
+                        {
+                            scope.launch { sheetState.hide() }
+                            back()
+                        }
+                    },
                 )
 
                 if (activeState is SleepTimerState.Active) {

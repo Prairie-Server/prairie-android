@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -81,6 +83,10 @@ fun ChaptersSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // Cap below the top edge + keep content flings from
+                // dismissing the sheet — see PlayerSheetSupport.
+                .heightIn(max = playerSheetMaxHeight())
+                .nestedScroll(PlayerSheetFlingGuard)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
