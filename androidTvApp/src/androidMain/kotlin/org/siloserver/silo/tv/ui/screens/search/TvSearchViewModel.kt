@@ -82,6 +82,7 @@ class TvSearchViewModel(
             // If the active filter was forced to change while a query is live,
             // re-run so results aren't left stale under the old filter.
             if (nextMediaType != current.mediaType && current.query.isNotBlank()) {
+                searchGeneration += 1
                 searchJob?.cancel()
                 loadMoreJob?.cancel()
                 searchJob = viewModelScope.launch { runSearchInternal(reset = true) }
@@ -94,7 +95,17 @@ class TvSearchViewModel(
     private val pageSize = 40
     private val debounceMs = 300L
 
+    // Search-generation token. Every query/filter edit bumps [searchGeneration];
+    // a reset search stamps the current generation onto the results it produces
+    // ([resultsGeneration]). A load-more only runs — and only appends — while the
+    // accumulated results still belong to the current generation, so a page
+    // fetched for a query the user has already changed can never mix into the new
+    // query's results (it sent the new query at the old query's offset otherwise).
+    private var searchGeneration = 0
+    private var resultsGeneration = 0
+
     fun onQueryChanged(query: String) {
+        searchGeneration += 1
         _uiState.update { it.copy(query = query) }
         searchJob?.cancel()
         loadMoreJob?.cancel()
@@ -120,6 +131,7 @@ class TvSearchViewModel(
 
     fun onMediaTypeChanged(mediaType: TvSearchMediaType) {
         if (mediaType !in _uiState.value.availableMediaTypes) return
+        searchGeneration += 1
         _uiState.update { it.copy(mediaType = mediaType) }
         searchJob?.cancel()
         loadMoreJob?.cancel()
@@ -153,16 +165,37 @@ class TvSearchViewModel(
         val state = _uiState.value
         if (state.isLoading || state.isLoadingMore || !state.hasMore || state.query.isBlank()) return
         if (loadMoreJob?.isActive == true) return
-        loadMoreJob = viewModelScope.launch { runSearchInternal(reset = false) }
+        loadMoreJob = viewModelScope.launch {
+            try {
+                runSearchInternal(reset = false)
+            } finally {
+                // A load-more cancelled/superseded mid-flight (new keystroke)
+                // must not leak isLoadingMore=true — that would wedge paging and
+                // hide the grid's retry footer. The update is non-suspending, so
+                // it still runs when this coroutine is cancelled.
+                if (_uiState.value.isLoadingMore) {
+                    _uiState.update { it.copy(isLoadingMore = false) }
+                }
+            }
+        }
     }
 
     private suspend fun runSearchInternal(reset: Boolean) {
+        val generation = searchGeneration
         val state = _uiState.value
         val requestedQuery = state.query
         val requestedMediaType = state.mediaType
+
+        // A load-more whose accumulated results predate the current generation is
+        // paging a stale offset for a superseded query — abort before firing.
+        if (!reset && resultsGeneration != generation) {
+            _uiState.update { it.copy(isLoadingMore = false) }
+            return
+        }
+
         val offset = if (reset) 0 else state.rawResultCount
         _uiState.update {
-            if (reset) it.copy(isLoading = true, error = null)
+            if (reset) it.copy(isLoading = true, isLoadingMore = false, error = null)
             else it.copy(isLoadingMore = true)
         }
 
@@ -174,13 +207,17 @@ class TvSearchViewModel(
             limit = pageSize,
         )
 
-        val current = _uiState.value
-        if (current.query != requestedQuery || current.mediaType != requestedMediaType) {
+        // Drop a page fetched for a query/filter the user has already moved past,
+        // so it can neither replace nor append onto the current generation.
+        if (generation != searchGeneration) {
+            if (!reset) _uiState.update { it.copy(isLoadingMore = false) }
             return
         }
 
         when (result) {
             is ApiResult.Success -> {
+                // The results now belong to this generation; load-more may page.
+                if (reset) resultsGeneration = generation
                 val response = result.data
                 val visibleItems = response.items.visibleOnTv()
                 _uiState.update {

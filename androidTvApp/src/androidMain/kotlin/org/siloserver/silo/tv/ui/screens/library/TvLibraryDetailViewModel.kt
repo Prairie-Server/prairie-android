@@ -125,6 +125,13 @@ class TvLibraryDetailViewModel(
     private var loadedFilters = false
     private var browseGeneration = 0
     private var browseSnapshot: String? = null
+
+    // Raw (pre-visibleOnTv-filter) loaded count = the server offset for the next
+    // browse page. Paging off the filtered browseItems.size would double-count
+    // (duplicate contentId keys → LazyVerticalGrid crash) whenever a page holds
+    // TV-hidden entries, or stall the offset forever if a whole page is hidden.
+    // Mirrors the rawLoaded counter in TvBrowseViewModel.
+    private var browseRawLoaded = 0
     private var loadedAudiobookGroupBy: String? = null
     private var audiobookGroupsGeneration = 0
 
@@ -387,11 +394,12 @@ class TvLibraryDetailViewModel(
 
         if (reset) {
             browseSnapshot = null
+            browseRawLoaded = 0
         }
 
         viewModelScope.launch {
             val state = _uiState.value
-            val offset = if (reset) 0 else state.browseItems.size
+            val offset = if (reset) 0 else browseRawLoaded
             val filter = state.browseFilter
 
             _uiState.update {
@@ -432,10 +440,22 @@ class TvLibraryDetailViewModel(
                     if (browseSnapshot == null) {
                         browseSnapshot = response.snapshot
                     }
+                    browseRawLoaded = if (reset) {
+                        response.items.size
+                    } else {
+                        browseRawLoaded + response.items.size
+                    }
                     _uiState.update {
                         val visibleItems = response.items.visibleOnTv()
                         it.copy(
-                            browseItems = if (reset) visibleItems else it.browseItems + visibleItems,
+                            // distinctBy contentId is a belt-and-suspenders guard
+                            // against duplicate keys crashing LazyVerticalGrid if a
+                            // page ever overlaps the previous one.
+                            browseItems = if (reset) {
+                                visibleItems
+                            } else {
+                                (it.browseItems + visibleItems).distinctBy { item -> item.contentId }
+                            },
                             browseHasMore = response.hasMore,
                             browseLoading = false,
                             browseLoadingMore = false,
