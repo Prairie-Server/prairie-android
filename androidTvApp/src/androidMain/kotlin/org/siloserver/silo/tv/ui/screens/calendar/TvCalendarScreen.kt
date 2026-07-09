@@ -223,6 +223,14 @@ fun TvCalendarScreen(
                         listState = listState,
                         shelfFocusDay = shelfFocusDay,
                         shelfFocusRequest = shelfFocusRequest,
+                        // Consume the token once a shelf has applied it so a later
+                        // dispose/recompose of that shelf (LazyColumn recycle or
+                        // prefetch) can't replay the still-non-zero token and yank
+                        // the row back to item 0, stealing focus.
+                        onShelfFocusConsumed = {
+                            shelfFocusDay = null
+                            shelfFocusRequest = 0
+                        },
                         onItemFocused = { item -> tintState.set(null, item.posterUrl) },
                         onOpenItemDetail = onOpenItemDetail,
                     )
@@ -547,6 +555,7 @@ private fun DayList(
     listState: LazyListState,
     shelfFocusDay: String?,
     shelfFocusRequest: Int,
+    onShelfFocusConsumed: () -> Unit,
     onItemFocused: (CalendarItem) -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
@@ -580,6 +589,7 @@ private fun DayList(
                 isToday = date == state.today,
                 items = state.itemsFor(date),
                 focusRequest = if (date == shelfFocusDay) shelfFocusRequest else 0,
+                onFocusApplied = onShelfFocusConsumed,
                 onItemFocused = onItemFocused,
                 // Snap the day whose shelf owns focus to the top of the list
                 // (QA 2026-07-08: default bring-into-view revealed only the
@@ -600,24 +610,27 @@ private fun DayShelf(
     isToday: Boolean,
     items: List<CalendarItem>,
     focusRequest: Int,
+    onFocusApplied: () -> Unit = {},
     onItemFocused: (CalendarItem) -> Unit,
     onShelfFocused: () -> Unit = {},
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val firstCardFocusRequester = remember { FocusRequester() }
     val rowState = rememberLazyListState()
-    var lastAppliedRequest by remember { mutableIntStateOf(0) }
 
     // A changing, non-zero focus token (from a week-strip day selection) kicks
-    // focus to this shelf's first card. Each token claims focus exactly once.
-    // Scroll the row back to item 0 first so the first card is composed and its
-    // FocusRequester attached — otherwise, after the shelf has been scrolled
-    // horizontally, the first card may be off-screen and the request is dropped.
+    // focus to this shelf's first card, then reports back so the screen can
+    // clear the token — otherwise a dispose/recompose of this shelf (LazyColumn
+    // recycle/prefetch) restarts this effect with the still-non-zero token and
+    // replays the focus grab, yanking the row to item 0. Scroll the row back to
+    // item 0 first so the first card is composed and its FocusRequester attached
+    // — otherwise, after the shelf has been scrolled horizontally, the first
+    // card may be off-screen and the request is dropped.
     LaunchedEffect(focusRequest) {
-        if (focusRequest > 0 && focusRequest != lastAppliedRequest && items.isNotEmpty()) {
-            lastAppliedRequest = focusRequest
+        if (focusRequest > 0 && items.isNotEmpty()) {
             rowState.scrollToItem(0)
             runCatching { firstCardFocusRequester.requestFocus() }
+            onFocusApplied()
         }
     }
 

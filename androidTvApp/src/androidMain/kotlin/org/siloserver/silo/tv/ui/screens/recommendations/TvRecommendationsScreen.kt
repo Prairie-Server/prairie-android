@@ -24,8 +24,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -68,6 +70,25 @@ fun TvRecommendationsScreen(
         initialFocusRequested = true
     }
 
+    // TV has no pull-to-refresh, so ON_RESUME is the only quiet self-heal path.
+    // The shared VM loads once in init and retains its state across tab swaps, so
+    // an empty discover response otherwise leaves this tab a permanent dead end
+    // until a profile switch/restart. If the feed is still the empty fallback
+    // when the user returns (e.g. after watching and rating content), re-check.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                val current = viewModel.uiState.value
+                if (!current.isLoading && current.sections.visibleOnTv().isEmpty()) {
+                    viewModel.refresh()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     when {
         state.isLoading && state.sections.isEmpty() -> TvLoadingScreen(
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
@@ -77,33 +98,52 @@ fun TvRecommendationsScreen(
             onRetry = viewModel::loadRecommendations,
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
         )
-        visibleSections.isEmpty() -> Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = Spacing.safeArea),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+        visibleSections.isEmpty() -> {
+            // The empty fallback must carry a focusable element so the D-pad has
+            // somewhere to land and the tab can't strand the user (mirrors the
+            // error branch's focusable retry). Grab focus on entry so returning
+            // to the tab lands here rather than in the top menu.
+            val retryFocusRequester = remember { FocusRequester() }
+            LaunchedEffect(Unit) {
+                runCatching { retryFocusRequester.requestFocus() }
+                onInitialContentFocus()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = Spacing.safeArea),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.AutoAwesome,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.72f),
-                    modifier = Modifier.size(28.dp),
-                )
-                Text(
-                    text = "Not enough data yet",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                )
-                Text(
-                    text = "Watch and rate more content to unlock personalized recommendations.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.7f),
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.72f),
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Text(
+                        text = "Not enough data yet",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Color.White,
+                    )
+                    Text(
+                        text = "Watch and rate more content to unlock personalized recommendations.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.7f),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = viewModel::loadRecommendations,
+                        contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+                        modifier = Modifier.focusRequester(retryFocusRequester),
+                    ) {
+                        Text("Check again", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
             }
         }
         else -> {
