@@ -111,8 +111,13 @@ fun TvInboxScreen(
         val cursor = nextCursor
         if (shouldLoadMore && cursor != null && !isLoadingMore) {
             isLoadingMore = true
-            repository.loadMore(cursor)
-            isLoadingMore = false
+            // try/finally so a key change that cancels this coroutine mid-load
+            // can't strand isLoadingMore=true and permanently wedge pagination.
+            try {
+                repository.loadMore(cursor)
+            } finally {
+                isLoadingMore = false
+            }
         }
     }
 
@@ -121,11 +126,19 @@ fun TvInboxScreen(
     val hasUnread = unreadCount > 0
 
     // Focus the first actionable row once data is present. The Mark-all card is
-    // the first focusable when unread; otherwise the first notification card.
+    // the first focusable when unread; otherwise the first notification card —
+    // both wear [firstRowFocusRequester], so re-requesting it after the Mark-all
+    // card disappears lands focus on the first notification row.
     val firstRowFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
+    var wasUnread by remember { mutableStateOf(hasUnread) }
     LaunchedEffect(cards.isNotEmpty(), hasUnread) {
-        if (!initialFocusRequested && cards.isNotEmpty()) {
+        // "Mark all read" flips hasUnread true→false, which removes the focused
+        // Mark-all card from composition and drops focus. The one-shot guard
+        // would otherwise block the refocus, so bypass it on that transition.
+        val markAllDismissed = wasUnread && !hasUnread
+        wasUnread = hasUnread
+        if (cards.isNotEmpty() && (!initialFocusRequested || markAllDismissed)) {
             runCatching { firstRowFocusRequester.requestFocus() }
             initialFocusRequested = true
         }

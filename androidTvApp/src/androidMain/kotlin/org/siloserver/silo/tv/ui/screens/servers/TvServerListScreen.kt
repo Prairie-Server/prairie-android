@@ -2,7 +2,6 @@ package org.siloserver.silo.tv.ui.screens.servers
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -263,9 +262,10 @@ private fun ServerRow(
                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                 },
             ),
-            modifier = Modifier
-                .weight(1f)
-                .focusable(),
+            // The TV Card is already focusable; adding .focusable() here creates
+            // a dead second focus stop (no visual, OK does nothing). Keep only
+            // the weight, matching AddServerTile.
+            modifier = Modifier.weight(1f),
         ) {
             Row(
                 modifier = Modifier.padding(Spacing.md),

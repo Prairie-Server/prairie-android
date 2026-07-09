@@ -250,7 +250,13 @@ class MainTvActivity : ComponentActivity() {
     private fun launchAuthenticatedStartupWarmup(startRoute: String) {
         if (startRoute != TvRoute.Main.route) return
         lifecycleScope.launch(Dispatchers.IO) {
-            get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).start()
+            // Re-check the lifecycle before starting the cast receiver: a
+            // cold-start followed by an immediate Home can dispatch this after
+            // onStop()'s stop() already ran, leaving NSD advertising + the cast
+            // socket up while backgrounded. Mirrors the onStart() guard.
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).start()
+            }
             warmAuthenticatedStartup(
                 authRepository = get(AuthRepository::class.java),
                 profileRepository = get(ProfileRepository::class.java),

@@ -51,9 +51,13 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+
+/** How long a control-result message stays visible before auto-dismiss. */
+private const val ControlMessageVisibleMs = 4_000L
 
 // ---------------------------------------------------------------------------
 // ViewModel (co-located, mirrors the phone's AdminSessionsViewModel)
@@ -108,8 +112,13 @@ class TvAdminSessionsViewModel(
                     _uiState.update { it.copy(message = controlSuccessMessage(action)) }
                     load()
                 }
-                is ApiResult.Error, is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(message = result.errorMessage("Failed to ${action.wire} session"))
+                is ApiResult.Error, is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(message = result.errorMessage("Failed to ${action.wire} session"))
+                    }
+                    // Refresh on failure too: a failed terminate/stop must not be
+                    // silent — reload so the list reflects the session's real state.
+                    load()
                 }
             }
         }
@@ -163,10 +172,14 @@ fun TvAdminSessionsScreen(
 
     BackHandler(enabled = true) { onBack() }
 
-    // Consume one-shot control messages so the flag doesn't stick (no snackbar
-    // on TV — the list refresh after a successful action is the feedback).
+    // Surface control-result messages long enough to read (no snackbar on TV),
+    // then auto-dismiss. Consuming on the same composition made the message
+    // visible for <1 frame; hold it briefly so success/failure feedback lands.
     androidx.compose.runtime.LaunchedEffect(state.message) {
-        if (state.message != null) viewModel.consumeMessage()
+        if (state.message != null) {
+            delay(ControlMessageVisibleMs)
+            viewModel.consumeMessage()
+        }
     }
 
     Column(
