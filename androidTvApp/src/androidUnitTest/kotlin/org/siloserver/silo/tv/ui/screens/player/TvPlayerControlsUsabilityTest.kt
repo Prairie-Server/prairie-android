@@ -275,21 +275,18 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
-    fun qualityRowAppliesRealVideoTrackOverrideAndDisablesWhenNoChoice() {
-        // Quality must be a genuine Media3 video-track override, not a silent
-        // no-op that just closes the dialog. The screen wires onSelectVideoQuality
-        // to selectVideoQuality on the live player, which sets/clears an override.
-        assertTrue(screenSource.contains("selectVideoQuality(it, id)"))
-        assertTrue(screenSource.contains("viewModel.onVideoQualitySelectionApplied("))
-        assertTrue(screenSource.contains("setOverrideForType("))
-        assertTrue(screenSource.contains("clearOverridesOfType(C.TRACK_TYPE_VIDEO)"))
-        // The old no-op onSelectVideo wiring is gone.
-        assertFalse(screenSource.contains("but no-op on tap"))
-        // Quality options come from the real per-format variants (resolution /
-        // bitrate), and the row disables when there is no genuine choice.
-        assertTrue(screenSource.contains("fun extractVideoQualityOptions("))
-        assertTrue(screenSource.contains("fun formatVideoQualityLabel("))
-        assertTrue(hudSource.contains("val hasQualityChoice = videoQualities.size > 2"))
+    fun qualityRowOffersServerTranscodeLadder() {
+        // Quality is a server-transcode ladder (tvOS ApplePlaybackQuality parity):
+        // selecting a rung re-requests the session at that quality rather than
+        // pinning a Media3 adaptive-variant override.
+        assertTrue(screenSource.contains("viewModel.switchQuality(id)"))
+        // The ladder is built by the VM from the source resolution + selected
+        // quality, offering at least Auto + Original (plus downscale rungs).
+        assertTrue(viewModelSource.contains("fun transcodeQualityLadder("))
+        assertTrue(viewModelSource.contains("PlaybackQuality.Auto, PlaybackQuality.Original"))
+        // Row is enabled whenever more than one option exists (always ≥ 2), so a
+        // single-file movie is no longer stuck with a disabled Quality row.
+        assertTrue(hudSource.contains("val hasQualityChoice = videoQualities.size > 1"))
         assertTrue(hudSource.contains("enabled = enabled && hasQualityChoice"))
         // Quality is no longer keyed off the group-level videoTracks.size count.
         assertFalse(hudSource.contains("videoTracks.size > 1"))
@@ -524,7 +521,10 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(routeSource.contains("if (quality != null) add(\"quality=\${quality.routeEncode()}\")"))
         assertTrue(navigationSource.contains("TvRoute.Player(contentId = nextContentId, quality = nextQuality"))
         assertTrue(navigationSource.contains("preferredQuality = preferredQuality"))
-        assertTrue(viewModelSource.contains("preferredQualityOverride = preferredQuality"))
+        // In-player Quality menu can pin a session override that wins over the
+        // launch/profile preference (TP3 transcode ladder).
+        assertTrue(viewModelSource.contains("preferredQualityOverride = qualityOverride ?: preferredQuality"))
+        assertTrue(viewModelSource.contains("fun switchQuality(wireValue: String)"))
     }
 
     @Test

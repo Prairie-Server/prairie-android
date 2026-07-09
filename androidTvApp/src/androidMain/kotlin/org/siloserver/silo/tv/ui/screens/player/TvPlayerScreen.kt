@@ -898,8 +898,9 @@ fun TvPlayerScreen(
                     val audio = extractTrackEntries(tracks, C.TRACK_TYPE_AUDIO)
                     val subtitle = extractTrackEntries(tracks, C.TRACK_TYPE_TEXT)
                     val video = extractTrackEntries(tracks, C.TRACK_TYPE_VIDEO)
-                    val videoQualities = extractVideoQualityOptions(tracks)
-                    viewModel.onTracksChanged(audio, subtitle, video, videoQualities)
+                    // Quality is a server-transcode ladder built by the VM at
+                    // session load (tvOS parity), not the adaptive variants.
+                    viewModel.onTracksChanged(audio, subtitle, video)
                 }
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
                     // MediaController doesn't expose ExoPlayer's `videoFormat`
@@ -1515,17 +1516,9 @@ fun TvPlayerScreen(
                                 }
                             },
                             onSelectVideoQuality = { id ->
-                                // Real Media3 video track override: clears the
-                                // override for Auto, otherwise pins the chosen
-                                // resolution/bitrate variant within the video group.
-                                mediaController?.let {
-                                    if (selectVideoQuality(it, id)) {
-                                        val resolution = state.videoQualities
-                                            .firstOrNull { option -> option.id == id }
-                                            ?.resolution
-                                        viewModel.onVideoQualitySelectionApplied(resolution)
-                                    }
-                                }
+                                // Server-transcode quality ladder (tvOS parity):
+                                // re-request the session at the chosen rung.
+                                viewModel.switchQuality(id)
                             },
                             onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, false) },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
