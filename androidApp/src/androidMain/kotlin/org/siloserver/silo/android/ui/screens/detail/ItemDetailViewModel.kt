@@ -92,6 +92,11 @@ class ItemDetailViewModel(
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
     private var episodeLoadJob: Job? = null
     private var allEpisodeFileIdsJob: Job? = null
+    // The season number the currently-shown episodes actually belong to. A
+    // failed season switch reverts the optimistic selection to THIS season —
+    // not merely the previously-selected one, which may itself have failed —
+    // so the chips and the episode list stay in agreement (TV parity: T15).
+    private var loadedSeasonNumber: Int? = null
 
     /** Live mirror of the shared records flow; the screen reads this to
      *  derive per-version download state (isDownloaded / progress). */
@@ -494,24 +499,19 @@ class ItemDetailViewModel(
      * the series id comes from its parent reference).
      */
     fun selectSeason(seasonNumber: Int) {
-        // Capture the currently-loaded season BEFORE the optimistic write so a
-        // failed load can revert the header/chips to it — otherwise the new
-        // season header would sit above the old season's still-loaded episodes.
-        val previousSeasonNumber = _uiState.value.selectedSeasonNumber
+        // Optimistic write; a failed load reverts to [loadedSeasonNumber] so
+        // the new season header can't sit above the old season's still-loaded
+        // episodes (see loadEpisodes' error branches).
         _uiState.update { it.copy(selectedSeasonNumber = seasonNumber) }
         val detail = _uiState.value.detail ?: return
         val seriesId = if (detail.type == "series") detail.contentId else detail.seriesId ?: return
-        loadEpisodes(seriesId, seasonNumber, revertSeasonOnError = previousSeasonNumber)
+        loadEpisodes(seriesId, seasonNumber)
     }
 
     private fun loadEpisodes(
         seriesId: String,
         seasonNumber: Int,
         seasonsForDownloadRollup: List<Season>? = null,
-        // When a user-initiated season switch fails to load, revert the
-        // selection to this season so chips + list stay consistent. A
-        // successful-but-empty season keeps the new selection (empty state).
-        revertSeasonOnError: Int? = null,
     ) {
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
@@ -519,6 +519,7 @@ class ItemDetailViewModel(
             when (val result = catalogRepository.getEpisodes(seriesId, seasonNumber)) {
                 is ApiResult.Success -> {
                     val episodes = withLocalProgress(result.data.episodes)
+                    loadedSeasonNumber = seasonNumber
                     _uiState.update {
                         it.copy(
                             isLoadingEpisodes = false,
@@ -534,11 +535,14 @@ class ItemDetailViewModel(
                         )
                     }
                 }
+                // Failed season switch: revert the optimistic selection to the
+                // season whose episodes are actually on screen. A
+                // successful-but-empty season keeps the new selection (empty state).
                 is ApiResult.Error -> {
                     _uiState.update {
                         it.copy(
                             isLoadingEpisodes = false,
-                            selectedSeasonNumber = revertSeasonOnError ?: it.selectedSeasonNumber,
+                            selectedSeasonNumber = loadedSeasonNumber ?: it.selectedSeasonNumber,
                         )
                     }
                     seasonsForDownloadRollup?.let { loadAllEpisodeFileIds(seriesId, it) }
@@ -547,7 +551,7 @@ class ItemDetailViewModel(
                     _uiState.update {
                         it.copy(
                             isLoadingEpisodes = false,
-                            selectedSeasonNumber = revertSeasonOnError ?: it.selectedSeasonNumber,
+                            selectedSeasonNumber = loadedSeasonNumber ?: it.selectedSeasonNumber,
                         )
                     }
                     seasonsForDownloadRollup?.let { loadAllEpisodeFileIds(seriesId, it) }

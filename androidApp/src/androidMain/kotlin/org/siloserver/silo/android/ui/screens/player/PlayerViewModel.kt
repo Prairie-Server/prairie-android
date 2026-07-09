@@ -378,7 +378,16 @@ class PlayerViewModel(
     // strongest videoEnded flag seen) so resolveNextEpisode can commit the card.
     private var pendingApproachingEndVideoEnded: Boolean? = null
     private var upNextCountdownJob: Job? = null
-    private var engineSwitchFallbackAttempted = false
+    // Engines for which an engine-switch failure ([onEngineSwitchFailed]) has
+    // already been escalated. Replaces the old one-shot boolean so repeated
+    // SET_ENGINE failures — or a re-armed black-screen watchdog — for the SAME
+    // engine don't re-enter the ladder, while a black screen on a LATER fallback
+    // engine can still escalate. Nullable on purpose: a plan-less session keys
+    // on null, so it still escalates exactly once instead of bypassing the
+    // guard. Cleared on every fresh load/version switch; the ladder terminates
+    // because the planner stops offering direct engines once attemptedEngines
+    // is exhausted.
+    private val engineSwitchFailureEngines = mutableSetOf<PlaybackEngineKind?>()
     // Auto-dismiss timer for the transient version-switch failure pill. A new
     // failure cancels the prior job so a stale one can't clear the fresh
     // message early (repeated identical failures used to be dismissed within a
@@ -549,7 +558,7 @@ class PlayerViewModel(
         // AutoPlayGuard streak intentionally PERSISTS across episodes.)
         autoAdvanceHandled = false
         pendingApproachingEndVideoEnded = null
-        engineSwitchFallbackAttempted = false
+        engineSwitchFailureEngines.clear()
         persistNextSubtitleSelection = false
         resetPlaybackRecoveryState()
         upNextCountdownJob?.cancel()
@@ -765,6 +774,12 @@ class PlayerViewModel(
                 showUpNext = false,
                 upNextVideoEnded = false,
                 upNextCountdownSeconds = null,
+                // T11: clear the subtitle-refresh nonce on every fresh mount.
+                // It is bumped once per post-download refresh; without this
+                // reset a later backend recreation (version switch / recovery
+                // fallback) would see a stale nonce>0 and re-fire a spurious
+                // second refresh racing the primary mount effect.
+                subtitleRefreshNonce = 0,
                 preferredAudioLanguage = playbackState.preferredAudioLanguage,
                 preferredTextLanguage = playbackState.preferredTextLanguage,
             )
@@ -938,6 +953,9 @@ class PlayerViewModel(
                 ),
             )
         }
+        // Swapping to a new engine re-arms the black-screen watchdog so a black
+        // frame on the fallback engine is escalated too (not just the first one).
+        rearmFirstFrameWatchdog()
         _uiState.update {
             it.copy(
                 isLoading = false,
@@ -1065,6 +1083,9 @@ class PlayerViewModel(
                             )
                         }
                     }
+                    // Adopting a new server route swaps the effective engine/route,
+                    // so re-arm the black-screen watchdog for the adopted stream.
+                    rearmFirstFrameWatchdog()
                 }
                 is ApiResult.Error -> _uiState.update { current ->
                     if (!current.matchesServerRecovery(recoveryIdentity)) {
@@ -1088,11 +1109,11 @@ class PlayerViewModel(
         cancelRecoveryJob()
         attemptedEngines.clear()
         transientNetworkRetries = 0
-        // Fresh stream/session mount: re-arm the first-frame watchdog so a
-        // post-recovery MPV mount is itself watched for a silent black screen.
-        firstVideoFrameRendered = false
-        firstFrameWatchdogJob?.cancel()
-        firstFrameWatchdogJob = null
+        // Fresh load / version switch / exit: re-arm the first-frame watchdog
+        // for the next mount. (Recovery paths that adopt a new engine/route
+        // mid-session — applyAlternateDirectFallback, startServerRecoveryFallback
+        // — re-arm it themselves; they don't come through here.)
+        rearmFirstFrameWatchdog()
     }
 
     private fun cancelRecoveryJob() {
@@ -1124,13 +1145,19 @@ class PlayerViewModel(
 
     fun onEngineSwitchFailed(message: String) {
         val state = _uiState.value
+        // Per-engine scoping (TV parity): escalate at most once per distinct
+        // engine. Repeated SET_ENGINE failures — or a re-armed black-screen
+        // watchdog firing again — for the SAME engine must not re-enter the
+        // ladder and emit duplicate route events, but a black screen on a LATER
+        // fallback engine still needs to escalate. `add` returns false when the
+        // engine was already handled; a null plan keys on null so a plan-less
+        // session gets exactly one escalation instead of bypassing the guard.
         if (
-            !engineSwitchFallbackAttempted &&
+            engineSwitchFailureEngines.add(state.playbackPlan?.engine) &&
             state.sessionId != null &&
             state.streamUrl != null &&
             state.versions.getOrNull(state.selectedVersionIndex) != null
         ) {
-            engineSwitchFallbackAttempted = true
             // Don't blindly transcode: prefer another direct engine, then fall
             // through the plan's remux/transcode ladder. A transcode-only source
             // can't be rescued by a remux that copies the same streams.
@@ -1247,6 +1274,21 @@ class PlayerViewModel(
     fun onFirstVideoFrameRendered() {
         firstVideoFrameRendered = true
         firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
+    }
+
+    /**
+     * Re-arm the black-screen watchdog for a freshly swapped engine/route. The
+     * watchdog is one-shot per armed engine (see [onPlayingChanged]); without
+     * clearing the rendered latch and cancelling the previous engine's job, a
+     * black screen on the NEW (fallback) engine would never be detected — the
+     * ladder would stall on permanent black-with-audio. The next
+     * [onPlayingChanged] with isPlaying=true re-arms it for the new engine.
+     */
+    private fun rearmFirstFrameWatchdog() {
+        firstVideoFrameRendered = false
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
     }
 
     fun onPlayingChanged(isPlaying: Boolean) {
@@ -1267,6 +1309,10 @@ class PlayerViewModel(
                     Log.w(TAG, "No first video frame after ${FIRST_FRAME_WATCHDOG_MS}ms — engine fallback")
                     onEngineSwitchFailed("Video never started (black screen)")
                 }
+                // A skipped/expired watchdog must not keep the slot occupied —
+                // rearmFirstFrameWatchdog() + the next isPlaying=true need a
+                // null job to arm a fresh one for the swapped engine.
+                firstFrameWatchdogJob = null
             }
         }
         // Controls should auto-hide once real playback resumes after a pause.
@@ -2100,7 +2146,7 @@ class PlayerViewModel(
             }
             // Cancel any in-flight intro skip countdown — we're loading a new version.
             introAutoSkipController.reset()
-            engineSwitchFallbackAttempted = false
+            engineSwitchFailureEngines.clear()
 
             _uiState.update { it.copy(isLoading = true, selectedVersionIndex = index, sessionId = null) }
 

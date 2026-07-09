@@ -603,6 +603,21 @@ fun ItemDetailScreen(
                             state.hasExplicitVersionSelection || detail.versions.isEmpty()
                         ) {
                             effectiveSelectedVersionIndex
+                        } else if (preferredQuality == null) {
+                            // The quality pref hasn't emitted from DataStore yet
+                            // (a frame or two): don't auto-resolve against a
+                            // missing pref — it would name a version the arriving
+                            // pref immediately contradicts (first-frame flash).
+                            // lastFileId is pref-independent and always wins in
+                            // selectPlaybackVersion, so it can be shown at once;
+                            // otherwise hold the bare "Auto" placeholder (-1 →
+                            // no resolved version) until the pref lands.
+                            detail.userData?.lastFileId
+                                ?.let { lastFileId ->
+                                    detail.versions.indexOfFirst { it.fileId == lastFileId }
+                                        .takeIf { it >= 0 }
+                                }
+                                ?: -1
                         } else {
                             val resolvedFileId = selectPlaybackVersion(
                                 detail.versions,

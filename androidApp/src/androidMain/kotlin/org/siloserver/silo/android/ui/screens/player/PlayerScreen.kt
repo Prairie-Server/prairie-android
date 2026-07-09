@@ -1033,4 +1033,5 @@ private fun hasDolbyVisionSource(source: PlaybackSourceMetadata?): Boolean =
     DolbyVisionDetection.isDolbyVision(
         dolbyVisionProfile = source?.dolbyVisionProfile,
         hdrFormat = source?.hdrFormat,
+        videoCodec = source?.videoCodec,
     )
