@@ -34,7 +34,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,8 +53,6 @@ import org.siloserver.silo.model.request.RequestAvailability
 import org.siloserver.silo.model.request.RequestDiscoverySection
 import org.siloserver.silo.model.request.RequestMediaResult
 import org.siloserver.silo.model.request.RequestMediaType
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.repository.RequestsRepository
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
@@ -67,8 +64,6 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.theme.sectionEyebrow
 import org.siloserver.silo.viewmodel.RequestSearchViewModel
 import org.siloserver.silo.viewmodel.RequestsViewModel
-import kotlinx.coroutines.launch
-import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 private val requestMediaFilters = listOf(
@@ -86,10 +81,11 @@ fun TvRequestsScreen(
     onInitialContentFocus: () -> Unit = {},
     viewModel: RequestsViewModel = koinViewModel(),
     searchViewModel: RequestSearchViewModel = koinViewModel(),
-    repository: RequestsRepository = koinInject(),
+    actionViewModel: TvRequestsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val searchState by searchViewModel.uiState.collectAsState()
+    val actionState by actionViewModel.actionState.collectAsState()
     val visibleSearchResults = searchState.results.filterTvRequestResults()
     val visibleDiscoverSections = state.sections.filterTvRequestSections()
     val searchFieldFocusRequester = remember { FocusRequester() }
@@ -104,19 +100,14 @@ fun TvRequestsScreen(
     var initialFocusRequested by remember { mutableStateOf(false) }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     var pendingRequest by remember { mutableStateOf<RequestMediaResult?>(null) }
-    var actionMessage by remember { mutableStateOf<String?>(null) }
-    var actionError by remember { mutableStateOf<String?>(null) }
-    var submittingKey by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
 
     fun refreshRequests() {
-        actionError = null
-        actionMessage = null
+        actionViewModel.clearNotices()
         viewModel.refresh()
     }
 
     fun handleRequestItemClick(item: RequestMediaResult) {
-        if (submittingKey != null) return
+        if (actionState.submittingKey != null) return
         when {
             item.canOpenLibraryDetail() -> onOpenLibraryItem(item.libraryContentId.orEmpty())
             item.canRequest() -> pendingRequest = item
@@ -145,6 +136,19 @@ fun TvRequestsScreen(
         }
     }
 
+    // Once a create succeeds, refresh discover/search so the just-requested card
+    // reflects its new status. The create itself runs in the ViewModel's scope
+    // (see TvRequestsViewModel) so it survives navigating away; this only tidies
+    // the rows when the user is still on this screen.
+    LaunchedEffect(actionState.successGeneration) {
+        if (actionState.successGeneration > 0) {
+            viewModel.refresh()
+            if (searchState.query.isNotBlank()) {
+                searchViewModel.search(searchState.page)
+            }
+        }
+    }
+
     pendingRequest?.let { item ->
         AlertDialog(
             onDismissRequest = { pendingRequest = null },
@@ -154,27 +158,7 @@ fun TvRequestsScreen(
                 Button(
                     onClick = {
                         pendingRequest = null
-                        actionError = null
-                        actionMessage = null
-                        submittingKey = item.requestKey()
-                        scope.launch {
-                            when (val result = repository.create(item.toCreateMediaRequest())) {
-                                is ApiResult.Success -> {
-                                    actionMessage = "Request submitted."
-                                    viewModel.refresh()
-                                    if (searchState.query.isNotBlank()) {
-                                        searchViewModel.search(searchState.page)
-                                    }
-                                }
-                                is ApiResult.Error -> {
-                                    actionError = result.message.ifBlank { "Failed to submit request" }
-                                }
-                                is ApiResult.NetworkError -> {
-                                    actionError = "Network error. Check your connection."
-                                }
-                            }
-                            submittingKey = null
-                        }
+                        actionViewModel.submit(item.requestKey(), item.toCreateMediaRequest())
                     },
                 ) {
                     Text("Request")
@@ -203,7 +187,7 @@ fun TvRequestsScreen(
                     isSearching = searchState.isLoading,
                     error = searchState.error,
                 ),
-                isRefreshing = state.isRefreshing || submittingKey != null,
+                isRefreshing = state.isRefreshing || actionState.submittingKey != null,
                 searchFieldFocusRequester = searchFieldFocusRequester,
                 firstFilterChipFocusRequester = firstFilterChipFocusRequester,
                 firstResultFocusRequester = firstResultFocusRequester,
@@ -236,11 +220,11 @@ fun TvRequestsScreen(
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                     contentPadding = PaddingValues(bottom = 56.dp),
                 ) {
-                    if (actionError != null || searchState.error != null || state.error != null || actionMessage != null) {
+                    if (actionState.error != null || searchState.error != null || state.error != null || actionState.message != null) {
                         item(contentType = "request-notice") {
                             RequestNotice(
-                                text = actionError ?: searchState.error ?: state.error ?: actionMessage.orEmpty(),
-                                isError = actionError != null || searchState.error != null || state.error != null,
+                                text = actionState.error ?: searchState.error ?: state.error ?: actionState.message.orEmpty(),
+                                isError = actionState.error != null || searchState.error != null || state.error != null,
                             )
                         }
                     }
@@ -266,7 +250,7 @@ fun TvRequestsScreen(
                                 firstItemCardModifier = Modifier.focusProperties {
                                     up = firstFilterChipFocusRequester
                                 },
-                                submittingKey = submittingKey,
+                                submittingKey = actionState.submittingKey,
                                 onItemClick = ::handleRequestItemClick,
                             )
                         }
@@ -285,7 +269,7 @@ fun TvRequestsScreen(
                                 firstItemCardModifier = Modifier.focusProperties {
                                     up = firstFilterChipFocusRequester
                                 },
-                                submittingKey = submittingKey,
+                                submittingKey = actionState.submittingKey,
                                 onItemClick = ::handleRequestItemClick,
                             )
                         }

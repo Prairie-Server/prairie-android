@@ -347,6 +347,7 @@ val androidTvModule = module {
     viewModel { RequestsViewModel(get()) }
     viewModel { RequestSearchViewModel(get()) }
     viewModel { MyRequestsViewModel(get()) }
+    viewModel { org.siloserver.silo.tv.ui.screens.requests.TvRequestsViewModel(get()) }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {
