@@ -1,15 +1,11 @@
 package org.siloserver.silo.android.ui.screens.detail
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,10 +13,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.components.MediaCard
-import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
@@ -31,14 +25,17 @@ import kotlinx.coroutines.coroutineScope
 import org.koin.compose.koinInject
 
 /**
- * Horizontal poster rail of "More Like This" items shown at the bottom
- * of Movie / Series detail pages. Mirrors `PhoneSimilarRail.swift`:
+ * "More Like This" section — header plus a horizontal poster rail —
+ * shown at the bottom of Movie / Series detail pages. Mirrors
+ * `PhoneSimilarRail.swift`:
  *   1. Hit `/recommendations/similar/{contentId}` for scored IDs
  *   2. Resolve each ID to an `ItemDetail` in parallel
  *   3. Render a poster card per resolved item; tap opens detail
  *
- * Hidden when the request fails or returns nothing — recommendations
- * are non-essential, so a missing rail is preferable to an error placeholder.
+ * The whole section (header included) stays hidden until the request
+ * resolves with items — servers without media embeddings return an
+ * empty/failed response, and an orphaned header would just read as a
+ * broken row.
  */
 @Composable
 fun SimilarRail(
@@ -49,19 +46,20 @@ fun SimilarRail(
     catalogRepository: CatalogRepository = koinInject(),
 ) {
     var items by remember(contentId) { mutableStateOf<List<ItemDetail>>(emptyList()) }
-    var isLoading by remember(contentId) { mutableStateOf(true) }
 
     LaunchedEffect(contentId) {
-        isLoading = true
         items = emptyList()
-        val resolved = loadSimilar(contentId, recommendationRepository, catalogRepository)
-        items = resolved
-        isLoading = false
+        items = loadSimilar(contentId, recommendationRepository, catalogRepository)
     }
 
-    when {
-        isLoading -> SimilarRailPlaceholder(modifier = modifier)
-        items.isNotEmpty() -> SimilarRailContent(items = items, onSelect = onSelect, modifier = modifier)
+    if (items.isNotEmpty()) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = modifier,
+        ) {
+            SectionHeader(title = "More Like This")
+            SimilarRailContent(items = items, onSelect = onSelect)
+        }
     }
 }
 
@@ -125,23 +123,3 @@ private fun SimilarRailContent(
     }
 }
 
-@Composable
-private fun SimilarRailPlaceholder(modifier: Modifier = Modifier) {
-    // iOS PhoneSimilarRail.loadingPlaceholder: poster-sized skeletons
-    // (120×198, corner 12, surfaceElevated fill), spacing 12.
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = SafePadding),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        items(4, contentType = { "similar-placeholder" }) {
-            Box(
-                modifier = Modifier
-                    .width(120.dp)
-                    .height(198.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(SiloSurfaceElevated),
-            )
-        }
-    }
-}

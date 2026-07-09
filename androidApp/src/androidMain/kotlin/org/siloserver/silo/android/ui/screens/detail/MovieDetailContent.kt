@@ -260,13 +260,10 @@ fun MovieDetailContent(
         // the next episode, not a tangentially related title.
         if (detail.type != "episode") {
             item(contentType = "detail-similar") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(label = "Recommended", title = "More Like This")
-                    SimilarRail(
-                        contentId = detail.contentId,
-                        onSelect = onItemDetailClick,
-                    )
-                }
+                SimilarRail(
+                    contentId = detail.contentId,
+                    onSelect = onItemDetailClick,
+                )
             }
         }
 
