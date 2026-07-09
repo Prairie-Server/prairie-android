@@ -368,35 +368,42 @@ fun formatVersionValueLabel(version: FileVersion?, isAuto: Boolean): String {
 }
 
 /**
- * Selector value for the Audio row. [selectedIndex] null = Auto, which
- * resolves to the file's default track (else the first) and previews it
- * as "Auto - EAC3 5.1".
+ * Selector value for the Audio row, matching the iOS phone detail
+ * (`DetailPlaybackFormatting.audioValueLabel` with `annotateAuto = false`):
+ * the resolved track is named outright with no "Auto -" prefix, for both the
+ * auto and the explicit case. Auto resolves to the file's default track, else
+ * the first. [selectedIndex] null = Auto. (The annotated "Auto - <track>"
+ * form is tvOS-only on Apple, so the phone omits it.)
  */
 fun formatAudioValueLabel(tracks: List<AudioTrack>, selectedIndex: Int?): String {
     if (tracks.isEmpty()) return "Unknown"
     val resolved = selectedIndex?.takeIf { it in tracks.indices }
         ?: tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 }
         ?: 0
-    val title = formatAudioLabel(tracks[resolved])
-    return if (selectedIndex == null) "Auto - $title" else title
+    return formatAudioLabel(tracks[resolved])
 }
 
 /**
- * Selector value for the Subtitles row. [selectedIndex] null = Auto
- * (previews the file's default track or "None"), -1 = Off.
+ * Selector value for the Subtitles row, matching the iOS phone detail
+ * (`DetailPlaybackFormatting.subtitleValueLabel` with no `autoContext`).
+ *
+ * [selectedIndex] null = Auto: the phone shows a bare "Auto". The player's
+ * real subtitle resolver (preferred-language / audio-match / forced / SDH
+ * rules in `resolveMobileAutoSubtitleSelection`) — never the catalog
+ * `isDefault` flag — decides at playback, so previewing a concrete track from
+ * `isDefault` could contradict what actually plays. A lone track is named
+ * outright since Auto can only land there. -1 = Off.
  */
 fun formatSubtitleValueLabel(tracks: List<SubtitleTrack>, selectedIndex: Int?): String {
     if (selectedIndex == null) {
-        val defaultIndex = tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 }
-        val resolved = defaultIndex?.let { formatSubtitleLabel(tracks[it]) } ?: "None"
-        return "Auto - $resolved"
+        val single = tracks.singleOrNull() ?: return "Auto"
+        return formatSubtitleLabel(single)
     }
     if (selectedIndex == -1) return "Off"
-    // A stale explicit index (track list shrank under the selection) must not
-    // claim "Auto"; fall back to the default track's label like the audio
-    // formatter does.
-    val track = tracks.getOrNull(selectedIndex)
-        ?: return tracks.firstOrNull { it.isDefault }?.let { formatSubtitleLabel(it) } ?: "None"
+    // A stale explicit index (the track list shrank under the selection) still
+    // means subtitles ARE requested — surface "On" rather than a bare track
+    // label (which reads as an explicit pick) or "Auto" (mirrors iOS).
+    val track = tracks.getOrNull(selectedIndex) ?: return "On"
     return formatSubtitleLabel(track)
 }
 
