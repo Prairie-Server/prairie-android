@@ -75,6 +75,7 @@ import org.siloserver.silo.model.playback.PlaybackSourceMetadata
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
+import org.siloserver.silo.player.DolbyVisionDetection
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -1029,7 +1030,7 @@ private fun isHardPlaybackContainer(container: String?): Boolean =
  * sessions fall back to Media3 and the failure detectors cover the rest.
  */
 private fun hasDolbyVisionSource(source: PlaybackSourceMetadata?): Boolean =
-    source?.dolbyVisionProfile != null ||
-    source?.hdrFormat?.let {
-        it.contains("dolby", ignoreCase = true) || it.contains("dovi", ignoreCase = true)
-    } == true
+    DolbyVisionDetection.isDolbyVision(
+        dolbyVisionProfile = source?.dolbyVisionProfile,
+        hdrFormat = source?.hdrFormat,
+    )

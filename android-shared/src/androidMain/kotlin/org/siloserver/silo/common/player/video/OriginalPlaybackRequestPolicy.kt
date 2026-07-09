@@ -5,6 +5,7 @@ import org.siloserver.silo.model.playback.ClientPlaybackContext
 import org.siloserver.silo.model.playback.EngineCapabilityEnvelope
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackEngineKind
+import org.siloserver.silo.player.DolbyVisionDetection
 
 fun FileVersion.requestedOriginalPlaybackMethod(
     playbackContext: ClientPlaybackContext,
@@ -67,8 +68,7 @@ private fun EngineCapabilityEnvelope?.canDirectPlay(
 private fun normalizedVideoCodec(codec: String?): String? {
     val value = codec.normalizedToken() ?: return null
     return when {
-        value.contains("dolbyvision") || value.startsWith("dvhe") || value.startsWith("dvh1") ||
-            value.startsWith("dva1") || value.startsWith("dvav") -> "dolby_vision"
+        DolbyVisionDetection.videoCodecIsDolbyVision(value) -> "dolby_vision"
         value.contains("h265") || value.contains("x265") || value.contains("hevc") ||
             value.startsWith("hvc1") || value.startsWith("hev1") -> "hevc"
         value.contains("h264") || value.contains("x264") || value.contains("avc") ||

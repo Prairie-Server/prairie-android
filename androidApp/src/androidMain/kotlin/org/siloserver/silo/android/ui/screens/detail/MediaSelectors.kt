@@ -40,6 +40,7 @@ import org.siloserver.silo.android.ui.theme.DarkSurfaceVariant
 import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.player.DolbyVisionDetection
 
 /**
  * Full-width box row for one playback track group (Video / Audio /
@@ -512,7 +513,7 @@ private fun formatHdrLabel(version: FileVersion): String? {
 
     return when {
         hdrFormat == null -> "HDR"
-        "dolby" in hdrFormat || "dovi" in hdrFormat || "dv" == hdrFormat -> "HDR"
+        DolbyVisionDetection.hdrFormatIndicatesDolbyVision(hdrFormat) -> "HDR"
         "hdr10+" in hdrFormat || "hdr10plus" in hdrFormat -> "HDR10+"
         "hdr10" in hdrFormat || "pq" in hdrFormat -> "HDR10"
         "hlg" in hdrFormat -> "HLG"
