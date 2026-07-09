@@ -209,12 +209,28 @@ private fun PinnedHeader(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
-            .padding(vertical = SmallPadding),
+            // Only bottom padding: the floating top bar already provides the top
+            // breathing room, so a top gap here just stacked whitespace above the
+            // filter capsule in portrait (Jim QA 2026-07-09).
+            .padding(bottom = SmallPadding),
         verticalArrangement = Arrangement.spacedBy(SmallPadding),
     ) {
         CalendarFilterBar(
             selected = state.filter,
             onSelect = viewModel::setFilter,
+            modifier = Modifier.padding(horizontal = SafePadding),
+        )
+        // Left-aligned month/year header line above the day strip, matching iOS
+        // CalendarView (CalendarView.swift:105-113). Previously this lived inside
+        // the week-strip Row where portrait squeezed it to a vertical stack.
+        Text(
+            text = monthLabel(state.weekDates),
+            fontSize = 17.sp, // iOS monthLabel = 17 semibold
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = SafePadding),
         )
         CalendarWeekStrip(
@@ -336,6 +352,10 @@ private fun CalendarWeekStrip(
             contentDescription = "Next week",
             onClick = onNextWeek,
         )
+        // Month label intentionally NOT here — it lives as a left-aligned
+        // header line above the strip (see PinnedHeader), matching iOS
+        // CalendarView. Kept in this Row it was squeezed to ~0 width in
+        // portrait (chevrons + 7 day cells overflow) and stacked vertically.
 
         if (!isCurrentWeek) {
             Box(
@@ -357,17 +377,6 @@ private fun CalendarWeekStrip(
             }
         }
 
-        Spacer(Modifier.weight(1f))
-
-        Text(
-            text = monthLabel(weekDates),
-            fontSize = 13.sp, // iOS monthFont = 13 semibold
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 

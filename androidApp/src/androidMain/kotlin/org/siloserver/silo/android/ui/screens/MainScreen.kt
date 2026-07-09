@@ -289,8 +289,6 @@ fun MainScreen(
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
-                            onWatchlistClick = { navController.navigate(Route.Watchlist.route) },
-                            onFavoritesClick = { navController.navigate(Route.Favorites.route) },
                             contentTopPadding = headerContentTop,
                         )
                     }
