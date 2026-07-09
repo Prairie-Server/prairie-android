@@ -55,6 +55,8 @@ fun MediaCard(
     posterUrl: String?,
     posterThumbhash: String?,
     year: Int? = null,
+    /** Replaces the year caption when set (e.g. the active sort's date). */
+    subtitle: String? = null,
     type: String? = null,
     userState: MediaItemUserState? = null,
     progress: Float? = null,
@@ -153,10 +155,11 @@ fun MediaCard(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        if (year != null && year > 0) {
+        val caption = subtitle ?: year?.takeIf { it > 0 }?.toString()
+        if (caption != null) {
             // iOS yearText: .siloCaption (12sp) at secondary text.
             Text(
-                text = year.toString(),
+                text = caption,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth(),

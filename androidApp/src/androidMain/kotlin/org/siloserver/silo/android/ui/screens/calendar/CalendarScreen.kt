@@ -33,6 +33,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -127,6 +129,10 @@ fun CalendarScreen(
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
+        // Embedded in the tab shell (showTopBar = false) the shared floating
+        // header already accounts for the status bar via contentTopPadding;
+        // letting Scaffold add its own status-bar inset doubles the top gap.
+        contentWindowInsets = if (showTopBar) ScaffoldDefaults.contentWindowInsets else WindowInsets(0),
     ) { padding ->
         val listState = rememberLazyListState()
 
@@ -358,6 +364,9 @@ private fun CalendarWeekStrip(
             fontSize = 13.sp, // iOS monthFont = 13 semibold
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

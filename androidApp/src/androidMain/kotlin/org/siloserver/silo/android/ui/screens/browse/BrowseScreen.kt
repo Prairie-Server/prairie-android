@@ -153,22 +153,6 @@ fun BrowseScreen(
                 .fillMaxSize()
                 .padding(contentPadding),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CatalogViewDensity.entries.forEach { density ->
-                    FilterChip(
-                        selected = state.catalogDensity == density,
-                        onClick = { viewModel.selectViewDensity(density) },
-                        label = { Text(density.label) },
-                    )
-                }
-            }
-
             // Active filter chips — iOS phone: horizontal scroll of removable
             // capsule chips; each chip removes exactly one facet value.
             if (state.filterState.hasActiveFilters) {
@@ -264,6 +248,12 @@ fun BrowseScreen(
                         hasMore = state.hasMore,
                         onItemClick = onItemClick,
                         onLoadMore = { viewModel.loadMore() },
+                        // Date sorts surface the sorted-by date under each card.
+                        cardSubtitle = when (state.filterState.sort) {
+                            "added_at" -> { item -> formatCardDate(item.addedAt) }
+                            "release_date" -> { item -> formatCardDate(item.releaseDate) }
+                            else -> null
+                        },
                         selectedNamePrefix = state.selectedNamePrefix,
                         onNamePrefixSelected = viewModel::selectNamePrefix,
                         viewDensity = state.catalogDensity,
@@ -278,6 +268,8 @@ fun BrowseScreen(
     // Apply button; FilterView commits via onDisappear).
     if (showFilterSheet) {
         FilterSheet(
+            viewDensity = state.catalogDensity,
+            onSelectDensity = { viewModel.selectViewDensity(it) },
             currentFilters = state.filterState,
             availableFilters = state.availableFilters,
             mediaType = state.mediaType,
@@ -359,4 +351,13 @@ private fun ActiveFilterChip(
                 .clickable(onClick = onRemove),
         )
     }
+}
+
+/** "Jul 8, 2026" caption for date-sorted grids; null when the item has no date. */
+internal fun formatCardDate(iso: String?): String? {
+    val datePart = iso?.take(10)?.takeIf { it.length == 10 } ?: return null
+    return runCatching {
+        java.time.LocalDate.parse(datePart)
+            .format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy"))
+    }.getOrNull()
 }
