@@ -312,6 +312,7 @@ val androidModule = module {
             get(), get(), get(),
             getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>() ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
             get(),
+            get<org.siloserver.silo.android.ui.screens.browse.BrowsePrefsStore>(),
         )
     }
     viewModel { ReadingHubViewModel(get(), get(), get()) }
