@@ -178,6 +178,59 @@ class AudiobookTimelineTest {
     }
 
     @Test
+    fun `zero-duration last part with no chapters is excluded from tracks`() {
+        val versions = listOf(
+            part(fileId = 80, duration = 100.0, partIndex = 0),
+            part(fileId = 81, duration = 200.0, partIndex = 1),
+            part(fileId = 82, duration = 0.0, partIndex = 2),
+        )
+        // Server total larger than the stitched parts → still wins.
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = 320.0)!!
+        assertEquals(listOf(80, 81), timeline.tracks.map { it.fileId })
+        assertEquals(320.0, timeline.totalSeconds)
+        // Past-the-end maps to the last REAL part, not the dropped zero part.
+        assertEquals(1, timeline.trackIndexAt(9999.0))
+        // No server total → cumulative offset of the kept parts.
+        val none = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+        assertEquals(300.0, none.totalSeconds)
+    }
+
+    @Test
+    fun `zero-duration middle part with no chapters leaves following offsets unaffected`() {
+        val versions = listOf(
+            part(fileId = 90, duration = 100.0, partIndex = 0),
+            part(fileId = 91, duration = 0.0, partIndex = 1),
+            part(fileId = 92, duration = 150.0, partIndex = 2),
+        )
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+        assertEquals(listOf(90, 92), timeline.tracks.map { it.fileId })
+        // The dropped part contributes nothing, so the third part's offset is
+        // exactly the first part's length.
+        assertEquals(listOf(0.0, 100.0), timeline.tracks.map { it.startOffsetSeconds })
+        assertEquals(250.0, timeline.totalSeconds)
+        // Indices stay contiguous so trackIndexAt/lookup math holds.
+        assertEquals(listOf(0, 1), timeline.tracks.map { it.index })
+        assertEquals(1, timeline.trackIndexAt(120.0))
+    }
+
+    @Test
+    fun `zero-duration part with chapters keeps its chapter-edge fallback`() {
+        val versions = listOf(
+            part(
+                fileId = 95, duration = 0.0, partIndex = 0,
+                chapters = listOf(chapter(0, 0.0, 75.0)),
+            ),
+            part(fileId = 96, duration = 25.0, partIndex = 1),
+        )
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+        // The chapter-edge fallback gives the part real length → NOT dropped.
+        assertEquals(listOf(95, 96), timeline.tracks.map { it.fileId })
+        assertEquals(75.0, timeline.tracks[0].durationSeconds)
+        assertEquals(75.0, timeline.tracks[1].startOffsetSeconds)
+        assertEquals(100.0, timeline.totalSeconds)
+    }
+
+    @Test
     fun `parts sort by presentation index then file id`() {
         // Provided out of order; missing index sorts last, tie-broken by fileId.
         val versions = listOf(

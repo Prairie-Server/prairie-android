@@ -176,11 +176,16 @@ fun AudiobookPlayerScreen(
     }
 
     // Position poller — MediaController doesn't push position updates;
-    // sample at 4Hz which is smooth enough for an audiobook slider.
+    // sample at 4Hz which is smooth enough for an audiobook slider. The
+    // current stream URI rides along so the VM can tie cross-part settle
+    // to stream identity, not just engine time.
     LaunchedEffect(controller) {
         while (true) {
             controller?.let { c ->
-                viewModel.onPositionChanged(c.currentPosition / 1000.0)
+                viewModel.onPositionChanged(
+                    c.currentPosition / 1000.0,
+                    c.currentMediaItem?.localConfiguration?.uri?.toString(),
+                )
             }
             delay(250)
         }

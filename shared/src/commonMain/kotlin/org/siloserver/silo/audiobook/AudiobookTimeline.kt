@@ -57,8 +57,8 @@ data class AudioPlaybackChapter(
  *
  * Works uniformly for a single-part book (one track, trivial offset math) so
  * the view model can use it without special-casing. Build via
- * [buildAudiobookTimeline], which returns `null` only when there are zero audio
- * parts.
+ * [buildAudiobookTimeline], which returns `null` only when there are zero
+ * playable (non-zero-length) audio parts.
  *
  * Position math mirrors Apple `AudioPlaybackTimeline` (AudioPlaybackTimeline.swift:3-25).
  */
@@ -114,7 +114,7 @@ private const val AUDIOBOOK_PART_KIND = "audiobook_part"
 
 /**
  * Stitch [versions] into a whole-book [AudiobookTimeline], or `null` when none
- * of them are audio parts. [serverTotalSeconds] is the server's whole-book
+ * of them are playable audio parts. [serverTotalSeconds] is the server's whole-book
  * total (`AudiobookMetadata.totalDurationSeconds`, converted to `Double`), or
  * `null` when the server doesn't report one — in which case the cumulative part
  * duration is used.
@@ -131,8 +131,16 @@ fun buildAudiobookTimeline(
     val tracks = ArrayList<AudioPlaybackTrack>(parts.size)
     val chapters = ArrayList<AudioPlaybackChapter>()
     var offset = 0.0
-    for ((index, part) in parts.withIndex()) {
+    for (part in parts) {
         val duration = partDuration(part)
+        // Skip zero-length parts (no probed duration AND no chapter-edge
+        // fallback): Android's end-of-part detection is poll-based (time >=
+        // duration - epsilon), so a 0s track would trip the advance check on
+        // every tick. Apple can include such parts because it advances on a
+        // discrete end EVENT rather than a poll. A dropped part contributes
+        // nothing to the offsets, so the following parts are unaffected.
+        if (duration <= 0.0) continue
+        val index = tracks.size
         tracks.add(
             AudioPlaybackTrack(
                 index = index,
@@ -154,6 +162,7 @@ fun buildAudiobookTimeline(
         }
         offset += duration
     }
+    if (tracks.isEmpty()) return null
 
     // total = max(server-reported total, stitched offset); if the server
     // reports nothing, the cumulative offset is the whole-book length.

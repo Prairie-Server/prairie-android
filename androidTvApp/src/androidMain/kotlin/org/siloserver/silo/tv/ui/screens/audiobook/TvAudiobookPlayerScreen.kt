@@ -196,10 +196,17 @@ fun TvAudiobookPlayerScreen(
         }
     }
 
-    // 4 Hz position poll (MediaController doesn't push position updates).
+    // 4 Hz position poll (MediaController doesn't push position updates). The
+    // current stream URI rides along so the VM can tie cross-part settle to
+    // stream identity, not just engine time.
     LaunchedEffect(controller) {
         while (true) {
-            controller?.let { viewModel.onPositionChanged(it.currentPosition / 1000.0) }
+            controller?.let {
+                viewModel.onPositionChanged(
+                    it.currentPosition / 1000.0,
+                    it.currentMediaItem?.localConfiguration?.uri?.toString(),
+                )
+            }
             delay(250)
         }
     }
