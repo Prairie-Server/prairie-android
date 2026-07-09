@@ -223,4 +223,44 @@ class VideoPlaybackBackendSelectorTest {
         )
     }
 
+    @Test
+    fun autoRoutesHdrVideoToMpv() {
+        assertEquals(
+            VideoPlaybackBackendKind.Mpv,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(
+                    playMethod = PlayMethod.DIRECT,
+                    hasHdrVideo = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun hdrVideoNeverSelectsMpvBelowDeviceFloor() {
+        assertEquals(
+            VideoPlaybackBackendKind.Media3,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(
+                    playMethod = PlayMethod.DIRECT,
+                    hasHdrVideo = true,
+                    mpvSupportedOnDevice = false,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun hdrVideoStillTranscodesOnMedia3() {
+        assertEquals(
+            VideoPlaybackBackendKind.Media3,
+            VideoPlaybackBackendSelector.select(
+                VideoPlaybackBackendRequest(
+                    playMethod = PlayMethod.TRANSCODE,
+                    hasHdrVideo = true,
+                ),
+            ),
+        )
+    }
+
 }

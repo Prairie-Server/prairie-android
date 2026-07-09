@@ -264,6 +264,7 @@ fun PlayerScreen(
                         isHardPlaybackContainer(uiState.container),
                     hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                     hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                    hasHdrVideo = uiState.activeVersionHasHdrVideo(),
                     isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(uiState.streamUrl),
                 ),
             )
@@ -478,6 +479,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                hasHdrVideo = uiState.activeVersionHasHdrVideo(),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -552,6 +554,7 @@ fun PlayerScreen(
                     isHardPlaybackContainer(uiState.container),
                 hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
                 hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
+                hasHdrVideo = uiState.activeVersionHasHdrVideo(),
                 isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
             )
             val switchResult = controller.awaitEngineSwitch(engineRequest)
@@ -975,3 +978,12 @@ private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
 
 private fun isHardPlaybackContainer(container: String?): Boolean =
     isMpvPreferredOriginalPlaybackContainer(container)
+
+/**
+ * True when the active file version carries HDR video. Feeds
+ * [VideoPlaybackBackendRequest.hasHdrVideo] so Auto routes HDR sources to
+ * MPV — the Media3 route has no phone-side HDR handling and can play
+ * audio+subtitles over a permanently black video surface.
+ */
+private fun PlayerViewModel.PlayerUiState.activeVersionHasHdrVideo(): Boolean =
+    versions.getOrNull(selectedVersionIndex)?.hdr == true

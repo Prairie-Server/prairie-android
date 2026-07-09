@@ -32,6 +32,11 @@ object VideoPlaybackBackendSelector {
                 // software-decode it (Apple codec-tail parity) — without this
                 // the file would have been transcoded server-side.
                 request.hasSoftwareOnlyVideoCodec -> VideoPlaybackBackendKind.Mpv
+                // HDR fidelity: the Media3 route has no phone-side HDR track
+                // handling or tone-mapping fallback and can end up decoding
+                // audio+subtitles with a permanently black video surface —
+                // route HDR sources to MPV, which tone-maps via gpu-next.
+                request.hasHdrVideo -> VideoPlaybackBackendKind.Mpv
                 else -> VideoPlaybackBackendKind.Media3
             }
         }
