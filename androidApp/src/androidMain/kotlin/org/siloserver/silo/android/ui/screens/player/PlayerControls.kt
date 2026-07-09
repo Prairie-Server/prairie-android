@@ -16,14 +16,14 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.ScreenLockRotation
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.automirrored.filled.SpeakerNotes
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -108,7 +108,7 @@ fun PlayerControls(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ControlButton(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -116,21 +116,27 @@ fun PlayerControls(
                     onClick = onBack,
                 )
 
-                Spacer(modifier = Modifier.weight(1f))
+                // The title owns the flexible middle and shrinks first: in
+                // portrait with every button visible (rotate · chapters ·
+                // tracks · quality · gear) a free-width title used to push
+                // the trailing buttons off-screen entirely.
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 15.sp,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
 
-                Text(
-                    text = title,
-                    fontSize = 15.sp,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Orientation lock toggle — mirrors iOS `lock.fill` / `lock.open`.
+                // Orientation toggle — rotation glyphs, not a padlock: the
+                // control changes rotation behavior, it doesn't lock the app.
                 ControlButton(
-                    icon = if (isOrientationLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    icon = if (isOrientationLocked) Icons.Default.ScreenLockRotation else Icons.Default.ScreenRotation,
                     contentDescription = if (isOrientationLocked) "Landscape Locked" else "Rotate Freely",
                     onClick = onToggleOrientationLock,
                 )
@@ -147,7 +153,7 @@ fun PlayerControls(
                 // Tracks (audio + subtitles) — iOS uses `captions.bubble`. Dimmed
                 // to 0.3 opacity when there's nothing to pick.
                 ControlButton(
-                    icon = Icons.Default.ClosedCaption,
+                    icon = Icons.AutoMirrored.Filled.SpeakerNotes,
                     contentDescription = "Audio and subtitles",
                     onClick = onOpenTracks,
                     enabled = hasTracks,
@@ -259,7 +265,7 @@ private fun ControlButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = if (enabled) Color.White else Color.White.copy(alpha = 0.3f),
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(22.dp),
         )
     }
 }
