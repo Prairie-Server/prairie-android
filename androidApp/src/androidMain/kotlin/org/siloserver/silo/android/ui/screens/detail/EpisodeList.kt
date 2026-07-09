@@ -1,6 +1,7 @@
 package org.siloserver.silo.android.ui.screens.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.siloserver.silo.android.ui.util.playbackResumePosition
 import org.siloserver.silo.common.overlays.CardOverlayVariant
 import org.siloserver.silo.common.overlays.CardOverlays
@@ -59,6 +61,8 @@ fun EpisodeList(
     onEpisodeDetailClick: (String) -> Unit,
     onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
     episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
+    /** Episode pages: the episode whose detail is open, marked "Now viewing". */
+    highlightContentId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -72,6 +76,7 @@ fun EpisodeList(
                 onDetailClick = { onEpisodeDetailClick(episode.contentId) },
                 onDownloadClick = onEpisodeDownloadClick?.let { cb -> { cb(episode) } },
                 downloadState = episodeDownloadState(episode),
+                isCurrent = episode.contentId == highlightContentId,
             )
         }
     }
@@ -84,6 +89,7 @@ private fun EpisodeRow(
     onDetailClick: () -> Unit,
     onDownloadClick: (() -> Unit)? = null,
     downloadState: DetailDownloadState = DetailDownloadState(),
+    isCurrent: Boolean = false,
 ) {
     val overlayState = LocalCardOverlayUiState.current
     val userData = episode.userData
@@ -101,6 +107,15 @@ private fun EpisodeRow(
                 .width(160.dp)
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(8.dp))
+                .then(
+                    // iOS PhoneEpisodeRail: the open episode gets a white
+                    // border + "NOW VIEWING" tag.
+                    if (isCurrent) {
+                        Modifier.border(1.5.dp, Color.White, RoundedCornerShape(8.dp))
+                    } else {
+                        Modifier
+                    },
+                )
                 .clickable(onClick = onPlayClick),
         ) {
             ThumbhashImage(
@@ -118,6 +133,24 @@ private fun EpisodeRow(
                     prefs = overlayState.prefs,
                     variant = CardOverlayVariant.Wide,
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            if (isCurrent) {
+                Text(
+                    text = "NOW VIEWING",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.sp,
+                        letterSpacing = 0.8.sp,
+                    ),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color.White)
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
                 )
             }
 

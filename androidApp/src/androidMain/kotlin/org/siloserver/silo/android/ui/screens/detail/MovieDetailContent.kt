@@ -39,7 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.theme.SiloBackground
 import org.siloserver.silo.android.ui.util.rememberDominantColor
+import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.ItemDetail
+import org.siloserver.silo.model.catalog.Season
 
 /**
  * Phone movie / episode detail. Cinematic backdrop hero up top, then a
@@ -72,6 +74,17 @@ fun MovieDetailContent(
     onItemDetailClick: (String) -> Unit,
     onSeriesClick: (() -> Unit)? = null,
     onSeasonClick: (() -> Unit)? = null,
+    // Episode pages only: the parent series' seasons + the selected
+    // season's siblings, for the in-page season/episode selector.
+    seasons: List<Season> = emptyList(),
+    selectedSeasonNumber: Int = 1,
+    episodes: List<EpisodeListItem> = emptyList(),
+    isLoadingEpisodes: Boolean = false,
+    onSeasonSelected: (Int) -> Unit = {},
+    onEpisodePlayClick: (String, Double?) -> Unit = { _, _ -> },
+    onEpisodeDetailClick: (String) -> Unit = {},
+    onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
+    episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
     isDownloaded: Boolean = false,
     downloadProgress: Float? = null,
     playOnDeviceLabel: String = "Play on device",
@@ -218,6 +231,46 @@ fun MovieDetailContent(
                             label = "Subtitles",
                             value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
                             onClick = { showSubtitlePicker = true },
+                        )
+                    }
+                }
+            }
+        }
+
+        // Episode pages: season chips + this season's episodes as the first
+        // below-fold section, mirroring iOS's episode detail. Tapping a
+        // sibling navigates to its own detail page.
+        if (detail.type == "episode" && (episodes.isNotEmpty() || isLoadingEpisodes)) {
+            item(contentType = "detail-episodes") {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SectionHeader(
+                        label = if (selectedSeasonNumber == 0) "Specials" else "Season $selectedSeasonNumber",
+                        title = "Episodes",
+                    )
+                    if (seasons.size > 1) {
+                        SeasonChips(
+                            seasons = seasons,
+                            selectedSeasonNumber = selectedSeasonNumber,
+                            onSeasonSelected = onSeasonSelected,
+                        )
+                    }
+                    if (isLoadingEpisodes) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        EpisodeList(
+                            episodes = episodes,
+                            onEpisodePlayClick = onEpisodePlayClick,
+                            onEpisodeDetailClick = onEpisodeDetailClick,
+                            onEpisodeDownloadClick = onEpisodeDownloadClick,
+                            episodeDownloadState = episodeDownloadState,
+                            highlightContentId = detail.contentId,
                         )
                     }
                 }

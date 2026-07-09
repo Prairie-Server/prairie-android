@@ -618,6 +618,36 @@ fun ItemDetailScreen(
                             } else {
                                 null
                             },
+                            seasons = state.seasons,
+                            selectedSeasonNumber = state.selectedSeasonNumber,
+                            episodes = state.episodes,
+                            isLoadingEpisodes = state.isLoadingEpisodes,
+                            onSeasonSelected = { viewModel.selectSeason(it) },
+                            onEpisodePlayClick = { contentId, resumePositionSeconds ->
+                                onPlayClick(contentId, null, null, null, resumePositionSeconds)
+                            },
+                            onEpisodeDetailClick = onItemDetailClick,
+                            onEpisodeDownloadClick = { ep ->
+                                val episodeState = detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = downloadRecords,
+                                )
+                                runDownloadTap(
+                                    downloadState = episodeState,
+                                    directAction = { viewModel.onEpisodeDownloadTapped(ep) },
+                                    qualityAction = { quality ->
+                                        viewModel.onEpisodeDownloadTapped(ep, downloadQuality = quality)
+                                    },
+                                    estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
+                                        .estimate(fileSizes = ep.files.map { it.fileSize }),
+                                )
+                            },
+                            episodeDownloadState = { ep ->
+                                detailDownloadStateForFile(
+                                    fileId = ep.files.firstOrNull()?.fileId,
+                                    records = downloadRecords,
+                                )
+                            },
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
                             playOnDeviceLabel = PLAY_ON_DEVICE_LABEL,
