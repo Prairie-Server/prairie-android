@@ -428,8 +428,10 @@ class TvItemDetailViewModel(
             it.copy(selectedFileId = fileId, selectedAudioIndex = null, selectedSubtitleIndex = null)
         }
         TvDetailTrackSelectionSession.remember(contentId, fileId, audio = null, subtitle = null)
-        persistTrackSelection()
-        // Restore any durable override saved for the newly-selected file.
+        // Do NOT persist here: a version switch resets the indexes to null, and
+        // persisting null clears the durable row — which would wipe the newly
+        // selected file's saved override before seedPersistedTrackSelection can
+        // restore it. Only explicit audio/subtitle picks persist.
         _uiState.value.detail?.let(::seedPersistedTrackSelection)
     }
 

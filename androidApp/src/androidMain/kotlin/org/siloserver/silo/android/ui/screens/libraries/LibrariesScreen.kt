@@ -228,9 +228,18 @@ class LibrariesViewModel(
                     val libraries = result.data
                         .filterNot(::isHiddenAudiobookLibrary)
                         .sortedBy { library -> library.sortOrder }
-                    val selectedLibraryId = _uiState.value.selectedLibraryId
+                    val previousLibraryId = _uiState.value.selectedLibraryId
+                    val selectedLibraryId = previousLibraryId
                         ?.takeIf { currentId -> libraries.any { it.id == currentId } }
                         ?: libraries.firstOrNull()?.id
+                    // When this resolves to a *new* library (first load, or the
+                    // prior one vanished), restore its saved browse filter +
+                    // preserve state — same as selectLibrary — so opening Browse
+                    // on the default library isn't an unfiltered grid for a
+                    // profile with saved filters. An unchanged selection keeps
+                    // whatever filters are already active.
+                    val restoreBrowsePrefs =
+                        selectedLibraryId != null && selectedLibraryId != previousLibraryId
 
                     _uiState.update {
                         it.copy(
@@ -238,6 +247,12 @@ class LibrariesViewModel(
                             libraries = libraries,
                             selectedLibraryId = selectedLibraryId,
                             librariesError = null,
+                            filterState = if (restoreBrowsePrefs)
+                                (browsePrefs?.savedState(selectedLibraryId) ?: CatalogFilterState())
+                            else it.filterState,
+                            preserveFilters = if (restoreBrowsePrefs)
+                                (browsePrefs?.preserveEnabled(selectedLibraryId) ?: true)
+                            else it.preserveFilters,
                         )
                     }
 
