@@ -310,6 +310,7 @@ fun PlayerOverlay(
                 intro = state.intro,
                 hasChapters = state.chapters.isNotEmpty(),
                 hasTracks = state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty(),
+                hasMultipleVersions = state.versions.size > 1,
                 isOrientationLocked = isOrientationLocked,
                 seekEnabled = seekEnabled,
                 playPauseEnabled = playPauseEnabled,
@@ -323,6 +324,7 @@ fun PlayerOverlay(
                 },
                 onOpenChapters = { chaptersSheetVisible = true },
                 onOpenTracks = { tracksSheetVisible = true },
+                onOpenQuality = { showQualitySelector = true },
                 onOpenSettings = { settingsSheetVisible = true },
             )
         }
@@ -527,16 +529,6 @@ fun PlayerOverlay(
             settingsSheetVisible = false
             sleepTimerVisible = true
         },
-        onOpenChapters = {
-            settingsSheetVisible = false
-            chaptersSheetVisible = true
-        },
-        hasChapters = state.chapters.isNotEmpty(),
-        onOpenQuality = {
-            settingsSheetVisible = false
-            showQualitySelector = true
-        },
-        hasMultipleVersions = state.versions.size > 1,
         stats = state.stats,
         onOpenPlaybackStats = {
             settingsSheetVisible = false
@@ -555,9 +547,10 @@ fun PlayerOverlay(
         onDismiss = { statsSheetVisible = false },
     )
 
-    // Chapters picker — opened from the "Chapters" row in PlayerSettingsSheet.
-    // Selecting a row seeks the player to the chapter's startSeconds. Hidden
-    // entirely (and the parent row hidden) when the active version has no
+    // Chapters picker — opened from the HUD chapters button (HUD product
+    // decision: chapters + tracks + quality; no longer reachable from the
+    // gear sheet). Selecting a row seeks the player to the chapter's
+    // startSeconds. The HUD button hides when the active version has no
     // embedded chapters.
     ChaptersSheet(
         isVisible = chaptersSheetVisible,

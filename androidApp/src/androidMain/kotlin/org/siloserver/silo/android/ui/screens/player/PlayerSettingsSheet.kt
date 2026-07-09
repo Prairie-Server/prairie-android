@@ -65,10 +65,6 @@ fun PlayerSettingsSheet(
     onSetDolbyVisionEnabled: (Boolean) -> Unit,
     onOpenSubtitleStyle: () -> Unit = {},
     onOpenSleepTimer: () -> Unit = {},
-    onOpenChapters: () -> Unit = {},
-    hasChapters: Boolean = false,
-    onOpenQuality: () -> Unit = {},
-    hasMultipleVersions: Boolean = false,
     stats: PlayerStatsSnapshot = PlayerStatsSnapshot(),
     onOpenPlaybackStats: () -> Unit = {},
     audioDelayMs: Int = 0,
@@ -108,9 +104,8 @@ fun PlayerSettingsSheet(
                 ),
         ) {
             // Vertically scroll the inner content. With Playback + Episodes +
-            // Sync + Subtitles + Navigation (when chapters) + Timers sections,
-            // the sheet overflows on smaller phones — scrolling lets every
-            // row stay reachable.
+            // Sync + Subtitles + Timers sections, the sheet overflows on
+            // smaller phones — scrolling lets every row stay reachable.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -153,18 +148,9 @@ fun PlayerSettingsSheet(
                     onCheckedChange = onSetDolbyVisionEnabled,
                 )
 
-                if (hasMultipleVersions) {
-                    TapRow(
-                        label = "Quality",
-                        subtitle = "Choose a video version",
-                        onClick = {
-                            scope.launch { sheetState.hide() }
-                            onDismiss()
-                            onOpenQuality()
-                        },
-                    )
-                }
-
+                // Quality and Chapters intentionally have NO rows here — they
+                // are HUD buttons (product decision: HUD = chapters + tracks +
+                // quality; the gear keeps the long-tail settings).
                 TapRow(
                     label = "Playback Stats",
                     subtitle = stats.summaryLabel(),
@@ -190,19 +176,6 @@ fun PlayerSettingsSheet(
                     checked = autoPlayNextEnabled,
                     onCheckedChange = onSetAutoPlayNext,
                 )
-
-                if (hasChapters) {
-                    SectionHeader(text = "Navigation")
-                    TapRow(
-                        label = "Chapters",
-                        subtitle = "Jump to a chapter",
-                        onClick = {
-                            scope.launch { sheetState.hide() }
-                            onDismiss()
-                            onOpenChapters()
-                        },
-                    )
-                }
 
                 SectionHeader(text = "Sync")
 

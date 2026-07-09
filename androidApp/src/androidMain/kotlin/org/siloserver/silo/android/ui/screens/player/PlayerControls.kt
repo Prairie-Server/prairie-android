@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
@@ -42,7 +43,8 @@ import androidx.compose.ui.unit.sp
  *
  * Three-row layout:
  * - Top: Back (chevron) · title · orientation lock toggle · chapters (when
- *   present) · tracks (audio + subs) · settings (gear)
+ *   present) · tracks (audio + subs) · quality (when multiple versions) ·
+ *   settings (gear)
  * - Center: Skip back · play/pause · skip forward
  * - Bottom: Seek bar with timestamps
  */
@@ -57,6 +59,9 @@ fun PlayerControls(
     bufferedPosition: Double,
     hasChapters: Boolean,
     hasTracks: Boolean,
+    // Quality lives on the HUD (chapters + tracks + quality product decision);
+    // hidden when the item has a single file version.
+    hasMultipleVersions: Boolean,
     chapters: List<org.siloserver.silo.model.catalog.VersionChapter> = emptyList(),
     intro: org.siloserver.silo.model.catalog.TimeRange? = null,
     isOrientationLocked: Boolean,
@@ -75,6 +80,7 @@ fun PlayerControls(
     onToggleOrientationLock: () -> Unit,
     onOpenChapters: () -> Unit,
     onOpenTracks: () -> Unit,
+    onOpenQuality: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -146,6 +152,16 @@ fun PlayerControls(
                     onClick = onOpenTracks,
                     enabled = hasTracks,
                 )
+
+                // Quality (file versions) — dedicated HUD button; only shown
+                // when there is more than one version to pick from.
+                if (hasMultipleVersions) {
+                    ControlButton(
+                        icon = Icons.Default.HighQuality,
+                        contentDescription = "Quality",
+                        onClick = onOpenQuality,
+                    )
+                }
 
                 // Settings — iOS `gearshape`, opens the playback settings sheet.
                 ControlButton(
