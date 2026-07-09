@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import org.siloserver.silo.android.ui.components.PosterGridSkeleton
 import org.siloserver.silo.android.ui.components.rememberShimmerProgress
 import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
+import org.siloserver.silo.android.ui.util.formatCardDate
 
 /**
  * The catalog/browse screen with filter chips and an infinite-scroll grid.
@@ -351,13 +352,4 @@ private fun ActiveFilterChip(
                 .clickable(onClick = onRemove),
         )
     }
-}
-
-/** "Jul 8, 2026" caption for date-sorted grids; null when the item has no date. */
-internal fun formatCardDate(iso: String?): String? {
-    val datePart = iso?.take(10)?.takeIf { it.length == 10 } ?: return null
-    return runCatching {
-        java.time.LocalDate.parse(datePart)
-            .format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy"))
-    }.getOrNull()
 }
