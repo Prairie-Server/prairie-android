@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -390,6 +391,23 @@ fun PlayerScreen(
         } else {
             onDispose { }
         }
+    }
+
+    // Keep the screen awake only while video is actively playing. ExoPlayer —
+    // unlike iOS AVPlayer (preventsDisplaySleepDuringVideoPlayback) — does not
+    // manage the display, so without this the system sleep timer dims/locks the
+    // screen mid-playback. Held during play and buffering, released the moment
+    // playback pauses and when leaving the player, so it never keeps the screen
+    // on during paused video or menus (user report: Pixel 8 Pro / S25 Ultra).
+    val keepScreenAwake = !uiState.isPaused && (uiState.isPlaying || uiState.isBuffering)
+    DisposableEffect(activity, keepScreenAwake) {
+        val window = activity?.window
+        if (keepScreenAwake) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     // Orientation policy (iOS PlayerOrientationCoordinator parity): entering
