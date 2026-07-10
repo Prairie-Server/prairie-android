@@ -78,7 +78,14 @@ class RoomUserItemStateRepository(
     ) {
         // Reject values that would enqueue invalid JSON and poison the drain
         // (a NaN/Infinity/negative would parse-fail after claim and retry forever).
-        if (contentId.isBlank() || !positionSeconds.isFinite() || positionSeconds < 0.0) return
+        // Reject 0 too: a resume row is only readable when positionSeconds > 0, so
+        // writing 0 can't help resume — it can only HARM it. On player teardown the
+        // final recordPosition snapshots _uiState.position, which is 0 in the race
+        // where the player was already reset/released; without this guard that stale
+        // 0 overwrites a good resume locally AND syncs SET_POSITION=0 to the server,
+        // so re-entering the detail shows "Play" instead of "Resume" (Jim TV/phone
+        // QA 2026-07-10). Legit resets go through markUnwatched, not this path.
+        if (contentId.isBlank() || !positionSeconds.isFinite() || positionSeconds <= 0.0) return
         val safeDuration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
 
         val snapshot = snapshotProvider() ?: return

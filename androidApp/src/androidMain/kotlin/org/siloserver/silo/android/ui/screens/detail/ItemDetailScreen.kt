@@ -492,6 +492,17 @@ fun ItemDetailScreen(
                             }
                         }
 
+                        // Key the dialog off the SAME source the Resume action uses
+                        // below: whenever nextEpisode exists, Resume launches it with
+                        // its own progress. Don't fall back to series-level progress
+                        // when nextEpisode has none, or the dialog would show a
+                        // "stopped at" time that Resume won't honor (both buttons
+                        // would start the episode at 0).
+                        val seriesResume = if (nextEpisode != null) {
+                            playbackResumePosition(nextEpisode)
+                        } else {
+                            playbackResumePosition(detail.userData)
+                        }
                         SeriesDetailContent(
                             translation = translationSlot,
                             detail = detail,
@@ -513,6 +524,14 @@ fun ItemDetailScreen(
                                     playbackResumePosition(detail.userData),
                                 )
                             },
+                            onPlayFromBeginning = seriesResume?.let {
+                                {
+                                    nextEpisode?.let { ep ->
+                                        onPlayClick(ep.contentId, null, null, null, 0.0)
+                                    } ?: onPlayClick(detail.contentId, null, null, null, 0.0)
+                                }
+                            },
+                            resumeStoppedAtLabel = seriesResume?.let { formatResumeStoppedAt(it) },
                             onEpisodePlayClick = { contentId, resumePositionSeconds ->
                                 onPlayClick(contentId, null, null, null, resumePositionSeconds)
                             },
@@ -638,6 +657,7 @@ fun ItemDetailScreen(
                             hasLocalMedia = selectedVersion?.let { selectedLocalDownload != null },
                         )
 
+                        val movieResume = playbackResumePosition(detail.userData)
                         MovieDetailContent(
                             translation = translationSlot,
                             detail = detail,
@@ -653,9 +673,21 @@ fun ItemDetailScreen(
                                     playbackFileId,
                                     explicitAudioIndex,
                                     explicitSubtitleIndex,
-                                    playbackResumePosition(detail.userData),
+                                    movieResume,
                                 )
                             },
+                            onPlayFromBeginning = movieResume?.let {
+                                {
+                                    onPlayClick(
+                                        detail.contentId,
+                                        playbackFileId,
+                                        explicitAudioIndex,
+                                        explicitSubtitleIndex,
+                                        0.0,
+                                    )
+                                }
+                            },
+                            resumeStoppedAtLabel = movieResume?.let { formatResumeStoppedAt(it) },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
                             onToggleWatched = { viewModel.toggleWatched() },

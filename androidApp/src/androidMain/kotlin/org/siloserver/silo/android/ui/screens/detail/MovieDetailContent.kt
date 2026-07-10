@@ -63,6 +63,8 @@ fun MovieDetailContent(
     selectedAudioIndex: Int?,
     selectedSubtitleIndex: Int?,
     onPlayClick: () -> Unit,
+    onPlayFromBeginning: (() -> Unit)? = null,
+    resumeStoppedAtLabel: String? = null,
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
     onToggleWatched: () -> Unit,
@@ -139,6 +141,8 @@ fun MovieDetailContent(
                 HeroActionStack(
                     primaryLabel = computePlayLabel(detail),
                     onPlay = onPlayClick,
+                    onPlayFromBeginning = onPlayFromBeginning,
+                    resumeStoppedAtLabel = resumeStoppedAtLabel,
                     isFavorite = isFavorite,
                     isInWatchlist = isInWatchlist,
                     isWatched = detail.userData?.played == true,

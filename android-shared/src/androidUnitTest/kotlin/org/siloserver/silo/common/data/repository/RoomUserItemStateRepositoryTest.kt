@@ -205,6 +205,21 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun recordPositionZeroDoesNotClobberAnExistingResume() = runTest {
+        // A good resume point is recorded during playback...
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 1200.0, durationSeconds = 3600.0)
+        // ...then a player-teardown race snapshots position as 0. That stale 0 must
+        // NOT overwrite the resume locally or sync SET_POSITION=0 to the server,
+        // else re-entering the detail would show "Play" instead of "Resume".
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 0.0, durationSeconds = 3600.0)
+
+        assertEquals(1200.0, repo.localPosition("c1", fileId = 7))
+        // Only the original 1200s op is queued; the 0 produced no new/overwriting op.
+        val op = db.dirtyOperationDao().dueBatch("s1", "p1", nowMs = 2000L, limit = 10).single()
+        assertEquals(1200.0, OutboxOperation.decodePositionPayload(op.payloadJson).first)
+    }
+
+    @Test
     fun handleCarriesScopeForInlinePinning() = runTest {
         val handle = repo.recordFavorite("c1", favorite = true)
         assertEquals("s1", handle.scope?.serverId)
