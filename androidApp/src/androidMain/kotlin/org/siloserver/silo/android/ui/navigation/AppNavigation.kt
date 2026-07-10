@@ -2,6 +2,9 @@ package org.siloserver.silo.android.ui.navigation
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -69,6 +72,9 @@ import org.siloserver.silo.common.settings.OverlayPrefsStore
 import org.siloserver.silo.network.TokenManager
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+
+/** Page-to-page cross-fade duration (ms). Snappier than Compose Nav's 700ms default. */
+private const val PageFadeDurationMs = 200
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -166,6 +172,14 @@ fun AppNavigation(
         // this the host wraps to content, leaking unbounded height into screens
         // like the reader whose WebView paginates against the viewport height.
         modifier = Modifier.fillMaxSize(),
+        // Compose Navigation defaults to a 700ms cross-fade, which reads as
+        // sluggish page-to-page (Jim, Fold). Snap it to a quick fade; the
+        // poster→detail hero morph rides the same scope, so keep it long enough
+        // to stay smooth.
+        enterTransition = { fadeIn(tween(PageFadeDurationMs)) },
+        exitTransition = { fadeOut(tween(PageFadeDurationMs)) },
+        popEnterTransition = { fadeIn(tween(PageFadeDurationMs)) },
+        popExitTransition = { fadeOut(tween(PageFadeDurationMs)) },
     ) {
         // ---- Auth flow ----
         composable(Route.ServerSetup.route) {
