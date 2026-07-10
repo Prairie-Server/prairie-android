@@ -8,7 +8,9 @@ import kotlin.test.assertEquals
 class DetailPlayLabelTest {
 
     @Test
-    fun episodeWithProgressShowsResumeLabelBeforeSeasonEpisodeLabel() {
+    fun episodeWithProgressShowsNeutralSeasonEpisodeLabel() {
+        // iOS parity: the label stays neutral even with progress; the resume-vs-
+        // restart choice is offered in the "Continue Watching?" dialog on tap.
         val detail = ItemDetail(
             contentId = "episode-1",
             type = "episode",
@@ -22,11 +24,11 @@ class DetailPlayLabelTest {
             ),
         )
 
-        assertEquals("Resume 5:18", computePlayLabel(detail))
+        assertEquals("Play S6·E4", computePlayLabel(detail))
     }
 
     @Test
-    fun playedEpisodeWithRewatchProgressShowsResumeLabel() {
+    fun playedEpisodeWithRewatchProgressShowsNeutralLabel() {
         val detail = ItemDetail(
             contentId = "episode-1",
             type = "episode",
@@ -41,7 +43,7 @@ class DetailPlayLabelTest {
             ),
         )
 
-        assertEquals("Resume 5:18", computePlayLabel(detail))
+        assertEquals("Play S6·E4", computePlayLabel(detail))
     }
 
     @Test

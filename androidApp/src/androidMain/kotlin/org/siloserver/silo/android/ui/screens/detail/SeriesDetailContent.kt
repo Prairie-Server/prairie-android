@@ -52,6 +52,8 @@ fun SeriesDetailContent(
     isInWatchlist: Boolean,
     nextEpisodeLabel: String?,
     onPlayClick: () -> Unit,
+    onPlayFromBeginning: (() -> Unit)? = null,
+    resumeStoppedAtLabel: String? = null,
     onEpisodePlayClick: (String, Double?) -> Unit,
     onEpisodeDetailClick: (String) -> Unit,
     onSeasonSelected: (Int) -> Unit,
@@ -109,6 +111,8 @@ fun SeriesDetailContent(
                 HeroActionStack(
                     primaryLabel = computePlayLabel(detail, nextEpisodeLabel),
                     onPlay = onPlayClick,
+                    onPlayFromBeginning = onPlayFromBeginning,
+                    resumeStoppedAtLabel = resumeStoppedAtLabel,
                     isFavorite = isFavorite,
                     isInWatchlist = isInWatchlist,
                     isWatched = detail.userData?.played == true,

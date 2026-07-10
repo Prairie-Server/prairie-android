@@ -492,6 +492,8 @@ fun ItemDetailScreen(
                             }
                         }
 
+                        val seriesResume = nextEpisode?.let { playbackResumePosition(it) }
+                            ?: playbackResumePosition(detail.userData)
                         SeriesDetailContent(
                             translation = translationSlot,
                             detail = detail,
@@ -513,6 +515,14 @@ fun ItemDetailScreen(
                                     playbackResumePosition(detail.userData),
                                 )
                             },
+                            onPlayFromBeginning = seriesResume?.let {
+                                {
+                                    nextEpisode?.let { ep ->
+                                        onPlayClick(ep.contentId, null, null, null, 0.0)
+                                    } ?: onPlayClick(detail.contentId, null, null, null, 0.0)
+                                }
+                            },
+                            resumeStoppedAtLabel = seriesResume?.let { formatResumeStoppedAt(it) },
                             onEpisodePlayClick = { contentId, resumePositionSeconds ->
                                 onPlayClick(contentId, null, null, null, resumePositionSeconds)
                             },
@@ -638,6 +648,7 @@ fun ItemDetailScreen(
                             hasLocalMedia = selectedVersion?.let { selectedLocalDownload != null },
                         )
 
+                        val movieResume = playbackResumePosition(detail.userData)
                         MovieDetailContent(
                             translation = translationSlot,
                             detail = detail,
@@ -653,9 +664,21 @@ fun ItemDetailScreen(
                                     playbackFileId,
                                     explicitAudioIndex,
                                     explicitSubtitleIndex,
-                                    playbackResumePosition(detail.userData),
+                                    movieResume,
                                 )
                             },
+                            onPlayFromBeginning = movieResume?.let {
+                                {
+                                    onPlayClick(
+                                        detail.contentId,
+                                        playbackFileId,
+                                        explicitAudioIndex,
+                                        explicitSubtitleIndex,
+                                        0.0,
+                                    )
+                                }
+                            },
+                            resumeStoppedAtLabel = movieResume?.let { formatResumeStoppedAt(it) },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
                             onToggleWatched = { viewModel.toggleWatched() },

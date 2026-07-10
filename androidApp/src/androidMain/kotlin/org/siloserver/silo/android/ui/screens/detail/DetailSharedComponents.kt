@@ -39,7 +39,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,7 +66,6 @@ import org.siloserver.silo.android.ui.theme.SiloSecondaryText
 import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
 import org.siloserver.silo.android.ui.navigation.heroTarget
 import org.siloserver.silo.android.ui.theme.PillShape
-import org.siloserver.silo.android.ui.util.playbackResumePosition
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.Season
@@ -639,7 +640,13 @@ fun HeroActionStack(
     onVersionClick: (() -> Unit)? = null,
     overflow: (@Composable (dismiss: () -> Unit) -> Unit)? = null,
     downloadSlot: (@Composable () -> Unit)? = null,
+    // When non-null there is resume progress: tapping the primary button opens
+    // the "Continue Watching?" dialog (Resume / Play from Beginning) instead of
+    // resuming immediately, matching iOS. Null → the button plays directly.
+    onPlayFromBeginning: (() -> Unit)? = null,
+    resumeStoppedAtLabel: String? = null,
 ) {
+    var showResumeDialog by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -648,7 +655,7 @@ fun HeroActionStack(
         PrimaryPillButton(
             icon = Icons.Filled.PlayArrow,
             label = primaryLabel,
-            onClick = onPlay,
+            onClick = { if (onPlayFromBeginning != null) showResumeDialog = true else onPlay() },
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -697,6 +704,31 @@ fun HeroActionStack(
                 onClick = onVersionClick,
             )
         }
+    }
+
+    if (showResumeDialog && onPlayFromBeginning != null) {
+        val stoppedAt = resumeStoppedAtLabel
+        AlertDialog(
+            onDismissRequest = { showResumeDialog = false },
+            title = { Text("Continue Watching?") },
+            text = if (stoppedAt != null) {
+                { Text("You stopped at $stoppedAt.") }
+            } else {
+                null
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showResumeDialog = false
+                    onPlay()
+                }) { Text("Resume") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showResumeDialog = false
+                    onPlayFromBeginning()
+                }) { Text("Play from Beginning") }
+            },
+        )
     }
 }
 
@@ -870,24 +902,17 @@ object HeroMetadata {
 
 // ── Play label helper ─────────────────────────────────────────
 
+// iOS parity: the play-button label stays neutral ("Play" / "Play S·E") even
+// when there's resume progress. The resume-vs-restart choice is offered in the
+// "Continue Watching?" dialog on tap (see HeroActionStack), not baked into the
+// label — mirrors silo-apple MovieDetailContent.swift +
+// ViewExtensions.continuumResumePlaybackAlert (Jim phone QA 2026-07-10).
 fun computePlayLabel(
     detail: ItemDetail,
     nextEpisodeLabel: String? = null,
 ): String {
     if (detail.type == "series" && nextEpisodeLabel != null) {
         return "Play $nextEpisodeLabel"
-    }
-    val pos = playbackResumePosition(detail.userData)
-    if (pos != null) {
-        val totalSec = pos.toInt()
-        val h = totalSec / 3600
-        val m = (totalSec % 3600) / 60
-        val s = totalSec % 60
-        return if (h > 0) {
-            "Resume %d:%02d:%02d".format(h, m, s)
-        } else {
-            "Resume %d:%02d".format(m, s)
-        }
     }
     if (detail.type == "episode") {
         val s = detail.seasonNumber
@@ -897,6 +922,15 @@ fun computePlayLabel(
         }
     }
     return "Play"
+}
+
+/** Clock for the "Continue Watching?" dialog's "You stopped at …" line. */
+fun formatResumeStoppedAt(positionSeconds: Double): String {
+    val totalSec = positionSeconds.toInt().coerceAtLeast(0)
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 // ── Details list (key/value facts) ────────────────────────────
