@@ -1,6 +1,9 @@
 package org.siloserver.silo.tv.ui.navigation
 
 import android.net.Uri
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,6 +71,9 @@ private val preMainAuthRoutes: Set<String> = setOf(
     TvRoute.CreateProfile.route,
     TvRoute.EditProfile.ROUTE,
 )
+
+/** Page-to-page cross-fade duration (ms); snappier than Compose Nav's 700ms default. */
+private const val TvPageFadeDurationMs = 200
 
 @Composable
 fun TvAppNavigation(
@@ -193,6 +199,11 @@ fun TvAppNavigation(
         navController = navController,
         startDestination = startDestination,
         modifier = modifier,
+        // Replace Compose Nav's sluggish 700ms default cross-fade with a snappy one.
+        enterTransition = { fadeIn(tween(TvPageFadeDurationMs)) },
+        exitTransition = { fadeOut(tween(TvPageFadeDurationMs)) },
+        popEnterTransition = { fadeIn(tween(TvPageFadeDurationMs)) },
+        popExitTransition = { fadeOut(tween(TvPageFadeDurationMs)) },
     ) {
         composable(TvRoute.ServerSetup.route) {
             TvServerSetupScreen(

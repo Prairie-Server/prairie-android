@@ -3,6 +3,8 @@ package org.siloserver.silo.tv.ui.shell
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -659,6 +661,11 @@ fun TvMainShell(
                 navController = nestedNav,
                 startDestination = firstTvRoute(),
                 modifier = Modifier.fillMaxSize(),
+                // Snappier than Compose Nav's 700ms default cross-fade between tabs.
+                enterTransition = { fadeIn(tween(200)) },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = { fadeOut(tween(200)) },
             ) {
                 composable(TvMainRoute.Video.route) {
                     TvHomeScreen(
