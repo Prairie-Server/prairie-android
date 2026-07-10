@@ -492,8 +492,17 @@ fun ItemDetailScreen(
                             }
                         }
 
-                        val seriesResume = nextEpisode?.let { playbackResumePosition(it) }
-                            ?: playbackResumePosition(detail.userData)
+                        // Key the dialog off the SAME source the Resume action uses
+                        // below: whenever nextEpisode exists, Resume launches it with
+                        // its own progress. Don't fall back to series-level progress
+                        // when nextEpisode has none, or the dialog would show a
+                        // "stopped at" time that Resume won't honor (both buttons
+                        // would start the episode at 0).
+                        val seriesResume = if (nextEpisode != null) {
+                            playbackResumePosition(nextEpisode)
+                        } else {
+                            playbackResumePosition(detail.userData)
+                        }
                         SeriesDetailContent(
                             translation = translationSlot,
                             detail = detail,
