@@ -9,10 +9,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,8 +34,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,12 +101,6 @@ fun PlayerGestureHandler(
     val currentDuration by rememberUpdatedState(duration)
     val currentSeekEnabled by rememberUpdatedState(seekEnabled)
 
-    var seekDragStartPosition by remember { mutableDoubleStateOf(0.0) }
-    var seekDragAccumulator by remember { mutableFloatStateOf(0f) }
-    // True when a horizontal drag started in the outer edge band (or seek is
-    // gated off): that gesture is left alone so an edge swipe stays a back-swipe
-    // instead of scrubbing (Jim: inner-~80% safe-box).
-    var seekGestureIgnored by remember { mutableStateOf(false) }
     // Live scrub feedback shown while a seek drag is in progress (direction +
     // delta + target time); null when not seeking.
     var seekPreview by remember { mutableStateOf<SeekPreview?>(null) }
@@ -259,47 +254,58 @@ fun PlayerGestureHandler(
                 )
             }
             .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { start ->
-                        // Safe-box: only scrub when the drag starts in the inner
-                        // ~80%. A drag beginning in the outer edge band is left
-                        // unconsumed so it can be a system back-swipe, not a seek.
-                        val edge = size.width * SeekEdgeExclusionFraction
-                        seekGestureIgnored = !currentSeekEnabled ||
-                            start.x < edge || start.x > size.width - edge
-                        if (!seekGestureIgnored) {
-                            seekDragStartPosition = currentPosition
-                            seekDragAccumulator = 0f
-                        }
-                    },
-                    onDragEnd = {
-                        if (!seekGestureIgnored) {
-                            val dur = currentDuration
-                            val seekAmount =
-                                (seekDragAccumulator / size.width.toFloat()) * dur.toFloat() * 0.5f
-                            val newPosition = (seekDragStartPosition + seekAmount).coerceIn(0.0, dur)
-                            onSeek(newPosition)
-                        }
-                        seekDragAccumulator = 0f
-                        seekGestureIgnored = false
-                        seekPreview = null
-                    },
-                    onHorizontalDrag = { change, dragAmount ->
-                        // Ignored (edge) drags: don't consume, so the gesture can
-                        // fall through to the system back-swipe.
-                        if (seekGestureIgnored) return@detectHorizontalDragGestures
+                // Low-level loop instead of detectHorizontalDragGestures: that
+                // detector reports onDragStart only AFTER crossing (and consuming)
+                // horizontal slop, so the start position is post-slop and the edge
+                // event is already claimed — too late to (a) honor the safe-box on
+                // the true down position, or (b) leave an edge swipe for the system
+                // back gesture. Here we read the raw down, apply the safe-box
+                // BEFORE consuming anything, and only then claim the drag.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val edge = size.width * SeekEdgeExclusionFraction
+                    // Safe-box: a drag beginning in the outer band (or with seek
+                    // gated off) is left entirely unconsumed so it can be a system
+                    // back-swipe, not a scrub.
+                    if (!currentSeekEnabled ||
+                        down.position.x < edge ||
+                        down.position.x > size.width - edge
+                    ) {
+                        return@awaitEachGesture
+                    }
+                    // Claim only once the motion is actually horizontal (lets taps,
+                    // vertical brightness/volume/dismiss drags win otherwise).
+                    var accumulator = 0f
+                    val slopChange = awaitHorizontalTouchSlopOrCancellation(down.id) { change, overSlop ->
                         change.consume()
-                        seekDragAccumulator += dragAmount
+                        accumulator += overSlop
+                    } ?: return@awaitEachGesture
+
+                    val startPosition = currentPosition
+                    fun publishPreview() {
                         val dur = currentDuration
-                        val seekAmount =
-                            (seekDragAccumulator / size.width.toFloat()) * dur.toFloat() * 0.5f
-                        val target = (seekDragStartPosition + seekAmount).coerceIn(0.0, dur)
+                        val seekAmount = (accumulator / size.width.toFloat()) * dur.toFloat() * 0.5f
+                        val target = (startPosition + seekAmount).coerceIn(0.0, dur)
                         seekPreview = SeekPreview(
-                            deltaSeconds = target - seekDragStartPosition,
+                            deltaSeconds = target - startPosition,
                             targetSeconds = target,
                         )
-                    },
-                )
+                    }
+                    slopChange.consume()
+                    publishPreview()
+
+                    horizontalDrag(down.id) { change ->
+                        accumulator += change.positionChange().x
+                        change.consume()
+                        publishPreview()
+                    }
+
+                    // Released: commit the seek to the previewed target.
+                    val dur = currentDuration
+                    val seekAmount = (accumulator / size.width.toFloat()) * dur.toFloat() * 0.5f
+                    onSeek((startPosition + seekAmount).coerceIn(0.0, dur))
+                    seekPreview = null
+                }
             },
     ) {
         // Double-tap skip flash badge — vertically centered in the tapped
