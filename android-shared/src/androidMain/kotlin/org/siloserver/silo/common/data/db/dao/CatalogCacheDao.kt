@@ -14,4 +14,7 @@ interface CatalogCacheDao {
 
     @Query("SELECT * FROM catalog_cache WHERE serverId = :serverId AND profileId = :profileId AND cacheKey = :cacheKey")
     suspend fun get(serverId: String, profileId: String, cacheKey: String): CatalogCacheEntity?
+
+    @Query("DELETE FROM catalog_cache WHERE serverId = :serverId AND profileId = :profileId AND cacheKey = :cacheKey")
+    suspend fun delete(serverId: String, profileId: String, cacheKey: String)
 }

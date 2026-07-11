@@ -52,6 +52,31 @@ class RoomHomeCacheRepositoryTest {
     }
 
     @Test
+    fun oversizedHomeIsNotCachedAndDropsPriorRow() = runTest {
+        // A good small cache exists first.
+        repo.cacheHome(listOf(section("s-cw", "c1")))
+        assertEquals(1, repo.getCachedHome()?.sections?.size)
+
+        // An oversized layout (> ~1.5MB serialized) must NOT be stored — a row
+        // that big overflows SQLite's ~2MB CursorWindow and throws
+        // SQLiteBlobTooBigException on the next read. It should be skipped and
+        // the prior row dropped, so getCachedHome cleanly returns null.
+        val bigTitle = "x".repeat(2_000)
+        val huge = listOf(
+            ResolvedSection(
+                id = "big",
+                sectionType = "row",
+                title = "Big",
+                items = (0 until 1_000).map {
+                    SectionItem(contentId = "c$it", type = "movie", title = bigTitle)
+                },
+            ),
+        )
+        repo.cacheHome(huge)
+        assertNull(repo.getCachedHome())
+    }
+
+    @Test
     fun cacheIsScopedAndNoOpWithoutScope() = runTest {
         repo.cacheHome(listOf(section("s-cw", "c1")))
         // Different scope → no cached home.
