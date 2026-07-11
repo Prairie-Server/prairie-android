@@ -28,11 +28,20 @@ class RoomHomeCacheRepository(
     override suspend fun cacheHome(sections: List<ResolvedSection>) {
         val snapshot = snapshotProvider() ?: return
         val profileId = snapshot.profileId ?: return
+        val sectionsJson = json.encodeToString(sections)
+        // A Room row must fit SQLite's ~2MB CursorWindow or the *read* throws
+        // SQLiteBlobTooBigException. Large reorganized home layouts can exceed
+        // that, so don't cache an unreadable row — drop any prior row (which may
+        // itself be an oversized poison) and just serve the home online.
+        if (sectionsJson.encodeToByteArray().size > MAX_CACHE_BYTES) {
+            runCatching { dao.delete(snapshot.serverId, profileId) }
+            return
+        }
         dao.upsert(
             HomeCacheEntity(
                 serverId = snapshot.serverId,
                 profileId = profileId,
-                sectionsJson = json.encodeToString(sections),
+                sectionsJson = sectionsJson,
                 cachedAtMs = now(),
             ),
         )
@@ -41,10 +50,23 @@ class RoomHomeCacheRepository(
     override suspend fun getCachedHome(): HomeCacheSnapshot? {
         val snapshot = snapshotProvider() ?: return null
         val profileId = snapshot.profileId ?: return null
-        val row = dao.get(snapshot.serverId, profileId) ?: return null
+        // An oversized legacy row (written before the cap) throws
+        // SQLiteBlobTooBigException on read; purge it so it can't crash the home
+        // screen again, and fall through to an online load.
+        val row = runCatching { dao.get(snapshot.serverId, profileId) }
+            .getOrElse {
+                runCatching { dao.delete(snapshot.serverId, profileId) }
+                null
+            } ?: return null
         val sections = runCatching {
             json.decodeFromString<List<ResolvedSection>>(row.sectionsJson)
         }.getOrNull() ?: return null
         return HomeCacheSnapshot(sections = sections, cachedAtMs = row.cachedAtMs)
+    }
+
+    private companion object {
+        // Stay well under SQLite's ~2MB CursorWindow (row must include other
+        // columns + overhead), so a cached row is always readable.
+        const val MAX_CACHE_BYTES = 1_500_000
     }
 }

@@ -66,6 +66,13 @@ class RoomCatalogCacheRepository(
     private suspend fun put(cacheKey: String, jsonStr: String) {
         val snapshot = snapshotProvider() ?: return
         val profileId = snapshot.profileId ?: return
+        // A Room row must fit SQLite's ~2MB CursorWindow or the *read* throws
+        // SQLiteBlobTooBigException. Big library pages can exceed it, so don't
+        // store an unreadable row — drop any prior row for this key and skip.
+        if (jsonStr.encodeToByteArray().size > MAX_CACHE_BYTES) {
+            runCatching { dao.delete(snapshot.serverId, profileId, cacheKey) }
+            return
+        }
         dao.upsert(
             CatalogCacheEntity(
                 serverId = snapshot.serverId,
@@ -80,10 +87,18 @@ class RoomCatalogCacheRepository(
     private suspend fun get(cacheKey: String): String? {
         val snapshot = snapshotProvider() ?: return null
         val profileId = snapshot.profileId ?: return null
-        return dao.get(snapshot.serverId, profileId, cacheKey)?.json
+        // An oversized legacy row throws SQLiteBlobTooBigException on read; purge
+        // it so it can't keep crashing the browse screen, and serve online.
+        return runCatching { dao.get(snapshot.serverId, profileId, cacheKey) }
+            .getOrElse {
+                runCatching { dao.delete(snapshot.serverId, profileId, cacheKey) }
+                null
+            }?.json
     }
 
     private companion object {
+        // Stay well under SQLite's ~2MB CursorWindow.
+        const val MAX_CACHE_BYTES = 1_500_000
         const val KEY_LIBRARIES = "libraries"
         fun libraryKey(libraryId: Int) = "library:$libraryId"
         fun librarySectionsKey(libraryId: Int) = "library-sections:$libraryId"
