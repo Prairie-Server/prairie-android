@@ -16,11 +16,15 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.Icon
@@ -98,6 +102,13 @@ fun PlayerGestureHandler(
 
     var seekDragStartPosition by remember { mutableDoubleStateOf(0.0) }
     var seekDragAccumulator by remember { mutableFloatStateOf(0f) }
+    // True when a horizontal drag started in the outer edge band (or seek is
+    // gated off): that gesture is left alone so an edge swipe stays a back-swipe
+    // instead of scrubbing (Jim: inner-~80% safe-box).
+    var seekGestureIgnored by remember { mutableStateOf(false) }
+    // Live scrub feedback shown while a seek drag is in progress (direction +
+    // delta + target time); null when not seeking.
+    var seekPreview by remember { mutableStateOf<SeekPreview?>(null) }
     var suppressTapAfterFastForwardHold by remember { mutableStateOf(false) }
 
     // Double-tap skip feedback (iOS MobilePlayerGestureLayer skipFlash parity):
@@ -249,20 +260,44 @@ fun PlayerGestureHandler(
             }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
-                    onDragStart = {
-                        seekDragStartPosition = currentPosition
-                        seekDragAccumulator = 0f
+                    onDragStart = { start ->
+                        // Safe-box: only scrub when the drag starts in the inner
+                        // ~80%. A drag beginning in the outer edge band is left
+                        // unconsumed so it can be a system back-swipe, not a seek.
+                        val edge = size.width * SeekEdgeExclusionFraction
+                        seekGestureIgnored = !currentSeekEnabled ||
+                            start.x < edge || start.x > size.width - edge
+                        if (!seekGestureIgnored) {
+                            seekDragStartPosition = currentPosition
+                            seekDragAccumulator = 0f
+                        }
                     },
                     onDragEnd = {
-                        val dur = currentDuration
-                        val seekAmount = (seekDragAccumulator / size.width.toFloat()) * dur.toFloat() * 0.5f
-                        val newPosition = (seekDragStartPosition + seekAmount).coerceIn(0.0, dur)
-                        onSeek(newPosition)
+                        if (!seekGestureIgnored) {
+                            val dur = currentDuration
+                            val seekAmount =
+                                (seekDragAccumulator / size.width.toFloat()) * dur.toFloat() * 0.5f
+                            val newPosition = (seekDragStartPosition + seekAmount).coerceIn(0.0, dur)
+                            onSeek(newPosition)
+                        }
                         seekDragAccumulator = 0f
+                        seekGestureIgnored = false
+                        seekPreview = null
                     },
                     onHorizontalDrag = { change, dragAmount ->
+                        // Ignored (edge) drags: don't consume, so the gesture can
+                        // fall through to the system back-swipe.
+                        if (seekGestureIgnored) return@detectHorizontalDragGestures
                         change.consume()
                         seekDragAccumulator += dragAmount
+                        val dur = currentDuration
+                        val seekAmount =
+                            (seekDragAccumulator / size.width.toFloat()) * dur.toFloat() * 0.5f
+                        val target = (seekDragStartPosition + seekAmount).coerceIn(0.0, dur)
+                        seekPreview = SeekPreview(
+                            deltaSeconds = target - seekDragStartPosition,
+                            targetSeconds = target,
+                        )
                     },
                 )
             },
@@ -284,7 +319,65 @@ fun PlayerGestureHandler(
                 SkipFlashBadge(forward = flash.forward)
             }
         }
+
+        // Live scrub feedback while a horizontal seek drag is in progress.
+        val preview = seekPreview
+        if (preview != null) {
+            SeekPreviewBadge(preview, modifier = Modifier.align(Alignment.Center))
+        }
     }
+}
+
+/**
+ * Live scrubbing HUD shown during a horizontal seek drag: a direction glyph,
+ * the signed delta from the drag's start position, and the target time. No
+ * animation — it tracks the finger and vanishes on release.
+ */
+@Composable
+private fun SeekPreviewBadge(preview: SeekPreview, modifier: Modifier = Modifier) {
+    val forward = preview.deltaSeconds >= 0
+    Row(
+        modifier = modifier
+            .background(color = Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(14.dp))
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (forward) Icons.Filled.FastForward else Icons.Filled.FastRewind,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(24.dp),
+        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = formatSeekDelta(preview.deltaSeconds),
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = formatSeekClock(preview.targetSeconds),
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+private data class SeekPreview(val deltaSeconds: Double, val targetSeconds: Double)
+
+private fun formatSeekClock(seconds: Double): String {
+    val s = seconds.toInt().coerceAtLeast(0)
+    val h = s / 3600
+    val m = (s % 3600) / 60
+    val sec = s % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+private fun formatSeekDelta(deltaSeconds: Double): String {
+    val sign = if (deltaSeconds >= 0) "+" else "−"
+    return sign + formatSeekClock(kotlin.math.abs(deltaSeconds))
 }
 
 /**
@@ -320,6 +413,13 @@ private const val PinchGravityThreshold = 1.08f
 
 /** iOS skipZoneFraction: outer double-tap bands (35% each side) skip ±10s. */
 private const val SkipZoneFraction = 0.35f
+
+/**
+ * Horizontal seek safe-box: a drag must START within the inner 80% (this much
+ * excluded on each side) to scrub. Drags beginning in the outer band are left
+ * unconsumed so an edge swipe stays a system back-swipe, not a rewind (Jim).
+ */
+private const val SeekEdgeExclusionFraction = 0.1f
 
 /** iOS skip flash hold before the fade-out begins. */
 private const val SkipFlashHoldMs = 700L
