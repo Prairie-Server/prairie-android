@@ -206,7 +206,10 @@ fun PlayerScreen(
         viewModel.remoteStopRequests.collect {
             exitRequested = true
             viewModel.onExit()
-            navController.popBackStack()
+            // Nothing behind the player (launcher/deep-link/notification open) →
+            // popBackStack can't land anywhere and leaves a blank NavHost, then
+            // system back exits from a grey screen. Finish cleanly instead.
+            if (!navController.popBackStack()) activity?.finish()
         }
     }
 
@@ -215,7 +218,10 @@ fun PlayerScreen(
         if (roomClosedReason != null && roomController != null) {
             exitRequested = true
             viewModel.onExit()
-            navController.popBackStack()
+            // Nothing behind the player (launcher/deep-link/notification open) →
+            // popBackStack can't land anywhere and leaves a blank NavHost, then
+            // system back exits from a grey screen. Finish cleanly instead.
+            if (!navController.popBackStack()) activity?.finish()
         }
     }
 
@@ -911,7 +917,11 @@ fun PlayerScreen(
                         exitRequested = true
                         roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
                         viewModel.onExit()
-                        navController.popBackStack()
+                        // Nothing behind the player (launcher/deep-link/notification
+                        // open) → popBackStack can't land anywhere and leaves a blank
+                        // NavHost, then system back exits from a grey screen. Finish
+                        // cleanly instead.
+                        if (!navController.popBackStack()) activity?.finish()
                     },
                     onPlayPause = {
                         // In a room, route through transport_request (gated to

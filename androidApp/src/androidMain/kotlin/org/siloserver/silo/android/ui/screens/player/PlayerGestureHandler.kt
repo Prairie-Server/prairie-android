@@ -89,6 +89,11 @@ fun PlayerGestureHandler(
     // fill/stretch), false = pinch-in (step back toward fit).
     onPinchVideoGravity: (Boolean) -> Unit = {},
     onDismiss: () -> Unit = {},
+    // Swipe-down-to-dismiss is suppressed until playback is actually established.
+    // During the initial open the media is still loading, and a downward volume/
+    // brightness swipe that drifts inward would otherwise be read as "close the
+    // player" — which then strands the user (Jim, Fold).
+    dismissEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -100,6 +105,10 @@ fun PlayerGestureHandler(
     val currentPosition by rememberUpdatedState(position)
     val currentDuration by rememberUpdatedState(duration)
     val currentSeekEnabled by rememberUpdatedState(seekEnabled)
+    // Same reason as seekEnabled: the vertical-drag coroutine is created once
+    // (keyed on Unit), so read the latest dismiss gate through rememberUpdatedState
+    // — otherwise a value captured while buffering would stick after playback.
+    val currentDismissEnabled by rememberUpdatedState(dismissEnabled)
 
     // Live scrub feedback shown while a seek drag is in progress (direction +
     // delta + target time); null when not seeking.
@@ -228,7 +237,7 @@ fun PlayerGestureHandler(
                         }
                     },
                     onDragEnd = {
-                        if (mode == VerticalDragMode.DismissCandidate) {
+                        if (currentDismissEnabled && mode == VerticalDragMode.DismissCandidate) {
                             val dy = totalDrag.y
                             val dx = totalDrag.x
                             if (dy > DismissDragThresholdDp.dp.toPx() &&
