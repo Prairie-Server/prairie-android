@@ -72,8 +72,12 @@ private val preMainAuthRoutes: Set<String> = setOf(
     TvRoute.EditProfile.ROUTE,
 )
 
-/** Page-to-page cross-fade duration (ms); snappier than Compose Nav's 700ms default. */
-private const val TvPageFadeDurationMs = 200
+/**
+ * Page-to-page cross-fade duration (ms). A middle ground between Compose Nav's
+ * sluggish 700ms default and a phone-snappy 200ms — a touch more deliberate for
+ * the 10-foot view so focus settles, without the old drag (Jim, TV feel).
+ */
+private const val TvPageFadeDurationMs = 500
 
 @Composable
 fun TvAppNavigation(

@@ -661,11 +661,12 @@ fun TvMainShell(
                 navController = nestedNav,
                 startDestination = firstTvRoute(),
                 modifier = Modifier.fillMaxSize(),
-                // Snappier than Compose Nav's 700ms default cross-fade between tabs.
-                enterTransition = { fadeIn(tween(200)) },
-                exitTransition = { fadeOut(tween(200)) },
-                popEnterTransition = { fadeIn(tween(200)) },
-                popExitTransition = { fadeOut(tween(200)) },
+                // Middle ground between the 700ms default and phone-snappy 200ms
+                // for tab-content switches (matches TvPageFadeDurationMs = 500).
+                enterTransition = { fadeIn(tween(500)) },
+                exitTransition = { fadeOut(tween(500)) },
+                popEnterTransition = { fadeIn(tween(500)) },
+                popExitTransition = { fadeOut(tween(500)) },
             ) {
                 composable(TvMainRoute.Video.route) {
                     TvHomeScreen(
