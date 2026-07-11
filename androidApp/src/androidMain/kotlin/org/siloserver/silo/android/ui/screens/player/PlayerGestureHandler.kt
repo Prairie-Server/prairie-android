@@ -105,6 +105,10 @@ fun PlayerGestureHandler(
     val currentPosition by rememberUpdatedState(position)
     val currentDuration by rememberUpdatedState(duration)
     val currentSeekEnabled by rememberUpdatedState(seekEnabled)
+    // Same reason as seekEnabled: the vertical-drag coroutine is created once
+    // (keyed on Unit), so read the latest dismiss gate through rememberUpdatedState
+    // — otherwise a value captured while buffering would stick after playback.
+    val currentDismissEnabled by rememberUpdatedState(dismissEnabled)
 
     // Live scrub feedback shown while a seek drag is in progress (direction +
     // delta + target time); null when not seeking.
@@ -233,7 +237,7 @@ fun PlayerGestureHandler(
                         }
                     },
                     onDragEnd = {
-                        if (dismissEnabled && mode == VerticalDragMode.DismissCandidate) {
+                        if (currentDismissEnabled && mode == VerticalDragMode.DismissCandidate) {
                             val dy = totalDrag.y
                             val dx = totalDrag.x
                             if (dy > DismissDragThresholdDp.dp.toPx() &&
