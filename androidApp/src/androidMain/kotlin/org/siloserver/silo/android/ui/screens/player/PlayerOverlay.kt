@@ -167,6 +167,10 @@ fun PlayerOverlay(
                 onFastForwardHold = gatedFastForwardHold,
                 onPinchVideoGravity = stepVideoGravity,
                 onDismiss = handleBack,
+                // Only allow swipe-down-to-dismiss once playback is established —
+                // during the initial load a stray volume swipe must not close the
+                // player.
+                dismissEnabled = state.isPlaying || state.isPaused,
                 modifier = Modifier.zIndex(0f),
             )
         }

@@ -89,6 +89,11 @@ fun PlayerGestureHandler(
     // fill/stretch), false = pinch-in (step back toward fit).
     onPinchVideoGravity: (Boolean) -> Unit = {},
     onDismiss: () -> Unit = {},
+    // Swipe-down-to-dismiss is suppressed until playback is actually established.
+    // During the initial open the media is still loading, and a downward volume/
+    // brightness swipe that drifts inward would otherwise be read as "close the
+    // player" — which then strands the user (Jim, Fold).
+    dismissEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -228,7 +233,7 @@ fun PlayerGestureHandler(
                         }
                     },
                     onDragEnd = {
-                        if (mode == VerticalDragMode.DismissCandidate) {
+                        if (dismissEnabled && mode == VerticalDragMode.DismissCandidate) {
                             val dy = totalDrag.y
                             val dx = totalDrag.x
                             if (dy > DismissDragThresholdDp.dp.toPx() &&
