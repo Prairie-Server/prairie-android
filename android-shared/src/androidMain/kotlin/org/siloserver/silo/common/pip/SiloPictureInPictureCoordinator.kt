@@ -55,6 +55,16 @@ fun siloCanEnterPictureInPicture(
     }
 }
 
+fun siloShouldUpdatePictureInPictureParams(
+    sdkInt: Int,
+    deviceSupportsPictureInPicture: Boolean,
+    wasEnabled: Boolean,
+    enabled: Boolean,
+): Boolean =
+    sdkInt >= Build.VERSION_CODES.O &&
+        deviceSupportsPictureInPicture &&
+        (wasEnabled || enabled)
+
 class SiloPictureInPictureCoordinator {
     private val _isInPictureInPictureMode = MutableStateFlow(false)
     val isInPictureInPictureMode: StateFlow<Boolean> = _isInPictureInPictureMode.asStateFlow()
@@ -71,20 +81,27 @@ class SiloPictureInPictureCoordinator {
         surface: SiloPictureInPictureSurface,
         state: SiloPictureInPicturePlaybackState,
     ) {
-        stateBySurface[surface] = state
+        val previousState = stateBySurface.put(surface, state)
         // setPictureInPictureParams throws IllegalStateException on devices
         // without FEATURE_PICTURE_IN_PICTURE (e.g. some Android TV hardware), so
-        // gate on device support before touching the system API.
-        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            activity.supportsPictureInPicture()
+        // gate on device support and avoid touching the API when PiP has always
+        // been disabled for this surface. A true -> false transition still has
+        // to update the params so mobile auto-enter is switched off.
+        if (activity != null && siloShouldUpdatePictureInPictureParams(
+                sdkInt = Build.VERSION.SDK_INT,
+                deviceSupportsPictureInPicture = activity.supportsPictureInPicture(),
+                wasEnabled = previousState?.enabled == true,
+                enabled = state.enabled,
+            )
         ) {
             activity.setPictureInPictureParams(buildParams(activity, surface, state))
         }
     }
 
     fun clearPlaybackState(activity: Activity?, surface: SiloPictureInPictureSurface) {
-        stateBySurface.remove(surface)
+        val previousState = stateBySurface.remove(surface)
         if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            previousState?.enabled == true &&
             activity.supportsPictureInPicture()
         ) {
             activity.setPictureInPictureParams(

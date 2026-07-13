@@ -65,4 +65,32 @@ class SiloPictureInPicturePolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `initially disabled PiP does not touch system parameters`() {
+        assertTrue(
+            siloShouldUpdatePictureInPictureParams(
+                sdkInt = 30,
+                deviceSupportsPictureInPicture = true,
+                wasEnabled = false,
+                enabled = true,
+            ),
+        )
+        assertFalse(
+            siloShouldUpdatePictureInPictureParams(
+                sdkInt = 30,
+                deviceSupportsPictureInPicture = true,
+                wasEnabled = false,
+                enabled = false,
+            ),
+        )
+        assertTrue(
+            siloShouldUpdatePictureInPictureParams(
+                sdkInt = 30,
+                deviceSupportsPictureInPicture = true,
+                wasEnabled = true,
+                enabled = false,
+            ),
+        )
+    }
 }
