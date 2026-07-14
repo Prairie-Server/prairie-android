@@ -6,6 +6,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import java.net.ConnectException
+import java.net.ProtocolException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -51,11 +52,26 @@ internal fun siloMediaLoadRetryDelayMs(
 
 private fun isRetryableMediaLoadFailure(responseCode: Int?, cause: Throwable?): Boolean {
     if (responseCode != null) return responseCode.isRetryableMediaStatus()
-    return cause is SocketTimeoutException ||
-        cause is ConnectException ||
-        cause is SocketException ||
-        cause is UnknownHostException
+    return generateSequence(cause) { it.cause }
+        .any { error ->
+            error is SocketTimeoutException ||
+                error is ConnectException ||
+                error is SocketException ||
+                error is UnknownHostException ||
+                error.isPrematureHttpEndOfStream()
+        }
 }
+
+/**
+ * OkHttp reports a response that closes before its declared Content-Length as
+ * a ProtocolException wrapped by Media3's HttpDataSourceException. Progressive
+ * extractors can safely reopen their current byte range, so keep this narrowly
+ * scoped transport failure retryable without masking unrelated protocol or
+ * container errors.
+ */
+private fun Throwable.isPrematureHttpEndOfStream(): Boolean =
+    this is ProtocolException &&
+        message?.contains("unexpected end of stream", ignoreCase = true) == true
 
 private fun Int.isRetryableMediaStatus(): Boolean =
     this == 404 ||

@@ -3,6 +3,7 @@ package org.siloserver.silo.common.player
 import androidx.media3.common.C
 import java.io.IOException
 import java.net.ConnectException
+import java.net.ProtocolException
 import java.net.SocketTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -69,6 +70,34 @@ class MediaLoadRetryPolicyTest {
             C.TIME_UNSET,
             siloMediaLoadRetryDelayMs(
                 cause = IOException("parser failed"),
+                errorCount = 1,
+            ),
+        )
+    }
+
+    @Test
+    fun `wrapped premature response end retries from the progressive load position`() {
+        assertEquals(
+            1_000L,
+            siloMediaLoadRetryDelayMs(
+                cause = IOException(
+                    "Media3 data source read failed",
+                    ProtocolException("unexpected end of stream"),
+                ),
+                errorCount = 1,
+            ),
+        )
+    }
+
+    @Test
+    fun `unrelated protocol errors remain fatal`() {
+        assertEquals(
+            C.TIME_UNSET,
+            siloMediaLoadRetryDelayMs(
+                cause = IOException(
+                    "Media3 data source read failed",
+                    ProtocolException("unexpected status line"),
+                ),
                 errorCount = 1,
             ),
         )
