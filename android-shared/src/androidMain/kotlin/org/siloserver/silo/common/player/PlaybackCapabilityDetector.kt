@@ -8,18 +8,32 @@ import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import org.siloserver.silo.common.player.backend.MpvDeviceFloor
 import org.siloserver.silo.player.DolbyVisionPolicy
-import org.siloserver.silo.common.player.video.directOriginalPlaybackContainers
 import org.siloserver.silo.common.player.video.media3OriginalPlaybackContainers
-import org.siloserver.silo.common.player.video.mpvOriginalPlaybackContainers
 import org.siloserver.silo.model.playback.ClientPlaybackContext
 import org.siloserver.silo.model.playback.ClientCodecCapabilities
 import org.siloserver.silo.model.playback.EngineCapabilityEnvelope
 import org.siloserver.silo.model.playback.EngineSubtitleCapabilities
+import org.siloserver.silo.model.playback.DETAILED_DECODE_CAPABILITIES_FEATURE
+import org.siloserver.silo.model.playback.LAYOUT_AWARE_PASSTHROUGH_FEATURE
+import org.siloserver.silo.model.playback.CLIENT_VIDEO_TRANSFORMATIONS_FEATURE
+import org.siloserver.silo.model.playback.DEVICE_QUIRKS_V3_FEATURE
+import org.siloserver.silo.model.playback.CLIENT_DV8_HDR10_PLUS_SANITIZER
+import org.siloserver.silo.model.playback.CLIENT_POST_RESUME_VIDEO_RECOVERY
+import org.siloserver.silo.model.playback.CLIENT_SURFACE_RECOVERY
+import org.siloserver.silo.model.playback.CLIENT_DV7_TO_DV81
+import org.siloserver.silo.model.playback.CLIENT_DV7_TO_HDR10
+import org.siloserver.silo.model.playback.CLIENT_DV_TRANSFORM_RECIPE_VERSION
+import org.siloserver.silo.model.playback.MEDIA3_ONLY_FEATURE
+import org.siloserver.silo.model.playback.PLAYBACK_PLAN_V3_FEATURE
+import org.siloserver.silo.model.playback.SEEK_REANCHOR_V3_FEATURE
 import org.siloserver.silo.model.playback.PlaybackDeviceContext
 import org.siloserver.silo.model.playback.PlaybackEngineKind
+import org.siloserver.silo.model.playback.PlaybackTransformationExecutor
+import org.siloserver.silo.model.playback.PlaybackTransformationV3
 import org.siloserver.silo.model.playback.PlaybackOutputContext
+import kotlinx.coroutines.flow.StateFlow
+import org.siloserver.silo.libass.LibassBridge
 
 /**
  * Orchestrates the three probes — [MediaCodecCapabilitiesProbe] (video + HDR),
@@ -37,7 +51,9 @@ import org.siloserver.silo.model.playback.PlaybackOutputContext
 class PlaybackCapabilityDetector(
     private val context: Context,
     private val audioCapabilityManager: AudioCapabilityManager,
+    private val libassBridge: LibassBridge,
 ) {
+    val outputRouteGeneration: StateFlow<Long> = audioCapabilityManager.outputRouteGeneration
     // Platform software-audio decoders are static for the process; cache the
     // MediaCodecList enumeration so back-to-back detect()/detectPlaybackContext()
     // calls per playback start don't re-run it.
@@ -152,40 +168,24 @@ class PlaybackCapabilityDetector(
 
         val softwareAudio = detectSoftwareAudioCodecs(ffmpegAvailable)
         val passthrough = audioCapabilityManager.capabilities.value
-        val mergedAudio = (softwareAudio + passthrough.passthroughCodecs).distinct()
-        val supportedAbis = Build.SUPPORTED_ABIS?.toList().orEmpty()
-        val mpvSupported = MpvDeviceFloor.isMpvSupported(
-            sdkInt = Build.VERSION.SDK_INT,
-            supportedAbis = supportedAbis,
-        )
-        val directContainers = if (mpvSupported) {
-            directOriginalPlaybackContainers
-        } else {
-            media3OriginalPlaybackContainers
-        }
-
         val hasAnyHdr = intersectedHdr.hdr10 ||
             intersectedHdr.hdr10Plus ||
             intersectedHdr.hlg ||
             intersectedHdr.dolbyVisionProfiles.isNotEmpty()
 
-        // Apple codec-tail parity: when MPV is available, also advertise the
-        // codecs its FFmpeg build software-decodes (AV1/VP9/legacy) so the
-        // server DIRECTs those files; the backend selector routes them to MPV.
-        val advertisedVideo = if (mpvSupported) {
-            (codecProbe.videoCodecs + org.siloserver.silo.common.player.video.mpvSoftwareVideoCodecs).distinct()
-        } else {
-            codecProbe.videoCodecs.toList()
-        }
         return ClientCodecCapabilities(
-            codecsVideo = advertisedVideo,
+            codecsVideo = codecProbe.videoCodecs.toList(),
             codecsVideoHardware = codecProbe.videoCodecs.toList(),
-            codecsAudio = mergedAudio,
-            containers = directContainers,
+            // This list is decode-only. Encoded formats accepted by the
+            // current HDMI/USB route belong exclusively in audioPassthrough;
+            // mixing the two prevents the V3 server from proving passthrough.
+            codecsAudio = softwareAudio,
+            containers = media3OriginalPlaybackContainers,
             maxResolution = codecProbe.maxResolution,
             hdr = hasAnyHdr,
             hdrDetails = intersectedHdr,
             audioPassthrough = passthrough,
+            videoDecode = codecProbe.videoDecodeCapabilities,
         )
     }
 
@@ -197,20 +197,68 @@ class PlaybackCapabilityDetector(
     ): ClientPlaybackContext {
         val caps = detect(ffmpegAvailable, dolbyVision)
         val supportedAbis = Build.SUPPORTED_ABIS?.toList().orEmpty()
-        val mpvSupported = MpvDeviceFloor.isMpvSupported(
-            sdkInt = Build.VERSION.SDK_INT,
-            supportedAbis = supportedAbis,
-        )
         val passthrough = caps.audioPassthrough
         val decodeAudio = detectSoftwareAudioCodecs(ffmpegAvailable)
         val media3Audio = decodeAudio
-        val mpvAudio = decodeAudio
+        val libassRendering = libassBridge.isRenderingSupported
+        val libassEmbeddedFonts = libassBridge.isEmbeddedFontsSupported
+        val libassDirectFidelity = libassRendering && libassEmbeddedFonts
+        val contextFeatures = buildList {
+            add(PLAYBACK_PLAN_V3_FEATURE)
+            add(SEEK_REANCHOR_V3_FEATURE)
+            add(MEDIA3_ONLY_FEATURE)
+            add(DETAILED_DECODE_CAPABILITIES_FEATURE)
+            if (!passthrough?.entries.isNullOrEmpty()) add(LAYOUT_AWARE_PASSTHROUGH_FEATURE)
+            add(CLIENT_VIDEO_TRANSFORMATIONS_FEATURE)
+            add(DEVICE_QUIRKS_V3_FEATURE)
+        }
+        val clientVideoTransformations = buildList {
+            if (8 in caps.hdrDetails?.dolbyVisionProfiles.orEmpty() && NativeDolbyVisionRpuConverter.isAvailable) {
+                add(
+                    PlaybackTransformationV3(
+                        name = CLIENT_DV7_TO_DV81,
+                        executor = PlaybackTransformationExecutor.CLIENT,
+                        recipeVersion = CLIENT_DV_TRANSFORM_RECIPE_VERSION,
+                        validatedClaims = listOf(
+                            "profile7_rpu_converted_to_profile81",
+                            "hdr10_base_layer_preserved",
+                            "enhancement_layer_discarded",
+                        ),
+                    ),
+                )
+            }
+            if (caps.hdrDetails?.hdr10 == true) {
+                add(
+                    PlaybackTransformationV3(
+                        name = CLIENT_DV7_TO_HDR10,
+                        executor = PlaybackTransformationExecutor.CLIENT,
+                        recipeVersion = CLIENT_DV_TRANSFORM_RECIPE_VERSION,
+                        validatedClaims = listOf(
+                            "dolby_vision_metadata_removed",
+                            "hdr10_base_layer_preserved",
+                            "enhancement_layer_discarded",
+                        ),
+                    ),
+                )
+            }
+        }
         return ClientPlaybackContext(
+            features = contextFeatures,
             formFactor = formFactor,
             appVersion = appVersion,
             device = PlaybackDeviceContext(
                 manufacturer = Build.MANUFACTURER,
                 model = Build.MODEL,
+                brand = Build.BRAND,
+                device = Build.DEVICE,
+                product = Build.PRODUCT,
+                socManufacturer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Build.SOC_MANUFACTURER
+                } else null,
+                socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else null,
+                buildId = Build.ID,
+                buildDisplay = Build.DISPLAY,
+                securityPatch = Build.VERSION.SECURITY_PATCH,
                 sdkInt = Build.VERSION.SDK_INT,
                 abis = supportedAbis,
             ),
@@ -218,6 +266,8 @@ class PlaybackCapabilityDetector(
                 hdrDetails = caps.hdrDetails,
                 audioPassthrough = passthrough,
                 currentSink = if (passthrough?.passthroughCodecs?.isNotEmpty() == true) "passthrough_sink" else "local_output",
+                sinkType = audioCapabilityManager.currentSinkType(),
+                outputRouteGeneration = audioCapabilityManager.outputRouteGeneration.value,
             ),
             engines = mapOf(
                 PlaybackEngineKind.MEDIA3_DIRECT to EngineCapabilityEnvelope(
@@ -232,40 +282,31 @@ class PlaybackCapabilityDetector(
                     subtitles = EngineSubtitleCapabilities(
                         embeddedText = true,
                         sidecarText = true,
-                        assStyling = false,
-                        embeddedBitmap = false,
+                        assStyling = libassDirectFidelity,
+                        // Media3's DefaultSubtitleParserFactory decodes the
+                        // three embedded bitmap families carried by our
+                        // direct-play containers: PGS, VobSub/DVD, and DVB.
+                        // Keep sidecar bitmap disabled because Silo does not
+                        // mount raw bitmap sidecars into the MediaItem.
+                        embeddedBitmap = true,
                         sidecarBitmap = false,
-                        fontAttachments = false,
+                        fontAttachments = libassEmbeddedFonts,
                     ),
-                    features = listOf("track_switching", "audio_delay", "subtitle_delay", "buffer_reporting"),
+                    features = buildList {
+                        addAll(listOf("track_switching", "audio_delay", "subtitle_delay", "buffer_reporting"))
+                        add(CLIENT_DV8_HDR10_PLUS_SANITIZER)
+                        add(CLIENT_POST_RESUME_VIDEO_RECOVERY)
+                        add(CLIENT_SURFACE_RECOVERY)
+                        if (libassDirectFidelity) add("libass_subtitles")
+                    },
+                    transformations = clientVideoTransformations,
                     authHeaderRefresh = true,
                     validatedClaims = emptyList(),
                 ),
-                PlaybackEngineKind.MPV_DIRECT to EngineCapabilityEnvelope(
-                    enabled = mpvSupported,
-                    supportedOnDevice = mpvSupported,
-                    failureReason = if (mpvSupported) null else "mpv_device_floor_not_met",
-                    containers = mpvOriginalPlaybackContainers,
-                    videoCodecs = caps.codecsVideo,
-                    audioDecodeCodecs = mpvAudio,
-                    audioPassthroughCodecs = passthrough?.passthroughCodecs.orEmpty(),
-                    maxChannels = passthrough?.maxChannels,
-                    hdrDetails = caps.hdrDetails,
-                    subtitles = EngineSubtitleCapabilities(
-                        embeddedText = true,
-                        sidecarText = true,
-                        assStyling = true,
-                        embeddedBitmap = false,
-                        sidecarBitmap = false,
-                        fontAttachments = true,
-                    ),
-                    features = listOf("libass", "track_switching", "subtitle_delay", "hard_containers"),
-                    authHeaderRefresh = false,
-                    validatedClaims = emptyList(),
-                ),
                 PlaybackEngineKind.MEDIA3_PROGRESSIVE_REMUX to EngineCapabilityEnvelope(
-                    enabled = true,
-                    supportedOnDevice = true,
+                    enabled = false,
+                    supportedOnDevice = false,
+                    failureReason = "disabled_pending_seekable_transport",
                     containers = listOf("mp4", "m4v", "webm", "mkv", "matroska"),
                     videoCodecs = caps.codecsVideo,
                     audioDecodeCodecs = media3Audio,
@@ -276,7 +317,14 @@ class PlaybackCapabilityDetector(
                         embeddedText = true,
                         sidecarText = true,
                     ),
-                    features = listOf("progressive", "track_switching", "buffer_reporting"),
+                    features = listOf(
+                        "progressive",
+                        "track_switching",
+                        "buffer_reporting",
+                        CLIENT_DV8_HDR10_PLUS_SANITIZER,
+                        CLIENT_POST_RESUME_VIDEO_RECOVERY,
+                        CLIENT_SURFACE_RECOVERY,
+                    ),
                     authHeaderRefresh = true,
                     validatedClaims = emptyList(),
                 ),
@@ -292,8 +340,15 @@ class PlaybackCapabilityDetector(
                     subtitles = EngineSubtitleCapabilities(
                         embeddedText = true,
                         sidecarText = true,
+                        assStyling = libassRendering,
                     ),
-                    features = listOf("hls", "track_switching", "buffer_reporting"),
+                    features = buildList {
+                        addAll(listOf("hls", "track_switching", "buffer_reporting"))
+                        add(CLIENT_DV8_HDR10_PLUS_SANITIZER)
+                        add(CLIENT_POST_RESUME_VIDEO_RECOVERY)
+                        add(CLIENT_SURFACE_RECOVERY)
+                        if (libassRendering) add("libass_subtitles")
+                    },
                     authHeaderRefresh = true,
                     validatedClaims = emptyList(),
                 ),
@@ -351,22 +406,7 @@ private fun Tracks.Group.selectedFormat() =
 internal fun isDirectPlayableDolbyVisionProfile(
     profile: Int,
     supportedHdr: org.siloserver.silo.model.playback.HdrCapabilities,
-): Boolean = when (profile) {
-    // Profile 8 carries a renderable base layer. Do not force a server fallback
-    // merely because the display probe lacks native Dolby Vision/HDR; let the
-    // player-error path recover if the actual decoder route fails.
-    8 -> true
-    // Profile 7 (dual-layer BL+EL) and Profile 5 (no compatible base layer)
-    // need a native Dolby Vision decoder on the Media3 route.
-    // MediaCodecCapabilitiesProbe already gates the P7 claim on multi-instance
-    // HEVC (the enhancement layer needs a second concurrent decode), so
-    // membership in the intersected profile list is the whole test — the same
-    // model jellyfin-androidtv ships (DvheDtb + maxSupportedInstances >= 2).
-    // When this returns false, PlaybackRecoveryPlanner now prefers an
-    // alternate direct engine (mpv decodes the P7/P8 HDR10 base layer and
-    // tone-maps P5) before conceding a server transcode.
-    else -> supportedHdr.dolbyVisionProfiles.contains(profile)
-}
+): Boolean = supportedHdr.dolbyVisionProfiles.contains(profile)
 
 internal fun isSoftwareDecodableAudioMime(
     mime: String,

@@ -44,7 +44,7 @@ class MediaAuthInterceptorTest {
                     .build(),
             )
 
-            MediaAuthInterceptor(tokenManager).intercept(chain)
+            MediaAuthInterceptor(tokenManager, refreshClient = OkHttpClient()).intercept(chain)
 
             val request = chain.capturedRequest ?: error("request was not captured")
             assertEquals("Bearer access-token", request.header("Authorization"))
@@ -108,6 +108,58 @@ class MediaAuthInterceptorTest {
         assertFalse(tokenManager.invalidatedSession)
         assertEquals("expired-access", runBlocking { tokenManager.getAccessToken() })
         assertEquals("refresh-token", runBlocking { tokenManager.getRefreshToken() })
+    }
+
+    @Test
+    fun `new token from a different server does not satisfy a failed request`() {
+        val tokenManager = FakeTokenManager(
+            accessToken = "server-a-access",
+            refreshToken = "server-a-refresh",
+            serverUrl = "https://server-a.example",
+            serverId = "server-a",
+        )
+        val refreshClient = OkHttpClient.Builder()
+            .addInterceptor { error("A cross-server credential change must not trigger refresh") }
+            .build()
+        val session = MediaAuthSession(tokenManager, refreshClient)
+        val failedSnapshot = runBlocking { session.snapshot() }
+
+        tokenManager.serverId = "server-b"
+        runBlocking {
+            tokenManager.saveTokens(
+                accessToken = "server-b-access",
+                refreshToken = "server-b-refresh",
+                expiresIn = 3600,
+            )
+        }
+
+        assertFalse(runBlocking { session.refreshIfStale(failedSnapshot) })
+    }
+
+    @Test
+    fun `refresh is not posted when active server changes while credentials are read`() {
+        val tokenManager = FakeTokenManager(
+            accessToken = "server-a-access",
+            refreshToken = "server-a-refresh",
+            serverUrl = "https://server-a.example",
+            serverId = "server-a",
+        )
+        var refreshRequests = 0
+        val refreshClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                refreshRequests += 1
+                responseFor(chain.request(), code = 500)
+            }
+            .build()
+        val session = MediaAuthSession(tokenManager, refreshClient)
+        val failedSnapshot = runBlocking { session.snapshot() }
+        tokenManager.onGetServerUrl = {
+            tokenManager.serverId = "server-b"
+            tokenManager.serverUrl = "https://server-b.example"
+        }
+
+        assertFalse(runBlocking { session.refreshIfStale(failedSnapshot) })
+        assertEquals(0, refreshRequests)
     }
 
     @Test
@@ -246,9 +298,10 @@ class MediaAuthInterceptorTest {
     private class FakeTokenManager(
         private var accessToken: String?,
         private var refreshToken: String?,
-        private var serverUrl: String,
+        var serverUrl: String,
         var serverId: String?,
     ) : TokenManager {
+        var onGetServerUrl: (() -> Unit)? = null
         var invalidatedSession = false
             private set
         var savedTokens = false
@@ -295,7 +348,10 @@ class MediaAuthInterceptorTest {
             profileToken = token
         }
 
-        override suspend fun getServerUrl(): String = serverUrl
+        override suspend fun getServerUrl(): String {
+            onGetServerUrl?.invoke()
+            return serverUrl
+        }
         override suspend fun setServerUrl(url: String) {
             serverUrl = url
         }

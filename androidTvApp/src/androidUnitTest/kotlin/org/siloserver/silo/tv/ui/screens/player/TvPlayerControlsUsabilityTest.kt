@@ -33,7 +33,12 @@ class TvPlayerControlsUsabilityTest {
 
     @Test
     fun idleOverlayDefaultsToPlayPauseInTransportDock() {
-        assertTrue(screenSource.contains("LaunchedEffect(transportFocusRequest) { runCatching { playPauseFocus.requestFocus() } }"))
+        assertTrue(screenSource.contains("LaunchedEffect(focusRequest.nonce)"))
+        assertTrue(
+            screenSource.contains(
+                "TvIdleOverlayFocusTarget.Transport -> playPauseFocus.requestFocus()",
+            ),
+        )
         // Primary group pinned left + secondary group pushed right.
         assertTrue(clusterSource.contains("Arrangement.SpaceBetween"))
         assertTrue(clusterSource.contains("Icons.Filled.Replay10"))
@@ -261,15 +266,12 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
-    fun aspectSelectionAppliesToPlayerSurfaceAndMpvBackend() {
+    fun aspectSelectionAppliesToMedia3PlayerSurface() {
         assertTrue(screenSource.contains("applyPlayerViewVideoFillMode(view, state.videoFillMode)"))
-        assertTrue(screenSource.contains("applyMpvVideoScaleMode(sessionPlayer, state.videoFillMode)"))
         assertTrue(screenSource.contains("view.getVideoSurfaceView()"))
         assertTrue(screenSource.contains("fun resizeModeForVideoFillMode(mode: VideoFillMode): Int"))
         assertTrue(screenSource.contains("fun applyPlayerViewVideoFillMode(view: PlayerView, mode: VideoFillMode)"))
-        assertTrue(screenSource.contains("fun applyMpvVideoScaleMode(player: Player?, mode: VideoFillMode)"))
-        assertTrue(screenSource.contains("MpvVideoScaleMode.Zoom"))
-        assertTrue(screenSource.contains("MpvVideoScaleMode.Stretch"))
+        assertFalse(screenSource.contains("applyMpvVideoScaleMode"))
         assertFalse(screenSource.contains("CropLetterboxSurfaceScale"))
         assertFalse(screenSource.contains("videoSurface.scaleX = surfaceScale"))
     }
@@ -376,7 +378,7 @@ class TvPlayerControlsUsabilityTest {
             .substringAfter("val applyTvSubtitleSelection")
             .substringBefore("fun handleSkipIntroNow")
 
-        assertTrue(selectionBlock.contains("viewModel.onManualSubtitleSelectionIntent()"))
+        assertTrue(selectionBlock.contains("viewModel.onManualSubtitleSelectionIntent(idx)"))
         assertTrue(viewModelSource.contains("manualSubtitleSelectionApplied"))
         assertTrue(viewModelSource.contains("manualSubtitleSelectionApplied = true"))
         assertTrue(
@@ -411,9 +413,9 @@ class TvPlayerControlsUsabilityTest {
             .substringAfter("fun handleSkipIntroNow(): Boolean")
             .substringBefore("DisposableEffect(context)")
 
-        assertTrue(skipBlock.contains("tvRoomTransportGate(roomSnapshot, TvTransportIntent.Seek)"))
+        assertTrue(skipBlock.contains("tvRoomTransportGate(latestRoomSnapshot, TvTransportIntent.Seek)"))
         assertTrue(skipBlock.contains("roomController.onUserSeek(target)"))
-        assertTrue(skipBlock.contains("mediaController?.seekTo((soloTarget * 1000).toLong())"))
+        assertTrue(skipBlock.contains("viewModel.seekImmediate(soloTarget)"))
     }
 
     @Test
@@ -438,8 +440,8 @@ class TvPlayerControlsUsabilityTest {
     fun mountedPlayerRegistersRemoteKeyBridgeAndRefocusesTransport() {
         assertTrue(screenSource.contains("TvPlayerRemoteKeyBridge.install(handler)"))
         assertTrue(screenSource.contains("TvPlayerRemoteKeyBridge.clear(handler)"))
-        assertTrue(screenSource.contains("transportFocusRequest++"))
-        assertTrue(screenSource.contains("LaunchedEffect(transportFocusRequest)"))
+        assertTrue(screenSource.contains("requestIdleOverlayFocus(TvIdleOverlayFocusTarget.Transport)"))
+        assertTrue(screenSource.contains("LaunchedEffect(focusRequest.nonce)"))
     }
 
     @Test
@@ -514,16 +516,22 @@ class TvPlayerControlsUsabilityTest {
 
     @Test
     fun playNextCarriesCurrentQualityToNextEpisodeRoute() {
+        val starterSource = File(
+            "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvVideoPlaybackStarter.kt",
+        ).readText()
         assertTrue(viewModelSource.contains("val preferredQuality: String? = null"))
         assertTrue(viewModelSource.contains("PlayNextRequest(next.contentId, nextAutoAdvanceCount, selectedQuality)"))
         assertTrue(screenSource.contains("onPlayNext(req.contentId, req.autoAdvanceCount, req.preferredQuality)"))
         assertTrue(routeSource.contains("val quality: String? = null"))
-        assertTrue(routeSource.contains("if (quality != null) add(\"quality=\${quality.routeEncode()}\")"))
+        assertTrue(routeSource.contains("VideoPlayerRouteArgs.normalizeQuality(quality)?.let { value ->"))
+        assertTrue(routeSource.contains("add(\"quality=\${value.routeEncode()}\")"))
         assertTrue(navigationSource.contains("TvRoute.Player(contentId = nextContentId, quality = nextQuality"))
         assertTrue(navigationSource.contains("preferredQuality = preferredQuality"))
-        // In-player Quality menu can pin a session override that wins over the
-        // launch/profile preference (TP3 transcode ladder).
-        assertTrue(viewModelSource.contains("preferredQualityOverride = qualityOverride ?: preferredQuality"))
+        // The saved preference supplies the default ceiling; an explicit
+        // in-player selection remains a separate override.
+        assertTrue(viewModelSource.contains("preferredQualityOverride = preferredQuality"))
+        assertTrue(viewModelSource.contains("playbackQualityIntent = qualityOverride"))
+        assertTrue(starterSource.contains("request.playbackQualityIntent ?: preferredQuality"))
         assertTrue(viewModelSource.contains("fun switchQuality(wireValue: String)"))
     }
 

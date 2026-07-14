@@ -2,6 +2,7 @@ package org.siloserver.silo.common.player
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.Handler
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -10,10 +11,14 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
-import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
@@ -21,28 +26,39 @@ import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.SingleSampleMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.text.SubtitleExtractor
+import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import org.siloserver.silo.common.BuildConfig
 import org.siloserver.silo.common.player.audio.DelayAudioProcessor
-import org.siloserver.silo.common.player.mpv.MpvPlayer
+import org.siloserver.silo.common.player.audio.PassthroughSuppressingAudioSink
 import org.siloserver.silo.common.player.subtitle.OffsetSubtitleParserFactory
 import org.siloserver.silo.common.player.subtitle.SubtitleOffsetHolder
+import org.siloserver.silo.common.player.video.SiloMediaCodecVideoRenderer
+import org.siloserver.silo.common.player.video.PlaybackRuntimeCorrectionState
+import org.siloserver.silo.libass.LibassBridge
 import org.siloserver.silo.model.playback.AudioPassthroughCapabilities
 import org.siloserver.silo.model.playback.HdrCapabilities
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackDelivery
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.network.TokenManager
+import java.util.ArrayList
 
 /**
  * Factory for ExoPlayer instances. Each factory owns exactly one
- * [AuthenticatedDataSourceFactory], which in turn reuses the pooled
- * media [okhttp3.OkHttpClient] injected via Koin — so TLS sessions and
- * HTTP/2 connections survive across playback sessions.
+ * [AuthenticatedDataSourceFactory], which in turn reuses the pooled HTTP
+ * backend injected via Koin — so TLS sessions and HTTP/2 connections survive
+ * across playback sessions while the backend remains replaceable.
  *
  * Form-factor (TV vs. phone) is resolved lazily from the [Context] via
  * [TvModeDetector] — callers never pass an `isTv` flag.
@@ -56,39 +72,55 @@ class SiloPlayerFactory(
     private val context: Context,
     private val tokenManager: TokenManager,
     private val subtitleManager: SubtitleManager,
-    okHttpClient: okhttp3.OkHttpClient,
+    httpDataSourceFactory: HttpDataSource.Factory,
+    mediaAuthSession: MediaAuthSession,
+    private val bandwidthMeter: DefaultBandwidthMeter,
     private val delayProcessor: DelayAudioProcessor,
     private val subtitleOffsetHolder: SubtitleOffsetHolder,
+    private val libassBridge: LibassBridge,
 ) {
     val isTv: Boolean = TvModeDetector.isTv(context)
 
     private var serverUrl: String = ""
+    private data class RequestHeaderScope(
+        val streamUri: android.net.Uri,
+        val headers: Map<String, String>,
+    )
+
+    @Volatile private var requestHeaderScope: RequestHeaderScope? = null
+    private val runtimeCorrectionState = PlaybackRuntimeCorrectionState()
 
     private val dataSourceFactory = AuthenticatedDataSourceFactory(
         context = context,
-        okHttpClient = okHttpClient,
-        tokenManager = tokenManager,
+        httpDataSourceFactory = httpDataSourceFactory,
+        authSession = mediaAuthSession,
         serverUrlProvider = { serverUrl },
+        requestHeadersProvider = ::requestHeadersFor,
     )
 
-    private val subtitleParserFactory = OffsetSubtitleParserFactory(subtitleOffsetHolder)
+    private val subtitleParserFactory = OffsetSubtitleParserFactory(
+        holder = subtitleOffsetHolder,
+        delegate = libassBridge.parserFactory,
+    )
 
-    private val extractorsFactory = DefaultExtractorsFactory()
-        // Media3 1.10 expects parsed cue samples by default. Forcing raw
-        // subtitle payloads here makes SRT/ASS tracks crash the text renderer
-        // on Android TV with "Legacy decoding is disabled". The offset wrapper
-        // delegates to DefaultSubtitleParserFactory and shifts cue start times
-        // by the per-profile subtitle-sync value (A.3f).
-        .setSubtitleParserFactory(subtitleParserFactory)
-        // HDMV DTS streams (Blu-ray-sourced M2TS) use a stream type the TS
-        // payload reader skips by default, so DTS tracks vanish from
-        // Blu-ray-remux transport streams without this flag.
-        .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
-        // The default PCR search window is too small for high-bitrate 4K
-        // remux/transcode TS segments with sparse PTS — startup then fails
-        // with "timestamp not found" (androidx/media #8571-class failures).
-        // 1500 packets matches what battle-tested players ship.
-        .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
+    private fun configuredExtractorsFactory() = libassBridge.wrapExtractors(
+        DefaultExtractorsFactory()
+            // Media3 1.10 expects parsed cue samples by default. Forcing raw
+            // subtitle payloads here makes SRT/ASS tracks crash the text renderer
+            // on Android TV with "Legacy decoding is disabled". The offset wrapper
+            // delegates to libass for ASS/SSA and Media3 for other text formats.
+            .setSubtitleParserFactory(subtitleParserFactory)
+            // HDMV DTS streams (Blu-ray-sourced M2TS) use a stream type the TS
+            // payload reader skips by default, so DTS tracks vanish from
+            // Blu-ray-remux transport streams without this flag.
+            .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
+            // The default PCR search window is too small for high-bitrate 4K
+            // remux/transcode TS segments with sparse PTS — startup then fails
+            // with "timestamp not found" (androidx/media #8571-class failures).
+            // 1500 packets matches what battle-tested players ship.
+            .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE),
+        subtitleParserFactory,
+    )
 
     private val hlsExtractorFactory = DefaultHlsExtractorFactory(
         // HLS uses a separate extractor path from progressive TS. Keep the DTS
@@ -116,7 +148,7 @@ class SiloPlayerFactory(
         // making it impossible to cleanly bisect an FFmpeg-specific
         // regression against a pre-FFmpeg baseline.
         val extensionMode = if (preferFfmpegAudio) {
-            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
         } else {
             DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
         }
@@ -126,18 +158,54 @@ class SiloPlayerFactory(
         // across players because Koin gives us a single DelayAudioProcessor
         // instance; in practice SiloPlaybackService creates exactly
         // one ExoPlayer per process so there's no contention.
-        val audioSink: AudioSink = DefaultAudioSink.Builder(context)
+        val audioSink: AudioSink = PassthroughSuppressingAudioSink(DefaultAudioSink.Builder(context)
             .setAudioProcessorChain(
                 DefaultAudioSink.DefaultAudioProcessorChain(delayProcessor),
             )
-            .build()
+            .build())
 
-        val renderersFactory = object : DefaultRenderersFactory(context) {
+        val media3RenderersFactory = object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(
                 context: Context,
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean,
             ): AudioSink = audioSink
+
+            override fun buildVideoRenderers(
+                context: Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                eventHandler: Handler,
+                eventListener: VideoRendererEventListener,
+                allowedVideoJoiningTimeMs: Long,
+                out: ArrayList<Renderer>,
+            ) {
+                val firstNewRenderer = out.size
+                super.buildVideoRenderers(
+                    context,
+                    extensionRendererMode,
+                    mediaCodecSelector,
+                    enableDecoderFallback,
+                    eventHandler,
+                    eventListener,
+                    allowedVideoJoiningTimeMs,
+                    out,
+                )
+                val platformRenderer = (firstNewRenderer until out.size)
+                    .firstOrNull { out[it] is MediaCodecVideoRenderer }
+                    ?: return
+                out[platformRenderer] = SiloMediaCodecVideoRenderer(
+                    context = context,
+                    codecAdapterFactory = codecAdapterFactory,
+                    mediaCodecSelector = mediaCodecSelector,
+                    allowedJoiningTimeMs = allowedVideoJoiningTimeMs,
+                    enableDecoderFallback = enableDecoderFallback,
+                    eventHandler = eventHandler,
+                    eventListener = eventListener,
+                    runtimeCorrectionEnabled = runtimeCorrectionState::isEnabled,
+                )
+            }
         }.apply {
             setExtensionRendererMode(extensionMode)
             setEnableDecoderFallback(true)
@@ -162,6 +230,10 @@ class SiloPlayerFactory(
                 }
             }
         }
+        val renderersFactory = libassBridge.wrapRenderers(
+            media3RenderersFactory,
+            subtitleOffsetHolder::getOffsetUs,
+        )
 
         val trackSelector = DefaultTrackSelector(context).apply {
             parameters = buildUponParameters()
@@ -175,7 +247,11 @@ class SiloPlayerFactory(
             .build()
 
         val mediaLoadErrorHandlingPolicy = SiloMediaLoadErrorHandlingPolicy()
-        val defaultMediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
+        fun defaultMediaSourceFactory(mode: DolbyVisionTransformMode) =
+            DefaultMediaSourceFactory(
+                context,
+                DolbyVisionColorInfoExtractorsFactory(configuredExtractorsFactory(), mode),
+            )
             .setDataSourceFactory(dataSourceFactory)
             .setSubtitleParserFactory(subtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
@@ -184,8 +260,13 @@ class SiloPlayerFactory(
             .setSubtitleParserFactory(subtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
         val mediaSourceFactory = SiloMediaSourceFactory(
-            defaultFactory = defaultMediaSourceFactory,
+            defaultFactory = defaultMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
+            dv81Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_PROFILE81),
+            hdr10Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_HDR10),
             hlsFactory = hlsMediaSourceFactory,
+            dataSourceFactory = dataSourceFactory,
+            subtitleParserFactory = subtitleParserFactory,
+            loadErrorHandlingPolicy = mediaLoadErrorHandlingPolicy,
         )
 
         // Staged buffer: start once a modest cushion is ready, wait longer
@@ -194,24 +275,16 @@ class SiloPlayerFactory(
         // streams grow toward the time limit while preventing high-bitrate
         // remuxes from filling the app heap on memory-constrained TVs.
         val bufferPolicy = PlaybackBufferPolicy.forMode(
-            PlaybackBufferMode.QuickStart,
+            PlaybackBufferMode.Balanced,
             playbackBufferDeviceProfile(),
         )
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ bufferPolicy.minBufferMs,
-                /* maxBufferMs = */ bufferPolicy.maxBufferMs,
-                /* bufferForPlaybackMs = */ bufferPolicy.bufferForPlaybackMs,
-                /* bufferForPlaybackAfterRebufferMs = */ bufferPolicy.bufferForPlaybackAfterRebufferMs,
-            )
-            .setTargetBufferBytes(bufferPolicy.targetBufferBytes)
-            .setPrioritizeTimeOverSizeThresholds(bufferPolicy.prioritizeTimeOverSizeThresholds)
-            .build()
+        val loadControl = SiloLoadControl(bufferPolicy)
 
         val builder = ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
+            .setBandwidthMeter(bandwidthMeter)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setSeekBackIncrementMs(10_000)
@@ -223,7 +296,6 @@ class SiloPlayerFactory(
         //  - handleAudioBecomingNoisy pauses on ACTION_AUDIO_BECOMING_NOISY,
         //    which is really the phone "headphones unplugged" behavior applied
         //    to the wrong form factor — a transient ARC route change would
-        //    pause playback with no user action (and the MPV engine has no
         //    such handling, so gating it also keeps the two engines aligned).
         //  - suppressPlaybackOnUnsuitableOutput is a Media3 no-op on TV below
         //    API 35 (Wear-gated), but on API 35+ TVs a transient "no suitable
@@ -244,7 +316,7 @@ class SiloPlayerFactory(
             C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS,
         )
 
-        return builder.build()
+        return builder.build().also(libassBridge::initialize)
     }
 
     private fun playbackBufferDeviceProfile(): PlaybackBufferDeviceProfile {
@@ -254,35 +326,6 @@ class SiloPlayerFactory(
             isLowRamDevice = activityManager?.isLowRamDevice == true,
         )
     }
-
-    /**
-     * Builds an [MpvPlayer] with auth headers pre-fetched on the calling
-     * coroutine. The suspend call resolves credentials before player
-     * construction begins, so the synchronous [MpvPlayer.Builder.build] path
-     * never blocks a thread waiting for I/O — eliminating the ANR risk that
-     * a blocking call would introduce on slow Android-7 CPUs.
-     */
-    suspend fun createMpvPlayer(): Player {
-        val headers = buildMpvHttpHeaderFields()
-        return MpvPlayer.Builder(context)
-            .setHttpHeaderFieldsProvider { headers }
-            .setSeekBackIncrementMs(10_000)
-            .setSeekForwardIncrementMs(30_000)
-            .build()
-    }
-
-    private suspend fun buildMpvHttpHeaderFields(): List<Pair<String, String>> =
-        buildList {
-            tokenManager.getAccessToken()?.takeIf { it.isNotBlank() }?.let { accessToken ->
-                add("Authorization" to "Bearer $accessToken")
-            }
-            tokenManager.getProfileId()?.takeIf { it.isNotBlank() }?.let { profileId ->
-                add("X-Profile-Id" to profileId)
-            }
-            tokenManager.getProfileToken()?.takeIf { it.isNotBlank() }?.let { profileToken ->
-                add("X-Profile-Token" to profileToken)
-            }
-        }
 
     /**
      * Apply capability-aware track selection presets to [player]. Call at
@@ -328,8 +371,7 @@ class SiloPlayerFactory(
      * right extension — Silo's transcode URLs don't always end in .m3u8.
      *
      * Sidecar subtitles are attached via `setSubtitleConfigurations`; the
-     * default media source factory then wires them through the merging source
-     * automatically.
+     * selected media source factory wires them through a merging source.
      */
     fun buildMediaItem(
         streamUrl: String,
@@ -342,15 +384,33 @@ class SiloPlayerFactory(
         subtitle: String? = null,
         artworkUrl: String? = null,
         durationMs: Long? = null,
+        requestHeaders: Map<String, String> = emptyMap(),
+        transformations: List<String> = emptyList(),
+        runtimeCorrections: List<String> = emptyList(),
     ): MediaItem {
         this.serverUrl = serverUrl
+        runtimeCorrectionState.activate(runtimeCorrections)
         val absoluteUrl = buildAbsoluteUrl(serverUrl, streamUrl)
+        requestHeaderScope = requestHeaders.takeIf { it.isNotEmpty() }?.let {
+            RequestHeaderScope(android.net.Uri.parse(absoluteUrl), it)
+        }
         val subtitleConfigurations =
             subtitleManager.buildSubtitleConfigurations(subtitles, serverUrl)
 
         val builder = MediaItem.Builder()
             .setUri(absoluteUrl)
             .setSubtitleConfigurations(subtitleConfigurations)
+            .setTag(
+                SiloMediaTransformTag(
+                    when {
+                        org.siloserver.silo.model.playback.CLIENT_DV7_TO_DV81 in transformations ->
+                            DolbyVisionTransformMode.PROFILE7_TO_PROFILE81
+                        org.siloserver.silo.model.playback.CLIENT_DV7_TO_HDR10 in transformations ->
+                            DolbyVisionTransformMode.PROFILE7_TO_HDR10
+                        else -> DolbyVisionTransformMode.DISABLED
+                    },
+                ),
+            )
 
         // Now Playing metadata — drives the system media notification + lock
         // screen via MediaSession. Title/subtitle/artwork are all optional so
@@ -375,17 +435,48 @@ class SiloPlayerFactory(
         return builder.build()
     }
 
+    /**
+     * Plan headers are scoped to the issued stream/session path. The factory is
+     * process-wide and also serves audiobook/offline MediaItems, so blindly
+     * retaining the last video's headers would leak them into unrelated media.
+     * HLS child playlists and segments are allowed within the same directory.
+     */
+    private fun requestHeadersFor(uri: android.net.Uri): Map<String, String> {
+        val scope = requestHeaderScope ?: return emptyMap()
+        val issued = scope.streamUri
+        if (!uri.scheme.equals(issued.scheme, ignoreCase = true) ||
+            !uri.host.equals(issued.host, ignoreCase = true) ||
+            uri.port != issued.port
+        ) return emptyMap()
+        val issuedPath = issued.path.orEmpty()
+        val issuedDirectory = issuedPath.substringBeforeLast('/', missingDelimiterValue = issuedPath)
+            .trimEnd('/') + "/"
+        val candidatePath = uri.path.orEmpty()
+        return if (candidatePath == issuedPath || candidatePath.startsWith(issuedDirectory)) {
+            scope.headers
+        } else {
+            emptyMap()
+        }
+    }
+
     private fun buildAbsoluteUrl(serverUrl: String, streamUrl: String): String =
         resolvePlaybackStreamUrl(serverUrl, streamUrl)
 
     private class SiloMediaSourceFactory(
         private val defaultFactory: MediaSource.Factory,
+        private val dv81Factory: MediaSource.Factory,
+        private val hdr10Factory: MediaSource.Factory,
         private val hlsFactory: MediaSource.Factory,
+        private val dataSourceFactory: DataSource.Factory,
+        private val subtitleParserFactory: SubtitleParser.Factory,
+        private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
     ) : MediaSource.Factory {
         override fun setDrmSessionManagerProvider(
             drmSessionManagerProvider: DrmSessionManagerProvider,
         ): MediaSource.Factory {
             defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            dv81Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            hdr10Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             hlsFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             return this
         }
@@ -393,7 +484,10 @@ class SiloPlayerFactory(
         override fun setLoadErrorHandlingPolicy(
             loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
         ): MediaSource.Factory {
+            this.loadErrorHandlingPolicy = loadErrorHandlingPolicy
             defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            dv81Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            hdr10Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             hlsFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             return this
         }
@@ -407,15 +501,72 @@ class SiloPlayerFactory(
                 localConfiguration.uri,
                 localConfiguration.mimeType,
             )
-            val hasExternalSubtitleSidecars = localConfiguration.subtitleConfigurations.isNotEmpty()
-            // DefaultMediaSourceFactory is still the only public Media3 path here
-            // that merges MediaItem sidecar subtitles. Keep that route when
-            // sidecars are present so subtitle delay/normalization do not regress.
-            return if (contentType == C.CONTENT_TYPE_HLS && !hasExternalSubtitleSidecars) {
-                hlsFactory.createMediaSource(mediaItem)
+            return if (contentType == C.CONTENT_TYPE_HLS) {
+                createHlsMediaSource(mediaItem)
             } else {
-                defaultFactory.createMediaSource(mediaItem)
+                when ((localConfiguration.tag as? SiloMediaTransformTag)?.dolbyVisionMode) {
+                    DolbyVisionTransformMode.PROFILE7_TO_PROFILE81 -> dv81Factory.createMediaSource(mediaItem)
+                    DolbyVisionTransformMode.PROFILE7_TO_HDR10 -> hdr10Factory.createMediaSource(mediaItem)
+                    else -> defaultFactory.createMediaSource(mediaItem)
+                }
             }
+        }
+
+        private fun createHlsMediaSource(mediaItem: MediaItem): MediaSource {
+            val subtitleConfigurations = mediaItem.localConfiguration
+                ?.subtitleConfigurations
+                .orEmpty()
+            if (subtitleConfigurations.isEmpty()) return hlsFactory.createMediaSource(mediaItem)
+
+            // DefaultMediaSourceFactory can merge sidecars, but its internal HLS
+            // factory does not carry Silo's HDMV-DTS TS payload flag. Build the
+            // merge explicitly so HLS retains the configured extractor while
+            // sidecars still use the shared offset/libass parser pipeline.
+            val contentItem = mediaItem.buildUpon()
+                .setSubtitleConfigurations(emptyList())
+                .build()
+            val sources = mutableListOf<MediaSource>(hlsFactory.createMediaSource(contentItem))
+            subtitleConfigurations.mapTo(sources, ::createSubtitleMediaSource)
+            return MergingMediaSource(*sources.toTypedArray())
+        }
+
+        private fun createSubtitleMediaSource(
+            configuration: MediaItem.SubtitleConfiguration,
+        ): MediaSource {
+            val baseFormat = androidx.media3.common.Format.Builder()
+                .setId(configuration.id)
+                .setSampleMimeType(configuration.mimeType)
+                .setLanguage(configuration.language)
+                .setSelectionFlags(configuration.selectionFlags)
+                .setRoleFlags(configuration.roleFlags)
+                .setLabel(configuration.label)
+                .build()
+            if (!subtitleParserFactory.supportsFormat(baseFormat)) {
+                return SingleSampleMediaSource.Factory(dataSourceFactory)
+                    .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                    .createMediaSource(configuration, C.TIME_UNSET)
+            }
+            val outputFormat = baseFormat.buildUpon()
+                .setCueReplacementBehavior(
+                    subtitleParserFactory.getCueReplacementBehavior(baseFormat),
+                )
+                .build()
+            val extractorsFactory = ExtractorsFactory {
+                arrayOf(
+                    SubtitleExtractor(
+                        subtitleParserFactory.create(outputFormat),
+                        outputFormat,
+                    ),
+                )
+            }
+            return ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
+                .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                .createMediaSource(
+                    MediaItem.Builder()
+                        .setUri(configuration.uri)
+                        .setMimeType(configuration.mimeType)
+                        .build(),
+                )
         }
     }
 }

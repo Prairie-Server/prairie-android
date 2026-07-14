@@ -64,9 +64,11 @@ data class PlayerSubtitleInfo(
  * version selection.
  *
  * Dolby Vision profile numbers map to MediaCodec constants:
- *   - 5 = `DolbyVisionProfileDvheStn` / `DvheSt`
- *   - 7 = `DolbyVisionProfileDvheDtb` / `DvheDtr` (BL+EL — needs codec multi-instance)
- *   - 8 = `DolbyVisionProfileDvheSt4k` / `DvavSe`
+ *   - 4 = `DolbyVisionProfileDvheDtr`
+ *   - 5 = `DolbyVisionProfileDvheStn`
+ *   - 6 = `DolbyVisionProfileDvheDth`
+ *   - 7 = `DolbyVisionProfileDvheDtb` (BL+EL; requires DV and HEVC concurrency)
+ *   - 8 = `DolbyVisionProfileDvheSt`
  */
 @Serializable
 data class HdrCapabilities(
@@ -84,19 +86,40 @@ data class HdrCapabilities(
  * `AudioCapabilities.getCapabilities` / `AudioCapabilitiesReceiver`.
  */
 @Serializable
+data class AudioPassthroughEntry(
+    val codec: String,
+    @SerialName("channel_counts") val channelCounts: List<Int> = emptyList(),
+    val layouts: List<String> = emptyList(),
+)
+
+@Serializable
 data class AudioPassthroughCapabilities(
     @SerialName("passthrough_codecs") val passthroughCodecs: List<String> = emptyList(),
     @SerialName("spatializer_enabled") val spatializerEnabled: Boolean = false,
     @SerialName("max_channels") val maxChannels: Int = 2,
+    /** Exact encoded-audio layouts verified against the current output route. */
+    val entries: List<AudioPassthroughEntry> = emptyList(),
+)
+
+@Serializable
+data class VideoDecodeCapability(
+    val codec: String,
+    @SerialName("decoder_name") val decoderName: String? = null,
+    val profiles: List<String> = emptyList(),
+    val levels: List<Int> = emptyList(),
+    @SerialName("bit_depths") val bitDepths: List<Int> = emptyList(),
+    @SerialName("max_width") val maxWidth: Int? = null,
+    @SerialName("max_height") val maxHeight: Int? = null,
+    @SerialName("max_frame_rate") val maxFrameRate: Double? = null,
+    @SerialName("max_bitrate_kbps") val maxBitrateKbps: Int? = null,
+    val hardware: Boolean,
 )
 
 @Serializable
 data class ClientCodecCapabilities(
     @SerialName("codecs_video") val codecsVideo: List<String> = emptyList(),
-    // Hardware-decodable subset of codecsVideo. codecsVideo may additionally
-    // carry MPV software-tail codecs (Apple codec-tail parity); the client's
-    // backend selector uses this list to know when a DIRECT file needs MPV
-    // software decode. The server ignores this field.
+    // Hardware-decodable subset. In the Media3-only protocol this currently
+    // equals codecsVideo; it remains on the wire for older server readers.
     @SerialName("codecs_video_hardware") val codecsVideoHardware: List<String> = emptyList(),
     @SerialName("codecs_audio") val codecsAudio: List<String> = emptyList(),
     val containers: List<String> = emptyList(),
@@ -104,6 +127,7 @@ data class ClientCodecCapabilities(
     val hdr: Boolean = false,
     @SerialName("hdr_details") val hdrDetails: HdrCapabilities? = null,
     @SerialName("audio_passthrough") val audioPassthrough: AudioPassthroughCapabilities? = null,
+    @SerialName("video_decode") val videoDecode: List<VideoDecodeCapability> = emptyList(),
 )
 
 @Serializable
@@ -147,9 +171,14 @@ data class PlaybackExecutionPlan(
     val capabilities: RouteCapabilitySnapshot = RouteCapabilitySnapshot(),
     val requirements: RouteRequirements = RouteRequirements(),
     val claims: PlaybackValidationClaims = PlaybackValidationClaims(),
+    val transformations: List<PlaybackTransformationV3> = emptyList(),
+    @SerialName("applied_quirks") val appliedQuirks: List<PlaybackAppliedQuirkV3> = emptyList(),
+    @SerialName("runtime_corrections") val runtimeCorrections: List<String> = emptyList(),
     val fallbacks: List<PlaybackFallbackCandidate> = emptyList(),
     @SerialName("degradation_warnings") val degradationWarnings: List<PlaybackDegradationWarning> = emptyList(),
     @SerialName("decision_trace") val decisionTrace: List<String> = emptyList(),
+    @SerialName("requested_media_file_id") val requestedMediaFileId: Int? = null,
+    @SerialName("effective_media_file_id") val effectiveMediaFileId: Int? = null,
 )
 
 /**
@@ -176,7 +205,7 @@ internal object TolerantPlaybackPlanSerializer : KSerializer<PlaybackExecutionPl
         return try {
             jsonDecoder.json.decodeFromJsonElement(delegate, element)
         } catch (e: SerializationException) {
-            logger.log("Dropping malformed playback_plan; falling back to V1 routing: ${e.message}")
+            logger.log("Dropping malformed legacy playback_plan: ${e.message}")
             null
         }
     }
@@ -199,6 +228,10 @@ data class PlaybackTimeline(
     @SerialName("stream_origin_seconds") val streamOriginSeconds: Double = 0.0,
     @SerialName("timeline_offset_seconds") val timelineOffsetSeconds: Double = 0.0,
     @SerialName("can_seek_anywhere") val canSeekAnywhere: Boolean = true,
+    @SerialName("source_start_seconds") val sourceStartSeconds: Double = 0.0,
+    @SerialName("seek_window_start_seconds") val seekWindowStartSeconds: Double? = null,
+    @SerialName("seek_window_end_seconds") val seekWindowEndSeconds: Double? = null,
+    @SerialName("seek_restoration") val seekRestoration: String = "player_position",
 )
 
 @Serializable
@@ -282,32 +315,15 @@ data class PlaybackDegradationWarning(
 )
 
 @Serializable
-data class PlaybackPlanResponse(
-    @SerialName("playback_plan")
-    @Serializable(with = TolerantPlaybackPlanSerializer::class)
-    val playbackPlan: PlaybackExecutionPlan? = null,
-)
-
-@Serializable
-data class PlaybackRouteEventRequest(
-    @SerialName("plan_id") val planId: String? = null,
-    @SerialName("from_engine") val fromEngine: PlaybackEngineKind? = null,
-    @SerialName("to_engine") val toEngine: PlaybackEngineKind? = null,
-    @SerialName("delivery") val delivery: PlaybackDelivery? = null,
-    @SerialName("route_family") val routeFamily: PlaybackRouteFamily? = null,
-    @SerialName("fallback_reason") val fallbackReason: String? = null,
-    @SerialName("error_class") val errorClass: String? = null,
-    @SerialName("decoder_name") val decoderName: String? = null,
-    @SerialName("dropped_frames") val droppedFrames: Int? = null,
-    @SerialName("audio_underruns") val audioUnderruns: Int? = null,
-    @SerialName("subtitle_renderer") val subtitleRenderer: String? = null,
-    val claims: PlaybackValidationClaims? = null,
-    val blockers: List<String> = emptyList(),
-)
-
-@Serializable
 data class ClientPlaybackContext(
-    @SerialName("protocol_version") val protocolVersion: Int = 2,
+    @SerialName("protocol_version") val protocolVersion: Int = PLAYBACK_PROTOCOL_V3,
+    val features: List<String> = listOf(
+        PLAYBACK_PLAN_V3_FEATURE,
+        MEDIA3_ONLY_FEATURE,
+        DETAILED_DECODE_CAPABILITIES_FEATURE,
+        DEVICE_QUIRKS_V3_FEATURE,
+        SEEK_REANCHOR_V3_FEATURE,
+    ),
     val platform: String = "android",
     @SerialName("form_factor") val formFactor: String,
     @SerialName("app_version") val appVersion: String,
@@ -320,6 +336,14 @@ data class ClientPlaybackContext(
 data class PlaybackDeviceContext(
     val manufacturer: String? = null,
     val model: String? = null,
+    val brand: String? = null,
+    val device: String? = null,
+    val product: String? = null,
+    @SerialName("soc_manufacturer") val socManufacturer: String? = null,
+    @SerialName("soc_model") val socModel: String? = null,
+    @SerialName("build_id") val buildId: String? = null,
+    @SerialName("build_display") val buildDisplay: String? = null,
+    @SerialName("security_patch") val securityPatch: String? = null,
     @SerialName("sdk_int") val sdkInt: Int? = null,
     val abis: List<String> = emptyList(),
 )
@@ -329,6 +353,8 @@ data class PlaybackOutputContext(
     @SerialName("hdr_details") val hdrDetails: HdrCapabilities? = null,
     @SerialName("audio_passthrough") val audioPassthrough: AudioPassthroughCapabilities? = null,
     @SerialName("current_sink") val currentSink: String? = null,
+    @SerialName("sink_type") val sinkType: String? = null,
+    @SerialName("output_route_generation") val outputRouteGeneration: Long = 0,
 )
 
 @Serializable
@@ -344,6 +370,7 @@ data class EngineCapabilityEnvelope(
     @SerialName("hdr_details") val hdrDetails: HdrCapabilities? = null,
     val subtitles: EngineSubtitleCapabilities = EngineSubtitleCapabilities(),
     val features: List<String> = emptyList(),
+    val transformations: List<PlaybackTransformationV3> = emptyList(),
     @SerialName("auth_header_refresh") val authHeaderRefresh: Boolean = false,
     @SerialName("validated_claims") val validatedClaims: List<String> = emptyList(),
 )
@@ -419,13 +446,4 @@ data class TranscodeStartResponse(
     @SerialName("stream_origin_seconds") val streamOriginSeconds: Double = 0.0,
     @SerialName("timeline_offset_seconds") val timelineOffsetSeconds: Double = 0.0,
     @SerialName("can_seek_anywhere") val canSeekAnywhere: Boolean = false
-)
-
-@Serializable
-data class ChangeAudioResponse(
-    @SerialName("audio_track_index") val audioTrackIndex: Int,
-    @SerialName("play_method") val playMethod: PlayMethod,
-    @SerialName("stream_url") val streamUrl: String,
-    @SerialName("switch_mode") val switchMode: String? = null,
-    @SerialName("playback_info") val playbackInfo: PlaybackInfo? = null
 )

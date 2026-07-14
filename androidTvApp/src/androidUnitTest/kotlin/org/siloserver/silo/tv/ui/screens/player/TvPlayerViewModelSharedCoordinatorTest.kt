@@ -13,6 +13,50 @@ class TvPlayerViewModelSharedCoordinatorTest {
     ).readText()
 
     @Test
+    fun tvNativeSeekCommandsSurviveCollectorAndRemountGaps() {
+        assertTrue(
+            viewModelSource.contains("private val seekRequestChannel = Channel<Double>(capacity = Channel.BUFFERED)"),
+        )
+        assertTrue(
+            viewModelSource.contains("val seekRequests: Flow<Double> = seekRequestChannel.receiveAsFlow()"),
+        )
+        assertTrue(viewModelSource.contains("seekRequestChannel.trySend("))
+        assertFalse(viewModelSource.contains("private val _seekRequests"))
+    }
+
+    @Test
+    fun tvReanchorHandoffIgnoresOldErrorsAndKeepsHealthyPlaybackOnApiFailure() {
+        val errorBody = viewModelSource
+            .substringAfter("fun onPlayerError(error:")
+            .substringBefore("private fun startProtocolV3Replan(")
+        val failureBody = viewModelSource
+            .substringAfter("private fun handleSeekRecoveryFailure(")
+            .substringBefore("private inline fun updateSeekRecoveryIfCurrent(")
+
+        assertTrue(errorBody.contains("action=ignore_stale_player_error"))
+        assertTrue(errorBody.contains("transportMountGate.suppressPositionReports"))
+        assertTrue(failureBody.contains("request.operation as? TvSeekRecoveryOperation.Reanchor"))
+        assertTrue(failureBody.contains("reanchor.rollbackAllowed"))
+        assertTrue(failureBody.contains("!seekRecoveryRollbackInvalidated"))
+        assertTrue(failureBody.contains("transportMountGate.reset()"))
+        assertTrue(failureBody.contains("error = null"))
+    }
+
+    @Test
+    fun tvMountPendingTargetIsReevaluatedAgainstTheWinningPlan() {
+        val mountAckBody = viewModelSource
+            .substringAfter("fun onTransportMountApplied(nonce: Long)")
+            .substringBefore("/**\n     * Invalidates seek work")
+        val executeSeekBody = viewModelSource
+            .substringAfter("private fun executeSeekTarget(")
+            .substringBefore("private fun startSeekReanchor(")
+
+        assertTrue(executeSeekBody.contains("pendingNativeSeekAfterMount = targetSourceSec"))
+        assertTrue(executeSeekBody.contains("state.sessionId == null || state.playbackPlan == null"))
+        assertTrue(mountAckBody.contains("executeSeekTarget(targetSeconds)"))
+    }
+
+    @Test
     fun tvPlayerViewModelStartsPlaybackThroughSharedCoordinator() {
         assertTrue(
             viewModelSource.contains("VideoPlaybackSessionCoordinator"),
@@ -83,30 +127,27 @@ class TvPlayerViewModelSharedCoordinatorTest {
             starterSource.contains("class TvVideoPlaybackStarter"),
             "TV starter must expose TvVideoPlaybackStarter",
         )
-        assertTrue(
-            starterSource.contains("startSessionV2("),
-            "TV starter must start playback sessions",
-        )
-        assertTrue(
-            starterSource.contains("startTranscodeFallback("),
-            "TV starter must preserve remux/transcode fallback",
-        )
-        assertTrue(
-            starterSource.contains("resolvePlaybackStartPosition("),
-            "TV starter must preserve resolved resume/start position semantics",
-        )
+        assertTrue(starterSource.contains("startVideoSessionV3("))
+        assertTrue(starterSource.contains("detectPlaybackContext("))
+        assertTrue(starterSource.contains("formFactor = \"tv\""))
+        assertTrue(starterSource.contains("VideoSessionStartV3.ServerUpgradeRequired"))
+        assertTrue(starterSource.contains("playbackPlanV3 = readyV3.plan"))
+        assertTrue(starterSource.contains("requestHeaders = readyV3.plan.stream.headers"))
+        assertFalse(starterSource.contains("startSessionV2("))
+        assertFalse(starterSource.contains("startTranscodeFallback("))
+        assertTrue(starterSource.contains("readyV3.plan.timeline.playerStartSeconds"))
+        assertTrue(starterSource.contains("readyV3.plan.timeline.sourceStartSeconds"))
+        assertTrue(starterSource.contains("startPositionSeconds = playerStartPos"))
+        assertTrue(starterSource.contains("sourceStartPositionSeconds = sourceStartPos"))
         assertTrue(
             starterSource.contains("resolvePlaybackStartRequestPosition("),
             "TV starter must preserve explicit Start Over request semantics",
         )
         assertTrue(
-            starterSource.contains("import org.siloserver.silo.model.playback.resolvePlaybackStartPosition"),
-            "TV starter must use the shared resume resolver that mobile and audiobooks use",
-        )
-        assertTrue(
             starterSource.contains("import org.siloserver.silo.model.playback.resolvePlaybackStartRequestPosition"),
             "TV starter must use the shared start-request resolver that mobile and audiobooks use",
         )
+        assertFalse(starterSource.contains("resolvePlaybackStartPosition("))
         assertFalse(
             starterSource.contains("private fun resolvePlaybackStartPosition("),
             "TV starter must not keep a private copy of shared resume semantics",
@@ -120,19 +161,17 @@ class TvPlayerViewModelSharedCoordinatorTest {
             "TV starter must adopt the initial session into PlaybackSessionLifecycle",
         )
         assertTrue(
-            starterSource.contains("fileResolution = version.resolution"),
-            "TV starter must preserve the selected version resolution for later recovery fallbacks",
+            starterSource.contains("fileResolution = effectiveVersion?.resolution"),
+            "TV starter must preserve the effective version resolution for later recovery fallbacks",
         )
-        assertTrue(
-            starterSource.contains("requestedOriginalPlaybackMethod(") &&
-                starterSource.contains("audioTrackIndex = request.audioTrackIndex") &&
-                starterSource.contains("playMethod = requestedPlayMethod"),
-            "TV starter must request original direct playback only after checking the selected audio track",
-        )
-        assertTrue(
-            starterSource.contains("preserveDirectSelection") &&
-                starterSource.contains("preserveDirectAudioSelection = preserveDirectSelection"),
-            "TV starter must preserve client-side audio selection when direct-original playback is requested",
+        assertTrue(starterSource.contains("fileId = effectiveFileId"))
+        assertTrue(starterSource.contains("subtitleUrls = buildPlaybackSubtitleChoices("))
+        assertFalse(
+            starterSource
+                .substringAfter("val effectiveVersion =")
+                .substringBefore("val resolvedDelivery =")
+                .contains("?: version"),
+            "An unknown effective file must not borrow metadata from the requested version",
         )
         assertFalse(
             starterSource.contains("manageProgress = false"),
@@ -145,15 +184,12 @@ class TvPlayerViewModelSharedCoordinatorTest {
     }
 
     @Test
-    fun tvUnsupportedFallbackAdoptsReturnedSessionIntoLifecycle() {
+    fun tvUnsupportedPlaybackUsesV3ReplanAndAdoptsReplacement() {
         val unsupportedBody = viewModelSource
             .substringAfter("fun onUnsupportedPlayback(")
             .substringBefore("fun onPositionChanged(positionMs: Long, durationMs: Long)")
 
-        assertTrue(
-            unsupportedBody.contains("startTranscodeFallbackRecoveringMissingSession("),
-            "unsupported direct play fallback must renew stale playback sessions before surfacing an error",
-        )
+        assertTrue(unsupportedBody.contains("replanActiveVideoSession("))
         assertTrue(
             unsupportedBody.contains("sessionLifecycle.adoptActiveSession("),
             "fallback success must re-home lifecycle progress/stop ownership to the returned session",
@@ -166,18 +202,16 @@ class TvPlayerViewModelSharedCoordinatorTest {
             viewModelSource.contains("selectedFileResolution = result.fileResolution"),
             "TV player state must retain the selected source resolution from startup",
         )
+        assertTrue(unsupportedBody.contains("fileId = effectiveFileId"))
+        assertTrue(unsupportedBody.contains("selectedFileId = effectiveFileId"))
+        assertTrue(unsupportedBody.contains("mediaFileId = effectiveFileId"))
+        assertTrue(unsupportedBody.contains("buildPlaybackSubtitleChoices("))
         assertTrue(
             viewModelSource.contains("fun onVideoQualitySelectionApplied(resolution: String?)"),
             "runtime quality switches must update the selected source resolution",
         )
-        assertTrue(
-            unsupportedBody.contains("resolution = state.selectedFileResolution.orEmpty()"),
-            "runtime fallback must pass the selected source resolution instead of an empty target hint",
-        )
-        assertFalse(
-            unsupportedBody.contains("resolution = \"\""),
-            "runtime fallback must not ask the server for an unspecified full transcode",
-        )
+        assertTrue(unsupportedBody.contains("decision.plan.stream.headers"))
+        assertFalse(unsupportedBody.contains("startTranscodeFallback"))
         assertTrue(
             viewModelSource.contains("private val capabilityDetector: PlaybackCapabilityDetector"),
             "TV fallback lifecycle adoption needs real device capabilities for recovery restarts",

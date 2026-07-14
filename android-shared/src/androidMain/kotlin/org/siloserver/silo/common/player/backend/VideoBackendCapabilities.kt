@@ -13,14 +13,11 @@ data class VideoBackendCapabilities(
     val supportsAudioDelay: Boolean,
     val subtitleRendering: SubtitleRendering,
     val supportsHardContainers: Boolean,
-    /** Simultaneous second subtitle track (iOS parity — supported on the
-     *  native-render route only; Media3 has a single text renderer). */
-    val supportsSecondarySubtitles: Boolean = false,
     val displayName: String,
 ) {
     companion object {
         fun media3(
-            route: PlaybackRoute = PlaybackRoute.Compatibility,
+            route: PlaybackRoute = PlaybackRoute.SiloPlayer,
         ): VideoBackendCapabilities = VideoBackendCapabilities(
             backendKind = VideoPlaybackBackendKind.Media3,
             route = route,
@@ -32,24 +29,7 @@ data class VideoBackendCapabilities(
             supportsAudioDelay = true,
             subtitleRendering = SubtitleRendering.Media3Text,
             supportsHardContainers = false,
-            displayName = "Media3",
-        )
-
-        fun mpv(
-            route: PlaybackRoute = PlaybackRoute.Compatibility,
-        ): VideoBackendCapabilities = VideoBackendCapabilities(
-            backendKind = VideoPlaybackBackendKind.Mpv,
-            route = route,
-            supportsSidecarSubtitles = true,
-            supportsEmbeddedSubtitleSelection = true,
-            supportsAudioTrackSelection = true,
-            supportsBufferReporting = true,
-            supportsSubtitleDelay = true,
-            supportsAudioDelay = false,
-            subtitleRendering = SubtitleRendering.NativeBackend,
-            supportsHardContainers = true,
-            supportsSecondarySubtitles = true,
-            displayName = "MPV",
+            displayName = "SiloPlayer",
         )
     }
 }

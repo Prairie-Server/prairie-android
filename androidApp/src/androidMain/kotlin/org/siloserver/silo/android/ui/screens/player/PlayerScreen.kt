@@ -44,11 +44,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
-import android.os.Bundle
-import org.siloserver.silo.common.player.backend.PlaybackEngineCommand
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
@@ -66,23 +62,21 @@ import org.siloserver.silo.common.pip.SiloPictureInPicturePlaybackState
 import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendRequest
-import org.siloserver.silo.common.player.backend.VideoPlaybackFormFactor
-import org.siloserver.silo.common.player.backend.isLikelyAdaptiveHlsStreamUrl
 import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
+import org.siloserver.silo.common.player.video.PlaybackRuntimeCorrectionMetrics
+import org.siloserver.silo.common.player.video.PostResumeVideoStallDetector
 import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
-import org.siloserver.silo.common.player.video.isMpvPreferredOriginalPlaybackContainer
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackSourceMetadata
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import org.siloserver.silo.model.playback.executableMedia3ClientTransformations
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
 import org.siloserver.silo.player.DolbyVisionDetection
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
 import androidx.compose.foundation.clickable
@@ -104,6 +98,7 @@ private const val TAG = "PlayerScreen"
  *
  * @param contentId The content ID to play (passed via navigation argument)
  * @param initialFileId Optional explicit file selection from the detail screen
+ * @param initialQuality Optional explicit playback-quality ceiling from a deep link
  * @param initialAudioTrackIndex Optional explicit audio selection from the detail screen
  * @param initialSubtitleTrackIndex Optional explicit subtitle selection from the detail screen
  * @param resumePositionOverride Optional start position supplied by the launcher
@@ -114,6 +109,7 @@ private const val TAG = "PlayerScreen"
 fun PlayerScreen(
     contentId: String,
     initialFileId: Int? = null,
+    initialQuality: String? = null,
     initialAudioTrackIndex: Int? = null,
     initialSubtitleTrackIndex: Int? = null,
     resumePositionOverride: Double? = null,
@@ -136,15 +132,14 @@ fun PlayerScreen(
     val backendFactory: VideoPlaybackBackendFactory = koinInject()
     val audioCapabilityManager: AudioCapabilityManager = koinInject()
     val capabilityDetector: PlaybackCapabilityDetector = koinInject()
-    val downloadStorage: org.siloserver.silo.common.downloads.DownloadStorage = koinInject()
-    val serverRegistry: org.siloserver.silo.network.ServerRegistry = koinInject()
-    val profileRepository: org.siloserver.silo.repository.ProfileRepository = koinInject()
-    val subtitleManager = remember { SubtitleManager() }
+    val subtitleManager: SubtitleManager = koinInject()
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
     var exitRequested by remember { mutableStateOf(false) }
     val startupStallDetector = remember { PlaybackStartupStallDetector() }
+    val postResumeStallDetector = remember { PostResumeVideoStallDetector() }
+    var dvSanitizerReported by remember { mutableStateOf(false) }
     var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
     var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
@@ -243,11 +238,9 @@ fun PlayerScreen(
     // resolves when the service binds. We hold the controller in a compose
     // state so downstream effects can re-run once it's ready.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
-    // The real session Player (ExoPlayer/MpvPlayer), published by the playback
     // service. The video PlayerView binds its SurfaceView directly to this (NOT the
     // MediaController) so the engine receives proper surface-lifecycle callbacks
     // (surfaceCreated/Changed/Destroyed) and recovers across seek/recreate/rotation
-    // — fixing MPV black-on-seek. Transport stays on the MediaController (same
     // underlying player). Re-binds automatically when the engine swaps.
     val sessionPlayer by activePlayerHolder.player.collectAsState()
     val videoBackend = remember(
@@ -267,21 +260,7 @@ fun PlayerScreen(
         (sessionPlayer ?: mediaController)?.let { player ->
             backendFactory.create(
                 player = player,
-                request = VideoPlaybackBackendRequest(
-                    contentId = contentId,
-                    fileId = initialFileId,
-                    playMethod = uiState.playMethod,
-                    delivery = delivery,
-                    plannedEngine = plan?.engine,
-                    routeFamily = plan?.routeFamily,
-                    formFactor = VideoPlaybackFormFactor.Mobile,
-                    hasHardContainer = uiState.playMethod == PlayMethod.DIRECT &&
-                        isHardPlaybackContainer(uiState.container),
-                    hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
-                    hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
-                    hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
-                    isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(uiState.streamUrl),
-                ),
+                request = VideoPlaybackBackendRequest(),
             )
         }
     }
@@ -365,10 +344,11 @@ fun PlayerScreen(
     }
 
     // Load content on first composition
-    LaunchedEffect(contentId, initialFileId, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
+    LaunchedEffect(contentId, initialFileId, initialQuality, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
         viewModel.loadContent(
             contentId = contentId,
             preferredFileId = initialFileId,
+            preferredQuality = initialQuality,
             initialAudioTrackIndex = initialAudioTrackIndex,
             initialSubtitleTrackIndex = initialSubtitleTrackIndex,
             resumePositionOverride = resumePositionOverride,
@@ -444,6 +424,7 @@ fun PlayerScreen(
         uiState.playbackPlan,
         uiState.delivery,
         uiState.startPosition,
+        uiState.mediaMountGeneration,
     ) {
         if (exitRequested) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
@@ -456,30 +437,20 @@ fun PlayerScreen(
         val isLocalMedia = streamUrl.startsWith("file://") || streamUrl.startsWith("content://")
         if (!isLocalMedia && serverUrl.isEmpty()) return@LaunchedEffect
 
-        // Prefer the locally-downloaded file when one exists for the active
-        // version (T9). Falls back to the streamed URL when not downloaded
-        // or when the local file disappeared between detail-screen check
-        // and Play. Media3 handles file:// URIs natively, so no factory
-        // change is needed.
-        val activeFileId = uiState.versions
-            .getOrNull(uiState.selectedVersionIndex)
-            ?.fileId
-        val localUri: String? = activeFileId?.let { fileId ->
-            val serverId = serverRegistry.activeServerId.value
-                ?: org.siloserver.silo.common.downloads.DownloadEnqueuer.DEFAULT_SERVER_ID
-            val profileId = profileRepository.getActiveProfileId()
-                ?: org.siloserver.silo.common.downloads.DownloadEnqueuer.DEFAULT_PROFILE_ID
-            downloadStorage.locateLocalMedia(serverId, profileId, fileId)?.uriString
-        }
-        val effectiveStreamUrl = localUri ?: streamUrl
-        val plan = if (localUri == null) uiState.playbackPlan else null
-        val delivery = if (localUri == null) plan?.delivery ?: uiState.delivery else null
+        // Transport selection belongs to PlayerViewModel. In particular, never
+        // replace an online V3 stream with a downloaded URI here: doing so would
+        // mount local bytes while the ViewModel continued to map seeks through
+        // the server plan's source/player timeline. The offline-first path
+        // already publishes its local URI with no session or playback plan.
+        val effectiveStreamUrl = streamUrl
+        val plan = uiState.playbackPlan
+        val delivery = plan?.delivery ?: uiState.delivery
 
         val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = effectiveStreamUrl,
             // Local files play as progressive (DIRECT), regardless of how
             // the server originally provisioned the session.
-            playMethod = if (localUri != null) org.siloserver.silo.model.playback.PlayMethod.DIRECT else playMethod,
+            playMethod = playMethod,
             delivery = delivery,
             serverUrl = serverUrl,
             container = uiState.container,
@@ -490,45 +461,27 @@ fun PlayerScreen(
             startPositionSeconds = uiState.startPosition,
             durationSeconds = uiState.duration,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
+            requestHeaders = uiState.requestHeaders,
+            transformations = plan?.executableMedia3ClientTransformations().orEmpty(),
+            runtimeCorrections = plan?.runtimeCorrections.orEmpty(),
         )
-        if (localUri == null && uiState.sessionId != null) {
+        if (!isLocalMedia && uiState.sessionId != null) {
+            PlaybackRuntimeCorrectionMetrics.reset()
+            dvSanitizerReported = false
             startupStallDetector.onMounted(
-                sessionKey = "${uiState.sessionId}:$effectiveStreamUrl",
+                sessionKey = "${uiState.sessionId}:$effectiveStreamUrl:${plan?.planId.orEmpty()}:" +
+                    "${plan?.decisionTrace?.size ?: 0}:${uiState.mediaMountGeneration}",
                 playMethod = playMethod,
                 startPositionMs = mediaSpec.startPositionMs,
                 nowMs = SystemClock.elapsedRealtime(),
             )
-        }
-        // Tell the playback service which engine to own for this media (Track A
-        // Task 0). ASS/SSA subtitles route to MPV (libass fidelity); the service
-        // resolves device-floor + route intent and rebinds + transfers state, so
-        // the order relative to mount is safe.
-        mediaController?.let { controller ->
-            val engineRequest = VideoPlaybackBackendRequest(
-                contentId = contentId,
-                fileId = activeFileId ?: initialFileId,
-                playMethod = mediaSpec.playMethod,
-                delivery = delivery,
-                plannedEngine = plan?.engine,
-                routeFamily = plan?.routeFamily,
-                formFactor = VideoPlaybackFormFactor.Mobile,
-                hasHardContainer = mediaSpec.playMethod == PlayMethod.DIRECT &&
-                    isHardPlaybackContainer(uiState.container),
-                hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
-                hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
-                hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
-                isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
+            postResumeStallDetector.onMounted(
+                "${uiState.sessionId}:$effectiveStreamUrl:${plan?.planId.orEmpty()}:" +
+                    "${plan?.decisionTrace?.size ?: 0}:${uiState.mediaMountGeneration}",
             )
-            val switchResult = controller.awaitEngineSwitch(engineRequest)
-            if (!switchResult.success) {
-                viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
-                return@LaunchedEffect
-            }
-            if (switchResult.swapped) {
-                return@LaunchedEffect
-            }
         }
-        backend.mount(mediaSpec)
+        backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)
+        viewModel.onMediaMountApplied(uiState.mediaMountGeneration)
     }
 
     // Mid-playback subtitle refresh (downloaded / AI-generated tracks).
@@ -544,25 +497,14 @@ fun PlayerScreen(
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
 
-        // Mirror the start effect's local-file preference so a rebuild never
-        // silently switches a local-file playback back to the remote stream.
-        val activeFileId = uiState.versions
-            .getOrNull(uiState.selectedVersionIndex)
-            ?.fileId
-        val localUri: String? = activeFileId?.let { fileId ->
-            val serverId = serverRegistry.activeServerId.value
-                ?: org.siloserver.silo.common.downloads.DownloadEnqueuer.DEFAULT_SERVER_ID
-            val profileId = profileRepository.getActiveProfileId()
-                ?: org.siloserver.silo.common.downloads.DownloadEnqueuer.DEFAULT_PROFILE_ID
-            downloadStorage.locateLocalMedia(serverId, profileId, fileId)?.uriString
-        }
-        val effectiveStreamUrl = localUri ?: streamUrl
-        val plan = if (localUri == null) uiState.playbackPlan else null
-        val delivery = if (localUri == null) plan?.delivery ?: uiState.delivery else null
+        val isLocalMedia = streamUrl.startsWith("file://") || streamUrl.startsWith("content://")
+        val effectiveStreamUrl = streamUrl
+        val plan = uiState.playbackPlan
+        val delivery = plan?.delivery ?: uiState.delivery
 
         val mediaSpec = VideoPlayerMediaSpec(
             streamUrl = effectiveStreamUrl,
-            playMethod = if (localUri != null) org.siloserver.silo.model.playback.PlayMethod.DIRECT else playMethod,
+            playMethod = playMethod,
             delivery = delivery,
             serverUrl = uiState.serverUrl,
             container = uiState.container,
@@ -572,37 +514,15 @@ fun PlayerScreen(
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
             durationSeconds = uiState.duration,
-            audioPassthroughCodecs = if (localUri == null) {
+            audioPassthroughCodecs = if (!isLocalMedia) {
                 plan.validatedPassthroughCodecs()
             } else {
                 emptyList()
             },
+            requestHeaders = if (!isLocalMedia) uiState.requestHeaders else emptyMap(),
+            transformations = plan?.executableMedia3ClientTransformations().orEmpty(),
+            runtimeCorrections = plan?.runtimeCorrections.orEmpty(),
         )
-        mediaController?.let { controller ->
-            val engineRequest = VideoPlaybackBackendRequest(
-                contentId = contentId,
-                fileId = activeFileId ?: initialFileId,
-                playMethod = mediaSpec.playMethod,
-                delivery = delivery,
-                plannedEngine = plan?.engine,
-                routeFamily = plan?.routeFamily,
-                formFactor = VideoPlaybackFormFactor.Mobile,
-                hasHardContainer = mediaSpec.playMethod == PlayMethod.DIRECT &&
-                    isHardPlaybackContainer(uiState.container),
-                hasStyledSubtitles = uiState.subtitleTracks.any { it.isStyledSubtitle() },
-                hasSoftwareOnlyVideoCodec = uiState.softwareOnlyVideoCodec,
-                hasDolbyVisionVideo = hasDolbyVisionSource(plan?.source),
-                isAdaptiveHlsStream = isLikelyAdaptiveHlsStreamUrl(effectiveStreamUrl),
-            )
-            val switchResult = controller.awaitEngineSwitch(engineRequest)
-            if (!switchResult.success) {
-                viewModel.onEngineSwitchFailed("Playback engine could not be prepared for this route.")
-                return@LaunchedEffect
-            }
-            if (switchResult.swapped) {
-                return@LaunchedEffect
-            }
-        }
         backend.refresh(mediaSpec)
     }
 
@@ -642,9 +562,27 @@ fun PlayerScreen(
             val listener = object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
+                    val live = viewModel.uiState.value
+                    val key = live.sessionId?.let { sessionId ->
+                        "$sessionId:${live.streamUrl}:${live.playbackPlan?.planId.orEmpty()}:" +
+                            "${live.playbackPlan?.decisionTrace?.size ?: 0}:${live.mediaMountGeneration}"
+                    }
+                    if (key != null) {
+                        val rendered = (activePlayerHolder.player.value as? androidx.media3.exoplayer.ExoPlayer)
+                            ?.videoDecoderCounters?.renderedOutputBufferCount
+                        postResumeStallDetector.onIsPlayingChanged(
+                            sessionKey = key,
+                            isPlaying = isPlaying,
+                            nowMs = SystemClock.elapsedRealtime(),
+                            currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
+                            renderedOutputBufferCount = rendered,
+                        )
+                    }
                 }
 
                 override fun onRenderedFirstFrame() {
+                    startupStallDetector.onFirstFrameRendered()
+                    postResumeStallDetector.onFirstFrameRendered()
                     viewModel.onFirstVideoFrameRendered()
                 }
 
@@ -656,6 +594,21 @@ fun PlayerScreen(
                         // no credits/prompt-seconds crossing fired first.
                         viewModel.onApproachingEnd(videoEnded = true)
                     }
+                }
+
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    // Media3 emits this for completed seeks even while paused,
+                    // when onIsPlayingChanged and playback-state callbacks can
+                    // remain silent. Publish the settled engine position now.
+                    viewModel.onPositionChanged(
+                        newPosition.positionMs,
+                        controller.duration,
+                        controller.bufferedPosition.coerceAtLeast(0L),
+                    )
                 }
 
                 override fun onVideoSizeChanged(size: VideoSize) {
@@ -698,13 +651,15 @@ fun PlayerScreen(
         }
     }
 
-    // Lifecycle-bounded position ticker. Cancels when the screen pauses or
-    // the controller disconnects, so we don't hit a released Player.
+    // Lifecycle-bounded position ticker. It samples mounted media while paused
+    // too, so a paused seek settles within 500ms even on devices that omit a
+    // position-discontinuity callback. Lifecycle stop/controller disconnect
+    // still bounds the loop so it never polls a released Player.
     LaunchedEffect(mediaController, lifecycleOwner) {
         val controller = mediaController ?: return@LaunchedEffect
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive) {
-                if (controller.isPlaying || controller.playbackState == Player.STATE_BUFFERING) {
+                if (controller.mediaItemCount > 0) {
                     viewModel.onPositionChanged(
                         controller.currentPosition,
                         controller.duration,
@@ -716,13 +671,23 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(mediaController, uiState.sessionId, uiState.streamUrl, uiState.playMethod) {
+    LaunchedEffect(
+        mediaController,
+        uiState.sessionId,
+        uiState.streamUrl,
+        uiState.playMethod,
+        uiState.playbackPlan?.planId,
+        uiState.playbackPlan?.decisionTrace?.size,
+        uiState.mediaMountGeneration,
+    ) {
         val controller = mediaController ?: return@LaunchedEffect
         val sessionId = uiState.sessionId ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
-        val sessionKey = "$sessionId:$streamUrl"
+        val sessionKey = "$sessionId:$streamUrl:${uiState.playbackPlan?.planId.orEmpty()}:" +
+            "${uiState.playbackPlan?.decisionTrace?.size ?: 0}:${uiState.mediaMountGeneration}"
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive) {
+                val decoderCounters = (sessionPlayer as? androidx.media3.exoplayer.ExoPlayer)?.videoDecoderCounters
                 val reason = startupStallDetector.sample(
                     sessionKey = sessionKey,
                     nowMs = SystemClock.elapsedRealtime(),
@@ -731,11 +696,71 @@ fun PlayerScreen(
                     isBuffering = controller.playbackState == Player.STATE_BUFFERING,
                     currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
                     bufferedPositionMs = controller.bufferedPosition.coerceAtLeast(0L),
+                    decoderInputBufferCount = decoderCounters?.queuedInputBufferCount ?: 0,
+                    decoderRenderedOutputBufferCount = decoderCounters?.renderedOutputBufferCount ?: 0,
+                    decoderSkippedOutputBufferCount = decoderCounters?.skippedOutputBufferCount ?: 0,
+                    decoderDroppedBufferCount = decoderCounters?.droppedBufferCount ?: 0,
                 )
                 if (reason != null) {
                     Log.i(TAG, "Startup stall fallback: $reason")
                     viewModel.onUnsupportedPlayback(reason)
                     return@repeatOnLifecycle
+                }
+                val sanitizedSamples = PlaybackRuntimeCorrectionMetrics.consumeDolbyVisionHdr10PlusSamples()
+                if (sanitizedSamples > 0 && !dvSanitizerReported) {
+                    dvSanitizerReported = true
+                    viewModel.onRuntimeCorrection(
+                        event = "runtime_correction_applied",
+                        correctionId = "client_dv8_hdr10plus_sanitizer_v1",
+                        stage = "sample_sanitized",
+                        details = mapOf("sample_count" to sanitizedSamples.toString()),
+                    )
+                }
+                when (val recovery = postResumeStallDetector.sample(
+                    sessionKey = sessionKey,
+                    nowMs = SystemClock.elapsedRealtime(),
+                    playWhenReady = controller.playWhenReady,
+                    isPlaying = controller.isPlaying,
+                    isReady = controller.playbackState == Player.STATE_READY,
+                    currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
+                    durationMs = controller.duration.coerceAtLeast(0L),
+                    renderedOutputBufferCount = decoderCounters?.renderedOutputBufferCount,
+                )) {
+                    PostResumeVideoStallDetector.Signal.SeekBack -> {
+                        controller.seekTo(
+                            (controller.currentPosition - PostResumeVideoStallDetector.SEEK_BACK_MS)
+                                .coerceAtLeast(0L),
+                        )
+                        viewModel.onRuntimeCorrection(
+                            "runtime_correction_applied",
+                            "client_post_resume_video_recovery_v1",
+                            "nonzero_seek",
+                        )
+                    }
+                    PostResumeVideoStallDetector.Signal.Reprepare -> {
+                        val position = controller.currentPosition.coerceAtLeast(0L)
+                        val resume = controller.playWhenReady
+                        controller.stop()
+                        controller.prepare()
+                        controller.seekTo(position)
+                        if (resume) controller.play()
+                        viewModel.onRuntimeCorrection(
+                            "runtime_correction_applied",
+                            "client_surface_recovery_v1",
+                            "codec_surface_reprepare",
+                        )
+                    }
+                    is PostResumeVideoStallDetector.Signal.Recovered -> viewModel.onRuntimeCorrection(
+                        "runtime_correction_succeeded",
+                        recovery.correctionId,
+                        "rendered_frame_progress",
+                    )
+                    is PostResumeVideoStallDetector.Signal.Failed -> viewModel.onRuntimeCorrection(
+                        "runtime_correction_failed",
+                        recovery.correctionId,
+                        "bounded_recovery_exhausted",
+                    )
+                    null -> Unit
                 }
                 delay(1_000)
             }
@@ -767,13 +792,6 @@ fun PlayerScreen(
         if (backend.selectSubtitle(subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex))) {
             viewModel.onSubtitleSelectionApplied(uiState.selectedSubtitleIndex)
         }
-    }
-
-    // Secondary subtitle (iOS parity, MPV route only). Re-applied whenever the
-    // track list or selection changes; the backend no-ops when unsupported.
-    LaunchedEffect(videoBackend, uiState.subtitleTracks, uiState.selectedSecondarySubtitleIndex) {
-        val backend = videoBackend ?: return@LaunchedEffect
-        backend.selectSecondarySubtitle(uiState.subtitleTracks, uiState.selectedSecondarySubtitleIndex)
     }
 
     // Notify the ViewModel we're leaving the screen.
@@ -857,10 +875,6 @@ fun PlayerScreen(
             // is a child added on first inflation, so the apply must happen at
             // least once after the AndroidView factory runs.
             LaunchedEffect(playerViewRef, subtitleAppearance, sessionPlayer, resizeMode, uiState.selectedSubtitleIndex) {
-                // MPV renders subtitles itself (libass on its own surface) —
-                // push the same appearance into it; authored ASS stays intact.
-                (sessionPlayer as? org.siloserver.silo.common.player.mpv.MpvSubtitleStyleController)
-                    ?.applySubtitleAppearance(subtitleAppearance)
                 val pv = playerViewRef ?: return@LaunchedEffect
                 subtitleManager.applyAppearance(pv, subtitleAppearance)
             }
@@ -881,7 +895,6 @@ fun PlayerScreen(
                     },
                     update = { view ->
                         // Bind the SurfaceView directly to the real session player
-                        // (not the MediaController) so MPV gets surface-lifecycle
                         // callbacks; re-binds automatically when the engine swaps.
                         view.player = sessionPlayer
                         view.resizeMode = resizeMode
@@ -936,7 +949,6 @@ fun PlayerScreen(
                             roomController.onUserSeek(position)
                         } else {
                             viewModel.onSeek(position)
-                            mediaController?.seekTo((position * 1000).toLong())
                         }
                     },
                     onToggleControls = { viewModel.onToggleControls() },
@@ -994,47 +1006,6 @@ private fun produceRoomClosedState(
     return (controller?.closedReason ?: soloClosedReason).collectAsState()
 }
 
-private data class EngineSwitchResult(
-    val success: Boolean,
-    val swapped: Boolean,
-)
-
-private suspend fun MediaController.awaitEngineSwitch(request: VideoPlaybackBackendRequest): EngineSwitchResult =
-    suspendCancellableCoroutine { continuation ->
-        val future = sendCustomCommand(
-            SessionCommand(PlaybackEngineCommand.SET_ENGINE, Bundle.EMPTY),
-            Bundle().apply {
-                putString(PlaybackEngineCommand.ARG_REQUEST_JSON, PlaybackEngineCommand.encode(request))
-            },
-        )
-        future.addListener(
-            {
-                val switchResult = runCatching {
-                    val result = future.get()
-                    EngineSwitchResult(
-                        success = result.resultCode == SessionResult.RESULT_SUCCESS,
-                        swapped = result.extras.getBoolean(PlaybackEngineCommand.RESULT_SWAPPED, false),
-                    )
-                }.getOrDefault(EngineSwitchResult(success = false, swapped = false))
-                if (continuation.isActive) {
-                    continuation.resume(switchResult)
-                }
-            },
-            MoreExecutors.directExecutor(),
-        )
-        continuation.invokeOnCancellation { future.cancel(false) }
-    }
-
-private fun PlayerSubtitleInfo.isStyledSubtitle(): Boolean {
-    val normalizedCodec = codec
-        ?.trim()
-        ?.lowercase()
-        ?.replace('_', '-')
-    val normalizedUrl = url.substringBefore('?').substringBefore('#').lowercase()
-    return normalizedCodec in setOf("ass", "ssa", "text/x-ssa") ||
-        normalizedUrl.endsWith(".ass") ||
-        normalizedUrl.endsWith(".ssa")
-}
 
 private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
     val plan = this ?: return emptyList()
@@ -1043,23 +1014,3 @@ private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
         ?.let { listOf(it) }
         .orEmpty()
 }
-
-private fun isHardPlaybackContainer(container: String?): Boolean =
-    isMpvPreferredOriginalPlaybackContainer(container)
-
-/**
- * True when the planned source carries Dolby Vision. Feeds
- * [VideoPlaybackBackendRequest.hasDolbyVisionVideo] so Auto routes DV to
- * MPV — Media3 has no phone-side DV handling and can play audio+subtitles
- * over a permanently black video surface. Plain HDR10/HDR10+/HLG stays on
- * Media3, which plays it correctly (device A/B 2026-07-09); MPV's
- * slurp-then-idle streaming makes it the worse default for those. The
- * catalog version list has no per-format field, so plan-less legacy
- * sessions fall back to Media3 and the failure detectors cover the rest.
- */
-private fun hasDolbyVisionSource(source: PlaybackSourceMetadata?): Boolean =
-    DolbyVisionDetection.isDolbyVision(
-        dolbyVisionProfile = source?.dolbyVisionProfile,
-        hdrFormat = source?.hdrFormat,
-        videoCodec = source?.videoCodec,
-    )

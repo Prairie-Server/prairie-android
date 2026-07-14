@@ -704,6 +704,11 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("quality") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument("audioTrackIndex") {
                     type = NavType.StringType
                     nullable = true
@@ -729,6 +734,9 @@ fun AppNavigation(
             PlayerScreen(
                 contentId = backStackEntry.arguments?.getString("contentId") ?: "",
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
+                initialQuality = VideoPlayerRouteArgs.normalizeQuality(
+                    backStackEntry.arguments?.getString("quality"),
+                ),
                 initialAudioTrackIndex = backStackEntry.arguments?.getString("audioTrackIndex")?.toIntOrNull(),
                 initialSubtitleTrackIndex = backStackEntry.arguments?.getString("subtitleTrackIndex")?.toIntOrNull(),
                 resumePositionOverride = VideoPlayerRouteArgs.parseResumePosition(

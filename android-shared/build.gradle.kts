@@ -20,6 +20,11 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             implementation(project(":shared"))
+            // Public player constructors accept LibassBridge, so downstream
+            // phone/TV DI modules need the Java bridge type on their compile
+            // classpaths. ass-media itself remains an implementation detail of
+            // :libass-bridge and is not exposed to Kotlin compilation.
+            api(project(":libass-bridge"))
 
             // DataStore (per-profile player settings store)
             implementation(libs.datastore.preferences)
@@ -45,8 +50,6 @@ kotlin {
             // SubtitleManager.applyAppearance reaches into PlayerView.subtitleView
             // and CaptionStyleCompat — both live in media3-ui.
             implementation(libs.media3.ui)
-            implementation(libs.libmpv)
-
             // Media3 FFmpeg audio decoder extension. Shipped as a private
             // AAR built by scripts/build-ffmpeg-aar.sh — Google doesn't
             // publish this one on Maven (LGPL distribution compliance).
@@ -55,7 +58,10 @@ kotlin {
             // internal extension-renderer reflection; the compile-time
             // BuildConfig.FFMPEG_AUDIO_ENABLED flag gates whether we *prefer*
             // it over platform decoders.
-            implementation(files("libs/media3-decoder-ffmpeg-1.10.0.aar"))
+            implementation(files("libs/media3-decoder-ffmpeg-1.10.1.aar"))
+            // Reproducibly built JNI bridge for client-side Dolby Vision
+            // Profile 7 RPU conversion. See scripts/build-dovi-aar.sh.
+            implementation(files("libs/silo-dovi-bridge-2.3.1.aar"))
 
             // Coroutines
             implementation(libs.kotlinx.coroutines.android)

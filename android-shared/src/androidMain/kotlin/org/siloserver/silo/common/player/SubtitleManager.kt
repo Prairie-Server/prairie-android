@@ -22,6 +22,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import org.siloserver.silo.libass.LibassBridge
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
@@ -38,7 +39,9 @@ import kotlin.math.roundToInt
  * This manager builds subtitle configurations and applies track selection.
  */
 @UnstableApi
-class SubtitleManager {
+class SubtitleManager(
+    private val libassBridge: LibassBridge? = null,
+) {
 
     private val videoRectSyncs = WeakHashMap<PlayerView, SubtitleVideoRectSync>()
 
@@ -54,6 +57,14 @@ class SubtitleManager {
         serverUrl: String,
     ): List<MediaItem.SubtitleConfiguration> {
         return subtitles.mapNotNull { subtitle ->
+            // V3 embedded-bitmap rows intentionally carry a blank URL: they
+            // are selection metadata for a track already in the primary
+            // media, not a merging sidecar source. Do not key only on
+            // `source=embedded`, because legacy/remux routes can still expose
+            // a real extracted text artifact from an embedded source.
+            if (subtitle.url.isBlank()) {
+                return@mapNotNull null
+            }
             val absoluteUrl = resolveSubtitleUrl(serverUrl, subtitle.url)
             val mimeType = subtitleMimeType(subtitle.codec, absoluteUrl)
             if (!isMedia3TextSidecarMimeType(mimeType)) {
@@ -140,7 +151,6 @@ class SubtitleManager {
 
     /**
      * Resolves the backend track id (Format.id) for the [subtitleIndex]-th
-     * app subtitle row — used by the MPV backend to address a secondary
      * subtitle track (`secondary-sid`) without going through Media3's
      * single-text-override selection parameters.
      */
@@ -164,13 +174,13 @@ class SubtitleManager {
      * font scale), and [androidx.media3.ui.SubtitleView.setBottomPaddingFraction]
      * (vertical position within the surface).
      *
-     * Embedded WebVTT/ASS styling is disabled so user preferences win uniformly
-     * across track formats. **Caveat:** image-based subtitles (PGS, DVD) are
-     * pre-rendered bitmaps and ignore CaptionStyleCompat — they will display
-     * with their authored appearance regardless of these settings.
+     * Media3-rendered text uses the user's appearance. ASS/SSA is rendered by
+     * libass and deliberately preserves the script's authored typesetting,
+     * animation, positioning, and embedded fonts, matching the Apple player.
      */
     fun applyAppearance(playerView: PlayerView, appearance: SubtitleAppearance) {
         val subtitleView = playerView.subtitleView ?: return
+        libassBridge?.attachTo(subtitleView)
         val safe = appearance.sanitized()
 
         val captionStyle = try {
@@ -204,6 +214,7 @@ class SubtitleManager {
      * reacts to later layout and video-size callbacks.
      */
     fun syncSubtitleVideoBounds(playerView: PlayerView) {
+        playerView.subtitleView?.let { libassBridge?.attachTo(it) }
         val existing = videoRectSyncs[playerView]
         val sync = if (existing?.isDisposed == true || existing == null) {
             SubtitleVideoRectSync(playerView).also { videoRectSyncs[playerView] = it }
@@ -236,7 +247,6 @@ class SubtitleManager {
         // (12.5% of the text size) of horizontal breathing room, whereas
         // backgroundColor is a per-line BackgroundColorSpan that hugs the
         // glyphs (QA 2026-07-08: "SRT subtitles with box should have more
-        // padding"). The MPV route pads via MpvSubtitleStyle's border-size
         // floor instead.
         return CaptionStyleCompat(
             foreground,
@@ -481,6 +491,11 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     Player.Listener {
 
     private val playerViewRef = WeakReference(playerView)
+    private val contentFrameRef = WeakReference(
+        playerView.findViewById<AspectRatioFrameLayout>(
+            androidx.media3.ui.R.id.exo_content_frame
+        )
+    )
     private var observedPlayer: Player? = null
 
     var isDisposed: Boolean = false
@@ -489,6 +504,11 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     init {
         playerView.addOnLayoutChangeListener(this)
         playerView.addOnAttachStateChangeListener(this)
+        // PlayerView itself remains full-screen when FIT changes the measured
+        // content frame (for example, 4:3 video on a 16:9 TV). Observe that
+        // child as well so an early full-screen subtitle measurement cannot
+        // survive after the video frame narrows and shift authored ASS cues.
+        contentFrameRef.get()?.addOnLayoutChangeListener(this)
     }
 
     fun update() {
@@ -590,6 +610,7 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
         val playerView = (view as? PlayerView) ?: playerViewRef.get()
         playerView?.removeOnLayoutChangeListener(this)
         playerView?.removeOnAttachStateChangeListener(this)
+        contentFrameRef.get()?.removeOnLayoutChangeListener(this)
         isDisposed = true
     }
 }
@@ -639,7 +660,8 @@ internal fun resolveSubtitleSelection(
 ): SubtitleSelection? {
     val label = subtitle.label?.trim()?.takeIf { it.isNotBlank() }
     val language = subtitle.language?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
-    if (label == null && language == null) return null
+    val family = subtitleCodecFamily(subtitle.codec ?: subtitle.url)
+    if (label == null && language == null && family == null) return null
 
     val candidates = textTrackCandidates(tracks)
     if (label != null) {
@@ -655,8 +677,18 @@ internal fun resolveSubtitleSelection(
         val languageMatches = candidates.filter {
             it.language?.trim()?.lowercase() == language
         }
-        languageMatches.firstOrNull { !it.isBitmap }?.let { return it.selection }
+        family?.let { targetFamily ->
+            languageMatches.firstOrNull { it.codecFamily == targetFamily }
+                ?.let { return it.selection }
+        }
+        val targetIsBitmap = isBitmapSubtitleCodecOrMime(subtitle.codec)
+        languageMatches.firstOrNull { it.isBitmap == targetIsBitmap }
+            ?.let { return it.selection }
         languageMatches.firstOrNull()?.let { return it.selection }
+    }
+    family?.let { targetFamily ->
+        candidates.firstOrNull { it.codecFamily == targetFamily }
+            ?.let { return it.selection }
     }
     return null
 }
@@ -666,6 +698,7 @@ private data class TextTrackCandidate(
     val label: String?,
     val language: String?,
     val isBitmap: Boolean,
+    val codecFamily: String?,
 )
 
 private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
@@ -679,6 +712,7 @@ private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
                 label = format.label,
                 language = format.language,
                 isBitmap = isBitmapSubtitleCodecOrMime(format.subtitleCodecOrMime()),
+                codecFamily = subtitleCodecFamily(format.subtitleCodecOrMime()),
             )
         }
     }
@@ -700,10 +734,30 @@ fun isBitmapSubtitleCodecOrMime(codecOrMime: String?): Boolean {
         ?.takeIf { it.isNotEmpty() }
         ?: return false
     return normalized.contains("pgs") ||
-        normalized.contains("hdmv") ||
         normalized.contains("dvd") ||
         normalized.contains("dvbsub") ||
         normalized.contains("vobsub")
+}
+
+private fun subtitleCodecFamily(codecOrMime: String?): String? {
+    val normalized = codecOrMime
+        ?.filter { it.isLetterOrDigit() }
+        ?.lowercase()
+        ?.takeIf { it.isNotEmpty() }
+        ?: return null
+    return when {
+        normalized.contains("pgs") -> "pgs"
+        normalized.contains("vobsub") || normalized.contains("dvdsubtitle") -> "vobsub"
+        normalized.contains("dvbsub") -> "dvbsub"
+        normalized.contains("subrip") || normalized.endsWith("srt") -> "subrip"
+        normalized.contains("webvtt") || normalized.endsWith("vtt") -> "webvtt"
+        normalized.contains("tx3g") || normalized.contains("movtext") -> "tx3g"
+        normalized.contains("ssa") || normalized.contains("ass") -> "ssa"
+        normalized.contains("ttml") -> "ttml"
+        normalized.contains("cea608") || normalized.contains("eia608") -> "cea608"
+        normalized.contains("cea708") -> "cea708"
+        else -> null
+    }
 }
 
 private fun Format.subtitleCodecOrMime(): String? =

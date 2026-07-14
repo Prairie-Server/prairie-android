@@ -10,7 +10,7 @@
 #
 # IMPORTANT: a successful minified BUILD does NOT prove runtime correctness under
 # R8. After any dependency bump or rule change, smoke-test a minified install on
-# device: cold boot + Media3 playback + MPV playback + LAN (TLS-PSK) pairing.
+# device: cold boot + Media3 playback + LAN (TLS-PSK) pairing.
 # ============================================================================
 
 # --- Attributes: reflection, serialization, and readable crash stacks --------
@@ -48,12 +48,16 @@
 -keep class androidx.media3.decoder.ffmpeg.** { *; }
 -dontwarn androidx.media3.decoder.ffmpeg.**
 
-# --- libmpv (JNI) -------------------------------------------------------------
-# MPVLib is native methods plus native-invoked EventObserver callbacks. JNI is
-# invisible to R8, so keep the class, its native methods, and the callback
-# interface it dispatches through.
--keep class dev.jdtech.mpv.** { *; }
--keepclasseswithmembernames class dev.jdtech.mpv.** { native <methods>; }
+# --- libass Media3 integration ------------------------------------------------
+# ass-media's Matroska extractor reads these Media3 internals by exact field
+# name so it can intercept ASS packets and MKV font attachments. Preserve the
+# names explicitly; a successful R8 build alone cannot prove reflective lookup
+# will still work on device.
+-keepclassmembers class androidx.media3.extractor.mkv.MatroskaExtractor {
+    androidx.media3.extractor.ExtractorOutput extractorOutput;
+    androidx.media3.common.util.ParsableByteArray subtitleSample;
+}
+-keep class io.github.peerless2012.ass.media.extractor.AssMatroskaExtractor { *; }
 
 # --- BouncyCastle (TLS-PSK LAN companion pairing) -----------------------------
 # Providers and algorithms are looked up by name through the JCA SPI; a stripped
@@ -84,7 +88,7 @@
 -dontwarn coil3.**
 -dontwarn com.google.zxing.**
 
-# --- Enums used reflectively (serialization, MPV/Media3 property tables) -------
+# --- Enums used reflectively (serialization and Media3 property tables) --------
 -keepclassmembers enum * {
     public static **[] values();
     public static ** valueOf(java.lang.String);

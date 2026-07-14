@@ -7,6 +7,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,6 +15,15 @@ import kotlin.test.assertTrue
 
 @OptIn(UnstableApi::class)
 class PlayerTrackEntriesTest {
+
+    @Test
+    fun replanSelectionMapsMedia3OrdinalToStableServerAudioIndex() {
+        val catalogTracks = listOf(AudioTrack(index = 1), AudioTrack(index = 5))
+
+        assertEquals(5, selectedServerAudioTrackIndex(1, catalogTracks, currentPlanTrackIndex = 1))
+        assertEquals(1, selectedServerAudioTrackIndex(null, catalogTracks, currentPlanTrackIndex = 1))
+        assertEquals(1, selectedServerAudioTrackIndex(4, catalogTracks, currentPlanTrackIndex = 1))
+    }
 
     @Test
     fun textTracksExposeEveryTrackInsideMedia3Group() {
@@ -321,6 +331,73 @@ class PlayerTrackEntriesTest {
                 requestedOrdinal = 0,
                 subtitleTracks = tracks,
                 mountedSubtitles = emptyList(),
+            ),
+        )
+    }
+
+    @Test
+    fun initialEmbeddedVobSubOrdinalResolvesByCodecWithoutSyntheticMetadata() {
+        val tracks = listOf(
+            PlayerTrackEntry(
+                index = 0,
+                label = "English ASS",
+                language = "en",
+                isSelected = true,
+                codecOrMime = "text/x-ssa",
+            ),
+            PlayerTrackEntry(
+                index = 2,
+                label = "DVD VobSub",
+                language = "en",
+                isSelected = false,
+                codecOrMime = "application/vobsub",
+            ),
+        )
+        val mounted = listOf(
+            PlayerSubtitleInfo(
+                index = 2,
+                codec = "dvd_subtitle",
+                source = "embedded",
+                url = "",
+            ),
+        )
+
+        assertEquals(
+            2,
+            resolveInitialSubtitleTrackIndex(
+                requestedOrdinal = 2,
+                subtitleTracks = tracks,
+                mountedSubtitles = mounted,
+            ),
+        )
+    }
+
+    @Test
+    fun initialEmbeddedDvbSubtitleOrdinalNormalizesFfprobeAndMedia3CodecNames() {
+        val tracks = listOf(
+            PlayerTrackEntry(
+                index = 0,
+                label = "",
+                language = "fi",
+                isSelected = false,
+                codecOrMime = "application/dvbsubs",
+            ),
+        )
+        val mounted = listOf(
+            PlayerSubtitleInfo(
+                index = 0,
+                codec = "dvb_subtitle",
+                source = "embedded",
+                url = "",
+            ),
+        )
+
+        assertEquals(
+            0,
+            resolveInitialSubtitleTrackIndex(
+                requestedOrdinal = 0,
+                subtitleTracks = tracks,
+                mountedSubtitles = mounted,
             ),
         )
     }

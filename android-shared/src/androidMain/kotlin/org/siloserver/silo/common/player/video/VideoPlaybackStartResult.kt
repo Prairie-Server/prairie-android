@@ -5,6 +5,7 @@ import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackDelivery
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.playback.PlaybackPlanV3
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 
 sealed interface VideoPlaybackStartResult {
@@ -18,15 +19,19 @@ sealed interface VideoPlaybackStartResult {
         val streamUrl: String,
         val playMethod: PlayMethod,
         val playbackPlan: PlaybackExecutionPlan? = null,
+        val playbackPlanV3: PlaybackPlanV3? = null,
+        val requestHeaders: Map<String, String> = emptyMap(),
         val delivery: PlaybackDelivery? = null,
         val container: String? = null,
-        // DIRECT file whose video codec has no hardware decoder here but MPV
-        // can software-decode (Apple codec-tail parity) — routes to MPV.
-        val softwareOnlyVideoCodec: Boolean = false,
         val title: String,
         val subtitle: String?,
         val artworkUrl: String?,
+        /** Position in the mounted Media3 timeline. This may be zero for a
+         * server-reanchored HLS stream whose movie-time origin is non-zero. */
         val startPositionSeconds: Double,
+        /** Position in the full movie/source timeline shown to the user and
+         * reported to the server. */
+        val sourceStartPositionSeconds: Double = startPositionSeconds,
         val sessionId: String? = null,
         val serverUrl: String = "",
         val accessToken: String = "",

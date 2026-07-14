@@ -155,6 +155,7 @@ fun TvPlayerHud(
     autoPlayNext: Boolean,
     onAutoPlayNextChanged: (Boolean) -> Unit,
     audioDelayMs: Int,
+    audioDelayEnabled: Boolean,
     onAudioDelayChanged: (Int) -> Unit,
     subtitleDelayMs: Int,
     onSubtitleDelayChanged: (Int) -> Unit,
@@ -345,6 +346,7 @@ fun TvPlayerHud(
                         audioTracks = audioTracks,
                         onSelectAudio = onSelectAudio,
                         audioDelayMs = audioDelayMs,
+                        audioDelayEnabled = audioDelayEnabled,
                         onAudioDelayChanged = onAudioDelayChanged,
                         enabled = activePicker == null,
                         onPresentPicker = presentPicker,
@@ -536,6 +538,11 @@ private fun HudInfoPane(
     }
     val streamRows = buildList<Pair<String, String>> {
         stats.backendRoute?.let { add("Route" to it) }
+        playbackPlan?.takeIf {
+            it.requestedMediaFileId != null &&
+                it.effectiveMediaFileId != null &&
+                it.requestedMediaFileId != it.effectiveMediaFileId
+        }?.let { add("Source" to "Alternate version") }
         stats.videoCodec?.let { add("Video" to it.uppercase()) }
         stats.audioCodec?.let { add("Audio" to it.uppercase()) }
         val sub = subtitleTracks.firstOrNull { it.isSelected }
@@ -1096,6 +1103,7 @@ private fun HudAudioPane(
     audioTracks: List<PlayerTrackEntry>,
     onSelectAudio: (Int) -> Unit,
     audioDelayMs: Int,
+    audioDelayEnabled: Boolean,
     onAudioDelayChanged: (Int) -> Unit,
     enabled: Boolean,
     onPresentPicker: (HudPickerPresentation) -> Unit,
@@ -1133,9 +1141,9 @@ private fun HudAudioPane(
                 )
 
                 HudFocusedSettingRow(
-                    label = "Delay",
-                    value = delayLabel(audioDelayMs),
-                    enabled = enabled,
+                    label = "Delay (PCM only)",
+                    value = if (audioDelayEnabled) delayLabel(audioDelayMs) else "Unavailable during passthrough",
+                    enabled = enabled && audioDelayEnabled,
                     onActivate = {
                         onPresentPicker(
                             delayPicker(

@@ -110,19 +110,43 @@ class TvPlayerScreenStartPositionTest {
     }
 
     @Test
-    fun tvPlayerAwaitsEngineSwitchBeforeMounting() {
+    fun tvPlayerMountsMedia3WithoutAnEngineSwitchRoundTrip() {
         val mountEffect = source
             .substringAfter("// Prepare the player when a stream URL becomes available.")
             .substringBefore("// Subtitle refresh")
 
-        assertTrue(mountEffect.contains("awaitEngineSwitch(engineRequest)"))
-        assertTrue(
-            mountEffect.indexOf("awaitEngineSwitch(engineRequest)") <
-                mountEffect.indexOf("backend.mount(mediaSpec)"),
-            "TV player must await SET_ENGINE before mounting media",
-        )
-        assertTrue(mountEffect.contains("plannedEngine = plan?.engine"))
+        assertFalse(mountEffect.contains("awaitEngineSwitch"))
+        assertFalse(mountEffect.contains("sendCustomCommand"))
         assertTrue(mountEffect.contains("val delivery = plan?.delivery ?: state.delivery"))
         assertTrue(mountEffect.contains("delivery = delivery"))
+        assertTrue(mountEffect.contains("backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)"))
+    }
+
+    @Test
+    fun recoveryMountUsesNonceAndAcknowledgesAppliedTimeline() {
+        val mountEffect = source
+            .substringAfter("// Prepare the player when a stream URL becomes available.")
+            .substringBefore("// Subtitle refresh")
+
+        assertTrue(mountEffect.contains("state.transportMountNonce"))
+        assertTrue(mountEffect.contains("backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)"))
+        assertTrue(mountEffect.contains("viewModel.onTransportMountApplied(state.transportMountNonce)"))
+    }
+
+    @Test
+    fun transportReopenRearmsSharedWatchdog() {
+        val watchdogEffect = source
+            .substringAfter(
+                "state.playbackPlan?.planId,\n        state.playbackPlan?.decisionTrace?.size,",
+            )
+            .substringBefore("// Prepare the player when a stream URL becomes available.")
+        val mountEffect = source
+            .substringAfter("// Prepare the player when a stream URL becomes available.")
+            .substringBefore("// Subtitle refresh")
+
+        assertTrue(watchdogEffect.contains("state.playbackPlan?.decisionTrace?.size ?: 0"))
+        assertTrue(watchdogEffect.contains("state.transportMountNonce"))
+        assertTrue(mountEffect.contains("plan?.decisionTrace?.size ?: 0"))
+        assertTrue(mountEffect.contains("state.transportMountNonce"))
     }
 }
