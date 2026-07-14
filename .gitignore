@@ -29,6 +29,7 @@ captures/
 .env
 .env.*
 !.env.example
+google-services.json
 *.jks
 *.keystore
 
