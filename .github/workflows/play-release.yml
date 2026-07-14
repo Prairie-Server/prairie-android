@@ -1,0 +1,121 @@
+name: Play Store Release
+
+# Fastlane-driven Google Play publishing, mirroring silo-apple's TestFlight
+# release workflow: version tags publish automatically, and workflow_dispatch
+# supports ad-hoc releases. Differences from Apple, both rooted in how Play
+# versioning works (no marketing-version/build-number split — everything keys
+# on versionCode, derived here from the tag):
+#
+#   - Every Play release needs a new major.minor.patch tag. Prerelease-
+#     suffixed tags (v1.2.3-rc.1) are skipped: they strip to the same
+#     versionCode as the base version, which Play rejects as a duplicate.
+#     Suffixed tags still get sideload APKs from android-build.yml.
+#   - No per-platform selection: phone and TV share one applicationId, and a
+#     new track release supersedes the previous one, so both artifacts always
+#     ship together in a single Play edit.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Marketing version (e.g. 1.4.0)"
+        required: true
+        type: string
+      track:
+        description: "Play track to publish to"
+        required: true
+        type: choice
+        default: beta
+        options:
+          - internal
+          - alpha
+          - beta
+
+# Serialize releases: each run opens a Play edit against the same package,
+# and overlapping edits conflict. Let an in-flight release finish.
+concurrency:
+  group: play-store-release
+  cancel-in-progress: false
+
+# Least privilege: the job only checks out code and talks to Google Play via
+# the service-account key. It never uses GITHUB_TOKEN to write to the repo.
+permissions:
+  contents: read
+
+jobs:
+  play:
+    name: Build & upload to Google Play
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # The Fastfile re-validates the version and derives the versionCode
+      # base from it; this step just resolves which version to release and
+      # gates prerelease tags out of Play publishing.
+      - name: Resolve marketing version
+        id: ver
+        shell: bash
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GH_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${INPUT_VERSION}"
+          else
+            version="${GH_REF_NAME}"
+          fi
+          version="${version#v}"
+
+          if [[ "${GH_EVENT_NAME}" != "workflow_dispatch" && "${version}" == *[-+]* ]]; then
+            echo "Prerelease tag ${GH_REF_NAME} — skipping Play publish (sideload-only release)."
+            echo "publish=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 1.4.0 (no prerelease suffix for Play releases)."
+            exit 1
+          fi
+
+          {
+            echo "publish=true"
+            echo "version=${version}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Resolved marketing version: ${version}"
+
+      - name: Build & upload to Google Play
+        if: steps.ver.outputs.publish == 'true'
+        run: bundle exec fastlane android beta
+        env:
+          SILO_VERSION_NAME: ${{ steps.ver.outputs.version }}
+          PLAY_TRACK: ${{ inputs.track || 'beta' }}
+          PLAY_RELEASE_NOTES: ${{ vars.PLAY_RELEASE_NOTES }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          SILO_RELEASE_KEYSTORE_B64: ${{ secrets.SILO_RELEASE_KEYSTORE_B64 }}
+          SILO_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.SILO_RELEASE_KEYSTORE_PASSWORD }}
+          SILO_RELEASE_KEY_PASSWORD: ${{ secrets.SILO_RELEASE_KEY_PASSWORD }}
+          SILO_RELEASE_KEY_ALIAS: ${{ secrets.SILO_RELEASE_KEY_ALIAS }}
+          SILO_GOOGLE_SERVICES_JSON_B64: ${{ secrets.SILO_GOOGLE_SERVICES_JSON_B64 }}

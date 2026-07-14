@@ -55,3 +55,9 @@ media-fixtures/*
 # Local review notes (not for publishing)
 docs/reviews/
 ui-validation/
+
+# Ruby / Fastlane
+vendor/bundle/
+fastlane/report.xml
+fastlane/README.md
+fastlane/metadata/
