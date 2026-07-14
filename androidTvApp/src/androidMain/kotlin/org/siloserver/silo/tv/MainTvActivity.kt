@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -68,6 +69,10 @@ class MainTvActivity : ComponentActivity() {
         // start. Mirrors the phone-side flag in MainActivity.
         @Volatile
         private var hasShownColdSplash = false
+
+        /** Shared with [TvAppNavigation]'s consumer so intake and consumption
+         * of a deep link line up in one logcat filter. */
+        const val DEEP_LINK_TAG = "SiloDeepLink"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -221,6 +226,7 @@ class MainTvActivity : ComponentActivity() {
         // `silo` is the only scheme the manifest registers; anything else is
         // an unrelated launch intent and must not clobber a queued URI.
         if (data.scheme == "silo") {
+            Log.i(DEEP_LINK_TAG, "deep link queued: ${data.host}/${data.lastPathSegment}")
             pendingDeepLink.value = data
         }
     }

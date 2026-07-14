@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.navigation
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,6 +24,7 @@ import org.siloserver.silo.common.player.video.VideoPlayerRouteArgs
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.ProfileRepository
+import org.siloserver.silo.tv.MainTvActivity
 import org.siloserver.silo.tv.ui.shell.TvMainShell
 import org.siloserver.silo.tv.ui.screens.audiobook.TvAudiobookPlayerScreen
 import org.siloserver.silo.tv.ui.screens.auth.TvLoginScreen
@@ -53,6 +55,14 @@ import org.koin.compose.koinInject
 import org.koin.core.qualifier.named
 
 private const val RETURN_TO_MANAGE_SERVERS_KEY = "return_to_manage_servers"
+
+/**
+ * Upper bound on re-navigations for one queued deep link. Arrival-gated
+ * consumption (see the collector in [TvAppNavigation]) retries a dropped
+ * navigation whenever the back stack settles; a link whose target can never
+ * become current must not retry forever.
+ */
+private const val MAX_DEEP_LINK_NAV_ATTEMPTS = 3
 
 /**
  * Top-level TV navigation graph.
@@ -130,11 +140,25 @@ fun TvAppNavigation(
     // point the existing destination is rendered and this collector fires.
     // No special queueing path — the flow IS the queue.
     LaunchedEffect(Unit) {
+        // Consume-on-arrival bookkeeping: a content link is only cleared once
+        // the nav graph actually shows its target. Clearing at navigate() time
+        // lost the link whenever the call was silently dropped by an in-flight
+        // teardown (observed on TV: player exit racing an immediate launcher
+        // deep link) — with arrival-gating the still-queued link re-navigates
+        // when the graph settles. The attempt cap keeps a link whose
+        // navigation can never stick (e.g. a route that instantly pops) from
+        // looping forever.
+        var attemptUri: Uri? = null
+        var attempts = 0
         kotlinx.coroutines.flow.combine(
             pendingDeepLink,
             navController.currentBackStackEntryFlow,
         ) { uri, entry -> uri to entry }.collect { (uri, entry) ->
             if (uri == null) return@collect
+            if (uri != attemptUri) {
+                attemptUri = uri
+                attempts = 0
+            }
             // Device-pairing links (`silo://device?token=…` / `?code=…`) carry no
             // path segment — route on the query params instead of a contentId.
             if (uri.host.equals("device", ignoreCase = true)) {
@@ -174,6 +198,33 @@ fun TvAppNavigation(
                 pendingDeepLink.value = null
                 return@collect
             }
+            // Arrived: the current destination is this link's target, so the
+            // link is spent. This is the only place a successful content link
+            // is cleared — see the bookkeeping comment above.
+            val arrived = entry.arguments?.getString(TvRoute.ItemDetail.ARG_CONTENT_ID) == contentId &&
+                when (uri.host) {
+                    "item" -> route.startsWith("item/")
+                    "play" -> route.startsWith("player/") || route.startsWith("audiobook/")
+                    else -> false
+                }
+            if (arrived) {
+                Log.i(MainTvActivity.DEEP_LINK_TAG, "deep link arrived: ${uri.host}/$contentId")
+                pendingDeepLink.value = null
+                return@collect
+            }
+            if (attempts >= MAX_DEEP_LINK_NAV_ATTEMPTS) {
+                Log.w(
+                    MainTvActivity.DEEP_LINK_TAG,
+                    "deep link dropped after $attempts unarrived attempts: ${uri.host}/$contentId",
+                )
+                pendingDeepLink.value = null
+                return@collect
+            }
+            attempts++
+            Log.i(
+                MainTvActivity.DEEP_LINK_TAG,
+                "deep link navigating (attempt $attempts): ${uri.host}/$contentId from $route",
+            )
             when (uri.host) {
                 "item" -> navController.navigate(TvRoute.ItemDetail(contentId).route)
                 "play" -> {
@@ -196,10 +247,13 @@ fun TvAppNavigation(
                             subtitleTrackIndex = playbackArgs.subtitleTrackIndex,
                             quality = playbackArgs.quality,
                         ),
-                    )
+                    ) {
+                        // A retried link (arrival-gated above) must not stack a
+                        // second player over one already being created.
+                        launchSingleTop = true
+                    }
                 }
             }
-            pendingDeepLink.value = null
         }
     }
 
