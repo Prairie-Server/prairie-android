@@ -152,6 +152,25 @@ jobs:
           printf '%s' "${KEYSTORE_B64}" | base64 -d > "${keystore_path}"
           echo "SILO_RELEASE_KEYSTORE=${keystore_path}" >> "${GITHUB_ENV}"
 
+      # Optional: FCM config for push notifications. The app degrades
+      # gracefully without it (push registration is skipped), but release
+      # builds should ship with push working. Encode with:
+      #   base64 < androidApp/google-services.json | tr -d '\n'
+      - name: Decode google-services.json
+        shell: bash
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.SILO_GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GOOGLE_SERVICES_B64}" ]]; then
+            echo "::warning::SILO_GOOGLE_SERVICES_JSON_B64 is not set; building without FCM push support."
+            exit 0
+          fi
+
+          printf '%s' "${GOOGLE_SERVICES_B64}" | base64 -d > androidApp/google-services.json
+          echo "Wrote androidApp/google-services.json."
+
       - name: Build release APK
         shell: bash
         env:
