@@ -3,6 +3,7 @@ package org.siloserver.silo.android.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -17,6 +18,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import org.siloserver.silo.android.ui.components.MainAppHeaderBodyHeight
 import org.siloserver.silo.android.ui.components.MainAppTopBar
+import org.siloserver.silo.android.ui.navigation.LocalBottomChromeInset
 import org.siloserver.silo.android.ui.navigation.SiloBottomNavBar
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.Tab
@@ -43,10 +46,14 @@ import org.siloserver.silo.android.ui.navigation.shouldShowDownloadsTab
 import org.siloserver.silo.android.ui.navigation.visibleMobileTabs
 import org.siloserver.silo.android.ui.screens.calendar.CalendarScreen
 import org.siloserver.silo.android.ui.screens.home.HomeScreen
+import org.siloserver.silo.android.cast.SiloCastController
+import org.siloserver.silo.android.ui.screens.cast.SiloCastMiniBar
+import org.siloserver.silo.android.ui.screens.cast.SiloCastTargetPickerSheet
 import org.siloserver.silo.android.ui.screens.libraries.LibrariesScreen
 import org.siloserver.silo.android.ui.screens.libraries.LibrariesSelectorSheet
 import org.siloserver.silo.android.ui.screens.libraries.LibrariesViewModel
 import org.siloserver.silo.android.ui.screens.recommendations.RecommendationsScreen
+import org.siloserver.silo.cast.SiloCastPlaybackRequest
 import org.siloserver.silo.model.navigation.MediaMode
 import org.siloserver.silo.model.navigation.MediaModeCapabilities
 import org.siloserver.silo.model.navigation.mobileMediaModeCapabilities
@@ -75,6 +82,31 @@ fun MainScreen(
 ) {
     val headerViewModel = koinViewModel<MainHeaderViewModel>()
     val headerState by headerViewModel.uiState.collectAsState()
+    val siloCastController: SiloCastController = koinInject()
+    val siloCastState by siloCastController.state.collectAsState()
+    var showSiloCastTargetPicker by rememberSaveable { mutableStateOf(false) }
+
+    fun playVideo(contentId: String, fileId: Int? = null, resumePositionSeconds: Double? = null) {
+        val launchedRemotely = siloCastController.launchOnConnectedTarget(
+            SiloCastPlaybackRequest(
+                contentId = contentId,
+                fileId = fileId,
+                startFromBeginning = resumePositionSeconds == null,
+                resumePosition = resumePositionSeconds,
+            ),
+        )
+        if (launchedRemotely) {
+            navController.navigate(Route.SiloCastRemote.route) { launchSingleTop = true }
+        } else {
+            navController.navigate(
+                Route.Player(
+                    contentId = contentId,
+                    fileId = fileId,
+                    resumePositionSeconds = resumePositionSeconds,
+                ).route,
+            )
+        }
+    }
     val librariesViewModel = if (currentTab == Tab.Libraries) {
         koinViewModel<LibrariesViewModel>()
     } else {
@@ -192,23 +224,33 @@ fun MainScreen(
 
     Scaffold(
         bottomBar = {
-            SiloBottomNavBar(
-                currentTab = currentTab,
-                onTabSelected = { tab ->
-                    if (tab == Tab.Home && currentTab == Tab.Home) {
-                        // Re-tapping Home while on Home scrolls it back to the
-                        // top (standard Android bottom-nav convention).
-                        homeScrollToTopTick += 1
-                    } else {
-                        navController.navigate(tab.route) {
-                            popUpTo(Route.Home.route) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+            // The cast bar rests above the nav menu (iOS tabViewBottomAccessory
+            // placement); the Scaffold then pads tab content past both.
+            Column {
+                SiloCastMiniBar(
+                    controller = siloCastController,
+                    onOpenRemote = {
+                        navController.navigate(Route.SiloCastRemote.route) { launchSingleTop = true }
+                    },
+                )
+                SiloBottomNavBar(
+                    currentTab = currentTab,
+                    onTabSelected = { tab ->
+                        if (tab == Tab.Home && currentTab == Tab.Home) {
+                            // Re-tapping Home while on Home scrolls it back to the
+                            // top (standard Android bottom-nav convention).
+                            homeScrollToTopTick += 1
+                        } else {
+                            navController.navigate(tab.route) {
+                                popUpTo(Route.Home.route) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
-                    }
-                },
-                tabs = visibleTabs,
-            )
+                    },
+                    tabs = visibleTabs,
+                )
+            }
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
@@ -218,11 +260,13 @@ fun MainScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .consumeWindowInsets(padding),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = padding.calculateBottomPadding()),
+            // Content extends edge-to-edge under the translucent bottom chrome
+            // (iOS glass tab bar); screens read the measured chrome height and
+            // pad their scroll ends so the last items stay reachable.
+            CompositionLocalProvider(
+                LocalBottomChromeInset provides padding.calculateBottomPadding(),
             ) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 when (currentTab) {
                     Tab.Home -> {
                         val homeViewModel = koinViewModel<HomeViewModel>()
@@ -232,16 +276,21 @@ fun MainScreen(
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
                             onPlayClick = { contentId, resumePositionSeconds ->
-                                navController.navigate(
-                                    Route.Player(
-                                        contentId = contentId,
-                                        resumePositionSeconds = resumePositionSeconds,
-                                    ).route,
-                                )
+                                playVideo(contentId, resumePositionSeconds = resumePositionSeconds)
                             },
                             viewModel = homeViewModel,
                             activeProfile = headerState.activeProfile,
                             onSearchClick = { navController.navigate(Route.Search().route) },
+                            onRemoteControlClick = {
+                                if (siloCastState.hasActiveSession) {
+                                    navController.navigate(Route.SiloCastRemote.route)
+                                } else {
+                                    showSiloCastTargetPicker = true
+                                }
+                            },
+                            onRemoteChooseTvClick = { showSiloCastTargetPicker = true },
+                            onRemoteDisconnectClick = { siloCastController.disconnect() },
+                            isRemoteControlActive = siloCastState.hasActiveSession,
                             onRequestsClick = requestsMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = {
@@ -259,12 +308,7 @@ fun MainScreen(
                                 navController.navigate(Route.ItemDetail(contentId).route)
                             },
                             onPlayClick = { contentId, resumePositionSeconds ->
-                                navController.navigate(
-                                    Route.Player(
-                                        contentId = contentId,
-                                        resumePositionSeconds = resumePositionSeconds,
-                                    ).route,
-                                )
+                                playVideo(contentId, resumePositionSeconds = resumePositionSeconds)
                             },
                             onCollectionClick = { collectionId, libraryId ->
                                 navController.navigate(Route.CollectionDetail(collectionId, libraryId).route)
@@ -316,7 +360,14 @@ fun MainScreen(
                                         Route.AudiobookPlayer(item.contentId, item.fileId).route,
                                     )
                                 } else {
-                                    navController.navigate(Route.Player(item.contentId).route)
+                                    // Downloads are explicitly local/offline;
+                                    // bypass playVideo's active-cast redirect.
+                                    navController.navigate(
+                                        Route.Player(
+                                            contentId = item.contentId,
+                                            fileId = item.fileId,
+                                        ).route,
+                                    )
                                 }
                             },
                             onReadEbook = { contentId, fileId ->
@@ -389,7 +440,15 @@ fun MainScreen(
                     onDismiss = { showLibrarySelector = false },
                 )
             }
+
+            if (showSiloCastTargetPicker) {
+                SiloCastTargetPickerSheet(
+                    onDismiss = { showSiloCastTargetPicker = false },
+                    controller = siloCastController,
+                )
+            }
         }
+    }
     }
 }
 

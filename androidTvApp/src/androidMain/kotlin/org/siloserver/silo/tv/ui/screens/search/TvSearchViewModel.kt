@@ -3,12 +3,14 @@ package org.siloserver.silo.tv.ui.screens.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.model.catalog.BrowseItem
+import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.navigation.isAudiobookLikeLibraryType
 import org.siloserver.silo.model.navigation.tvMediaModeCapabilities
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.tv.ui.util.visibleOnTv
+import org.siloserver.silo.tv.data.preferences.TvLibraryScopeStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -31,13 +33,15 @@ enum class TvSearchMediaType(val label: String, val wire: String?) {
 class TvSearchViewModel(
     private val catalogRepository: CatalogRepository,
     private val personalDataRepository: PersonalDataRepository,
+    private val libraryScopeStore: TvLibraryScopeStore,
 ) : ViewModel() {
 
     data class UiState(
         val query: String = "",
         val mediaType: TvSearchMediaType = TvSearchMediaType.All,
         /** Media-type chips to show, derived from the user's libraries. */
-        val availableMediaTypes: List<TvSearchMediaType> = TvSearchMediaType.entries.toList(),
+        val availableMediaTypes: List<TvSearchMediaType> =
+            TvSearchMediaType.entries.filterNot { it == TvSearchMediaType.Audiobooks },
         val items: List<BrowseItem> = emptyList(),
         val total: Int = 0,
         val hasMore: Boolean = false,
@@ -45,6 +49,7 @@ class TvSearchViewModel(
         val isLoadingMore: Boolean = false,
         val error: String? = null,
         val rawResultCount: Int = 0,
+        val showAudiobooks: Boolean = false,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -65,6 +70,7 @@ class TvSearchViewModel(
                 else -> return@launch
             }
             val caps = libraries.tvMediaModeCapabilities()
+            val showAudiobooks = libraryScopeStore.getShowAudiobooksTab()
             // The "Audiobooks" chip sends type=audiobook, so gate it on an
             // actual audiobook-like library — hasAudio also covers music, which
             // wouldn't match the audiobook filter.
@@ -75,14 +81,23 @@ class TvSearchViewModel(
                     add(TvSearchMediaType.Movies)
                     add(TvSearchMediaType.Series)
                 }
-                if (hasAudiobooks) add(TvSearchMediaType.Audiobooks)
+                if (showAudiobooks && hasAudiobooks) add(TvSearchMediaType.Audiobooks)
             }
             val current = _uiState.value
             val nextMediaType = if (current.mediaType in types) current.mediaType else TvSearchMediaType.All
-            _uiState.update { it.copy(availableMediaTypes = types, mediaType = nextMediaType) }
+            _uiState.update {
+                it.copy(
+                    availableMediaTypes = types,
+                    mediaType = nextMediaType,
+                    showAudiobooks = showAudiobooks,
+                )
+            }
             // If the active filter was forced to change while a query is live,
             // re-run so results aren't left stale under the old filter.
-            if (nextMediaType != current.mediaType && current.query.isNotBlank()) {
+            if (
+                (nextMediaType != current.mediaType || showAudiobooks != current.showAudiobooks) &&
+                current.query.isNotBlank()
+            ) {
                 searchGeneration += 1
                 searchJob?.cancel()
                 loadMoreJob?.cancel()
@@ -198,73 +213,92 @@ class TvSearchViewModel(
             return
         }
 
-        val offset = if (reset) 0 else state.rawResultCount
+        var offset = if (reset) 0 else state.rawResultCount
+        var fetchedRawCount = 0
         _uiState.update {
             if (reset) it.copy(isLoading = true, isLoadingMore = false, error = null)
             else it.copy(isLoadingMore = true)
         }
 
-        val result = catalogRepository.browse(
-            source = "query",
-            query = requestedQuery,
-            mediaType = requestedMediaType.wire,
-            offset = offset,
-            limit = pageSize,
-        )
+        while (true) {
+            val result = catalogRepository.browse(
+                source = "query",
+                query = requestedQuery,
+                mediaType = requestedMediaType.wire,
+                offset = offset,
+                limit = pageSize,
+            )
 
-        // safeApiCall upstream swallows CancellationException into NetworkError —
-        // rethrow so a cancelled coroutine can't write any state from beyond the grave.
-        if (result is ApiResult.NetworkError && result.exception is CancellationException) {
-            throw result.exception
-        }
+            // safeApiCall upstream swallows CancellationException into NetworkError —
+            // rethrow so a cancelled coroutine can't write any state from beyond the grave.
+            if (result is ApiResult.NetworkError && result.exception is CancellationException) {
+                throw result.exception
+            }
 
-        // Drop a page fetched for a query/filter the user has already moved past,
-        // so it can neither replace nor append onto the current generation.
-        if (generation != searchGeneration) {
-            if (!reset) _uiState.update { it.copy(isLoadingMore = false) }
-            return
-        }
+            // Drop a page fetched for a query/filter the user has already moved past,
+            // so it can neither replace nor append onto the current generation.
+            if (generation != searchGeneration) {
+                if (!reset) _uiState.update { it.copy(isLoadingMore = false) }
+                return
+            }
 
-        when (result) {
-            is ApiResult.Success -> {
-                // The results now belong to this generation; load-more may page.
-                if (reset) resultsGeneration = generation
-                val response = result.data
-                val visibleItems = response.items.visibleOnTv()
-                _uiState.update {
-                    val accumulatedItems = if (reset) visibleItems else it.items + visibleItems
-                    it.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        items = accumulatedItems,
-                        total = if (requestedMediaType == TvSearchMediaType.All) {
-                            accumulatedItems.size
-                        } else {
-                            response.total
-                        },
-                        hasMore = response.hasMore,
-                        error = null,
-                        rawResultCount = if (reset) {
-                            response.items.size
-                        } else {
-                            it.rawResultCount + response.items.size
-                        },
-                    )
+            when (result) {
+                is ApiResult.Success -> {
+                    // The results now belong to this generation; load-more may page.
+                    if (reset) resultsGeneration = generation
+                    val response = result.data
+                    fetchedRawCount += response.items.size
+                    val visibleItems = response.items
+                        .visibleOnTv()
+                        .filter { _uiState.value.showAudiobooks || !isAudiobookItemType(it.type) }
+
+                    // A raw page can contain only hidden audiobook/reading
+                    // results. The grid cannot request another page when it has
+                    // no rendered cards, so transparently drain hidden-only
+                    // pages until something visible is found or paging ends.
+                    if (visibleItems.isEmpty() && response.hasMore && response.items.isNotEmpty()) {
+                        offset += response.items.size
+                        continue
+                    }
+
+                    _uiState.update {
+                        val accumulatedItems = if (reset) visibleItems else it.items + visibleItems
+                        it.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            items = accumulatedItems,
+                            total = if (requestedMediaType == TvSearchMediaType.All) {
+                                accumulatedItems.size
+                            } else {
+                                response.total
+                            },
+                            hasMore = response.hasMore && response.items.isNotEmpty(),
+                            error = null,
+                            rawResultCount = if (reset) fetchedRawCount else it.rawResultCount + fetchedRawCount,
+                        )
+                    }
+                    return
                 }
-            }
-            is ApiResult.Error -> _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    isLoadingMore = false,
-                    error = result.message.ifBlank { "Search failed" },
-                )
-            }
-            is ApiResult.NetworkError -> _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    isLoadingMore = false,
-                    error = "Network error: ${result.exception.message ?: "unknown"}",
-                )
+                is ApiResult.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = result.message.ifBlank { "Search failed" },
+                        )
+                    }
+                    return
+                }
+                is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = "Network error: ${result.exception.message ?: "unknown"}",
+                        )
+                    }
+                    return
+                }
             }
         }
     }

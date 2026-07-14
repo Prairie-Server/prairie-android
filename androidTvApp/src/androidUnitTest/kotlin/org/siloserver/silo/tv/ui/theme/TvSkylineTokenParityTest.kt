@@ -111,14 +111,15 @@ class TvSkylineTokenParityTest {
         assertToken("val safeAreaX = 44.dp")
         assertToken("val barTopInset = 28.dp")
         assertToken("val barHeight = 32.dp")
+        assertToken("val tabPillHeight = 30.dp")
         assertToken("val dropdownTopInset = 66.dp")
         assertToken("val tabSpacing = 4.dp")
-        assertToken("val tabLabelSize = 13.sp")
-        assertToken("val tabPaddingHorizontal = 13.dp")
-        assertToken("val tabPaddingVertical = 5.5.dp")
-        assertToken("val barIconSize = 26.dp")
+        assertToken("val tabLabelSize = 15.sp")
+        assertToken("val tabPaddingHorizontal = 14.5.dp")
+        assertToken("val tabPaddingVertical = 6.dp")
+        assertToken("val barIconSize = 28.dp")
         assertToken("val barTrailingSpacing = 11.dp")
-        assertToken("val wordmarkSize = 13.sp")
+        assertToken("val wordmarkSize = 15.sp")
     }
 
     @Test
@@ -214,10 +215,13 @@ class TvSkylineTokenParityTest {
     }
 
     @Test
-    fun backdropCardsMirrorTvOsEpisodeBadgeAndCaptionTreatment() {
+    fun backdropCardsMirrorTvOsEpisodeBadgeAndTwoLineCaptionTreatment() {
         assertTrue(episodeCard.contains("val episodeBadge = formatEpisodeTag(seasonNumber, episodeNumber)"))
         assertTrue(episodeCard.contains(".align(Alignment.BottomStart)"))
-        assertTrue(episodeCard.contains("text = title,"))
+        assertTrue(episodeCard.contains("text = seriesTitle ?: title,"))
+        assertTrue(episodeCard.contains("val secondaryLine = if (seriesTitle != null) title else year?.toString()"))
+        assertTrue(episodeCard.contains("verticalArrangement = Arrangement.spacedBy(4.dp)"))
+        assertFalse(episodeCard.contains("m left"))
         assertTrue(episodeCard.contains("fontSize = 13.sp"))
         assertFalse(episodeCard.contains("Icons.Default.PlayArrow"))
         assertFalse(episodeCard.contains("val subtitle = if (tag != null) \"\$tag · \$title\" else title"))
@@ -231,7 +235,7 @@ class TvSkylineTokenParityTest {
         assertTrue(mediaRow.contains("width = posterWidth ?: TvCardWidth"))
         assertTrue(skylineSectionFeed.contains("posterWidth = RowDimens.DensePosterWidth"))
         assertTrue(skylineSectionFeed.contains("val TvSkylineItemSpacing = 20.dp"))
-        assertTrue(skylineSectionFeed.contains("val TvSkylineRowPreviewSpacing = 5.dp"))
+        assertTrue(skylineSectionFeed.contains("val TvSkylineRowPreviewSpacing = 14.dp"))
         assertTrue(skylineSectionFeed.contains("val TvSkylineRowCardVerticalPadding = 7.dp"))
         assertTrue(skylineSectionFeed.contains("val TvSkylineRowBandBottomInset = 10.dp"))
         assertTrue(skylineSectionFeed.contains("verticalArrangement = Arrangement.spacedBy(TvSkylineRowPreviewSpacing)"))
@@ -241,7 +245,7 @@ class TvSkylineTokenParityTest {
     @Test
     fun homeMarqueeUsesHalfScaleTvOsLogoBounds() {
         assertTrue(focusMarquee.contains("private val MarqueeLogoMaxWidth = 440.dp"))
-        assertTrue(focusMarquee.contains("private val MarqueeLogoMaxHeight = 100.dp"))
+        assertTrue(focusMarquee.contains("private val MarqueeLogoMaxHeight = 95.dp"))
         assertTrue(focusMarquee.contains(".height(MarqueeLogoMaxHeight)"))
         assertFalse(focusMarquee.contains("private val MarqueeLogoMaxWidth = 320.dp"))
         assertFalse(focusMarquee.contains(".heightIn(max = MarqueeLogoMaxHeight)"))
@@ -269,22 +273,25 @@ class TvSkylineTokenParityTest {
     @Test
     fun detailHeroUsesHalfScaleTvOsTypographyAndOverlayGeometry() {
         assertTrue(detailHero.contains("val contentMaxWidth = 600.dp"))
-        assertTrue(detailHero.contains(".padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = 60.dp)"))
-        assertTrue(detailHero.contains(".align(Alignment.BottomEnd)"))
-        assertTrue(detailHero.contains(".padding(bottom = heroHeight * 0.45f, end = Spacing.safeArea)"))
+        assertTrue(detailHero.contains(".padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = TvDetailHeroBottomInset)"))
+        // Starring credit: trailing overlay, vertically centered then lifted
+        // by 0.45×heroHeight (tvOS `starringOverlay`), capped at 280dp.
+        assertTrue(detailHero.contains(".align(Alignment.CenterEnd)"))
+        assertTrue(detailHero.contains(".padding(end = Spacing.safeArea, bottom = heroHeight * 0.45f)"))
+        assertTrue(detailHero.contains(".widthIn(max = 280.dp)"))
         assertTrue(detailHero.contains("fontSize = 13.sp"))
-        assertTrue(detailHero.contains("lineHeight = 52.sp"))
-        assertTrue(detailHero.contains(".widthIn(max = 230.dp)"))
+        // Display title: condensed Inter companion, tvOS 92pt ÷ 2 trimmed to
+        // 42sp per design review (2026-07-11).
         assertTrue(detailHero.contains("private val heroDisplayHero = TextStyle"))
-        assertTrue(detailHero.contains("fontSize = 48.sp"))
-        assertTrue(detailHero.contains("lineHeight = 52.sp"))
+        assertTrue(detailHero.contains("R.font.inter_tight_black"))
+        assertTrue(detailHero.contains("fontSize = 42.sp"))
+        assertTrue(detailHero.contains("lineHeight = 46.sp"))
         assertTrue(detailHero.contains("letterSpacing = 0.sp"))
         assertTrue(detailHero.contains(".height(110.dp)"))
         assertTrue(detailHero.contains(".widthIn(max = 310.dp)"))
-        assertTrue(detailHero.contains("fontSize = 25.sp"))
-        assertTrue(detailHero.contains("fontSize = 13.sp"))
-        assertTrue(detailHero.contains("fontSize = 16.sp"))
+        assertTrue(detailHero.contains("fontSize = 23.sp"))
         assertTrue(detailHero.contains("fontSize = 14.sp"))
+        assertTrue(detailHero.contains("fontSize = 16.sp"))
         assertFalse(detailHero.contains("fontSize = 56.sp"))
         assertFalse(detailHero.contains("letterSpacing = (-1).sp"))
         assertFalse(detailHero.contains(".align(Alignment.TopEnd)"))
@@ -300,10 +307,12 @@ class TvSkylineTokenParityTest {
 
     @Test
     fun detailSectionHeadersUseHalfScaleTvOsTypography() {
-        assertTrue(detailSectionHeader.contains("fontSize = 13.sp"))
-        assertTrue(detailSectionHeader.contains("lineHeight = 15.sp"))
+        // tvOS TVSectionHeader ÷ 2: eyebrow 20pt bold tracking 3.0 → 10sp /
+        // 1.5sp; title 42pt semibold → 21sp.
+        assertTrue(detailSectionHeader.contains("fontSize = 10.sp"))
+        assertTrue(detailSectionHeader.contains("lineHeight = 12.sp"))
         assertTrue(detailSectionHeader.contains("letterSpacing = 1.5.sp"))
-        assertTrue(detailSectionHeader.contains("fontSize = 24.sp"))
+        assertTrue(detailSectionHeader.contains("fontSize = 21.sp"))
         assertFalse(detailSectionHeader.contains("fontSize = 16.sp"))
     }
 
@@ -391,15 +400,15 @@ class TvSkylineTokenParityTest {
 
     @Test
     fun settingsPickerSheetUsesHalfScaleTvOsRows() {
-        assertTrue(settingsScreen.contains("style = MaterialTheme.typography.displaySmall.copy(fontSize = 18.sp, lineHeight = 21.sp)"))
-        assertTrue(settingsScreen.contains(".width(340.dp)"))
+        assertTrue(settingsScreen.contains("style = MaterialTheme.typography.displaySmall.copy(fontSize = 19.sp, lineHeight = 23.sp)"))
+        assertTrue(settingsScreen.contains(".width(420.dp)"))
         assertTrue(settingsScreen.contains("contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)"))
         assertTrue(settingsScreen.contains("verticalArrangement = Arrangement.spacedBy(5.dp)"))
         assertTrue(settingsScreen.contains("val shape = RoundedCornerShape(7.dp)"))
-        assertTrue(settingsScreen.contains(".padding(horizontal = 13.dp, vertical = 8.dp)"))
-        assertTrue(settingsScreen.contains("fontSize = 17.sp"))
-        assertTrue(settingsScreen.contains("lineHeight = 20.sp"))
-        assertTrue(settingsScreen.contains("modifier = Modifier.size(14.dp)"))
+        assertTrue(settingsScreen.contains(".padding(horizontal = 14.dp, vertical = 9.dp)"))
+        assertTrue(settingsScreen.contains("fontSize = 15.sp"))
+        assertTrue(settingsScreen.contains("lineHeight = 18.sp"))
+        assertTrue(settingsScreen.contains(".size(15.dp)"))
         assertFalse(settingsScreen.contains(".width(680.dp)"))
         assertFalse(settingsScreen.contains(".padding(horizontal = 26.dp, vertical = 18.dp)"))
     }
@@ -457,11 +466,13 @@ class TvSkylineTokenParityTest {
 
     @Test
     fun anchoredSelectorTriggerUsesHalfScaleTvOsMetrics() {
-        assertTrue(anchoredSelectorMenu.contains("contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp)"))
-        assertTrue(anchoredSelectorMenu.contains("modifier = Modifier.size(12.dp)"))
+        assertTrue(anchoredSelectorMenu.contains("contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp)"))
+        assertTrue(anchoredSelectorMenu.contains("modifier = Modifier.size(13.dp)"))
         assertTrue(anchoredSelectorMenu.contains("Spacer(Modifier.width(7.dp))"))
-        assertTrue(anchoredSelectorMenu.contains("fontSize = 13.sp"))
-        assertTrue(anchoredSelectorMenu.contains("modifier = Modifier.size(8.5.dp)"))
+        // tvOS TVSelectorButton ÷ 2 +1 per design review: label 10sp, value 12sp.
+        assertTrue(anchoredSelectorMenu.contains("fontSize = 10.sp"))
+        assertTrue(anchoredSelectorMenu.contains("fontSize = 12.sp"))
+        assertTrue(anchoredSelectorMenu.contains("modifier = Modifier.size(9.5.dp)"))
         assertFalse(anchoredSelectorMenu.contains("contentPadding = PaddingValues(horizontal = 40.dp, vertical = 22.dp)"))
     }
 
@@ -479,7 +490,7 @@ class TvSkylineTokenParityTest {
 
     @Test
     fun cascadeSelectorIncludesTvOsHeaderFooterAndDefaultFlyoutBehavior() {
-        assertTrue(cascadeSelector.contains("val CascadePanelHeaderSize = 13.sp"))
+        assertTrue(cascadeSelector.contains("val CascadePanelHeaderSize = 11.sp"))
         assertTrue(cascadeSelector.contains("val CascadeFlyoutHeaderSize = 13.sp"))
         assertTrue(cascadeSelector.contains("CascadePanelHeader(type.librariesHeader)"))
         assertTrue(cascadeSelector.contains("CascadePanelFooter(isSingleLibrary = false)"))

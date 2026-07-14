@@ -75,10 +75,23 @@ class TvPersonDetailViewModelTest {
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems }
 
         assertEquals(
-            listOf("All", "Movies", "TV", "Audiobooks", "Music"),
+            listOf("All", "Movies", "Series", "Audiobooks", "Music"),
             viewModel.uiState.value.availableFilters.map { it.title },
         )
         assertFalse(viewModel.uiState.value.availableFilters.any { it.title == "Reading" })
+    }
+
+    @Test
+    fun audiobookPreferenceHidesFilterAndAllResults() = runPersonTest {
+        val viewModel = TvPersonDetailViewModel(
+            catalogRepository = repositoryFor(mutableListOf()),
+            personId = 7,
+            showAudiobooksProvider = { false },
+        ).also { createdViewModels += it }
+        awaitState(viewModel) { !it.isLoading && !it.isLoadingItems && it.items.isNotEmpty() }
+
+        assertFalse(viewModel.uiState.value.availableFilters.contains(TvPersonMediaFilter.Audiobooks))
+        assertFalse(viewModel.uiState.value.items.any { it.type == "audiobook" })
     }
 
     private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()

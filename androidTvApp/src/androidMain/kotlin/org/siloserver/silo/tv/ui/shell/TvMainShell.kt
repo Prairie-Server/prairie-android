@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.height
@@ -49,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -59,6 +60,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -95,6 +97,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.common.ui.components.isImageAvatar
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
@@ -118,6 +121,7 @@ import org.siloserver.silo.tv.data.preferences.TvLibraryScopeStore
 import org.siloserver.silo.tv.ui.components.TvCascadeSelector
 import org.siloserver.silo.tv.ui.components.CascadeLibraryColumnWidth
 import org.siloserver.silo.tv.ui.components.TvCascadeSelectorMaxPanelWidth
+import org.siloserver.silo.tv.ui.components.TvForYouSelector
 import org.siloserver.silo.tv.ui.components.TvCatalogEmptyState
 import org.siloserver.silo.tv.ui.components.tvSkylinePanelChrome
 import org.siloserver.silo.tv.ui.navigation.TvMainRoute
@@ -160,6 +164,9 @@ import org.koin.compose.koinInject
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TvMainShell(
+    returnToManageServers: Boolean = false,
+    onManageServersReturnFocusConsumed: () -> Unit = {},
+    onManageServers: () -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
     onOpenLibraryCollectionDetail: (libraryId: Int, collectionId: String, title: String) -> Unit,
     onOpenCollectionDetail: (collectionId: String, title: String) -> Unit,
@@ -260,6 +267,15 @@ fun TvMainShell(
     val activeLibrary: (TvLibraryTabType) -> UserLibrary? = { type -> resolvedLibraries[type] }
 
     val currentRoute = currentEntry?.destination?.route ?: firstTvRoute()
+    var calendarFocusHandoffPending by remember(currentRoute) {
+        mutableStateOf(currentRoute == TvMainRoute.Calendar.route)
+    }
+
+    LaunchedEffect(currentRoute) {
+        if (currentRoute != TvMainRoute.Calendar.route) {
+            calendarFocusHandoffPending = false
+        }
+    }
 
     LaunchedEffect(activeServerEntry?.id, activeServerEntry?.profileId) {
         requestsFeatureStore.reset()
@@ -270,7 +286,65 @@ fun TvMainShell(
 
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
+    val homeFirstItemFocusRequester = remember { FocusRequester() }
+    val homeFirstRowContainerFocusRequester = remember { FocusRequester() }
     val searchInputFocusRequester = remember { FocusRequester() }
+    var searchInputHasFocus by remember { mutableStateOf(false) }
+    var searchBackToInputRequest by remember { mutableIntStateOf(0) }
+    // Opening an outer item-detail route pauses/removes this shell. Remember the
+    // pending hand-back in the Main back-stack entry so it survives either form,
+    // then re-enter the existing content focusRestorer when Main resumes.
+    var restoreHomeContentAfterDetail by rememberSaveable { mutableStateOf(false) }
+    var suppressHomeRefreshAfterDetail by rememberSaveable { mutableStateOf(false) }
+    var homeDetailReturnFocusRequest by remember { mutableIntStateOf(0) }
+    var homeDetailReturnNeedsRetry by remember { mutableStateOf(false) }
+    // Attached (by the Home feed) to the exact card a detail page was launched
+    // from, while that return is pending. Used as the content restorer's enter
+    // fallback during the return resume so the synchronous claim below lands
+    // straight on the launch card — the restorer's saved child node does not
+    // survive the shell being removed for the outer detail route, and its
+    // default enter could land a row below the launch card for a few frames.
+    val homeDetailReturnCardFocusRequester = remember { FocusRequester() }
+    // Whether focus currently sits anywhere inside the content group. Gates
+    // the detail-return resume claim below: the Home feed's early restore
+    // ladder usually re-focuses the launch card during the pop transition, and
+    // re-requesting the content group after that re-runs its enter search and
+    // yanks focus to a different card for a frame.
+    var contentHasFocus by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        if (restoreHomeContentAfterDetail) {
+            // Claim the content group synchronously during ON_RESUME, before
+            // Compose's default search can briefly settle on the Home tab —
+            // but only when the feed hasn't already claimed it. Claim BEFORE
+            // clearing the flag so the restorer fallback still points at the
+            // launch card for this claim.
+            homeDetailReturnNeedsRetry = if (contentHasFocus) {
+                false
+            } else {
+                runCatching { !contentFocusRequester.requestFocus() }.getOrDefault(true)
+            }
+            restoreHomeContentAfterDetail = false
+            homeDetailReturnFocusRequest++
+        }
+        onPauseOrDispose { }
+    }
+    LaunchedEffect(homeDetailReturnFocusRequest) {
+        if (homeDetailReturnFocusRequest == 0) return@LaunchedEffect
+        // One-frame fallback for the disposed/recreated case where the Home row
+        // requester was not attached during the synchronous resume claim.
+        withFrameNanos { }
+        if (homeDetailReturnNeedsRetry) {
+            runCatching { contentFocusRequester.requestFocus() }
+        }
+        // The detail-return ON_RESUME event has now passed and Home is stable;
+        // future real resumes (playback/background) should refresh normally.
+        suppressHomeRefreshAfterDetail = false
+    }
+    val openHomeItemDetail: (String) -> Unit = { contentId ->
+        restoreHomeContentAfterDetail = true
+        suppressHomeRefreshAfterDetail = true
+        onOpenItemDetail(contentId)
+    }
     var contentUpFallback by remember { mutableStateOf<(() -> Boolean)?>(null) }
     // Feeds that registered the up-fallback slot, were superseded by a newer
     // feed, and are still awaiting their (now-stale) onDispose. Tracking them
@@ -422,6 +496,11 @@ fun TvMainShell(
         focusState.closeProfileMenuForContent()
         if (route == TvMainRoute.Search.route) {
             runCatching { searchInputFocusRequester.requestFocus() }
+        } else if (route == TvMainRoute.Home.route || route == TvMainRoute.Video.route) {
+            panelScope.launch {
+                runCatching { contentFocusRequester.requestFocus() }
+                runCatching { homeFirstRowContainerFocusRequester.requestFocus() }
+            }
         } else {
             // Just request focus on the content group. The Box's
             // .focusRestorer() restores to the user's last-focused card
@@ -437,6 +516,22 @@ fun TvMainShell(
 
     val onSelectRoot: (TvRootDestination) -> Unit = { dest ->
         val route = dest.toRoute()
+        if (dest == TvRootDestination.Home) {
+            // Detail return deliberately preserves the card that opened the
+            // detail page, but that protection must end when the user
+            // explicitly selects Home from the bar. Otherwise its nonzero
+            // token keeps suppressing Home's normal first-card focus request
+            // for the rest of the shell session.
+            homeDetailReturnFocusRequest = 0
+            homeDetailReturnNeedsRetry = false
+        }
+        if (dest == TvRootDestination.Calendar) {
+            calendarFocusHandoffPending = true
+        }
+        // A dwell preview can still be open when Center commits For You (or a
+        // library root). Close it without returning focus to the bar before the
+        // content handoff, otherwise the overlay lingers and races page focus.
+        focusState.closePanel(false)
         if (route != currentRoute) {
             navigateToRoute(route)
         }
@@ -445,10 +540,33 @@ fun TvMainShell(
         // contentFocusRequest; library-type screens listen to their section
         // nonce (which re-applies the section AND refocuses the first row).
         contentFocusRequest++
+        if (dest == TvRootDestination.Home) {
+            // A focus request made from the bar toward a card is cancelled by
+            // the content Box's focusRestorer (its `enter` restores the
+            // remembered card and rolls the transaction back). Enter content
+            // through the restorer here — the known-good hop — then the
+            // feed's focusRequest effect walks focus to row 0 / card 0 one
+            // scope per frame and scrolls the band to the top.
+            runCatching { contentFocusRequester.requestFocus() }
+        }
         if (dest is TvRootDestination.LibraryType) {
             sectionRequestNonces[dest.type] = (sectionRequestNonces[dest.type] ?: 0) + 1
         }
-        moveFocusToContent(route)
+        if (dest == TvRootDestination.Calendar) {
+            // Calendar owns an explicit shell-token -> active-filter focus
+            // handoff. Requesting the parent content group here races that
+            // handoff and restores Home's last descendant during the route
+            // transition. Leave focus on the Calendar tab until its screen is
+            // composed, then let TvCalendarScreen target the filter directly.
+            focusState.closeProfileMenuForContent()
+        } else if (dest == TvRootDestination.Home) {
+            // Home's contentFocusRequest targets row 0 / card 0 directly.
+            // Re-entering the parent content focusRestorer here would restore
+            // the previously focused Home card and race that explicit reset.
+            focusState.closeProfileMenuForContent()
+        } else {
+            moveFocusToContent(route)
+        }
     }
 
     // Cascade panel choreography (tvOS openPanelPreview / openPanelAndEnter /
@@ -556,6 +674,12 @@ fun TvMainShell(
                 if (ev.type == KeyEventType.KeyUp &&
                     (ev.key == Key.Back || ev.key == Key.Escape)
                 ) {
+                    // Settings owns a two-stage Back model (detail pane →
+                    // selected rail category → Home). Let its BackHandler see
+                    // the event instead of applying the shell-wide routing.
+                    if (currentRoute == TvMainRoute.Settings.route) {
+                        return@onPreviewKeyEvent false
+                    }
                     // Centralized shell Back. The 4-way priority (panel >
                     // profile menu > focused bar > nav) is decided by
                     // [TvShellFocusState.onBack], which also applies the state
@@ -585,7 +709,13 @@ fun TvMainShell(
                         // the flat inner NavHost when there's history; otherwise
                         // fall through so the activity finishes the app.
                         TvShellBackAction.DelegateToNav -> {
-                            if (nestedNav.previousBackStackEntry != null) {
+                            if (currentRoute == TvMainRoute.Search.route && !searchInputHasFocus) {
+                                searchBackToInputRequest += 1
+                                true
+                            } else if (nestedNav.previousBackStackEntry != null) {
+                                // Focus restoration after the pop is owned by the
+                                // restored screen itself (the section feed re-targets
+                                // its last-focused card via its recreation ladder).
                                 nestedNav.popBackStack()
                                 true
                             } else {
@@ -605,8 +735,18 @@ fun TvMainShell(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(nestedScrollConnection)
+                .onFocusChanged { contentHasFocus = it.hasFocus }
                 .focusRequester(contentFocusRequester)
-                .focusRestorer()
+                // During a detail-return resume the restorer's saved child is
+                // gone (the shell left composition), so fall back to the Home
+                // feed's launch-card requester; Default otherwise.
+                .focusRestorer(
+                    if (restoreHomeContentAfterDetail) {
+                        homeDetailReturnCardFocusRequester
+                    } else {
+                        FocusRequester.Default
+                    },
+                )
                 // Block any GEOMETRIC focus escape upward out of the content
                 // group. Without this, moveFocus(Up) from the top content row
                 // does a 2D search into the sibling top bar and lands on the
@@ -670,7 +810,7 @@ fun TvMainShell(
             ) {
                 composable(TvMainRoute.Video.route) {
                     TvHomeScreen(
-                        onItemClick = onOpenItemDetail,
+                        onItemClick = openHomeItemDetail,
                         onPlayItem = onPlayItem,
                         onSeeAll = {
                             navigateToSecondary(TvMainRoute.Browse.route)
@@ -682,12 +822,17 @@ fun TvMainShell(
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
+                        detailReturnFocusRequest = homeDetailReturnFocusRequest,
+                        detailReturnCardFocusRequester = homeDetailReturnCardFocusRequester,
+                        firstRowFocusRequester = homeFirstItemFocusRequester,
+                        firstRowContainerFocusRequester = homeFirstRowContainerFocusRequester,
+                        shouldRefreshOnResume = { !suppressHomeRefreshAfterDetail },
                         onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Home.route) {
                     TvHomeScreen(
-                        onItemClick = onOpenItemDetail,
+                        onItemClick = openHomeItemDetail,
                         onPlayItem = onPlayItem,
                         onSeeAll = {
                             navigateToSecondary(TvMainRoute.Browse.route)
@@ -699,6 +844,11 @@ fun TvMainShell(
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
+                        detailReturnFocusRequest = homeDetailReturnFocusRequest,
+                        detailReturnCardFocusRequester = homeDetailReturnCardFocusRequester,
+                        firstRowFocusRequester = homeFirstItemFocusRequester,
+                        firstRowContainerFocusRequester = homeFirstRowContainerFocusRequester,
+                        shouldRefreshOnResume = { !suppressHomeRefreshAfterDetail },
                         onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
@@ -716,6 +866,8 @@ fun TvMainShell(
                         },
                         onOpenLibraryItem = onOpenItemDetail,
                         searchFieldFocusRequester = searchInputFocusRequester,
+                        backToSearchFieldRequest = searchBackToInputRequest,
+                        onSearchFieldFocusChanged = { searchInputHasFocus = it },
                     )
                 }
                 composable(TvMainRoute.Audio.route) {
@@ -793,6 +945,7 @@ fun TvMainShell(
                     TvRecommendationsScreen(
                         onItemClick = onOpenItemDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                        focusRequest = contentFocusRequest,
                     )
                 }
                 composable(TvMainRoute.Requests.route) {
@@ -860,11 +1013,14 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.AdminDashboard.route)
                             moveFocusToContent(TvMainRoute.AdminDashboard.route)
                         },
-                        onManageSessions = { navigateToSecondary(TvMainRoute.ManageSessions.route) },
-                        onPairDevice = onPairDevice,
-                        onManageServers = onSwitchServer,
+                        onManageServers = onManageServers,
+                        initialManageServersFocus = returnToManageServers,
+                        onManageServersReturnFocusConsumed = onManageServersReturnFocusConsumed,
                         onSignedOut = onSignedOut,
                         onSwitchProfile = onSwitchProfile,
+                        onNavigateHome = {
+                            navigateToRoute(firstTvRoute())
+                        },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
@@ -874,7 +1030,11 @@ fun TvMainShell(
                 composable(TvMainRoute.Calendar.route) {
                     TvCalendarScreen(
                         onOpenItemDetail = onOpenItemDetail,
-                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                        onInitialContentFocus = {
+                            focusState.closeProfileMenuForContent()
+                            calendarFocusHandoffPending = false
+                        },
+                        focusRequest = contentFocusRequest,
                     )
                 }
                 composable(TvMainRoute.Browse.route) {
@@ -934,32 +1094,8 @@ fun TvMainShell(
             }
         }
 
-        // Shell-owned top scrim: with the bar permanently visible (tvOS
-        // parity), scrolled content passes beneath it — this fixed gradient
-        // keeps the wordmark/tabs readable regardless of the bar's own
-        // focus dim (which previously weakened its readability exactly when
-        // content scrolled under it — QA 2026-07-08).
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(TvSkyline.barTopInset + TvSkyline.barHeight + 40.dp)
-                .align(Alignment.TopStart)
-                .background(
-                    Brush.verticalGradient(
-                        // Near-opaque through the bar strip itself, then a quick
-                        // fade: the first weaker gradient let bright posters
-                        // dominate the strip and it read as content scrolling
-                        // OVER the locked menu (QA 2026-07-08).
-                        0.00f to Color.Black.copy(alpha = 0.98f),
-                        0.60f to Color.Black.copy(alpha = 0.94f),
-                        0.80f to Color.Black.copy(alpha = 0.55f),
-                        1.00f to Color.Transparent,
-                    ),
-                )
-                .zIndex(0.9f),
-        )
-
-        // Menu overlay — sits on top, gradient scrim fades into content.
+        // Menu overlay — content remains visible behind the transparent bar,
+        // matching tvOS without a heavy top-edge shadow.
         TvTopMenuBar(
             selectedRoot = selectedRoot,
             destinations = visibleRoots,
@@ -979,7 +1115,10 @@ fun TvMainShell(
                 }
             },
             onSearchClick = onSearchPressed,
-            onProfileClick = { focusState.toggleProfileMenu() },
+            onProfileClick = focusState::enterProfileMenu,
+            onProfileDwell = focusState::previewProfileMenu,
+            onProfileBlur = focusState::closeProfilePreview,
+            onEnterProfileMenu = focusState::enterProfileMenu,
             onMoveDown = { moveFocusToContent(currentRoute) },
             isMenuFocused = focusState.isMenuFocused,
             // setMenuFocused(true) also clears any stale "entered" flag: focus on
@@ -987,11 +1126,18 @@ fun TvMainShell(
             // escape out of an entered panel can't leave it stuck (which would
             // freeze dwell preview-switching under the previously-entered tab).
             onMenuFocusChange = focusState::updateMenuFocused,
-            isFocusSuppressed = focusState.isMenuFocusSuppressed,
+            // Settings is a full-screen surface (tvOS parity): the bar is
+            // hidden AND unfocusable there, so Up at the top of the settings
+            // rail simply holds instead of focusing an invisible menu. Back
+            // still pops the route via DelegateToNav.
+            isFocusSuppressed = focusState.isMenuFocusSuppressed ||
+                calendarFocusHandoffPending ||
+                currentRoute == TvMainRoute.Settings.route,
             focusRequest = focusState.menuFocusRequest,
+            focusRequestTarget = focusState.menuFocusTarget,
             profileFocusRequest = focusState.profileFocusRequest,
             isSearchActive = currentRoute == TvMainRoute.Search.route,
-            visibility = menuVisibility.value,
+            visibility = if (currentRoute == TvMainRoute.Settings.route) 0f else menuVisibility.value,
             openPanel = focusState.openPanel,
             onDwell = focusState::previewPanel,
             onEnterPanel = focusState::enterPanel,
@@ -1025,10 +1171,7 @@ fun TvMainShell(
         visibleRoots.forEach { dest ->
             if (dest is TvRootDestination.ForYou) {
                 val panel = TvTopMenuPanel.Root(dest)
-                // Entered-only (unlike cascades, which support dwell PREVIEW):
-                // this dropdown focus-traps, so it must never become visible or
-                // focusable without a deliberate enter.
-                val active = focusState.openPanel == panel && focusState.panelEntersFocus
+                val active = focusState.openPanel == panel
                 val anchor = tabAnchors[panel]
                 val panelAlpha by animateFloatAsState(
                     targetValue = if (active) 1f else 0f,
@@ -1040,8 +1183,8 @@ fun TvMainShell(
                         .absoluteOffset {
                             cascadePanelOffset(
                                 anchor = anchor,
-                                level1WidthPx = with(density) { TvSkyline.profileMenuWidth.toPx() },
-                                totalPanelWidthPx = with(density) { TvSkyline.profileMenuWidth.toPx() },
+                                level1WidthPx = with(density) { CascadeLibraryColumnWidth.toPx() },
+                                totalPanelWidthPx = with(density) { CascadeLibraryColumnWidth.toPx() },
                                 safeAreaXPx = with(density) { TvSkyline.safeAreaX.toPx() },
                                 panelTopPx = with(density) { TvSkyline.dropdownTopInset.toPx() },
                             )
@@ -1050,7 +1193,7 @@ fun TvMainShell(
                         .focusProperties { canFocus = active }
                         .zIndex(2f),
                 ) {
-                    TvForYouDropdown(
+                    TvForYouSelector(
                         entersPanel = active && focusState.panelEntersFocus,
                         focusEntryToken = focusState.panelFocusEntryToken,
                         onWatchlist = {
@@ -1119,6 +1262,8 @@ fun TvMainShell(
         if (focusState.profileMenuOpen) {
             TvProfileDropdown(
                 accountState = accountSnapshot,
+                entersMenu = focusState.profileMenuEntered,
+                focusEntryToken = focusState.profileMenuFocusEntryToken,
                 onSwitchProfile = closeMenuAnd(onSwitchProfile),
                 onWatchlist = closeMenuAnd {
                     navigateToSecondary(TvMainRoute.Watchlist.route)
@@ -1137,9 +1282,12 @@ fun TvMainShell(
                     navigateToSecondary(TvMainRoute.Requests.route)
                     moveFocusToContent(TvMainRoute.Requests.route)
                 },
-                onSettings = closeMenuAnd {
+                onSettings = {
+                    // Keep focus on the dropdown row through the route fade.
+                    // TvSettingsScreen closes the menu only after its General
+                    // rail requester is composed and ready, avoiding a flash of
+                    // the Home row restored by the shared content container.
                     navigateToRoute(TvMainRoute.Settings.route)
-                    moveFocusToContent(TvMainRoute.Settings.route)
                 },
                 onSwitchServer = closeMenuAnd(onSwitchServer),
                 onSignOut = closeMenuAnd(onSignedOut),
@@ -1326,50 +1474,10 @@ private fun cascadePanelOffset(
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun TvForYouDropdown(
-    entersPanel: Boolean,
-    focusEntryToken: Int,
-    onWatchlist: () -> Unit,
-    onFavorites: () -> Unit,
-    onRecommendations: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(entersPanel, focusEntryToken) {
-        if (entersPanel) runCatching { firstFocus.requestFocus() }
-    }
-    Column(
-        modifier = modifier
-            .width(TvSkyline.profileMenuWidth)
-            .tvSkylinePanelChrome()
-            .padding(vertical = TvSkyline.profileMenuPanelVerticalPadding)
-            .focusGroup()
-            // Trap directional focus like the profile dropdown — only Back
-            // (handled by the shell's panel routing) closes it.
-            .focusProperties { exit = { FocusRequester.Cancel } },
-        verticalArrangement = Arrangement.spacedBy(TvSkyline.profileMenuItemSpacing),
-    ) {
-        ProfileDropdownRow(
-            label = "Watchlist",
-            icon = Icons.Filled.Bookmark,
-            focusRequester = firstFocus,
-            onClick = onWatchlist,
-        )
-        ProfileDropdownRow(label = "Favorites", icon = Icons.Filled.Favorite, onClick = onFavorites)
-        // tvOS parity: the For You dropdown's third row (sparkles) returns to the
-        // recommendations feed (Jim TV QA 2026-07-10).
-        ProfileDropdownRow(
-            label = "Recommendations",
-            icon = Icons.Filled.AutoAwesome,
-            onClick = onRecommendations,
-        )
-    }
-}
-
-@OptIn(ExperimentalComposeUiApi::class)
-@Composable
 private fun TvProfileDropdown(
     accountState: TvAccountState,
+    entersMenu: Boolean,
+    focusEntryToken: Int,
     onSwitchProfile: () -> Unit,
     onWatchlist: () -> Unit,
     onFavorites: () -> Unit,
@@ -1383,8 +1491,11 @@ private fun TvProfileDropdown(
     modifier: Modifier = Modifier,
 ) {
     val firstFocus = remember { FocusRequester() }
-    // Opening focuses the first row; Back/Menu closes and returns to the avatar.
-    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    LaunchedEffect(entersMenu, focusEntryToken) {
+        if (entersMenu && focusEntryToken > 0) {
+            runCatching { firstFocus.requestFocus() }
+        }
+    }
 
     Column(
         modifier = modifier

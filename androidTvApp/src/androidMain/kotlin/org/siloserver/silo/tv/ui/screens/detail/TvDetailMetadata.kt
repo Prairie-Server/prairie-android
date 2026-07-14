@@ -3,6 +3,11 @@ package org.siloserver.silo.tv.ui.screens.detail
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.isAudiobookItemType
+import java.time.Instant
+import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlin.math.round
 
 /**
@@ -47,9 +52,16 @@ internal object TvDetailMetadata {
         detail: ItemDetail,
         preferredQuality: String? = null,
         selectedFileId: Int? = null,
+        zone: ZoneId = ZoneId.systemDefault(),
     ): List<TvHeroFactToken> {
         val tokens = mutableListOf<TvHeroFactToken>()
-        if (detail.year > 0) tokens += TvHeroFactToken.TextToken(detail.year.toString())
+        if (detail.type.equals("episode", ignoreCase = true)) {
+            abbreviatedDate(detail.airDate ?: detail.releaseDate, zone)?.let {
+                tokens += TvHeroFactToken.TextToken(it)
+            }
+        } else if (detail.year > 0) {
+            tokens += TvHeroFactToken.TextToken(detail.year.toString())
+        }
         when {
             detail.type.equals("series", ignoreCase = true) ->
                 detail.seasonCount?.takeIf { it > 0 }?.let {
@@ -63,28 +75,6 @@ internal object TvDetailMetadata {
         }
         tokens += qualityTokens(detail, preferredQuality, selectedFileId)
         return tokens
-    }
-
-    fun eyebrow(detail: ItemDetail): String? {
-        if (detail.type.equals("episode", ignoreCase = true)) {
-            return detail.seriesTitle?.trim()?.takeIf { it.isNotEmpty() }
-        }
-        if (detail.type.equals("season", ignoreCase = true)) {
-            // tvOS `TVSeasonDetailView`: the season hero eyebrow carries the
-            // parent-series title.
-            return detail.seriesTitle?.trim()?.takeIf { it.isNotEmpty() }
-        }
-        if (detail.type.equals("series", ignoreCase = true)) {
-            when (detail.status?.trim()?.lowercase()) {
-                "continuing", "returning series", "returning" -> return "Continuing Series"
-                "ended" -> return "Complete Series"
-                "in production" -> return "New Season Coming"
-                else -> Unit
-            }
-        }
-        val tagline = detail.tagline?.trim()?.takeIf { it.isNotEmpty() }
-        if (tagline != null && tagline.length <= 44) return tagline
-        return null
     }
 
     fun starringText(detail: ItemDetail): String? {
@@ -122,6 +112,32 @@ internal object TvDetailMetadata {
         return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "$minutes min"
     }
 
+    /**
+     * tvOS `DetailDateFormatting.abbreviatedDate`: parse the server value as a
+     * UTC instant (its ISO8601 parsers all assume GMT — including bare
+     * `yyyy-MM-dd` dates) and render the DEVICE-LOCAL calendar date. Keeping
+     * that quirk is deliberate: for a viewer west of UTC both clients show
+     * e.g. "Jul 8" for a `2026-07-09T00:00:00Z` air date, instead of the TV
+     * app drifting a day ahead of tvOS.
+     */
+    internal fun abbreviatedDate(raw: String?, zone: ZoneId = ZoneId.systemDefault()): String? {
+        val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val instant = parseServerInstant(trimmed) ?: return trimmed
+        val date = instant.atZone(zone).toLocalDate()
+        val monthName = listOf(
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ).getOrNull(date.monthValue - 1) ?: return trimmed
+        return "$monthName ${date.dayOfMonth}, ${date.year}"
+    }
+
+    /** RFC3339 timestamp (with/without fraction or offset) or bare full date,
+     *  as UTC — the same parser cascade as Apple's `DetailDateFormatting`. */
+    private fun parseServerInstant(raw: String): Instant? =
+        runCatching { Instant.parse(raw) }.getOrNull()
+            ?: runCatching { OffsetDateTime.parse(raw).toInstant() }.getOrNull()
+            ?: runCatching { LocalDate.parse(raw).atStartOfDay(ZoneOffset.UTC).toInstant() }.getOrNull()
+
     private fun formatOneDecimal(value: Double): String {
         val rounded = round(value * 10.0) / 10.0
         val whole = rounded.toInt()
@@ -137,7 +153,12 @@ internal object TvDetailMetadata {
         val version = preferredVersion(detail, preferredQuality, selectedFileId) ?: return emptyList()
         val tokens = mutableListOf<TvHeroFactToken>()
         resolutionLabel(version.resolution)?.let { tokens += TvHeroFactToken.Chip(it) }
-        if (version.hdr) tokens += TvHeroFactToken.Chip(dolbyVisionLabel(version) ?: "HDR")
+        when {
+            TvPlaybackFormatting.isDolbyVision(version) ->
+                tokens += TvHeroFactToken.Chip("DOLBY VISION")
+            TvPlaybackFormatting.isHdr(version) ->
+                tokens += TvHeroFactToken.Chip("HDR")
+        }
         primaryAudioLabel(version)?.let { tokens += TvHeroFactToken.Chip(it) }
         if (hasSubtitles(version, detail)) tokens += TvHeroFactToken.Chip("CC")
         return tokens
@@ -165,12 +186,6 @@ internal object TvDetailMetadata {
             "480" in v -> "SD"
             else -> null
         }
-    }
-
-    private fun dolbyVisionLabel(version: FileVersion): String? {
-        // FileVersion's video tracks don't carry a Dolby Vision flag in the
-        // shared model. The chip falls back to "HDR" for any HDR encode.
-        return null
     }
 
     private fun primaryAudioLabel(version: FileVersion): String? {

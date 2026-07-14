@@ -2,7 +2,10 @@ package org.siloserver.silo.tv.ui.screens.people
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -12,35 +15,47 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -48,7 +63,6 @@ import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.catalog.Person
 import org.siloserver.silo.model.catalog.personMetadataBadges
-import org.siloserver.silo.model.catalog.personWorksCountLabel
 import org.siloserver.silo.tv.ui.components.TvCatalogEmptyState
 import org.siloserver.silo.tv.ui.components.TvCatalogGrid
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
@@ -58,6 +72,7 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import java.time.LocalDate
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import kotlinx.coroutines.launch
 
 /**
  * Android TV person detail surface — the cast/crew profile plus their
@@ -65,9 +80,9 @@ import org.koin.core.parameter.parametersOf
  * + name + birth/death/birthplace badges + bio) over a media-type filter row
  * and a poster grid.
  *
- * TV idioms follow the tvOS person screen: a fixed identity header + filter
- * area, with only the filmography grid scrolling under it. `onOpenItemDetail`
- * routes a poster to its detail page.
+ * TV idioms follow the tvOS person screen: the identity, filters, and
+ * filmography form one continuous scrolling surface. `onOpenItemDetail` routes
+ * a poster to its detail page.
  */
 @Composable
 fun TvPersonDetailScreen(
@@ -118,149 +133,304 @@ private fun TvPersonDetailContent(
     onRetryItems: () -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
-    val firstItemFocusRequester = remember { FocusRequester() }
+    val firstFilterFocusRequester = remember { FocusRequester() }
+    val bioFocusRequester = remember { FocusRequester() }
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
     var initialFocusRequested by remember { mutableStateOf(false) }
 
-    // One-shot: focus the grid only the first time items appear. Without the
-    // guard, a filter reload (items cleared then repopulated) re-runs this and
-    // yanks focus back to card 1 mid-browse.
-    LaunchedEffect(state.items.isNotEmpty()) {
-        if (initialFocusRequested || state.items.isEmpty()) return@LaunchedEffect
+    val restoreHeaderTop = {
+        scope.launch { gridState.animateScrollToItem(0) }
+        Unit
+    }
+    // Up from the filter chips walks into the bio (a focusable, expandable
+    // stop like the hero synopsis on item detail pages) when one exists;
+    // otherwise it just re-anchors the header like before.
+    val hasBio = remember(person.bio) { cleanPersonBio(person.bio) != null }
+    val focusBio = {
+        runCatching { bioFocusRequester.requestFocus() }
+        scope.launch { gridState.animateScrollToItem(0) }
+        Unit
+    }
+
+    // Enter on the filter row so the full identity header remains visible.
+    // Moving down into the posters then scrolls the whole header away naturally.
+    LaunchedEffect(state.availableFilters.isNotEmpty()) {
+        if (initialFocusRequested || state.availableFilters.isEmpty()) return@LaunchedEffect
         kotlinx.coroutines.delay(120)
-        runCatching { firstItemFocusRequester.requestFocus() }
+        runCatching { firstFilterFocusRequester.requestFocus() }
         initialFocusRequested = true
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(
-                start = Spacing.safeArea,
-                top = 22.dp,
-                end = Spacing.safeArea,
-                bottom = 20.dp,
-            ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        PersonHeader(person = person)
-        FilmographyHeader(
-            selected = state.selectedFilter,
-            availableFilters = state.availableFilters,
-            totalLoaded = state.items.size,
-            totalItems = state.totalItems,
-            hasMore = state.hasMore,
-            onSelect = onFilterSelected,
-        )
-        state.pagingError?.let { error ->
-            Text(
-                text = error,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 17.sp),
-                color = Color.White.copy(alpha = 0.62f),
-            )
-            // A failed page-0 load leaves the grid with nothing focusable below
-            // the chips — give the D-pad an explicit retry (matches the grid's
-            // load-more retry footer) instead of dead-ending on "No titles found.".
-            if (state.items.isEmpty()) {
-                Button(
-                    onClick = onRetryItems,
-                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
-                ) {
-                    Text("Retry", style = MaterialTheme.typography.labelLarge)
+    TvCatalogGrid(
+        items = state.items,
+        isLoading = state.isLoadingItems,
+        hasMore = state.hasMore,
+        onItemClick = onOpenItemDetail,
+        onLoadMore = onLoadMore,
+        modifier = Modifier.fillMaxSize(),
+        gridState = gridState,
+        fixedColumnCount = PersonGridColumns,
+        // tvOS `TVPersonDetailContent`: 48pt page top, 72pt bottom, 40pt grid
+        // column spacing, 48pt header → filmography gap (all halved to dp).
+        contentPadding = PaddingValues(
+            start = Spacing.safeArea,
+            top = 24.dp,
+            end = Spacing.safeArea,
+            bottom = 36.dp,
+        ),
+        horizontalSpacing = PersonGridItemSpacing,
+        verticalSpacing = Spacing.sectionSpacing,
+        artworkAspectRatioForItem = ::personWorkCardAspectRatio,
+        header = {
+            Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                PersonHeader(person = person, bioFocusRequester = bioFocusRequester)
+                FilmographyHeader(
+                    selected = state.selectedFilter,
+                    availableFilters = state.availableFilters,
+                    totalLoaded = state.items.size,
+                    totalItems = state.totalItems,
+                    hasMore = state.hasMore,
+                    firstFilterFocusRequester = firstFilterFocusRequester,
+                    onMoveUp = if (hasBio) focusBio else restoreHeaderTop,
+                    onSelect = onFilterSelected,
+                )
+                state.pagingError?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 14.sp,
+                            lineHeight = 17.sp,
+                        ),
+                        color = Color.White.copy(alpha = 0.62f),
+                    )
+                    // A failed page-0 load leaves the grid with nothing
+                    // focusable below the chips. Keep retry in the scrolling
+                    // header instead of dead-ending on the empty state.
+                    if (state.items.isEmpty()) {
+                        Button(
+                            onClick = onRetryItems,
+                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+                        ) {
+                            Text("Retry", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
                 }
             }
-        }
-
-        TvCatalogGrid(
-            items = state.items,
-            isLoading = state.isLoadingItems,
-            hasMore = state.hasMore,
-            onItemClick = onOpenItemDetail,
-            onLoadMore = onLoadMore,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            fixedColumnCount = PersonGridColumns,
-            contentPadding = PaddingValues(
-                start = 0.dp,
-                // Room for the focus ring above / the title+year label below —
-                // with a single row the year clipped at the margin (QA
-                // 2026-07-08).
-                top = 12.dp,
-                end = 0.dp,
-                bottom = Spacing.xxl,
-            ),
-            horizontalSpacing = PersonGridItemSpacing,
-            verticalSpacing = Spacing.sectionSpacing,
-            firstItemFocusRequester = firstItemFocusRequester,
-            artworkAspectRatioForItem = ::personWorkCardAspectRatio,
-            emptyState = {
-                TvCatalogEmptyState(message = "No titles found.")
-            },
-        )
-    }
+        },
+        emptyState = {
+            TvCatalogEmptyState(message = "No titles found.")
+        },
+    )
 }
 
 // ============================================================================
 // Header (portrait + name + metadata badges + bio)
 // ============================================================================
 
+// tvOS `TVPersonDetailContent.header` at half scale: 300pt portrait, 48pt
+// portrait↔text gap, 72pt bold name, 22pt column spacing, 10pt column top
+// inset, secondary-gray bio capped at 7 lines / 920pt width.
 @Composable
-private fun PersonHeader(person: Person) {
+private fun PersonHeader(person: Person, bioFocusRequester: FocusRequester) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
         verticalAlignment = Alignment.Top,
     ) {
         PersonPortrait(person = person)
         Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .weight(1f)
+                .padding(top = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             Text(
                 text = person.name,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                // Matches the detail hero title scale — the person page was
-                // noticeably larger than the rest of the UI (QA 2026-07-08).
-                fontSize = 25.sp,
-                lineHeight = 29.sp,
+                fontSize = 36.sp,
+                lineHeight = 40.sp,
                 letterSpacing = 0.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             val badges = personMetadataBadges(person, todayIso = LocalDate.now().toString())
             if (badges.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     badges.forEach { badge -> MetadataBadge(text = badge) }
                 }
             }
-            val bio = person.bio?.trim()?.takeIf { it.isNotBlank() }
+            val bio = cleanPersonBio(person.bio)
             if (bio != null) {
-                Text(
-                    text = bio,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
-                    color = Color.White.copy(alpha = 0.78f),
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                TvExpandablePersonBio(bio = bio, focusRequester = bioFocusRequester)
             } else {
                 Text(
                     text = "No biography or personal details are available yet.",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
                     color = Color.White.copy(alpha = 0.48f),
+                    modifier = Modifier.widthIn(max = 530.dp),
                 )
             }
         }
     }
 }
 
+/**
+ * The person bio as a focus stop: reachable by pressing Up from the filter
+ * chips, clamped to 7 lines at rest with the [TvExpandableSynopsis]-style
+ * focus fill. OK/Select opens the full bio in a scrollable modal overlay
+ * ([TvPersonBioDialog]) instead of expanding in place — long bios (which
+ * push the whole page down when inlined) scroll inside the modal.
+ */
+@Composable
+private fun TvExpandablePersonBio(
+    bio: String,
+    focusRequester: FocusRequester,
+) {
+    var showFullBio by remember(bio) { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(4.dp)
+
+    Column(
+        modifier = Modifier
+            .widthIn(max = 530.dp)
+            .then(
+                if (isFocused) {
+                    Modifier.background(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        shape = shape,
+                    )
+                } else {
+                    Modifier
+                },
+            )
+            .focusRequester(focusRequester)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+            ) { showFullBio = true }
+            .padding(vertical = 4.dp),
+    ) {
+        Text(
+            text = bio,
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
+            color = PersonSecondaryText,
+            maxLines = 7,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+
+    if (showFullBio) {
+        TvPersonBioDialog(
+            bio = bio,
+            onDismiss = { showFullBio = false },
+        )
+        // Dismissing the focusable Popup drops window focus back on the page
+        // with no saved target; put it back on the bio the user launched from.
+        DisposableEffect(Unit) {
+            onDispose { runCatching { focusRequester.requestFocus() } }
+        }
+    }
+}
+
+/**
+ * Full-bio modal for TV, following the [TvMediaInfoDialog] idiom: a
+ * window-level focusable Popup over a dimmed scrim, D-pad Up/Down scrolls
+ * the text, Back or OK dismisses.
+ */
+@Composable
+private fun TvPersonBioDialog(
+    bio: String,
+    onDismiss: () -> Unit,
+) {
+    val focus = remember { FocusRequester() }
+    val scrollState = rememberScrollState()
+    val scrollScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(50)
+        runCatching { focus.requestFocus() }
+    }
+    Popup(
+        alignment = Alignment.Center,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true, dismissOnBackPress = true),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.62f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.56f)
+                    .fillMaxHeight(0.76f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f))
+                    .border(0.6.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
+                    .onPreviewKeyEvent { ev ->
+                        when {
+                            ev.type == KeyEventType.KeyUp &&
+                                (ev.key == Key.Back || ev.key == Key.Escape ||
+                                    ev.key == Key.DirectionCenter || ev.key == Key.Enter) -> {
+                                onDismiss()
+                                true
+                            }
+                            ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown -> {
+                                scrollScope.launch {
+                                    scrollState.animateScrollTo(
+                                        (scrollState.value + 180).coerceAtMost(scrollState.maxValue),
+                                    )
+                                }
+                                true
+                            }
+                            ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp -> {
+                                scrollScope.launch {
+                                    scrollState.animateScrollTo((scrollState.value - 180).coerceAtLeast(0))
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .focusRequester(focus)
+                        .focusable()
+                        .padding(horizontal = 32.dp, vertical = 28.dp),
+                ) {
+                    Text(
+                        text = bio,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 16.sp,
+                            lineHeight = 23.sp,
+                        ),
+                        color = Color.White.copy(alpha = 0.82f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// tvOS `PersonPortrait(width: 300)` at half scale: 150×225dp, 12pt corner
+// radius → 6dp, hairline white stroke, initials fallback at width × 0.28.
 @Composable
 private fun PersonPortrait(person: Person) {
-    val width = 96.dp
+    val width = 150.dp
     val height = (width.value * 1.5f).dp
+    val shape = RoundedCornerShape(6.dp)
     Box(
         modifier = Modifier
             .size(width = width, height = height)
-            .clip(RoundedCornerShape(16.dp))
-            .background(DarkSurfaceElevated),
+            .clip(shape)
+            .background(DarkSurfaceElevated)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape),
         contentAlignment = Alignment.Center,
     ) {
         if (!person.photoUrl.isNullOrBlank()) {
@@ -272,27 +442,43 @@ private fun PersonPortrait(person: Person) {
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            Icon(
-                imageVector = Icons.Filled.Person,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.6f),
-                modifier = Modifier.size(width * 0.4f),
+            Text(
+                text = person.initials(),
+                fontSize = 42.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = PersonSecondaryText,
             )
         }
     }
 }
 
+private fun Person.initials(): String {
+    val letters = name
+        .split(" ")
+        .filter { it.isNotBlank() }
+        .take(2)
+        .mapNotNull { it.firstOrNull() }
+        .joinToString("")
+        .uppercase()
+    return letters.ifEmpty { "?" }
+}
+
+// tvOS metadata badge (20pt small font, 16×8 capsule padding), sized up from
+// the strict halving for readability alongside the bio and filter pills.
 @Composable
 private fun MetadataBadge(text: String) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(Color.White.copy(alpha = 0.08f))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = 12.sp,
+                lineHeight = 14.sp,
+            ),
             color = Color.White.copy(alpha = 0.85f),
             fontWeight = FontWeight.Medium,
         )
@@ -311,47 +497,71 @@ private fun FilmographyHeader(
     totalLoaded: Int,
     totalItems: Int,
     hasMore: Boolean,
+    firstFilterFocusRequester: FocusRequester,
+    onMoveUp: () -> Unit,
     onSelect: (TvPersonMediaFilter) -> Unit,
 ) {
+    // tvOS `filmographyHeader` at half scale: title-case 36pt semibold
+    // headline with the count label sitting beside it at the baseline,
+    // 20pt gap down to the filter chips.
     Column(
-        verticalArrangement = Arrangement.spacedBy(9.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "FILMOGRAPHY",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.55f),
-                    letterSpacing = 1.4.sp,
-                )
-                Text(
-                    text = "Appearances",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = Color.White,
-                )
-            }
-            personWorksCountLabel(total = totalItems, loaded = totalLoaded, hasMore = hasMore)?.let { label ->
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Filmography",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontSize = 18.sp,
+                    lineHeight = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp,
+                ),
+                color = Color.White,
+            )
+            tvPersonFilmographyCountLabel(total = totalItems, loaded = totalLoaded, hasMore = hasMore)?.let { label ->
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                    ),
+                    color = PersonSecondaryText,
+                    // Optical baseline alignment against the headline.
+                    modifier = Modifier.padding(bottom = 2.dp),
                 )
             }
         }
         FlowRow(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onPreviewKeyEvent { event ->
+                    if (event.key == Key.DirectionUp) {
+                        if (event.type == KeyEventType.KeyDown) onMoveUp()
+                        // The identity header is intentionally non-focusable;
+                        // consume both phases so Compose's geometric search
+                        // cannot dead-end or jump outside the page.
+                        true
+                    } else {
+                        false
+                    }
+                },
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            availableFilters.forEach { filter ->
+            availableFilters.forEachIndexed { index, filter ->
                 FilterChoiceChip(
                     label = filter.title,
                     selected = filter == selected,
                     onClick = { onSelect(filter) },
+                    modifier = if (index == 0) {
+                        Modifier.focusRequester(firstFilterFocusRequester)
+                    } else {
+                        Modifier
+                    },
                 )
             }
         }
@@ -383,7 +593,7 @@ private fun FilterChoiceChip(
     Surface(
         onClick = onClick,
         interactionSource = interactionSource,
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = container,
             contentColor = foreground,
@@ -399,30 +609,80 @@ private fun FilterChoiceChip(
                     width = 1.dp,
                     color = if (selected) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.06f),
                 ),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(999.dp),
             ),
             focusedBorder = Border(
                 border = BorderStroke(0.dp, Color.Transparent),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(999.dp),
             ),
         ),
         modifier = modifier,
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelLarge,
+            // Sized up from the strict tvOS halving (22pt caption → 11sp)
+            // for readability, padding scaled with it.
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = 13.sp,
+                lineHeight = 15.sp,
+            ),
             color = foreground,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
         )
     }
 }
 
 // Matches BrowseGridColumns — the person grid used 7 columns, so its cards
-// rendered smaller than every other grid in the app (QA 2026-07-08).
+// rendered smaller than every other grid in the app (QA 2026-07-08). tvOS
+// `TVCatalogGrid` runs 6 columns with 40pt column spacing.
 private const val PersonGridColumns = 6
-private val PersonGridItemSpacing = 16.dp
+private val PersonGridItemSpacing = 20.dp
+
+/** tvOS `continuumSecondaryText` (#99EDEDED). */
+private val PersonSecondaryText = Color(0x99EDEDED)
+
+// Server bios often arrive with a dangling "..."/"…" truncation marker —
+// on its own line (any Unicode line break) or stacked straight after the
+// sentence period ("career...."). Strip the whole trailing dot/whitespace
+// run and restore a single period, so the bio ends cleanly; genuinely long
+// bios still get Compose's own overflow ellipsis at the 7-line cap.
+private fun cleanPersonBio(raw: String?): String? {
+    var text = raw?.trim().orEmpty()
+    // TMDB bios sourced from Wikipedia carry a trailing attribution
+    // paragraph ("Description above from the Wikipedia article …, licensed
+    // under CC-BY-SA, full list of contributors on Wikipedia."). The 7-line
+    // clamp truncated at the BLANK separator line before it, rendering a
+    // lone "…" on its own line. Drop the paragraph — the same net content
+    // tvOS displays after its own line clamp, minus the artifact.
+    val attributionIndex = text.indexOf(
+        "Description above from the Wikipedia",
+        ignoreCase = true,
+    )
+    if (attributionIndex > 0) {
+        text = text.substring(0, attributionIndex).trim()
+    }
+    if (text.endsWith("…") || text.endsWith("...")) {
+        text = text.trimEnd { it == '.' || it == '…' || it.isWhitespace() }
+        if (text.isNotEmpty() && !text.last().isLetterOrDigit()) {
+            // Ends in other punctuation ("?!,\"") — leave it as-is.
+        } else if (text.isNotEmpty()) {
+            text += "."
+        }
+    }
+    return text.takeIf { it.isNotBlank() }
+}
+
+// tvOS `personFilmographyCountLabel`: the known total wins ("72 titles"),
+// otherwise the loaded count with a "+" while more pages remain.
+private fun tvPersonFilmographyCountLabel(total: Int, loaded: Int, hasMore: Boolean): String? = when {
+    total > 0 -> if (total == 1) "1 title" else "$total titles"
+    loaded <= 0 -> null
+    hasMore -> "$loaded+ titles"
+    loaded == 1 -> "1 title"
+    else -> "$loaded titles"
+}
 
 private fun personWorkCardAspectRatio(item: BrowseItem): Float? =
     if (item.type == "audiobook") {

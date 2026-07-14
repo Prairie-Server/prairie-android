@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -84,10 +85,25 @@ fun TvMediaRow(
     onDirectionUp: (() -> Boolean)? = null,
     firstItemFocusRequester: FocusRequester? = null,
     firstItemFocusRequest: Int = 0,
+    /** Targets the LazyRow GROUP itself (not a card). Programmatic requests
+     *  that cross this row's focusRestorer toward a descendant card are
+     *  cancelled by its `enter` interception; a request on the group is
+     *  honored, letting callers hop onto the row before targeting card 0. */
+    rowContainerFocusRequester: FocusRequester? = null,
     firstItemCardModifier: Modifier = Modifier,
+    /** Attaches [restoreFocusRequester] to the card at this index so callers
+     *  can restore focus to the exact card that launched a detail page. While
+     *  set it also becomes the row restorer's enter fallback, so the FIRST
+     *  enter after this row is recreated lands directly on that card instead
+     *  of card 0. Callers should only pass it while a restore is pending. */
+    restoreFocusIndex: Int = -1,
+    restoreFocusRequester: FocusRequester? = null,
     /** Fired (on focus GAIN only) with whichever card the user focuses, so the
      *  Skyline marquee + backdrop can preview the focused item. */
     onItemFocused: ((SectionItem) -> Unit)? = null,
+    /** Indexed focus callback for callers that maintain a rolling prefetch
+     *  window around the currently focused card. */
+    onItemFocusedAtIndex: ((SectionItem, Int) -> Unit)? = null,
     cardActions: (SectionItem) -> TvMediaCardActions = { TvMediaCardActions() },
 ) {
     if (items.isEmpty()) return
@@ -122,6 +138,7 @@ fun TvMediaRow(
             TvSectionHeader(
                 title = title,
                 icon = icon,
+                iconSize = if (showProgress) 22.dp else 18.dp,
                 onSeeAllClick = onSeeAllClick,
                 eyebrow = eyebrow,
                 modifier = Modifier.padding(start = startPadding, end = endPadding),
@@ -136,9 +153,17 @@ fun TvMediaRow(
             // is remembered yet) is the explicit firstItemFocusRequester
             // attached to index 0 — or Compose's default first-focusable
             // search if the row wasn't given one.
-            modifier = Modifier.focusRestorer(
-                firstItemFocusRequester ?: FocusRequester.Default,
-            ),
+            modifier = Modifier
+                .then(
+                    if (rowContainerFocusRequester != null) {
+                        Modifier.focusRequester(rowContainerFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                )
+                .focusRestorer(
+                    restoreFocusRequester ?: firstItemFocusRequester ?: FocusRequester.Default,
+                ),
             horizontalArrangement = Arrangement.spacedBy(itemSpacing),
             contentPadding = PaddingValues(
                 start = startPadding,
@@ -160,6 +185,12 @@ fun TvMediaRow(
                 val appliedCardModifier = itemCardModifier.then(
                     if (index == 0) firstItemCardModifier else Modifier,
                 ).then(
+                    if (restoreFocusRequester != null && index == restoreFocusIndex) {
+                        Modifier.focusRequester(restoreFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                ).then(
                     if (onDirectionUp != null) {
                         Modifier.onPreviewKeyEvent { event ->
                             if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
@@ -178,9 +209,12 @@ fun TvMediaRow(
                         Modifier
                     },
                 ).then(
-                    if (onItemFocused != null) {
+                    if (onItemFocused != null || onItemFocusedAtIndex != null) {
                         Modifier.onFocusChanged { st ->
-                            if (st.isFocused) onItemFocused(item)
+                            if (st.isFocused) {
+                                onItemFocused?.invoke(item)
+                                onItemFocusedAtIndex?.invoke(item, index)
+                            }
                         }
                     } else {
                         Modifier
@@ -210,7 +244,7 @@ fun TvMediaRow(
                             seasonNumber = item.seasonNumber,
                             episodeNumber = item.episodeNumber,
                             progress = rowItem.progress,
-                            remainingMinutes = rowItem.remainingMinutes,
+                            year = item.year.takeIf { it > 0 },
                             onClick = { onItemClick(item.contentId) },
                             focusRequester = itemFocusRequester,
                             cardModifier = appliedCardModifier,
@@ -248,7 +282,7 @@ private fun SectionItem.progressFraction(): Float? {
     return (pos / dur).toFloat().coerceIn(0f, 1f)
 }
 
-/** Minutes remaining, used as the "12m left" caption on continue-watching cards. */
+/** Remaining runtime for layouts that expose it inside the card itself. */
 private fun SectionItem.remainingMinutes(): Int? {
     val pos = positionSeconds ?: return null
     val dur = durationSeconds ?: return null

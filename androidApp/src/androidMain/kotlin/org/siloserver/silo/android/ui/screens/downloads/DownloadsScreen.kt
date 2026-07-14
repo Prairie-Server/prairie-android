@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.siloserver.silo.android.ui.components.LoadingIndicator
 import kotlinx.coroutines.launch
+import org.siloserver.silo.android.ui.navigation.LocalBottomChromeInset
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -158,7 +159,7 @@ fun DownloadsScreen(
             ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalBottomChromeInset.current),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     item(contentType = "downloads-top-padding") {
@@ -251,7 +252,12 @@ fun DownloadsScreen(
                         onClick = { pendingBulkDelete = selectedRecordIds to selectedBytes },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(16.dp),
+                            .padding(
+                                start = 16.dp,
+                                top = 16.dp,
+                                end = 16.dp,
+                                bottom = 16.dp + LocalBottomChromeInset.current,
+                            ),
                     ) {
                         Text("Delete ${selectedEntryIds.size} · Free ${formatBytes(selectedBytes)}")
                     }

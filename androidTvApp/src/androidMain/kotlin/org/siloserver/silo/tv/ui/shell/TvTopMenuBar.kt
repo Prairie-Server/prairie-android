@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -61,6 +62,7 @@ import org.siloserver.silo.tv.ui.theme.ChromeSelectedBorder
 import org.siloserver.silo.tv.ui.theme.ChromeSelectedFill
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
 import org.siloserver.silo.tv.ui.theme.DarkBackground
+import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.theme.TvSkyline
 import org.siloserver.silo.tv.ui.theme.navRailLabel
 
@@ -98,7 +100,7 @@ object TvTopMenuLayout {
 /**
  * Identifies which menu button currently holds focus. Library-type tabs share
  * the [Tab] case keyed by [TvLibraryTabType]; the remaining cases are the
- * fixed Home/Calendar tabs plus the trailing Search icon and profile avatar.
+ * fixed Home/Calendar tabs plus the Search icon and trailing profile avatar.
  */
 private sealed class TvTopMenuFocus {
     data object Home : TvTopMenuFocus()
@@ -114,9 +116,11 @@ private sealed class TvTopMenuFocus {
  *
  * Layout (three zones):
  * - Leading: the **SILO** wordmark (heavy, tracked).
- * - Center: `Home` · one inverted-capsule tab per visible library-type ·
- *   `Calendar`, derived from [destinations] (the shell's `visibleRoots`).
- * - Trailing: a Search icon button + the profile avatar (with unread badge).
+ * - Center: Search icon · `Home` · one inverted-capsule tab per visible
+ *   library-type · `Calendar`, derived from [destinations] (the shell's
+ *   `visibleRoots`), with an invisible search-size twin trailing the tabs so
+ *   the tab group stays screen-centered (tvOS `tabCluster` parity).
+ * - Trailing: the profile avatar (with unread badge).
  *
  * Tab chrome (§5.1): a focused tab inverts to a solid white capsule with
  * background-colored text; a selected-but-unfocused tab carries a low-alpha
@@ -145,11 +149,15 @@ fun TvTopMenuBar(
     onSelectTab: (TvLibraryTabType) -> Unit = {},
     onSearchClick: () -> Unit,
     onProfileClick: () -> Unit,
+    onProfileDwell: () -> Unit,
+    onProfileBlur: () -> Unit,
+    onEnterProfileMenu: () -> Unit,
     onMoveDown: () -> Unit,
     isMenuFocused: Boolean,
     onMenuFocusChange: (Boolean) -> Unit,
     isFocusSuppressed: Boolean,
     focusRequest: Int,
+    focusRequestTarget: TvTopMenuPanel? = null,
     profileFocusRequest: Int = 0,
     isSearchActive: Boolean = false,
     visibility: Float = 1f,
@@ -175,6 +183,39 @@ fun TvTopMenuBar(
     // (which is unreliable while the parent suppresses focus mid-animation).
     var focusedButton by remember { mutableStateOf<TvTopMenuFocus?>(null) }
 
+    // tvOS keeps the tab focused after Back closes its panel, but suppresses
+    // that tab's dwell preview until focus leaves it. Android additionally
+    // uses the first Down from that state as a direct handoff to content.
+    var dwellSuppressedButton by remember { mutableStateOf<TvTopMenuFocus?>(null) }
+
+    fun focusForRoot(root: TvRootDestination): TvTopMenuFocus = when (root) {
+        TvRootDestination.Home -> TvTopMenuFocus.Home
+        TvRootDestination.ForYou -> TvTopMenuFocus.ForYou
+        TvRootDestination.Calendar -> TvTopMenuFocus.Calendar
+        is TvRootDestination.LibraryType -> TvTopMenuFocus.Tab(root.type)
+    }
+
+    fun focusForPanel(panel: TvTopMenuPanel): TvTopMenuFocus? = when (panel) {
+        is TvTopMenuPanel.Root -> focusForRoot(panel.dest)
+        TvTopMenuPanel.Profile -> TvTopMenuFocus.Profile
+    }
+
+    fun requesterForFocus(focus: TvTopMenuFocus): FocusRequester = when (focus) {
+        TvTopMenuFocus.Home -> homeFocusRequester
+        is TvTopMenuFocus.Tab -> tabFocusRequesters[focus.type] ?: homeFocusRequester
+        TvTopMenuFocus.ForYou -> forYouFocusRequester
+        TvTopMenuFocus.Calendar -> calendarFocusRequester
+        TvTopMenuFocus.Search -> searchFocusRequester
+        TvTopMenuFocus.Profile -> profileFocusRequester
+    }
+
+    fun panelForFocus(focus: TvTopMenuFocus?): TvTopMenuPanel? = when (focus) {
+        is TvTopMenuFocus.Tab ->
+            TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type))
+        TvTopMenuFocus.ForYou -> TvTopMenuPanel.Root(TvRootDestination.ForYou)
+        else -> null
+    }
+
     fun selectedEntryRequester(): FocusRequester = when (val root = selectedRoot) {
         TvRootDestination.Home -> homeFocusRequester
         TvRootDestination.Calendar -> calendarFocusRequester
@@ -193,7 +234,10 @@ fun TvTopMenuBar(
         if (isFocusSuppressed) return@LaunchedEffect
         if (focusRequest == lastHandledFocusRequest) return@LaunchedEffect
         lastHandledFocusRequest = focusRequest
-        runCatching { selectedEntryRequester().requestFocus() }
+        val explicitFocus = focusRequestTarget?.let(::focusForPanel)
+        dwellSuppressedButton = explicitFocus
+        val requester = explicitFocus?.let(::requesterForFocus) ?: selectedEntryRequester()
+        runCatching { requester.requestFocus() }
     }
 
     LaunchedEffect(focusedButton) {
@@ -206,6 +250,7 @@ fun TvTopMenuBar(
     // on first compose.
     LaunchedEffect(profileFocusRequest) {
         if (profileFocusRequest > 0) {
+            dwellSuppressedButton = TvTopMenuFocus.Profile
             runCatching { profileFocusRequester.requestFocus() }
         }
     }
@@ -215,20 +260,33 @@ fun TvTopMenuBar(
     // re-keys this effect (auto-cancelling the pending delay). The first open
     // waits briefly to avoid flashing panels during casual bar traversal, but
     // once a panel is already visible tab-to-tab switching should feel direct.
-    // Landing on any non-panel button (or losing focus) closes the preview
-    // immediately so a stale panel never lingers under the wrong tab.
-    LaunchedEffect(focusedButton) {
+    // Landing on any non-panel button closes the preview immediately; losing
+    // bar focus may mean the user is entering that panel, so the shell owns it.
+    LaunchedEffect(focusedButton, dwellSuppressedButton) {
         val focus = focusedButton
+        val suppressed = dwellSuppressedButton
+        if (suppressed != null) {
+            // A transient null is the panel→bar focus handoff itself; keep the
+            // suppression armed until the requested anchor actually focuses.
+            if (focus == null || focus == suppressed) return@LaunchedEffect
+            // Moving anywhere else re-arms normal dwell behavior, matching
+            // tvOS's dwellSuppressedElement lifecycle.
+            dwellSuppressedButton = null
+            return@LaunchedEffect
+        }
         if (focus is TvTopMenuFocus.Tab) {
             delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
             onDwell(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
-        } else {
-            // Deliberately NO dwell for the For You dropdown: after a cascade
-            // commit, focus can transiently fall back to the bar and land on
-            // this tab while the content composes — a dwell-preview then
-            // opened the focus-trapping dropdown over everything (QA
-            // 2026-07-08: "movies → browse lands in For You → Favorites").
-            // It opens only on an explicit d-pad-down / OK (enterPanel).
+        } else if (focus is TvTopMenuFocus.ForYou) {
+            delay(if (openPanel == null) TopMenuInitialPreviewDelayMillis else TopMenuPanelSwitchDelayMillis)
+            onDwell(TvTopMenuPanel.Root(TvRootDestination.ForYou))
+        } else if (focus == TvTopMenuFocus.Profile) {
+            delay(TopMenuInitialPreviewDelayMillis)
+            onProfileDwell()
+        } else if (focus != null) {
+            // Moving to a non-panel bar item closes any dwell preview. A null
+            // focus can mean focus is entering the open panel, so leave panel
+            // ownership to the shell instead of racing its entry transition.
             onDwell(null)
         }
     }
@@ -248,8 +306,8 @@ fun TvTopMenuBar(
     // trailing cluster). On non-tab routes (Search) we enter the search icon.
     val barEntryRequester = selectedEntryRequester()
 
-    // Single full-width Row (wordmark · flexible gap · centered tabs · flexible
-    // gap · trailing search+profile) so D-pad Left/Right traverse the whole bar
+    // Single full-width Row (wordmark · flexible gap · search+centered tabs ·
+    // flexible gap · trailing profile) so D-pad Left/Right traverse the whole bar
     // in one ordered focus group — the three-zone `align` layout couldn't be
     // crossed by Compose's 2D focus search (Right off the last tab, or Left off
     // search, escaped into content instead of moving along the bar).
@@ -270,7 +328,13 @@ fun TvTopMenuBar(
             // labels — content stays legibly scrimmed even while the bar is
             // dimmed (QA 2026-07-08).
             .focusGroup()
-            .focusProperties { enter = { barEntryRequester } }
+            .focusProperties {
+                // Suppression must remove the bar from focus search, not merely
+                // ignore explicit requester bumps. Otherwise Android's initial
+                // focus pass can still choose Home while content is composing.
+                canFocus = !isFocusSuppressed
+                enter = { barEntryRequester }
+            }
             .onPreviewKeyEvent { event ->
                 val focus = focusedButton
                 when {
@@ -278,10 +342,17 @@ fun TvTopMenuBar(
                         // On a library-type tab, d-pad-down opens that tab's cascade
                         // panel (and focuses into it) instead of diving to content.
                         // Home/Calendar/Search keep the move-to-content behavior.
-                        if (focus is TvTopMenuFocus.Tab) {
-                            onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.LibraryType(focus.type)))
-                        } else if (focus is TvTopMenuFocus.ForYou) {
-                            onEnterPanel(TvTopMenuPanel.Root(TvRootDestination.ForYou))
+                        val panel = panelForFocus(focus)
+                        if (focus == TvTopMenuFocus.Profile) {
+                            onEnterProfileMenu()
+                        } else if (panel != null && dwellSuppressedButton == focus) {
+                            // Back just dismissed this tab's panel. Treat the
+                            // next Down as the user's intent to leave chrome
+                            // and enter the first/remembered content row.
+                            dwellSuppressedButton = null
+                            onMoveDown()
+                        } else if (panel != null) {
+                            onEnterPanel(panel)
                         } else {
                             onMoveDown()
                         }
@@ -315,18 +386,38 @@ fun TvTopMenuBar(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Center cluster: Home · library-type tabs · Calendar.
+        // Center cluster: Search · Home · library-type tabs · Calendar.
+        // tvOS parity (TVTopMenuBar.tabCluster): search sits just left of Home,
+        // and an invisible same-size twin at the trailing end keeps the tab
+        // group itself screen-centered.
         Row(
             modifier = Modifier.height(TvSkyline.barHeight),
             horizontalArrangement = Arrangement.spacedBy(TvSkyline.tabSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TvTopMenuIconButton(
+                icon = Icons.Outlined.Search,
+                contentDescription = "Search",
+                isFocused = focusedButton == TvTopMenuFocus.Search,
+                canFocus = !isFocusSuppressed,
+                focusRequester = searchFocusRequester,
+                onFocusChanged = { hasFocus ->
+                    focusedButton = if (hasFocus) {
+                        TvTopMenuFocus.Search
+                    } else {
+                        focusedButton.takeUnless { it == TvTopMenuFocus.Search }
+                    }
+                },
+                onClick = onSearchClick,
+            )
+
             destinations.forEach { destination ->
                 when (destination) {
                     TvRootDestination.Home -> TvTopMenuTab(
                         label = "Home",
                         isSelected = selectedRoot == TvRootDestination.Home,
                         isFocused = focusedButton == TvTopMenuFocus.Home,
+                        canFocus = !isFocusSuppressed,
                         focusRequester = homeFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
@@ -345,6 +436,7 @@ fun TvTopMenuBar(
                             label = type.title,
                             isSelected = selectedRoot == destination,
                             isFocused = focusedButton == TvTopMenuFocus.Tab(type),
+                            canFocus = !isFocusSuppressed,
                             focusRequester = tabFocusRequesters[type] ?: homeFocusRequester,
                             onFocusChanged = { hasFocus ->
                                 focusedButton = if (hasFocus) {
@@ -368,6 +460,7 @@ fun TvTopMenuBar(
                         label = "For You",
                         isSelected = selectedRoot == TvRootDestination.ForYou,
                         isFocused = focusedButton == TvTopMenuFocus.ForYou,
+                        canFocus = !isFocusSuppressed,
                         focusRequester = forYouFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
@@ -389,6 +482,7 @@ fun TvTopMenuBar(
                         label = "Calendar",
                         isSelected = selectedRoot == TvRootDestination.Calendar,
                         isFocused = focusedButton == TvTopMenuFocus.Calendar,
+                        canFocus = !isFocusSuppressed,
                         focusRequester = calendarFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
@@ -401,11 +495,15 @@ fun TvTopMenuBar(
                     )
                 }
             }
+
+            // Invisible twin of the search button so the tab group stays
+            // centered on screen with search sitting to its left.
+            Spacer(modifier = Modifier.size(TvSkyline.barIconSize))
         }
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Trailing cluster: Search icon + profile avatar.
+        // Trailing cluster: profile avatar.
         Row(
             modifier = Modifier
                 .padding(end = TvSkyline.safeAreaX)
@@ -413,27 +511,14 @@ fun TvTopMenuBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(TvSkyline.barTrailingSpacing),
         ) {
-            TvTopMenuIconButton(
-                icon = Icons.Outlined.Search,
-                contentDescription = "Search",
-                isFocused = focusedButton == TvTopMenuFocus.Search,
-                focusRequester = searchFocusRequester,
-                onFocusChanged = { hasFocus ->
-                    focusedButton = if (hasFocus) {
-                        TvTopMenuFocus.Search
-                    } else {
-                        focusedButton.takeUnless { it == TvTopMenuFocus.Search }
-                    }
-                },
-                onClick = onSearchClick,
-            )
-
             TvTopMenuProfileButton(
                 accountState = accountState,
                 isFocused = focusedButton == TvTopMenuFocus.Profile,
+                canFocus = !isFocusSuppressed,
                 focusRequester = profileFocusRequester,
                 onFocusChanged = { hasFocus ->
                     focusedButton = if (hasFocus) TvTopMenuFocus.Profile else focusedButton.takeUnless { it == TvTopMenuFocus.Profile }
+                    if (!hasFocus) onProfileBlur()
                 },
                 onClick = onProfileClick,
             )
@@ -482,6 +567,7 @@ private fun TvTopMenuTab(
     label: String,
     isSelected: Boolean,
     isFocused: Boolean,
+    canFocus: Boolean,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -528,8 +614,9 @@ private fun TvTopMenuTab(
             focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
         ),
         modifier = modifier
+            .focusProperties { this.canFocus = canFocus }
             .focusRequester(focusRequester)
-            .height(TvSkyline.barHeight),
+            .height(TvSkyline.tabPillHeight),
     ) {
         Box(
             modifier = Modifier
@@ -554,7 +641,7 @@ private fun TvTopMenuTab(
 }
 
 /**
- * Trailing search icon. Mirrors the tab capsule's inverted focus chrome: a
+ * Search icon (center cluster, left of Home). Mirrors the tab capsule's inverted focus chrome: a
  * solid `SiloOnSurface` circle with a background-colored glyph while
  * focused, bare otherwise.
  */
@@ -564,6 +651,7 @@ private fun TvTopMenuIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     isFocused: Boolean,
+    canFocus: Boolean,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -594,6 +682,7 @@ private fun TvTopMenuIconButton(
             focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
         ),
         modifier = Modifier
+            .focusProperties { this.canFocus = canFocus }
             .focusRequester(focusRequester)
             .size(TvSkyline.barIconSize),
     ) {
@@ -602,7 +691,7 @@ private fun TvTopMenuIconButton(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = iconColor,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(19.dp),
             )
         }
     }
@@ -618,6 +707,7 @@ private fun TvTopMenuIconButton(
 private fun TvTopMenuProfileButton(
     accountState: TvAccountState,
     isFocused: Boolean,
+    canFocus: Boolean,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -646,6 +736,7 @@ private fun TvTopMenuProfileButton(
             focusedBorder = Border(border = BorderStroke(0.dp, Color.Transparent), shape = shape),
         ),
         modifier = Modifier
+            .focusProperties { this.canFocus = canFocus }
             .focusRequester(focusRequester)
             .size(TvSkyline.barIconSize),
     ) {
@@ -697,6 +788,7 @@ private fun TvTopMenuAvatar(
                     color = SiloOnSurface,
                     fontWeight = FontWeight.Bold,
                     style = navRailLabel,
+                    fontSize = 12.sp,
                 )
             }
         }

@@ -18,12 +18,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
@@ -33,10 +35,9 @@ import androidx.tv.material3.Text
  * The hero's overview as an expand-in-place control. Mirrors tvOS
  * `TVExpandableSynopsis` 1:1.
  *
-     * The overview is clamped to 3 lines and uses the Android TV readability scale
-     * rather than raw tvOS÷2 sizing. Pressing OK/Select toggles [expanded]: when
-     * expanded the line clamp is removed AND the [tagline] is shown above the
-     * overview (only when non-blank).
+ * The overview is clamped to 3 lines at tvOS÷2 sizing (26pt regular → 13sp).
+ * Pressing OK/Select toggles [expanded]: when expanded the line clamp is
+ * removed AND the [tagline] is shown above the overview (only when non-blank).
  *
  * This is a **focusable leaf** — the hero's only text focus stop, reachable by
  * pressing Up from the action row, and actionable so it never feels "stuck".
@@ -93,27 +94,35 @@ internal fun TvExpandableSynopsis(
                 interactionSource = interactionSource,
                 indication = null,
             ) { expanded = !expanded }
-            .padding(horizontal = 10.dp, vertical = 7.dp)
+            // Keep the synopsis text on the same leading edge as the title,
+            // episode hierarchy, and metadata rows. The old 10dp horizontal
+            // inset made the description visibly drift right.
+            .padding(vertical = 7.dp)
             .then(sizeModifier),
+        horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (expanded && !tagline.isNullOrBlank()) {
+            // tvOS: 28pt serif italic → 14sp, +2 per design review.
             Text(
                 text = tagline,
                 fontFamily = FontFamily.Serif,
                 fontStyle = FontStyle.Italic,
                 fontWeight = FontWeight.Normal,
-                fontSize = 18.sp,
-                lineHeight = 21.sp,
+                fontSize = 16.sp,
+                lineHeight = 19.sp,
                 color = Color.White.copy(alpha = 0.85f),
+                textAlign = TextAlign.Start,
             )
         }
+        // tvOS: 26pt regular → 13sp, +2 per design review (2026-07-11).
         Text(
             text = overview,
             fontWeight = FontWeight.Normal,
-            fontSize = 18.sp,
-            lineHeight = 22.sp,
+            fontSize = 15.sp,
+            lineHeight = 19.sp,
             color = Color.White.copy(alpha = 0.82f),
+            textAlign = TextAlign.Start,
             maxLines = if (expanded) Int.MAX_VALUE else 3,
             overflow = TextOverflow.Ellipsis,
         )

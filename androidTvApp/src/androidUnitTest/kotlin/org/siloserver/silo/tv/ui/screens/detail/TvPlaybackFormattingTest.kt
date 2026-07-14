@@ -3,6 +3,7 @@ package org.siloserver.silo.tv.ui.screens.detail
 import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.model.catalog.VideoTrack
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,6 +16,15 @@ class TvPlaybackFormattingTest {
     @Test fun versionShortLabel_4kHdr() {
         val v = fileVersion(resolution = "2160p", hdr = true)
         assertEquals("4K · HDR", TvPlaybackFormatting.versionShortLabel(v))
+    }
+
+    @Test fun versionShortLabel_4kDolbyVision() {
+        val v = fileVersion(
+            resolution = "2160p",
+            hdr = true,
+            video = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 7")),
+        )
+        assertEquals("4K · DV", TvPlaybackFormatting.versionShortLabel(v))
     }
 
     @Test fun versionShortLabel_1080() {
@@ -30,6 +40,43 @@ class TvPlaybackFormattingTest {
 
     @Test fun versionShortLabel_blankResolutionNoHdrIsAuto() {
         assertEquals("Auto", TvPlaybackFormatting.versionShortLabel(fileVersion(resolution = null, hdr = false)))
+    }
+
+    @Test fun versionValueLabel_matchesTvOsDolbyVisionSummary() {
+        val v = fileVersion(
+            resolution = "2160p",
+            codecVideo = "hevc",
+            hdr = true,
+            video = listOf(
+                VideoTrack(
+                    codec = "hevc",
+                    dolbyVision = "Profile 8",
+                    dolbyVisionProfile = 8,
+                    hdr = true,
+                ),
+            ),
+            audio = listOf(audioTrack(codec = "truehd", layout = "7.1", default = true)),
+        )
+
+        assertEquals(
+            "Auto: 2160p · HEVC · DV · TrueHD",
+            TvPlaybackFormatting.versionValueLabel(v, selectedVersionFileId = null),
+        )
+        assertTrue(TvPlaybackFormatting.isDolbyVision(v))
+    }
+
+    @Test fun versionValueLabel_fallsBackToHdrAndVersionAudioCodec() {
+        val v = fileVersion(
+            resolution = "1080p",
+            codecVideo = "h264",
+            codecAudio = "eac3",
+            hdr = true,
+        )
+
+        assertEquals(
+            "1080p · H.264 · HDR · EAC3",
+            TvPlaybackFormatting.versionValueLabel(v, selectedVersionFileId = 1),
+        )
     }
 
     // --- versionDetailLabel ---
@@ -58,13 +105,13 @@ class TvPlaybackFormattingTest {
             audio = listOf(audioTrack(codec = "EAC3", layout = "5.1", lang = "English", default = true)),
         )
         // Auto previews its resolution (QA 2026-07-08 / Apple parity).
-        assertEquals("Auto - EAC3 5.1 - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
-        assertEquals("EAC3 5.1 - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = 0))
+        assertEquals("Auto: English · EAC3 · 5.1", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        assertEquals("English · EAC3 · 5.1", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = 0))
     }
 
     @Test fun audioValueLabel_eng3LetterCode() {
         val v = fileVersion(audio = listOf(audioTrack(codec = "aac", layout = "stereo", lang = "eng")))
-        assertEquals("Auto - AAC Stereo - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        assertEquals("Auto: English · AAC · Stereo", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
     }
 
     @Test fun audioValueLabel_unknownWhenNoTracks() {
@@ -107,9 +154,9 @@ class TvPlaybackFormattingTest {
             ),
             effectiveAudioIndex = 1,
         )
-        assertEquals("Auto - EAC3 5.1 - French", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        assertEquals("Auto: French · EAC3 · 5.1", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
         // An explicit selection still wins over the effective index.
-        assertEquals("AAC Stereo - English", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = 0))
+        assertEquals("English · AAC · Stereo", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = 0))
     }
 
     @Test fun audioValueLabel_outOfRangeEffectiveIndexFallsBackToDefault() {
@@ -120,7 +167,7 @@ class TvPlaybackFormattingTest {
             ),
             effectiveAudioIndex = 7,
         )
-        assertEquals("Auto - EAC3 5.1 - French", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
+        assertEquals("Auto: French · EAC3 · 5.1", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
     }
 
     @Test fun audioOptions_effectiveIndexSelectedWhenNoSelection() {
@@ -170,7 +217,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenAudioMatchesPreferred() {
@@ -181,7 +228,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoForcedWhenAudioMatchesAndShowForced() {
@@ -199,27 +246,27 @@ class TvPlaybackFormattingTest {
             showForced = true,
             audioLanguage = "eng",
         )
-        assertEquals("Auto - Forced - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: English (Forced)", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenModeOff() {
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "en", mode = "off")
-        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenPreferenceIsNoSubs() {
         // Empty (not null) preferred language means "no subs" at this level.
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "", mode = "auto")
-        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenNoPreferenceAndModeAuto() {
         // No language preference + plain auto → resolver leaves subs off.
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "auto")
-        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoAlwaysPicksFullDialogueWithNoPreference() {
@@ -232,7 +279,7 @@ class TvPlaybackFormattingTest {
             ),
         )
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "always")
-        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoPrefersFullDialogueOverSdh() {
@@ -248,7 +295,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "jpn",
         )
-        assertEquals("Auto - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoSkipsDvbBitmapForTextTrack() {
@@ -267,7 +314,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto - SubRip - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: French · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoSkipsVobsubBitmapForTextTrack() {
@@ -283,7 +330,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "jpn",
         )
-        assertEquals("Auto - SubRip - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto: English · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun resolvedAudioLanguage_returnsAutoTrackLanguage() {
@@ -307,12 +354,12 @@ class TvPlaybackFormattingTest {
 
     @Test fun subtitleValueLabel_forcedBadge() {
         val v = fileVersion(subtitles = listOf(subtitleTrack(index = 2, lang = "fre", forced = true)))
-        assertEquals("Forced - French", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
+        assertEquals("French (Forced)", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
     }
 
     @Test fun subtitleValueLabel_hearingImpairedBadge() {
         val v = fileVersion(subtitles = listOf(subtitleTrack(index = 1, lang = "eng", title = "English SDH")))
-        assertEquals("SDH - English", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
+        assertEquals("English (SDH)", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
     }
 
     @Test fun subtitleOptions_useFlatOrdinalNotStreamIndex() {
@@ -367,20 +414,24 @@ class TvPlaybackFormattingTest {
         fileId: Int = 1,
         resolution: String? = null,
         codecVideo: String? = null,
+        codecAudio: String? = null,
         hdr: Boolean = false,
         container: String? = null,
         fileSize: Long = 0,
         audio: List<AudioTrack>? = null,
+        video: List<VideoTrack>? = null,
         effectiveAudioIndex: Int? = null,
         subtitles: List<SubtitleTrack>? = null,
     ): FileVersion = FileVersion(
         fileId = fileId,
         resolution = resolution,
         codecVideo = codecVideo,
+        codecAudio = codecAudio,
         hdr = hdr,
         container = container,
         fileSize = fileSize,
         audioTracks = audio,
+        videoTracks = video,
         effectiveAudioTrackIndex = effectiveAudioIndex,
         subtitleTracks = subtitles,
     )

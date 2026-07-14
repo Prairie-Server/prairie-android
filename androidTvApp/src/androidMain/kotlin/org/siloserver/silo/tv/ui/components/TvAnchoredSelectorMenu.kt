@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +28,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
+import org.siloserver.silo.tv.ui.theme.SiloOnSurface
 
 // ---------------------------------------------------------------------------
 // Anchored selector popover — Compose-for-TV port of the silo-apple tvOS
@@ -56,9 +59,8 @@ data class TvSelectorOption(
 
 /**
  * A secondary `.compact` squared pill that opens an anchored dropdown of
- * [options]. Trigger layout mirrors tvOS `TVSelectorButton` at the Android TV
- * readability-adjusted half-scale: compact geometry with a larger label/value
- * floor than the raw tvOS÷2 math so it remains legible from the couch.
+ * [options]. Trigger layout mirrors tvOS `TVSelectorButton` at tvOS÷2 scale
+ * (`[icon] LABEL  value  ⌄`).
  *
  * Each row renders `"Title — Detail"` (the " — Detail" suffix is dropped when
  * [TvSelectorOption.detail] is blank) with a leading check when selected, like
@@ -88,21 +90,25 @@ fun TvAnchoredSelectorMenu(
             onClick = { expanded = true },
             modifier = Modifier,
             focusRequester = triggerFr,
-            // Secondary .compact pill body padding, tvOS 40×22pt mapped to 20×11dp.
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
+            // Secondary .compact pill body padding, tvOS 40×22pt → 20×11dp,
+            // +2/+1 per design review.
+            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp),
         ) { fg ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = fg,
-                    modifier = Modifier.size(12.dp),
+                    modifier = Modifier.size(13.dp),
                 )
                 Spacer(Modifier.width(7.dp))
+                // tvOS `TVSelectorButton`: label 18pt bold tracking 1.0 @0.6,
+                // value 22pt semibold — half scale +1 per design review.
                 Text(
                     text = label.uppercase(),
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 13.sp,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp,
                     ),
@@ -113,7 +119,8 @@ fun TvAnchoredSelectorMenu(
                 Text(
                     text = value,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                     ),
                     color = fg,
@@ -124,7 +131,7 @@ fun TvAnchoredSelectorMenu(
                     imageVector = Icons.Filled.KeyboardArrowDown,
                     contentDescription = null,
                     tint = fg.copy(alpha = 0.6f),
-                    modifier = Modifier.size(8.5.dp),
+                    modifier = Modifier.size(9.5.dp),
                 )
             }
         }
@@ -137,6 +144,9 @@ fun TvAnchoredSelectorMenu(
                 // reloaded on selection) — requesting focus then throws.
                 runCatching { triggerFr.requestFocus() }
             },
+            containerColor = DarkSurfaceElevated,
+            tonalElevation = 0.dp,
+            shadowElevation = 18.dp,
         ) {
             options.forEach { option ->
                 val labelText = if (option.detail.isBlank()) {
@@ -167,6 +177,12 @@ fun TvAnchoredSelectorMenu(
                     } else {
                         null
                     },
+                    colors = MenuDefaults.itemColors(
+                        textColor = SiloOnSurface,
+                        leadingIconColor = SiloOnSurface,
+                        disabledTextColor = SiloOnSurface.copy(alpha = 0.38f),
+                        disabledLeadingIconColor = SiloOnSurface.copy(alpha = 0.38f),
+                    ),
                     onClick = {
                         option.onSelect()
                         expanded = false

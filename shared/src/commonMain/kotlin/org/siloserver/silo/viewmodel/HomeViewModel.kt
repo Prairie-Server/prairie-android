@@ -251,11 +251,31 @@ class HomeViewModel(
      * back on failure.
      */
     fun dismissContinueWatching(itemId: String, progressUpdatedAt: String) {
+        dismissHomeProgressItem(itemId) {
+            mediaActions.dismissContinueWatching(itemId, progressUpdatedAt)
+        }
+    }
+
+    fun dismissNextUp(itemId: String, seriesId: String) {
+        dismissHomeProgressItem(itemId) {
+            mediaActions.dismissNextUp(itemId, seriesId)
+        }
+    }
+
+    private fun dismissHomeProgressItem(
+        itemId: String,
+        dismiss: suspend () -> ApiResult<Unit>,
+    ) {
         val previous = _uiState.value.sections
         _uiState.update { state ->
             state.copy(
                 sections = state.sections.map { section ->
-                    if (section.sectionType == "continue_watching" || section.sectionType == "in_progress") {
+                    if (
+                        section.sectionType == "continue_watching" ||
+                        section.sectionType == "in_progress" ||
+                        section.sectionType == "next_up" ||
+                        section.sectionType == "up_next"
+                    ) {
                         section.copy(items = section.items.filterNot { it.contentId == itemId })
                     } else {
                         section
@@ -264,7 +284,7 @@ class HomeViewModel(
             )
         }
         viewModelScope.launch {
-            if (mediaActions.dismissContinueWatching(itemId, progressUpdatedAt) !is ApiResult.Success) {
+            if (dismiss() !is ApiResult.Success) {
                 _uiState.update { it.copy(sections = previous) }
             }
         }

@@ -2,6 +2,23 @@ package org.siloserver.silo.network
 
 import kotlinx.coroutines.flow.SharedFlow
 
+data class TemporaryAuthScope(
+    val generationId: String,
+    val serverId: String,
+    val serverUrl: String,
+    val accessToken: String,
+    val refreshToken: String,
+    val profileId: String,
+    val profileToken: String,
+    val expiresAtEpochMs: Long,
+) {
+    override fun toString(): String =
+        "TemporaryAuthScope(" +
+            "generationId=$generationId, serverId=$serverId, serverUrl=$serverUrl, " +
+            "accessToken=<redacted>, refreshToken=<redacted>, profileId=$profileId, " +
+            "profileToken=<redacted>, expiresAtEpochMs=$expiresAtEpochMs)"
+}
+
 /**
  * Manages JWT access and refresh tokens.
  * Implementation provided by Agent 2 in TokenManagerImpl.kt.
@@ -89,8 +106,20 @@ interface TokenManager {
      */
     suspend fun getAccessTokenForScope(serverId: String): String? = getAccessToken()
 
+    /**
+     * Read the latest access token for the exact credential identity captured by
+     * [scope]. Implementations with temporary overlays must not fall through to
+     * another credential slot when that overlay starts or ends mid-request.
+     */
+    suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? =
+        getAccessTokenForScope(scope.serverId)
+
     /** Read a specific server's latest refresh token. Default: active scope. */
     suspend fun getRefreshTokenForScope(serverId: String): String? = getRefreshToken()
+
+    /** Read the refresh token for the exact credential identity in [scope]. */
+    suspend fun getRefreshTokenForScope(scope: AuthScopeSnapshot): String? =
+        getRefreshTokenForScope(scope.serverId)
 
     /**
      * Persist refreshed tokens to a specific server's slot (used by a pinned
@@ -102,4 +131,20 @@ interface TokenManager {
         refreshToken: String,
         expiresIn: Long,
     ) = saveTokens(accessToken, refreshToken, expiresIn)
+
+    /** Persist a refresh only if [scope]'s credential identity still exists. */
+    suspend fun saveTokensForScope(
+        scope: AuthScopeSnapshot,
+        accessToken: String,
+        refreshToken: String,
+        expiresIn: Long,
+    ) = saveTokensForScope(scope.serverId, accessToken, refreshToken, expiresIn)
+
+    /** Install a process-only identity for remote playback without mutating saved accounts. */
+    suspend fun beginTemporaryScope(scope: TemporaryAuthScope) {}
+
+    /** Restore the saved identity after remote playback. Returns true when an overlay existed. */
+    suspend fun endTemporaryScope(): Boolean = false
+
+    suspend fun hasTemporaryScope(): Boolean = false
 }

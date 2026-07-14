@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -49,15 +52,36 @@ fun TvRootHeroBackdrop(
     content: TvMarqueeContent?,
     modifier: Modifier = Modifier,
     emptyWashColor: Color? = null,
+    animateTransition: Boolean = true,
 ) {
     val tintState = LocalAmbientBackdropTint.current
     val ambientAccent = tintState.accent
+
+    // tvOS first-frame parity: the FIRST artwork/tint to arrive snaps in with
+    // no animation — a cold entry paints the finished hero instead of fading
+    // it up from the black background. Only content-to-content swaps (normal
+    // D-pad browsing) keep the ambient crossfade.
+    var hasDisplayedArtwork by remember { mutableStateOf(false) }
+    val snapInitialArtwork = content != null && !hasDisplayedArtwork
+    LaunchedEffect(content != null) {
+        if (content != null) hasDisplayedArtwork = true
+    }
+    var hasDisplayedTint by remember { mutableStateOf(false) }
+    val snapInitialTint = ambientAccent != null && !hasDisplayedTint
+    LaunchedEffect(ambientAccent != null) {
+        if (ambientAccent != null) hasDisplayedTint = true
+    }
+
     val targetAccent = ambientAccent ?: emptyWashColor ?: MaterialTheme.colorScheme.background
     val animatedTint by animateColorAsState(
         targetValue = targetAccent,
-        animationSpec = tween(durationMillis = 600),
+        animationSpec = tween(
+            durationMillis = if (snapInitialTint) 0 else TvMarqueeCrossfadeMs,
+            easing = TvMarqueeEasing,
+        ),
         label = "tvRootHeroBackdropTint",
     )
+    val displayedTint = if (animateTransition) animatedTint else targetAccent
 
     val isVisible = content != null
     val hasTintOnlyWash = !isVisible && ambientAccent != null
@@ -92,7 +116,7 @@ fun TvRootHeroBackdrop(
             drawRect(
                 brush = Brush.linearGradient(
                     colorStops = smoothedWashStops(
-                        tint = animatedTint,
+                        tint = displayedTint,
                         leadingAlpha = leadingWashAlpha,
                         midAlpha = midWashAlpha,
                         trailingAlpha = trailingWashAlpha,
@@ -110,19 +134,29 @@ fun TvRootHeroBackdrop(
             )
         }
 
-        Crossfade(
-            targetState = content?.heroBackdropUrl,
-            animationSpec = tween(TvMarqueeCrossfadeMs),
-            label = "tvRootHeroBackdropArt",
-        ) { url ->
-            if (url != null) {
-                CornerAnchoredArt(
-                    url = url,
-                    thumbhash = content?.heroBackdropThumbhash,
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize())
+        if (animateTransition) {
+            Crossfade(
+                targetState = content,
+                animationSpec = tween(
+                    if (snapInitialArtwork) 0 else TvMarqueeCrossfadeMs,
+                    easing = TvMarqueeEasing,
+                ),
+                label = "tvRootHeroBackdropArt",
+            ) { value ->
+                if (value?.heroBackdropUrl != null) {
+                    CornerAnchoredArt(
+                        url = value.heroBackdropUrl,
+                        thumbhash = value.heroBackdropThumbhash,
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize())
+                }
             }
+        } else if (content?.heroBackdropUrl != null) {
+            CornerAnchoredArt(
+                url = content.heroBackdropUrl,
+                thumbhash = content.heroBackdropThumbhash,
+            )
         }
 
         // Full-width top scrim so the menu bar stays legible over bright art.
@@ -198,6 +232,10 @@ private fun CornerAnchoredArt(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     transparent = true,
+                    // The Skyline feed preloads this frame and owns the one
+                    // shared art + copy crossfade. A second Coil fade would
+                    // make the image visibly lag behind the text.
+                    crossfadeMillis = 0,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

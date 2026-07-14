@@ -2,9 +2,10 @@ package org.siloserver.silo.tv.ui.screens.detail
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,6 +33,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -56,6 +59,8 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.catalog.EpisodeListItem
+import org.siloserver.silo.tv.ui.components.TvMediaCardActions
+import org.siloserver.silo.tv.ui.components.TvMediaCardContextMenu
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
 import org.siloserver.silo.tv.ui.theme.SiloSecondaryText
 import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
@@ -75,11 +80,14 @@ import org.siloserver.silo.tv.ui.theme.capsuleCaps
  * on first appearance, and made the default focus target so d-padding down
  * into the rail lands on the episode the user is already viewing.
  */
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 internal fun TvDetailEpisodeRail(
     episodes: List<EpisodeListItem>,
     onEpisodeSelected: (EpisodeListItem) -> Unit,
+    favoriteStates: Map<String, Boolean>,
+    onSetWatched: (contentId: String, watched: Boolean) -> Unit,
+    onSetFavorite: (contentId: String, favorite: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     currentContentId: String? = null,
     onDirectionUp: (() -> Boolean)? = null,
@@ -150,7 +158,10 @@ internal fun TvDetailEpisodeRail(
             TvDetailEpisodeCard(
                 episode = episode,
                 isCurrent = isCurrent,
+                isFavorite = favoriteStates[episode.contentId] ?: false,
                 onClick = { onEpisodeSelected(episode) },
+                onSetWatched = { watched -> onSetWatched(episode.contentId, watched) },
+                onSetFavorite = { favorite -> onSetFavorite(episode.contentId, favorite) },
                 modifier = if (isCurrent) {
                     Modifier.focusRequester(defaultFocusRequester)
                 } else {
@@ -162,10 +173,14 @@ internal fun TvDetailEpisodeRail(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun TvDetailEpisodeCard(
     episode: EpisodeListItem,
     isCurrent: Boolean,
+    isFavorite: Boolean,
     onClick: () -> Unit,
+    onSetWatched: (Boolean) -> Unit,
+    onSetFavorite: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val cardWidth = 230.dp
@@ -175,6 +190,13 @@ private fun TvDetailEpisodeCard(
 
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    var menuExpanded by remember(episode.contentId) { mutableStateOf(false) }
+    val actions = remember(episode.contentId, onSetWatched, onSetFavorite) {
+        TvMediaCardActions(
+            onSetWatched = onSetWatched,
+            onToggleFavorite = onSetFavorite,
+        )
+    }
 
     // Scale + shadow only — no TV Material focus halo. The white ring on the
     // still (driven by isFocused below) is the focus cue. Matches tvOS
@@ -189,13 +211,23 @@ private fun TvDetailEpisodeCard(
         modifier = modifier
             .width(cardWidth)
             .scale(scale)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,
+                onLongClick = { menuExpanded = true },
             ),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
+        TvMediaCardContextMenu(
+            expanded = menuExpanded,
+            onDismiss = { menuExpanded = false },
+            actions = actions,
+            isPlayed = episode.userData?.played == true,
+            isFavorite = isFavorite,
+            isInWatchlist = false,
+        )
+
         // Still
         Box(
             modifier = Modifier
@@ -278,16 +310,17 @@ private fun TvDetailEpisodeCard(
             }
         }
 
-        // Text block mirrors tvOS vertical rhythm at Android canvas scale, with
-        // a readability floor for episode metadata and descriptions.
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        // Keep the hierarchy scannable at TV distance: episode number, title,
+        // air date/runtime, then synopsis. Each kind of information owns a
+        // stable line instead of competing in one dense eyebrow.
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
-                    text = episodeEyebrow(episode),
-                    fontSize = 13.sp,
+                    text = "EPISODE ${episode.episodeNumber}",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.0.sp,
                     color = SiloOnSurface.copy(alpha = 0.55f),
@@ -307,9 +340,20 @@ private fun TvDetailEpisodeCard(
                     isFocused -> SiloOnSurface
                     else -> SiloOnSurface.copy(alpha = 0.92f)
                 },
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+
+            episodeMetadataLine(episode)?.let { metadata ->
+                Text(
+                    text = metadata,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = SiloOnSurface.copy(alpha = 0.58f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
             episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
                 // tvOS uses lineLimit(3, reservesSpace: true). Reserve a fixed
@@ -339,30 +383,41 @@ private fun NowViewingTag() {
         modifier = Modifier
             .clip(RoundedCornerShape(50.dp))
             .background(Color.White)
-            .padding(horizontal = 4.dp, vertical = 1.5.dp),
+            .padding(horizontal = 7.dp, vertical = 3.dp),
     ) {
         Text(
             text = "NOW VIEWING",
             style = capsuleCaps.copy(
-                fontSize = 13.sp,
-                lineHeight = 15.sp,
-                letterSpacing = 0.8.sp,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                letterSpacing = 0.7.sp,
             ),
             color = Color.Black,
         )
     }
 }
 
-private fun episodeEyebrow(episode: EpisodeListItem): String {
-    val base = "EPISODE ${episode.episodeNumber}"
-    if (episode.runtime <= 0) return base
-    val runtime = if (episode.runtime >= 60) {
-        "${episode.runtime / 60}h ${episode.runtime % 60}m"
-    } else {
-        "${episode.runtime}m"
+private fun episodeMetadataLine(episode: EpisodeListItem): String? {
+    val parts = buildList {
+        abbreviatedEpisodeDate(episode.airDate)?.let(::add)
+        episodeRuntime(episode.runtime)?.let(::add)
     }
-    return "$base  ·  $runtime"
+    return parts.takeIf { it.isNotEmpty() }?.joinToString("  ·  ")
 }
+
+private fun episodeRuntime(runtimeMinutes: Int): String? {
+    if (runtimeMinutes <= 0) return null
+    return if (runtimeMinutes >= 60) {
+        "${runtimeMinutes / 60}h ${runtimeMinutes % 60}m"
+    } else {
+        "${runtimeMinutes}m"
+    }
+}
+
+// Shared UTC-instant → device-local formatting (tvOS parity) so the card
+// dates agree with the hero facts row.
+private fun abbreviatedEpisodeDate(raw: String?): String? =
+    TvDetailMetadata.abbreviatedDate(raw)
 
 private fun EpisodeListItem.progressFraction(): Float? {
     val user = userData ?: return null

@@ -8,6 +8,7 @@ import org.siloserver.silo.model.catalog.CastMember
 import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
+import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.catalog.sortedForDisplay
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 data class TvItemDetailUiState(
@@ -53,6 +55,7 @@ data class TvItemDetailUiState(
     val seasons: List<Season> = emptyList(),
     val selectedSeason: Int? = null,
     val episodes: List<EpisodeListItem> = emptyList(),
+    val episodeFavoriteStates: Map<String, Boolean> = emptyMap(),
     val seasonsLoading: Boolean = false,
     val episodesLoading: Boolean = false,
     // Version selection for multi-file items.
@@ -370,16 +373,30 @@ class TvItemDetailViewModel(
         val current = _uiState.value
         if (current.isTogglingWatched) return
         val target = !current.isWatched
-        _uiState.update { it.copy(isTogglingWatched = true, isWatched = target) }
+        val previousDetail = current.detail
+        _uiState.update {
+            it.copy(
+                isTogglingWatched = true,
+                isWatched = target,
+                detail = it.detail?.withWatchedPlaybackState(target),
+            )
+        }
         viewModelScope.launch {
             val result = personalDataRepository.setWatched(contentId, target)
             if (result !is ApiResult.Success) {
                 // Roll back on error.
                 _uiState.update {
-                    it.copy(isTogglingWatched = false, isWatched = !target)
+                    it.copy(
+                        isTogglingWatched = false,
+                        isWatched = !target,
+                        detail = previousDetail,
+                    )
                 }
             } else {
                 _uiState.update { it.copy(isTogglingWatched = false) }
+                // Re-read server-resolved state (including series/season episode
+                // resolution) without flashing the full detail loading screen.
+                refreshOnReturn()
             }
         }
     }
@@ -562,6 +579,11 @@ class TvItemDetailViewModel(
     // Lets a failed load revert the optimistic season selection so the chips and
     // the rail stay consistent (T15).
     private var loadedSeason: Int? = null
+    private var episodeListGeneration: Long = 0
+    private var nextEpisodeWatchMutationGeneration: Long = 0
+    private val episodeWatchMutationGenerations = mutableMapOf<String, Long>()
+    private var nextEpisodeFavoriteMutationGeneration: Long = 0
+    private val episodeFavoriteMutationGenerations = mutableMapOf<String, Long>()
 
     /**
      * Loads a season's episodes. [quiet] suppresses the loading spinner and is
@@ -580,8 +602,10 @@ class TvItemDetailViewModel(
                 is ApiResult.Success -> {
                     val episodes = withLocalProgress(r.data.episodes.sortedBy { ep -> ep.episodeNumber })
                     loadedSeason = seasonNumber
+                    episodeListGeneration += 1
                     _uiState.update { it.copy(episodesLoading = false, episodes = episodes) }
                     refreshNextUp(episodes)
+                    refreshEpisodeFavoriteStates(episodes)
                 }
                 else -> {
                     // Quiet-failure contract (T15): a failed season load must NOT
@@ -598,6 +622,113 @@ class TvItemDetailViewModel(
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun refreshEpisodeFavoriteStates(episodes: List<EpisodeListItem>) {
+        if (episodes.isEmpty()) {
+            _uiState.update { it.copy(episodeFavoriteStates = emptyMap()) }
+            return
+        }
+        val knownStates = _uiState.value.episodeFavoriteStates
+        val states = coroutineScope {
+            episodes.map { episode ->
+                async {
+                    val favorite = personalDataRepository.isFavorite(episode.contentId)
+                    episode.contentId to when (favorite) {
+                        is ApiResult.Success -> favorite.data
+                        else -> knownStates[episode.contentId] ?: false
+                    }
+                }
+            }.awaitAll().toMap()
+        }
+        val currentIds = _uiState.value.episodes.mapTo(mutableSetOf()) { it.contentId }
+        if (currentIds == episodes.mapTo(mutableSetOf()) { it.contentId }) {
+            _uiState.update { it.copy(episodeFavoriteStates = states) }
+        }
+    }
+
+    fun onSetEpisodeWatched(episodeContentId: String, watched: Boolean) {
+        val current = _uiState.value
+        val previousEpisodes = current.episodes
+        val previousEpisode = previousEpisodes.firstOrNull { it.contentId == episodeContentId }
+        val mutationSeason = current.selectedSeason
+        val listGeneration = episodeListGeneration
+        val mutationGeneration = ++nextEpisodeWatchMutationGeneration
+        episodeWatchMutationGenerations[episodeContentId] = mutationGeneration
+        val updatedEpisodes = previousEpisodes.map { episode ->
+            if (episode.contentId == episodeContentId) episode.withWatchedPlaybackState(watched) else episode
+        }
+        _uiState.update { it.copy(episodes = updatedEpisodes) }
+        refreshNextUp(updatedEpisodes)
+
+        viewModelScope.launch {
+            val result = personalDataRepository.setWatched(episodeContentId, watched)
+            val isCurrentMutation = episodeWatchMutationGenerations[episodeContentId] == mutationGeneration
+            if (result !is ApiResult.Success) {
+                if (
+                    isCurrentMutation &&
+                    previousEpisode != null &&
+                    episodeListGeneration == listGeneration
+                ) {
+                    val live = _uiState.value
+                    if (live.selectedSeason == mutationSeason) {
+                        val restored = live.episodes.map { episode ->
+                            if (episode.contentId == episodeContentId) previousEpisode else episode
+                        }
+                        if (_uiState.compareAndSet(live, live.copy(episodes = restored))) {
+                            refreshNextUp(restored)
+                        }
+                    }
+                }
+                if (isCurrentMutation) episodeWatchMutationGenerations.remove(episodeContentId)
+            } else if (isCurrentMutation) {
+                episodeWatchMutationGenerations.remove(episodeContentId)
+                // Re-read the server-resolved season state without collapsing
+                // the rail or flashing its loading placeholder.
+                val detail = _uiState.value.detail
+                val seriesId = when (detail?.type?.lowercase()) {
+                    "series" -> detail.contentId
+                    "season", "episode" -> detail.seriesId
+                    else -> null
+                }
+                val season = _uiState.value.selectedSeason
+                if (!seriesId.isNullOrBlank() && season != null) {
+                    loadEpisodes(seriesId, season, quiet = true)
+                }
+            }
+        }
+    }
+
+    fun onSetEpisodeFavorite(episodeContentId: String, favorite: Boolean) {
+        val current = _uiState.value
+        val previousFavorite = current.episodeFavoriteStates[episodeContentId] ?: false
+        val isCurrentDetail = episodeContentId == current.detail?.contentId
+        val mutationGeneration = ++nextEpisodeFavoriteMutationGeneration
+        episodeFavoriteMutationGenerations[episodeContentId] = mutationGeneration
+        _uiState.update {
+            it.copy(
+                episodeFavoriteStates = it.episodeFavoriteStates + (episodeContentId to favorite),
+                isFavorite = if (isCurrentDetail) favorite else it.isFavorite,
+            )
+        }
+        viewModelScope.launch {
+            val result = personalDataRepository.toggleFavorite(episodeContentId, favorite)
+            val isCurrentMutation = episodeFavoriteMutationGenerations[episodeContentId] == mutationGeneration
+            if (result !is ApiResult.Success && isCurrentMutation) {
+                _uiState.update {
+                    it.copy(
+                        episodeFavoriteStates = it.episodeFavoriteStates +
+                            (episodeContentId to previousFavorite),
+                        isFavorite = if (isCurrentDetail && it.detail?.contentId == episodeContentId) {
+                            previousFavorite
+                        } else {
+                            it.isFavorite
+                        },
+                    )
+                }
+            }
+            if (isCurrentMutation) episodeFavoriteMutationGenerations.remove(episodeContentId)
         }
     }
 
@@ -793,6 +924,28 @@ class TvItemDetailViewModel(
             }
         }
     }
+}
+
+private fun ItemDetail.withWatchedPlaybackState(watched: Boolean): ItemDetail {
+    val current = userData ?: LeafItemUserData()
+    return copy(
+        userData = current.copy(
+            played = watched,
+            isInProgress = if (watched) false else current.isInProgress,
+            positionSeconds = if (watched) null else current.positionSeconds,
+        ),
+    )
+}
+
+private fun EpisodeListItem.withWatchedPlaybackState(watched: Boolean): EpisodeListItem {
+    val current = userData ?: LeafItemUserData()
+    return copy(
+        userData = current.copy(
+            played = watched,
+            isInProgress = false,
+            positionSeconds = null,
+        ),
+    )
 }
 
 private fun ItemDetail.toSectionItem(): SectionItem = SectionItem(

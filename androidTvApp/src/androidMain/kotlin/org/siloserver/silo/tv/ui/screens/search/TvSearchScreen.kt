@@ -1,7 +1,7 @@
 package org.siloserver.silo.tv.ui.screens.search
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,10 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -34,14 +34,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -56,12 +60,8 @@ import org.siloserver.silo.tv.ui.screens.requests.TvRequestCard
 import org.siloserver.silo.tv.ui.screens.requests.canOpenLibraryDetail
 import org.siloserver.silo.tv.ui.screens.requests.filterTvRequestResults
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
-import org.siloserver.silo.tv.ui.theme.SiloBlue
 import org.siloserver.silo.tv.ui.theme.ElevatedSurface
 import org.siloserver.silo.tv.ui.theme.Spacing
-import org.siloserver.silo.tv.ui.theme.sectionEyebrow
-import org.siloserver.silo.tv.ui.theme.tvPageContentPadding
-import org.siloserver.silo.tv.ui.theme.tvPageStartPadding
 import org.siloserver.silo.viewmodel.RequestSearchViewModel
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
@@ -74,6 +74,8 @@ fun TvSearchScreen(
     onOpenRequestDetail: (mediaType: String, tmdbId: Int) -> Unit,
     onOpenLibraryItem: (contentId: String) -> Unit,
     searchFieldFocusRequester: FocusRequester? = null,
+    backToSearchFieldRequest: Int = 0,
+    onSearchFieldFocusChanged: (Boolean) -> Unit = {},
     viewModel: TvSearchViewModel = koinViewModel(),
     requestSearchViewModel: RequestSearchViewModel = koinViewModel(),
 ) {
@@ -83,14 +85,18 @@ fun TvSearchScreen(
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
     val firstResultFocusRequester = remember { FocusRequester() }
     val firstRequestResultFocusRequester = remember { FocusRequester() }
+    val feedbackActionFocusRequester = remember { FocusRequester() }
     val firstFilterChipFocusRequester = remember { FocusRequester() }
     val internalSearchFieldFocusRequester = remember { FocusRequester() }
+    val searchGridState = rememberLazyGridState()
     val activeSearchFieldFocusRequester = searchFieldFocusRequester ?: internalSearchFieldFocusRequester
+    val keyboardController = LocalSoftwareKeyboardController.current
     var pendingSearchFocus by remember { mutableStateOf(false) }
     val requestMediaType = state.mediaType.toRequestMediaType()
     val visibleRequestResults = requestState.results
         .filterTvRequestResults()
         .filter { state.mediaType.allowsRequestResult(it) }
+        .filter { state.showAudiobooks || it.mediaType != RequestMediaType.Audiobook }
     val canSearchRequests = requestsEnabled && state.query.trim().length >= 2
     val shouldShowRequestSection = canSearchRequests &&
         (visibleRequestResults.isNotEmpty() ||
@@ -101,8 +107,12 @@ fun TvSearchScreen(
     val firstContentFocusRequester = when {
         state.items.isNotEmpty() -> firstResultFocusRequester
         visibleRequestResults.isNotEmpty() -> firstRequestResultFocusRequester
+        state.error != null -> feedbackActionFocusRequester
         else -> firstFilterChipFocusRequester
     }
+    val hasContentFocusTarget = state.items.isNotEmpty() ||
+        visibleRequestResults.isNotEmpty() ||
+        state.error != null
 
     LaunchedEffect(requestsEnabled, state.query, requestMediaType) {
         val query = state.query.trim()
@@ -119,6 +129,13 @@ fun TvSearchScreen(
     LaunchedEffect(activeSearchFieldFocusRequester) {
         runCatching { activeSearchFieldFocusRequester.requestFocus() }
     }
+    LaunchedEffect(backToSearchFieldRequest) {
+        if (backToSearchFieldRequest <= 0) return@LaunchedEffect
+        searchGridState.animateScrollToItem(0)
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching { activeSearchFieldFocusRequester.requestFocus() }
+        keyboardController?.show()
+    }
     LaunchedEffect(
         pendingSearchFocus,
         state.isLoading,
@@ -133,6 +150,8 @@ fun TvSearchScreen(
                 firstResultFocusRequester.requestFocus()
             } else if (visibleRequestResults.isNotEmpty()) {
                 firstRequestResultFocusRequester.requestFocus()
+            } else if (state.error != null) {
+                feedbackActionFocusRequester.requestFocus()
             } else {
                 firstFilterChipFocusRequester.requestFocus()
             }
@@ -147,25 +166,30 @@ fun TvSearchScreen(
     //   • first card   —UP→   first chip
     // The IME Search action submits the query without stealing focus.
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
         TvCatalogGrid(
             items = state.items,
-            isLoading = state.isLoading || state.isLoadingMore,
+            // Reset searches keep the existing grid stable and report progress
+            // in the pinned status line. Only pagination owns a grid spinner.
+            isLoading = state.isLoadingMore,
             hasMore = state.hasMore,
             onItemClick = { },
             onBrowseItemClick = onResultClick,
             onLoadMore = viewModel::loadMore,
-            modifier = Modifier.fillMaxSize(),
-            minCellWidth = 152.dp,
-            contentPadding = tvPageContentPadding(
-                top = TvTopMenuLayout.contentTopInset,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            gridState = searchGridState,
+            minCellWidth = 132.dp,
+            contentPadding = PaddingValues(
+                start = Spacing.safeArea,
+                top = Spacing.sm,
                 bottom = Spacing.xxxl,
                 end = 24.dp,
-                expandedGap = Spacing.md,
             ),
             horizontalSpacing = 14.dp,
             verticalSpacing = 20.dp,
@@ -186,11 +210,16 @@ fun TvSearchScreen(
                         total = state.total,
                         isSearching = state.isLoading,
                         error = state.error,
+                        isPartialCount = state.mediaType == TvSearchMediaType.All && state.hasMore,
                     ),
-                    hasResults = state.items.isNotEmpty() || visibleRequestResults.isNotEmpty(),
+                    hasContentFocusTarget = hasContentFocusTarget,
                     searchFieldFocusRequester = activeSearchFieldFocusRequester,
                     firstFilterChipFocusRequester = firstFilterChipFocusRequester,
-                    firstResultFocusRequester = firstContentFocusRequester,
+                    firstContentFocusRequester = firstContentFocusRequester,
+                    onSearchFieldFocusChanged = { focused ->
+                        onSearchFieldFocusChanged(focused)
+                        if (focused) keyboardController?.show()
+                    },
                     onQueryChanged = viewModel::onQueryChanged,
                     onSearch = {
                         pendingSearchFocus = true
@@ -224,22 +253,26 @@ fun TvSearchScreen(
             },
             emptyState = {
                 when {
-                    state.query.isBlank() -> SearchFeedbackCard(
-                        title = "Start typing to search your library",
-                        body = "Results update as you type, and Search jumps straight into the grid.",
+                    state.query.isBlank() -> SearchFeedbackMessage(
+                        title = "Search your library",
+                        body = availableMediaDescription(state.availableMediaTypes),
                     )
-                    state.error != null -> SearchFeedbackCard(
-                        title = "Search is unavailable right now",
+                    state.isLoading -> Box(modifier = Modifier.height(64.dp))
+                    state.error != null -> SearchFeedbackMessage(
+                        title = "Search is unavailable",
                         body = state.error!!,
+                        actionLabel = "Try again",
+                        actionFocusRequester = feedbackActionFocusRequester,
+                        actionUpFocusRequester = firstFilterChipFocusRequester,
+                        onAction = viewModel::submitSearch,
                     )
-                    else -> SearchFeedbackCard(
+                    else -> SearchFeedbackMessage(
                         title = "No matches for “${state.query}”",
-                        body = "Try a shorter title or switch media filters.",
+                        body = "Try a shorter title or a different filter.",
                     )
                 }
             },
         )
-
     }
 }
 
@@ -263,7 +296,7 @@ private fun TvRequestSearchSection(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = tvPageStartPadding(expandedGap = Spacing.md),
+                start = Spacing.safeArea,
                 end = 24.dp,
                 top = 4.dp,
                 bottom = 12.dp,
@@ -332,60 +365,44 @@ private fun RequestSearchFeedbackRow(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SearchStage(
     query: String,
     mediaType: TvSearchMediaType,
     availableMediaTypes: List<TvSearchMediaType>,
     resultStatus: String?,
-    hasResults: Boolean,
+    hasContentFocusTarget: Boolean,
     searchFieldFocusRequester: FocusRequester,
     firstFilterChipFocusRequester: FocusRequester,
-    firstResultFocusRequester: FocusRequester,
+    firstContentFocusRequester: FocusRequester,
+    onSearchFieldFocusChanged: (Boolean) -> Unit,
     onQueryChanged: (String) -> Unit,
     onSearch: () -> Unit,
     onMediaTypeChanged: (TvSearchMediaType) -> Unit,
 ) {
-    val startPadding = tvPageStartPadding(expandedGap = Spacing.md)
     val mediaTypes = availableMediaTypes
+    val fieldShape = RoundedCornerShape(14.dp)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = startPadding,
+                start = Spacing.safeArea,
                 end = 24.dp,
-                top = 0.dp,
-                bottom = Spacing.xs,
-            )
-            .widthIn(max = 380.dp),
-        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                top = TvTopMenuLayout.contentTopInset - 12.dp,
+                bottom = Spacing.sm,
+            ),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "SEARCH",
-                style = sectionEyebrow,
-                color = SiloBlue.copy(alpha = 0.78f),
-            )
-
-            if (resultStatus != null) {
-                SearchStatusPill(text = resultStatus)
-            }
-        }
-
         OutlinedTextField(
             value = query,
             onValueChange = { onQueryChanged(it.take(TV_SEARCH_QUERY_MAX_LENGTH)) },
             singleLine = true,
             placeholder = {
                 Text(
-                    text = "Search titles, movies, series, and audiobooks",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = searchFieldPrompt(mediaTypes),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.56f),
                 )
             },
@@ -394,7 +411,7 @@ private fun SearchStage(
                     imageVector = Icons.Filled.Search,
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.72f),
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             },
             keyboardOptions = KeyboardOptions(
@@ -402,20 +419,28 @@ private fun SearchStage(
                 imeAction = ImeAction.Search,
             ),
             keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+            shape = fieldShape,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
+                .width(520.dp)
+                .height(52.dp)
                 // Pin DOWN to the chip rail so the user can always step from
                 // the search field onto the All/Movies/Series filters,
                 // regardless of whether result cards are also rendered below.
                 .focusRequester(searchFieldFocusRequester)
+                .onFocusChanged { onSearchFieldFocusChanged(it.isFocused) }
                 .focusProperties { down = firstFilterChipFocusRequester },
-            colors = tvOutlinedTextFieldColors(),
+            colors = tvOutlinedTextFieldColors(
+                focusedContainerColor = ElevatedSurface,
+                unfocusedContainerColor = Color.White.copy(alpha = 0.055f),
+                focusedBorderColor = Color.White.copy(alpha = 0.94f),
+                unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+            ),
         )
 
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.focusRestorer(firstFilterChipFocusRequester),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(end = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -435,8 +460,8 @@ private fun SearchStage(
                         // Only redirect DOWN when there's actually a card to
                         // land on — pointing at an unattached FocusRequester
                         // makes the key event a no-op and traps the user.
-                        if (hasResults) {
-                            Modifier.focusProperties { down = firstResultFocusRequester }
+                        if (hasContentFocusTarget) {
+                            Modifier.focusProperties { down = firstContentFocusRequester }
                         } else {
                             Modifier
                         },
@@ -446,72 +471,24 @@ private fun SearchStage(
                     selected = mediaType == type,
                     onClick = { onMediaTypeChanged(type) },
                     modifier = chipModifier,
+                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
+                    textStyle = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 16.sp,
+                    ),
                 )
             }
         }
-    }
-}
 
-@Composable
-private fun SearchStatusPill(text: String) {
-    val shape = RoundedCornerShape(100.dp)
-    Box(
-        modifier = Modifier
-            .clip(shape)
-            .background(Color.White.copy(alpha = 0.045f))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.68f),
-        )
-    }
-}
-
-@Composable
-private fun SearchFeedbackCard(
-    title: String,
-    body: String,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(12.dp)
-
-    Box(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .widthIn(max = 340.dp)
-                .clip(shape)
-                .background(ElevatedSurface)
-                .border(1.dp, Color.White.copy(alpha = 0.05f), shape)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // A fixed-height slot keeps the header completely stable while the
+        // query moves between typing, loading, results, and error states.
+        Box(
+            modifier = Modifier.height(18.dp),
+            contentAlignment = Alignment.CenterStart,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.06f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                M3Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.72f),
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            if (resultStatus != null) {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    text = body,
+                    text = resultStatus,
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.62f),
                 )
@@ -520,19 +497,117 @@ private fun SearchFeedbackCard(
     }
 }
 
+@Composable
+private fun SearchFeedbackMessage(
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    actionFocusRequester: FocusRequester? = null,
+    actionUpFocusRequester: FocusRequester? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = Spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        M3Icon(
+            imageVector = Icons.Filled.Search,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.34f),
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(28.dp),
+        )
+
+        Column(
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.62f),
+            )
+
+            if (actionLabel != null && onAction != null) {
+                Button(
+                    onClick = onAction,
+                    modifier = Modifier
+                        .padding(top = Spacing.sm)
+                        .then(
+                            if (actionFocusRequester != null) {
+                                Modifier.focusRequester(actionFocusRequester)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .then(
+                            if (actionUpFocusRequester != null) {
+                                Modifier.focusProperties { up = actionUpFocusRequester }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
+                ) {
+                    Text(actionLabel, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+    }
+}
+
+private fun searchFieldPrompt(mediaTypes: List<TvSearchMediaType>): String =
+    "Search ${availableMediaNames(mediaTypes)}"
+
+private fun availableMediaDescription(mediaTypes: List<TvSearchMediaType>): String =
+    "Find ${availableMediaNames(mediaTypes)} in one place."
+
+private fun availableMediaNames(mediaTypes: List<TvSearchMediaType>): String {
+    val names = mediaTypes
+        .filterNot { it == TvSearchMediaType.All }
+        .map { it.label.lowercase() }
+
+    return when (names.size) {
+        0 -> "your library"
+        1 -> names.single()
+        2 -> names.joinToString(" and ")
+        else -> names.dropLast(1).joinToString(", ") + ", and ${names.last()}"
+    }
+}
+
 private fun searchStatusText(
     query: String,
     total: Int,
     isSearching: Boolean,
     error: String?,
+    isPartialCount: Boolean,
 ): String? = when {
     query.isBlank() -> null
     isSearching -> "Searching…"
-    error != null && total == 0 -> "Search unavailable"
+    error != null -> "Couldn't update results"
     total == 0 -> "No results"
     total == 1 -> "1 result"
+    isPartialCount -> "$total+ results"
     else -> "$total results"
 }
+
+/*
+ * Search stays a live discovery surface: the field and filters are pinned,
+ * while the grid below is the only scrolling region. This keeps the user's
+ * query visible and avoids racing the platform IME with scroll corrections.
+ *
+ * TV_SEARCH_QUERY_MAX_LENGTH lives in TvSearchInputRules.kt (shared with
+ * TvRequestsScreen); a private duplicate here collided with it.
+ */
 
 private fun TvSearchMediaType.toRequestMediaType(): String = when (this) {
     TvSearchMediaType.All -> RequestMediaType.All

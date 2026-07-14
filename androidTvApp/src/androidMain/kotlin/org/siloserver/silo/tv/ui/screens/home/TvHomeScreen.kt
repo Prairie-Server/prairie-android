@@ -8,6 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.tv.material3.MaterialTheme
 import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
@@ -30,6 +31,11 @@ fun TvHomeScreen(
     onOpenForYou: () -> Unit = {},
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
+    detailReturnFocusRequest: Int = 0,
+    detailReturnCardFocusRequester: FocusRequester? = null,
+    firstRowFocusRequester: FocusRequester? = null,
+    firstRowContainerFocusRequester: FocusRequester? = null,
+    shouldRefreshOnResume: () -> Boolean = { true },
     onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
     viewModel: HomeViewModel = koinViewModel(),
 ) {
@@ -43,7 +49,9 @@ fun TvHomeScreen(
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                viewModel.refreshFromRealtime()
+                if (shouldRefreshOnResume()) {
+                    viewModel.refreshFromRealtime()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -66,11 +74,16 @@ fun TvHomeScreen(
             onOpenForYou = onOpenForYou,
             onInitialContentFocus = onInitialContentFocus,
             focusRequest = focusRequest,
+            detailReturnFocusRequest = detailReturnFocusRequest,
+            detailReturnCardFocusRequester = detailReturnCardFocusRequester,
+            firstRowFocusRequester = firstRowFocusRequester,
+            firstRowContainerFocusRequester = firstRowContainerFocusRequester,
             onContentUpFallbackChanged = onContentUpFallbackChanged,
             onSetWatched = viewModel::setWatched,
             onToggleFavorite = viewModel::toggleFavorite,
             onToggleWatchlist = viewModel::toggleWatchlist,
             onDismissContinueWatching = viewModel::dismissContinueWatching,
+            onDismissNextUp = viewModel::dismissNextUp,
         )
     }
 }
@@ -83,16 +96,25 @@ private fun TvHomeContent(
     onOpenForYou: () -> Unit = {},
     onInitialContentFocus: () -> Unit,
     focusRequest: Int,
+    detailReturnFocusRequest: Int,
+    detailReturnCardFocusRequester: FocusRequester?,
+    firstRowFocusRequester: FocusRequester?,
+    firstRowContainerFocusRequester: FocusRequester?,
     onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)?,
     onSetWatched: (String, Boolean) -> Unit = { _, _ -> },
     onToggleFavorite: (String, Boolean) -> Unit = { _, _ -> },
     onToggleWatchlist: (String, Boolean) -> Unit = { _, _ -> },
     onDismissContinueWatching: (String, String) -> Unit = { _, _ -> },
+    onDismissNextUp: (String, String) -> Unit = { _, _ -> },
 ) {
     TvSkylineSectionFeed(
         sections = sections,
         onItemClick = onItemClick,
         focusRequest = focusRequest,
+        detailReturnFocusRequest = detailReturnFocusRequest,
+        detailReturnCardFocusRequester = detailReturnCardFocusRequester,
+        firstRowFocusRequester = firstRowFocusRequester,
+        firstRowContainerRequester = firstRowContainerFocusRequester,
         onInitialContentFocus = onInitialContentFocus,
         onContentUpFallbackChanged = onContentUpFallbackChanged,
         iconForSection = { section ->
@@ -109,18 +131,21 @@ private fun TvHomeContent(
         },
         cardActions = { section, item ->
             val isProgressRow = section.isTvProgressRow()
+            val progressUpdatedAt = item.progressUpdatedAt
+            val seriesId = item.seriesId
             TvMediaCardActions(
                 onSetWatched = { watched -> onSetWatched(item.contentId, watched) },
                 onToggleFavorite = { fav -> onToggleFavorite(item.contentId, fav) },
                 onToggleWatchlist = { wl -> onToggleWatchlist(item.contentId, wl) },
-                onRemoveFromContinueWatching = if (isProgressRow && item.progressUpdatedAt != null) {
-                    {
-                        item.progressUpdatedAt?.let { ts ->
-                            onDismissContinueWatching(item.contentId, ts)
-                        }
+                onRemoveFromContinueWatching = when {
+                    !isProgressRow -> null
+                    progressUpdatedAt != null -> {
+                        { onDismissContinueWatching(item.contentId, progressUpdatedAt) }
                     }
-                } else {
-                    null
+                    seriesId != null -> {
+                        { onDismissNextUp(item.contentId, seriesId) }
+                    }
+                    else -> null
                 },
             )
         },

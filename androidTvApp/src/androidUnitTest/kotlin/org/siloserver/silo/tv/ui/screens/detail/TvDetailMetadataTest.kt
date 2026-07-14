@@ -5,11 +5,56 @@ import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.model.catalog.VideoTrack
 import org.siloserver.silo.model.ebook.MediaPerson
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TvDetailMetadataTest {
+    @Test
+    fun episodeFactsPutAirDateBeforeRuntime() {
+        val detail = ItemDetail(
+            contentId = "e1",
+            type = "episode",
+            title = "Episode",
+            year = 2026,
+            airDate = "2026-03-30T00:00:00Z",
+            runtime = 52,
+        )
+
+        assertEquals(
+            listOf(
+                TvHeroFactToken.TextToken("Mar 30, 2026"),
+                TvHeroFactToken.TextToken("52 min"),
+            ),
+            TvDetailMetadata.factsLine(detail, zone = ZoneId.of("UTC")),
+        )
+    }
+
+    @Test
+    fun airDateRendersInViewerZoneLikeTvOs() {
+        // tvOS parses the timestamp as a UTC instant and formats the LOCAL
+        // calendar date, so a midnight-UTC air date shows the previous day for
+        // viewers west of UTC. The Android hero mirrors that.
+        assertEquals(
+            "Mar 29, 2026",
+            TvDetailMetadata.abbreviatedDate(
+                "2026-03-30T00:00:00Z",
+                zone = ZoneId.of("America/Los_Angeles"),
+            ),
+        )
+        // Bare full dates are parsed at UTC midnight too (Apple's
+        // `.withFullDate` ISO8601 parser defaults to GMT).
+        assertEquals(
+            "Mar 29, 2026",
+            TvDetailMetadata.abbreviatedDate(
+                "2026-03-30",
+                zone = ZoneId.of("America/Los_Angeles"),
+            ),
+        )
+    }
+
     @Test
     fun audiobookSourceTokensIncludeTypePublisherAndNarrator() {
         val detail = ItemDetail(
@@ -80,6 +125,33 @@ class TvDetailMetadataTest {
                 preferredQuality = "1080p",
                 selectedFileId = 2160,
             ),
+        )
+    }
+
+    @Test
+    fun factsLineNamesDolbyVisionFromVideoTrackMetadata() {
+        val detail = ItemDetail(
+            contentId = "m1",
+            type = "movie",
+            title = "Movie",
+            versions = listOf(
+                FileVersion(
+                    fileId = 2160,
+                    resolution = "2160p",
+                    hdr = true,
+                    videoTracks = listOf(
+                        VideoTrack(codec = "hevc", dolbyVision = "Profile 8", hdr = true),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                TvHeroFactToken.Chip("4K"),
+                TvHeroFactToken.Chip("DOLBY VISION"),
+            ),
+            TvDetailMetadata.factsLine(detail),
         )
     }
 }

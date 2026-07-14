@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.siloserver.silo.android.ui.components.SiloTopBar
 import org.siloserver.silo.common.ui.components.ThumbhashImage
+import org.siloserver.silo.common.calendar.localDisplayAirTime
 import org.siloserver.silo.model.calendar.CalendarBadge
 import org.siloserver.silo.model.calendar.CalendarFilter
 import org.siloserver.silo.model.calendar.CalendarItem
@@ -63,6 +64,7 @@ import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.viewmodel.CalendarViewModel
+import org.siloserver.silo.android.ui.navigation.LocalBottomChromeInset
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import java.time.LocalDate
@@ -170,7 +172,7 @@ fun CalendarScreen(
                 else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = LargePadding),
+                    contentPadding = PaddingValues(bottom = LargePadding + LocalBottomChromeInset.current),
                 ) {
                     // iOS pins this header (LazyVStack pinnedViews:[.sectionHeaders]).
                     stickyHeader(key = "calendar-header") {
@@ -782,13 +784,8 @@ private fun monthLabel(weekDates: List<String>): String {
     return anchor.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
 }
 
-/**
- * iOS CalendarEvent.displayAirTime: a localized short time. The shared model
- * carries the same air_time wall-clock string; surface it directly (the iOS
- * RFC3339 reformatting lives in shared code, not this screen).
- */
-private fun displayAirTime(item: CalendarItem): String? =
-    item.airTime?.takeIf { it.isNotBlank() }
+/** Local viewer time, preferring the server's absolute RFC3339 instant. */
+private fun displayAirTime(item: CalendarItem): String? = item.localDisplayAirTime()
 
 /**
  * iOS CalendarCardCaption.subtitle: "S5 · E14 · Title" for episodes,

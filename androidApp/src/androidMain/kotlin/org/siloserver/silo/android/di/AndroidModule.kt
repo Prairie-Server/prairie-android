@@ -80,7 +80,9 @@ import org.siloserver.silo.android.ui.screens.player.PlayerViewModel
 import org.siloserver.silo.android.ui.screens.reading.ReadingHubViewModel
 import org.siloserver.silo.android.ui.screens.search.SearchViewModel
 import org.siloserver.silo.android.ui.screens.settings.SettingsViewModel
+import org.siloserver.silo.android.cast.SharedPrefsSiloCastLastTargetStore
 import org.siloserver.silo.android.cast.SiloCastController
+import org.siloserver.silo.android.cast.SiloCastLastTargetStore
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
@@ -166,7 +168,7 @@ val androidModule = module {
     }
     single { SiloCastNsdBrowser(androidContext()) }
     single { CompanionPairingNsdBrowser(androidContext()) }
-    single<CompanionPairingServerStore> { RegistryCompanionPairingServerStore(get()) }
+    single<CompanionPairingServerStore> { RegistryCompanionPairingServerStore(get(), get()) }
     single<CompanionDeviceLoginApprover> { RepositoryCompanionDeviceLoginApprover(get()) }
     single<CompanionPairingTransportFactory> {
         CompanionPairingTransportFactory { target ->
@@ -174,10 +176,14 @@ val androidModule = module {
         }
     }
     single { CompanionPairingCoordinator(get(), get(), get()) }
+    single<SiloCastLastTargetStore> { SharedPrefsSiloCastLastTargetStore(androidContext()) }
     single {
         SiloCastController(
             browser = get(),
             serverRegistry = get(),
+            tokenManager = get(),
+            deviceLoginApi = get(),
+            lastTargetStore = get(),
             deviceNameProvider = {
                 android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android Phone"
             },

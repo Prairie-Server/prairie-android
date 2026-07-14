@@ -27,6 +27,7 @@ import org.siloserver.silo.common.cast.SiloCastNsdAdvertiser
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStarter
 import org.siloserver.silo.tv.cast.TvSiloCastReceiver
+import org.siloserver.silo.tv.cast.RemotePlaybackIdentityManager
 import org.siloserver.silo.tv.ui.screens.player.TvPlayerLaunchArgs
 import org.siloserver.silo.tv.ui.screens.auth.TvLoginViewModel
 import org.siloserver.silo.tv.ui.screens.auth.TvServerSetupViewModel
@@ -50,6 +51,7 @@ import org.siloserver.silo.tv.ui.screens.player.TvPlayerViewModel
 import org.siloserver.silo.tv.ui.screens.player.TvVideoPlaybackStarter
 import org.siloserver.silo.tv.ui.screens.profiles.TvProfileSelectionViewModel
 import org.siloserver.silo.tv.ui.screens.search.TvSearchViewModel
+import org.siloserver.silo.tv.data.preferences.TvLibraryScopeStore
 import org.siloserver.silo.tv.watchnext.WatchNextRepository
 import org.siloserver.silo.tv.watchnext.WatchNextSeeder
 import android.net.Uri
@@ -258,11 +260,11 @@ val androidTvModule = module {
     // machine. A later step wires the UI to PairingReceiver.status.
     single {
         org.siloserver.silo.common.pairing.PairingReceiver(
-            authPort = org.siloserver.silo.common.pairing.AuthRepositoryPairingPort(get(), get()),
+            authPort = org.siloserver.silo.common.pairing.RegistryPairingAuthPort(get(), get()),
             deviceLogin = org.siloserver.silo.common.pairing.DeviceLoginRepositoryPort(get()),
             identityProvider = {
                 org.siloserver.silo.common.pairing.PairingDeviceIdentity(
-                    name = android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android TV",
+                    name = tvDeviceName(),
                     deviceId = org.siloserver.silo.common.pairing.PairingDeviceId
                         .stable(androidContext()),
                 )
@@ -293,12 +295,18 @@ val androidTvModule = module {
     }
     single { SiloCastNsdAdvertiser(androidContext()) }
     single {
+        RemotePlaybackIdentityManager(
+            deviceLoginApi = get(),
+            tokenManager = get(),
+            deviceNameProvider = ::tvDeviceName,
+        )
+    }
+    single {
         TvSiloCastReceiver(
             advertiser = get(),
             serverRegistry = get(),
-            deviceNameProvider = {
-                android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android TV"
-            },
+            identityManager = get(),
+            deviceNameProvider = ::tvDeviceName,
             deviceIdProvider = {
                 org.siloserver.silo.common.pairing.PairingDeviceId.stable(androidContext())
             },
@@ -318,7 +326,7 @@ val androidTvModule = module {
             profileId = params.get(),
         )
     }
-    viewModel { TvServerListViewModel(get(), get()) }
+    viewModel { TvServerListViewModel(get(), get(), get()) }
 
     // Admin ViewModels
     viewModel { AdminStatsViewModel(get()) }
@@ -363,6 +371,9 @@ val androidTvModule = module {
             catalogRepository = get(),
             personId = params.get(),
             personalDataRepository = getOrNull(),
+            showAudiobooksProvider = {
+                get<TvLibraryScopeStore>().getShowAudiobooksTab()
+            },
         )
     }
     viewModel { TvLibrariesViewModel(get(), get(), get()) }
@@ -383,7 +394,7 @@ val androidTvModule = module {
             title = params.get(),
         )
     }
-    viewModel { TvSearchViewModel(get(), get()) }
+    viewModel { TvSearchViewModel(get(), get(), get()) }
     viewModel { params ->
         TvItemDetailViewModel(
             catalogRepository = get(),
@@ -451,12 +462,15 @@ val androidTvModule = module {
             authRepository = get(),
             profileRepository = get(),
             tokenManager = get(),
+            serverRegistry = get(),
             playerSettingsStore = get(),
             libraryPlaybackPrefsStore = get(),
             overlayPrefsStore = get(),
             legacyTvPrefsMigration = get(),
-            notificationsRepository = get(),
             tvLibraryScopeStore = getOrNull(),
         )
     }
 }
+
+private fun tvDeviceName(): String =
+    android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android TV"

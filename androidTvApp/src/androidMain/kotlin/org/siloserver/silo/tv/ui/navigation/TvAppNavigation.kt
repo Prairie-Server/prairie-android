@@ -7,6 +7,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -42,10 +45,14 @@ import org.siloserver.silo.common.overlays.ProvideCardOverlays
 import org.siloserver.silo.common.settings.LibraryPlaybackPrefsStore
 import org.siloserver.silo.common.settings.OverlayPrefsStore
 import org.siloserver.silo.tv.watchnext.WatchNextSeeder
+import org.siloserver.silo.tv.cast.TvSiloCastReceiver
+import org.siloserver.silo.tv.ui.screens.cast.TvSiloCastStandbyView
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.core.qualifier.named
+
+private const val RETURN_TO_MANAGE_SERVERS_KEY = "return_to_manage_servers"
 
 /**
  * Top-level TV navigation graph.
@@ -92,8 +99,29 @@ fun TvAppNavigation(
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
+    val siloCastReceiver: TvSiloCastReceiver = koinInject()
     val pendingDeepLink: MutableStateFlow<Uri?> =
         koinInject(qualifier = named("pendingDeepLink"))
+    val siloCastStandby by siloCastReceiver.standbyState.collectAsState()
+
+    LaunchedEffect(siloCastReceiver) {
+        siloCastReceiver.launchRequests.collect { request ->
+            val playback = request.playback
+            val destination = TvRoute.Player(
+                contentId = playback.contentId,
+                fileId = playback.fileId,
+                resumePositionSeconds = if (playback.startFromBeginning) 0.0 else playback.resumePosition,
+                audioTrackIndex = playback.audioTrackIndex,
+                subtitleTrackIndex = playback.subtitleTrackIndex,
+            ).route
+            val replaceCurrentPlayer = navController.currentDestination?.route == TvRoute.Player.ROUTE
+            navController.navigate(destination) {
+                if (replaceCurrentPlayer) {
+                    popUpTo(TvRoute.Player.ROUTE) { inclusive = true }
+                }
+            }
+        }
+    }
 
     // Watch Next launcher deep links. [MainTvActivity] publishes the launching
     // (or warm-launch) URI into the shared flow; we consume it here once and
@@ -199,6 +227,7 @@ fun TvAppNavigation(
     }
 
     ProvideCardOverlays(store = overlayPrefsStore, sessionKey = overlaySessionKey) {
+    Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -374,8 +403,18 @@ fun TvAppNavigation(
             )
         }
 
-        composable(TvRoute.Main.route) {
+        composable(TvRoute.Main.route) { mainEntry ->
+            val returnToManageServers =
+                mainEntry.savedStateHandle.get<Boolean>(RETURN_TO_MANAGE_SERVERS_KEY) == true
             TvMainShell(
+                returnToManageServers = returnToManageServers,
+                onManageServersReturnFocusConsumed = {
+                    mainEntry.savedStateHandle.remove<Boolean>(RETURN_TO_MANAGE_SERVERS_KEY)
+                },
+                onManageServers = {
+                    mainEntry.savedStateHandle[RETURN_TO_MANAGE_SERVERS_KEY] = true
+                    navController.navigate(TvRoute.ServerList.route)
+                },
                 onOpenItemDetail = { contentId ->
                     // launchSingleTop collapses a double-OK on the same card into
                     // one ItemDetail entry (consecutive identical contentId), so
@@ -424,6 +463,13 @@ fun TvAppNavigation(
                 },
                 onSwitchProfile = {
                     scope.launch {
+                        // Leave the main shell before clearing profile-scoped
+                        // state. Clearing first briefly recomposed Home with
+                        // default overlay pills behind Settings before the
+                        // profile picker appeared.
+                        navController.navigate(TvRoute.ProfileSelection.route) {
+                            popUpTo(TvRoute.Main.route) { inclusive = true }
+                        }
                         profileRepository.clearProfile()
                         // Library/overlay prefs are per-profile — drop the caches
                         // so the next profile's prefs don't ghost-render the
@@ -435,9 +481,6 @@ fun TvAppNavigation(
                         // landing on the picker; the new profile will re-seed
                         // via [onProfileSelected].
                         watchNextSeeder.clear()
-                        navController.navigate(TvRoute.ProfileSelection.route) {
-                            popUpTo(TvRoute.Main.route) { inclusive = true }
-                        }
                     }
                 },
                 // Android TV is now multi-server (parity with tvOS). "Switch
@@ -503,7 +546,13 @@ fun TvAppNavigation(
                             audioTrackIndex = audioTrackIndex,
                             subtitleTrackIndex = subtitleTrackIndex,
                         ),
-                    )
+                    ) {
+                        // A fast Select after entering detail can overlap the
+                        // route transition. Collapse an identical second Play
+                        // request instead of creating two player ViewModels and
+                        // two concurrent playback-session starts.
+                        launchSingleTop = true
+                    }
                 },
                 onItemDetail = { itemContentId ->
                     // launchSingleTop suppresses the exact double-tap dupe; a
@@ -513,9 +562,9 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
-                // Season switching REPLACES the current detail entry so paging
+                // Season switching replaces the current detail entry so paging
                 // through seasons never stacks pages — one Back returns to the
-                // screen the user arrived from (QA 2026-07-08).
+                // screen the user arrived from.
                 onItemDetailReplace = { itemContentId ->
                     val current = navController.currentBackStackEntry?.destination?.route
                     navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
@@ -810,6 +859,13 @@ fun TvAppNavigation(
                 onBack = { navController.popBackStack() },
             )
         }
+    }
+    siloCastStandby?.let { state ->
+        TvSiloCastStandbyView(
+            state = state,
+            onDisconnect = siloCastReceiver::disconnectRemoteControl,
+        )
+    }
     }
     }
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -107,6 +108,15 @@ fun TvMediaCard(
             modifier.width(width)
         },
     ) {
+        TvMediaCardContextMenu(
+            expanded = menuExpanded,
+            onDismiss = { menuExpanded = false },
+            actions = actions,
+            isPlayed = userState?.played == true,
+            isFavorite = userState?.isFavorite == true,
+            isInWatchlist = userState?.inWatchlist == true,
+        )
+
         Card(
             onClick = onClick,
             onLongClick = if (actions.isEmpty) null else { { menuExpanded = true } },
@@ -143,7 +153,7 @@ fun TvMediaCard(
                         prefs = overlayState.prefs,
                         variant = CardOverlayVariant.Poster,
                         scale = TvCardOverlayScale,
-                        forceOpaqueBackground = true,
+                        forceOpaqueBackground = false,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -185,11 +195,14 @@ fun TvMediaCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(11.dp))
 
         Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontSize = 15.5.sp,
+                lineHeight = 18.5.sp,
+            ),
             color = if (isFocused) {
                 Color.White
             } else {
@@ -197,28 +210,23 @@ fun TvMediaCard(
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
+            textAlign = TextAlign.Start,
             modifier = Modifier.fillMaxWidth(),
         )
 
         if (year != null && year > 0) {
             Text(
                 text = year.toString(),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 12.5.sp,
+                    lineHeight = 15.5.sp,
+                ),
                 color = Color.White.copy(alpha = 0.70f),
-                textAlign = TextAlign.Center,
+                textAlign = TextAlign.Start,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
 
-        TvMediaCardContextMenu(
-            expanded = menuExpanded,
-            onDismiss = { menuExpanded = false },
-            actions = actions,
-            isPlayed = userState?.played == true,
-            isFavorite = userState?.isFavorite == true,
-            isInWatchlist = userState?.inWatchlist == true,
-        )
     }
 }
 

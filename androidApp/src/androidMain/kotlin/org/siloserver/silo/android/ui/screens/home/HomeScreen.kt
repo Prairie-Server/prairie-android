@@ -23,11 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Smartphone
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.outlined.SettingsRemote
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,7 +32,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -60,14 +55,15 @@ import org.siloserver.silo.android.ui.components.ErrorView
 import org.siloserver.silo.android.ui.components.MediaRowSkeleton
 import org.siloserver.silo.android.ui.components.rememberShimmerProgress
 import org.siloserver.silo.android.ui.screens.pairing.CompanionPairingViewModel
+import org.siloserver.silo.android.ui.screens.pairing.CompanionPairingBottomOverlay
 import org.siloserver.silo.android.ui.screens.profiles.ProfileAvatar
-import org.siloserver.silo.common.pairing.CompanionPairingApproval
 import org.siloserver.silo.common.pairing.CompanionPairingStatus
 import org.siloserver.silo.common.pairing.CompanionPairingTarget
 import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.section.splitFeatured
 import org.siloserver.silo.viewmodel.HomeViewModel
+import org.siloserver.silo.android.ui.navigation.LocalBottomChromeInset
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val ChromeFadeDistanceDp = 72f
@@ -92,6 +88,10 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
+    onRemoteControlClick: () -> Unit,
+    onRemoteChooseTvClick: () -> Unit,
+    onRemoteDisconnectClick: () -> Unit,
+    isRemoteControlActive: Boolean,
     onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
@@ -104,6 +104,9 @@ fun HomeScreen(
     val companionTargets by companionPairingViewModel.targets.collectAsState()
     val companionStatus by companionPairingViewModel.status.collectAsState()
     val companionApproval by companionPairingViewModel.pendingApproval.collectAsState()
+    val companionServerChoices by companionPairingViewModel.serverChoices.collectAsState()
+    var presentedPairingTarget by remember { mutableStateOf<CompanionPairingTarget?>(null) }
+    var dismissedPairingSessions by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val sections = state.sections
     // iOS Home excludes `featured` sections entirely (HomeViewModel.regularSections)
     // — Home renders only the configured rows, never a hero billboard.
@@ -114,6 +117,23 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     LaunchedEffect(scrollToTopTick) {
         if (scrollToTopTick > 0) listState.animateScrollToItem(0)
+    }
+    LaunchedEffect(companionTargets, companionStatus, dismissedPairingSessions) {
+        if (companionStatus is CompanionPairingStatus.Idle) {
+            val presented = presentedPairingTarget
+            if (presented == null) {
+                presentedPairingTarget = companionTargets.firstOrNull {
+                    it.dismissalKey !in dismissedPairingSessions
+                }
+            } else {
+                // Android NSD can resolve the same TV again with a new listener port after
+                // its setup screen restarts. Keep the visible card, but always pair with the
+                // freshest endpoint instead of the target object originally latched by UI.
+                presentedPairingTarget = companionTargets
+                    .firstOrNull { it.deviceId == presented.deviceId }
+                    ?: companionTargets.firstOrNull { it.dismissalKey !in dismissedPairingSessions }
+            }
+        }
     }
     val density = LocalDensity.current
     val chromeFadePx = remember(density) {
@@ -170,17 +190,6 @@ fun HomeScreen(
                         )
                     }
 
-                    if (shouldShowCompanionPairingCard(companionTargets, companionStatus)) {
-                        item(key = "companionPairing", contentType = { "companion-pairing" }) {
-                            CompanionPairingCard(
-                                target = companionTargets.firstOrNull(),
-                                status = companionStatus,
-                                onPair = { target -> companionPairingViewModel.pair(target) },
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                            )
-                        }
-                    }
-
                     items(
                         items = regularSections,
                         key = { it.id },
@@ -213,9 +222,10 @@ fun HomeScreen(
                         )
                     }
 
-                    // iOS bottom padding = SiloTheme.largePadding (24).
+                    // iOS bottom padding = SiloTheme.largePadding (24), plus the
+                    // translucent bottom chrome the content scrolls beneath.
                     item(key = "bottomPad") {
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(24.dp + LocalBottomChromeInset.current))
                     }
                 }
             }
@@ -226,6 +236,10 @@ fun HomeScreen(
             scrollProgress = scrollProgress,
             activeProfile = activeProfile,
             onSearchClick = onSearchClick,
+            onRemoteControlClick = onRemoteControlClick,
+            onRemoteChooseTvClick = onRemoteChooseTvClick,
+            onRemoteDisconnectClick = onRemoteDisconnectClick,
+            isRemoteControlActive = isRemoteControlActive,
             onRequestsClick = onRequestsClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
@@ -233,110 +247,28 @@ fun HomeScreen(
             onSignOutClick = onSignOutClick,
         )
 
-        CompanionPairingApprovalDialog(
+        CompanionPairingBottomOverlay(
+            target = presentedPairingTarget,
+            status = companionStatus,
             approval = companionApproval,
+            serverChoices = companionServerChoices,
+            onPair = companionPairingViewModel::pair,
+            onServersSelected = companionPairingViewModel::continueWithServers,
             onApprove = companionPairingViewModel::approveMatchCode,
-            onCancel = companionPairingViewModel::cancelMatchCode,
+            onDecline = companionPairingViewModel::cancelMatchCode,
+            onDismiss = {
+                presentedPairingTarget?.let { target ->
+                    dismissedPairingSessions = dismissedPairingSessions + target.dismissalKey
+                }
+                companionPairingViewModel.dismissPairing()
+                presentedPairingTarget = null
+            },
         )
     }
 }
 
-private fun shouldShowCompanionPairingCard(
-    targets: List<CompanionPairingTarget>,
-    status: CompanionPairingStatus,
-): Boolean =
-    targets.isNotEmpty() || status !is CompanionPairingStatus.Idle
-
-@Composable
-private fun CompanionPairingCard(
-    target: CompanionPairingTarget?,
-    status: CompanionPairingStatus,
-    onPair: (CompanionPairingTarget) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val busy = status is CompanionPairingStatus.Connecting ||
-        status is CompanionPairingStatus.PushingServer ||
-        status is CompanionPairingStatus.AwaitingMatchConfirmation ||
-        status is CompanionPairingStatus.Approving
-    val title = when (status) {
-        is CompanionPairingStatus.Completed -> "TV setup complete"
-        is CompanionPairingStatus.Failed -> "TV setup needs attention"
-        else -> target?.let { "Set up ${it.name}" } ?: "Set up TV"
-    }
-    val subtitle = when (status) {
-        is CompanionPairingStatus.Connecting -> "Connecting to ${status.targetName}..."
-        is CompanionPairingStatus.PushingServer -> "Sending ${status.serverName} to ${status.targetName}..."
-        is CompanionPairingStatus.AwaitingMatchConfirmation -> "Confirm the match code to finish."
-        is CompanionPairingStatus.Approving -> "Approving ${status.targetName}..."
-        is CompanionPairingStatus.SignedIn -> "${status.serverName} signed in."
-        is CompanionPairingStatus.Completed -> "Your TV can continue from profile selection."
-        is CompanionPairingStatus.Failed -> status.message
-        is CompanionPairingStatus.Idle -> "A Silo TV app is waiting on your network."
-    }
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
-        ),
-        shape = RoundedCornerShape(20.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Smartphone,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (target != null && !busy) {
-                Button(onClick = { onPair(target) }) {
-                    Text("Set up TV")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompanionPairingApprovalDialog(
-    approval: CompanionPairingApproval?,
-    onApprove: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    if (approval == null) return
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("Confirm TV setup") },
-        text = {
-            Text(
-                "Make sure ${approval.targetName} shows ${approval.serverMatchCode} before approving ${approval.serverName}.",
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onApprove) {
-                Text("Approve")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onCancel) {
-                Text("Cancel")
-            }
-        },
-    )
-}
+private val CompanionPairingTarget.dismissalKey: String
+    get() = "$deviceId:${sessionId ?: serviceName}"
 
 @Composable
 private fun HomeLoadingSkeleton() {
@@ -361,6 +293,10 @@ private fun HomeFloatingChrome(
     scrollProgress: Float,
     activeProfile: Profile?,
     onSearchClick: () -> Unit,
+    onRemoteControlClick: () -> Unit,
+    onRemoteChooseTvClick: () -> Unit,
+    onRemoteDisconnectClick: () -> Unit,
+    isRemoteControlActive: Boolean,
     onRequestsClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
@@ -399,6 +335,60 @@ private fun HomeFloatingChrome(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Mirrors Apple's SiloControlModeButton: chrome-free at rest,
+                // filled disc while controlling a TV; the active state opens a
+                // menu instead of jumping straight to the remote.
+                Box {
+                    var remoteMenuExpanded by remember { mutableStateOf(false) }
+                    HomeChromeButton(
+                        onClick = {
+                            if (isRemoteControlActive) {
+                                remoteMenuExpanded = true
+                            } else {
+                                onRemoteControlClick()
+                            }
+                        },
+                        isActive = isRemoteControlActive,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.SettingsRemote,
+                            contentDescription = "Remote Control",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = remoteMenuExpanded,
+                        onDismissRequest = { remoteMenuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Remote Control") },
+                            onClick = {
+                                remoteMenuExpanded = false
+                                onRemoteControlClick()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Choose TV") },
+                            onClick = {
+                                remoteMenuExpanded = false
+                                onRemoteChooseTvClick()
+                            },
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Turn Off Control Mode",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = {
+                                remoteMenuExpanded = false
+                                onRemoteDisconnectClick()
+                            },
+                        )
+                    }
+                }
+
                 HomeChromeButton(onClick = onSearchClick) {
                     Icon(
                         imageVector = Icons.Outlined.Search,
@@ -431,13 +421,15 @@ private fun HomeFloatingChrome(
 @Composable
 private fun HomeChromeButton(
     onClick: () -> Unit,
+    isActive: Boolean = false,
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
     // iOS top-bar icon buttons are bare 40x40 tap targets (no chip background).
     Surface(
         onClick = onClick,
-        color = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        color = if (isActive) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+        contentColor = if (isActive) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface,
+        shape = CircleShape,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {

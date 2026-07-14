@@ -1,8 +1,11 @@
 package org.siloserver.silo.tv.ui.screens.calendar
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,10 +55,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -65,6 +75,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.common.ui.components.ThumbhashImage
+import org.siloserver.silo.common.calendar.localDisplayAirTime
 import org.siloserver.silo.model.calendar.CalendarBadge
 import org.siloserver.silo.model.calendar.CalendarFilter
 import org.siloserver.silo.model.calendar.CalendarItem
@@ -112,6 +123,7 @@ import java.util.Locale
 fun TvCalendarScreen(
     onOpenItemDetail: (contentId: String) -> Unit,
     onInitialContentFocus: () -> Unit = {},
+    focusRequest: Int = 0,
     viewModel: CalendarViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -119,21 +131,64 @@ fun TvCalendarScreen(
     // First focusable element is the segmented filter capsule so the D-pad
     // lands there when the Calendar tab swaps in; gate the jump so a silent
     // re-emission doesn't yank focus back after the user has navigated.
-    val filterFocusRequester = remember { FocusRequester() }
-    var initialFocusRequested by remember { mutableStateOf(false) }
-    LaunchedEffect(state.weekStart) {
-        if (initialFocusRequested) return@LaunchedEffect
-        runCatching { filterFocusRequester.requestFocus() }
-        onInitialContentFocus()
-        initialFocusRequested = true
+    val filterFocusRequesters = remember {
+        mapOf(
+            CalendarFilter.Following to FocusRequester(),
+            CalendarFilter.Trending to FocusRequester(),
+            CalendarFilter.All to FocusRequester(),
+        )
     }
+    val filterFocusRequester = filterFocusRequesters.getValue(CalendarFilter.Following)
+    val selectedDayFocusRequester = remember { FocusRequester() }
+    var lastAppliedFocusRequest by remember { mutableIntStateOf(-1) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
+    // Explicit shell-to-screen handoff. The shell bumps this token whenever
+    // Calendar is selected, including re-selection after a restored route.
+    // Target the active segment directly instead of asking the parent content
+    // group to guess a descendant (which falls back to Home while navigating).
+    LaunchedEffect(focusRequest, state.isLoading) {
+        if (focusRequest == lastAppliedFocusRequest) return@LaunchedEffect
+        if (state.isLoading) return@LaunchedEffect
+        val layoutInfo = listState.layoutInfo
+        val itemExtent = (layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0) +
+            layoutInfo.mainAxisItemSpacing
+        val distance = listState.firstVisibleItemIndex.toFloat() * itemExtent +
+            listState.firstVisibleItemScrollOffset
+        if (distance > 0f) {
+            val durationMs = (distance / 4f).toInt().coerceIn(250, 900)
+            listState.animateScrollBy(
+                -distance,
+                tween(durationMs, easing = FastOutSlowInEasing),
+            )
+        }
+        listState.scrollToItem(0)
+        // Let the active loading/content branch attach its focus nodes before
+        // applying the handoff. A request in the same frame as NavHost restore
+        // is overwritten by Android's initial focus search.
+        androidx.compose.runtime.withFrameNanos { }
+        androidx.compose.runtime.withFrameNanos { }
+        val requester = filterFocusRequesters[state.filter] ?: filterFocusRequester
+        val applied = runCatching { requester.requestFocus() }.getOrDefault(false)
+        if (applied) {
+            // Keep the shell bar suppressed through Android's delayed initial
+            // focus pass. Reconfirm the filter after that pass, then release
+            // suppression on the following frame.
+            kotlinx.coroutines.delay(120)
+            runCatching { requester.requestFocus() }
+            androidx.compose.runtime.withFrameNanos { }
+            lastAppliedFocusRequest = focusRequest
+            onInitialContentFocus()
+        }
+    }
     // Focus hand-off for day selection: picking a day in the week strip scrolls
     // to that day's shelf and kicks focus onto its first card. Only the most
     // recently selected day sees a changing, non-zero token, so exactly one
     // shelf claims focus.
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
+    val snapControlsToInitialPosition: () -> Unit = {
+        scope.launch { listState.animateScrollToItem(0) }
+    }
     var shelfFocusDay by remember { mutableStateOf<String?>(null) }
     var shelfFocusRequest by remember { mutableIntStateOf(0) }
     val tintState = rememberAmbientBackdropTintState()
@@ -157,86 +212,115 @@ fun TvCalendarScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            Column(
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                Column(
-                    modifier = Modifier.padding(
-                        start = Spacing.safeArea,
-                        end = Spacing.safeArea,
-                        top = TvTopMenuLayout.contentTopInset,
-                        bottom = Spacing.sm,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-                ) {
-                    CalendarControlRow(
-                        selectedFilter = state.filter,
-                        onSelectFilter = viewModel::setFilter,
-                        firstSegmentFocusRequester = filterFocusRequester,
-                    )
-
-                    WeekStrip(
-                        weekDates = state.weekDates,
-                        today = state.today,
-                        selectedDay = state.selectedDay,
-                        isCurrentWeek = state.isCurrentWeek,
-                        hasEvents = { date -> state.itemsFor(date).isNotEmpty() },
-                        onSelectDay = { date ->
-                            viewModel.selectDay(date)
-                            val index = state.weekDates.indexOf(date)
-                            if (index >= 0) {
-                                scope.launch { listState.animateScrollToItem(index) }
-                            }
-                            if (state.itemsFor(date).isNotEmpty()) {
-                                shelfFocusDay = date
-                                shelfFocusRequest += 1
-                            }
-                        },
-                        onPrevWeek = viewModel::prevWeek,
-                        onNextWeek = viewModel::nextWeek,
-                        onToday = viewModel::goToToday,
-                    )
-                }
-
-                when {
-                    // Unconditional (phone parity): the shared VM keeps the old week's
-                    // days during a new week/filter load, so gating these on
-                    // !hasAnyItems would show stale content + suppress errors on a
-                    // week change.
-                    state.isLoading -> TvLoadingScreen()
-                    state.error != null -> CalendarMessage(
-                        title = state.error ?: "Failed to load calendar",
-                        subtitle = "Press the week arrows to try another week.",
-                        action = CalendarAction("Refresh", viewModel::refresh),
-                    )
-                    !state.hasAnyItems -> CalendarMessage(
-                        title = emptyTitle(state.filter),
-                        subtitle = emptyCopy(state.filter),
-                        action = if (state.filter != CalendarFilter.All) {
-                            CalendarAction("Show Everything") { viewModel.setFilter(CalendarFilter.All) }
-                        } else {
-                            CalendarAction("Refresh", viewModel::refresh)
-                        },
-                    )
-                    else -> DayList(
-                        state = state,
-                        listState = listState,
-                        shelfFocusDay = shelfFocusDay,
-                        shelfFocusRequest = shelfFocusRequest,
-                        // Consume the token once a shelf has applied it so a later
-                        // dispose/recompose of that shelf (LazyColumn recycle or
-                        // prefetch) can't replay the still-non-zero token and yank
-                        // the row back to item 0, stealing focus.
-                        onShelfFocusConsumed = {
-                            shelfFocusDay = null
-                            shelfFocusRequest = 0
-                        },
-                        onItemFocused = { item -> tintState.set(null, item.posterUrl) },
-                        onOpenItemDetail = onOpenItemDetail,
-                    )
-                }
+            val controls: @Composable () -> Unit = {
+                CalendarControls(
+                    selectedFilter = state.filter,
+                    weekDates = state.weekDates,
+                    today = state.today,
+                    selectedDay = state.selectedDay,
+                    isCurrentWeek = state.isCurrentWeek,
+                    hasEvents = { date -> state.itemsFor(date).isNotEmpty() },
+                    firstSegmentFocusRequester = filterFocusRequester,
+                    segmentFocusRequesters = filterFocusRequesters,
+                    selectedDayFocusRequester = selectedDayFocusRequester,
+                    onControlFocused = snapControlsToInitialPosition,
+                    includeTopInset = false,
+                    onSelectFilter = viewModel::setFilter,
+                    onSelectDay = { date ->
+                        viewModel.selectDay(date)
+                        val index = state.weekDates.indexOf(date)
+                        if (index >= 0) {
+                            scope.launch { listState.animateScrollToItem(index + 1) }
+                        }
+                        if (state.itemsFor(date).isNotEmpty()) {
+                            shelfFocusDay = date
+                            shelfFocusRequest += 1
+                        }
+                    },
+                    onPrevWeek = viewModel::prevWeek,
+                    onNextWeek = viewModel::nextWeek,
+                    onToday = viewModel::goToToday,
+                )
             }
+
+            // One persistent vertical surface, matching tvOS: the filters and
+            // week strip are the first list item, so focusing a poster shelf
+            // naturally pushes both controls upward instead of pinning them.
+            CalendarList(
+                state = state,
+                listState = listState,
+                controls = controls,
+                onRefresh = viewModel::refresh,
+                onShowEverything = { viewModel.setFilter(CalendarFilter.All) },
+                selectedDayFocusRequester = selectedDayFocusRequester,
+                shelfFocusDay = shelfFocusDay,
+                shelfFocusRequest = shelfFocusRequest,
+                onShelfFocusConsumed = {
+                    shelfFocusDay = null
+                    shelfFocusRequest = 0
+                },
+                onItemFocused = { item -> tintState.set(null, item.posterUrl) },
+                onOpenItemDetail = onOpenItemDetail,
+            )
         }
+    }
+}
+
+@Composable
+private fun CalendarControls(
+    selectedFilter: String,
+    weekDates: List<String>,
+    today: String,
+    selectedDay: String,
+    isCurrentWeek: Boolean,
+    hasEvents: (String) -> Boolean,
+    firstSegmentFocusRequester: FocusRequester,
+    segmentFocusRequesters: Map<String, FocusRequester>,
+    selectedDayFocusRequester: FocusRequester,
+    onControlFocused: () -> Unit,
+    includeTopInset: Boolean,
+    onSelectFilter: (String) -> Unit,
+    onSelectDay: (String) -> Unit,
+    onPrevWeek: () -> Unit,
+    onNextWeek: () -> Unit,
+    onToday: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            // The controls live in a recyclable LazyColumn item. Give that
+            // item a stable minimum measure (filter capsule + spacing + 48dp
+            // week strip + bottom inset), otherwise restoring item zero after
+            // browsing shelves can reuse a clipped one-line measurement.
+            .heightIn(min = 108.dp)
+            .padding(
+                start = Spacing.safeArea,
+                end = Spacing.safeArea,
+                top = if (includeTopInset) TvTopMenuLayout.contentTopInset else 0.dp,
+                bottom = 0.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        CalendarControlRow(
+            selectedFilter = selectedFilter,
+            onSelectFilter = onSelectFilter,
+            firstSegmentFocusRequester = firstSegmentFocusRequester,
+            segmentFocusRequesters = segmentFocusRequesters,
+            onControlFocused = onControlFocused,
+        )
+
+        WeekStrip(
+            weekDates = weekDates,
+            today = today,
+            selectedDay = selectedDay,
+            isCurrentWeek = isCurrentWeek,
+            hasEvents = hasEvents,
+            selectedDayFocusRequester = selectedDayFocusRequester,
+            onControlFocused = onControlFocused,
+            onSelectDay = onSelectDay,
+            onPrevWeek = onPrevWeek,
+            onNextWeek = onNextWeek,
+            onToday = onToday,
+        )
     }
 }
 
@@ -247,6 +331,8 @@ private fun CalendarControlRow(
     selectedFilter: String,
     onSelectFilter: (String) -> Unit,
     firstSegmentFocusRequester: FocusRequester,
+    segmentFocusRequesters: Map<String, FocusRequester>,
+    onControlFocused: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -259,6 +345,8 @@ private fun CalendarControlRow(
             selected = selectedFilter,
             onSelect = onSelectFilter,
             firstSegmentFocusRequester = firstSegmentFocusRequester,
+            segmentFocusRequesters = segmentFocusRequesters,
+            onControlFocused = onControlFocused,
         )
 
         Spacer(modifier = Modifier.weight(1f))
@@ -276,6 +364,8 @@ private fun FilterBar(
     selected: String,
     onSelect: (String) -> Unit,
     firstSegmentFocusRequester: FocusRequester,
+    segmentFocusRequesters: Map<String, FocusRequester>,
+    onControlFocused: () -> Unit,
 ) {
     val presets = listOf(
         CalendarFilter.Following to "Following",
@@ -296,7 +386,9 @@ private fun FilterBar(
                 label = label,
                 selected = selected == value,
                 onClick = { onSelect(value) },
-                focusRequester = if (index == 0) firstSegmentFocusRequester else null,
+                focusRequester = segmentFocusRequesters[value]
+                    ?: if (index == 0) firstSegmentFocusRequester else null,
+                onFocused = onControlFocused,
             )
         }
     }
@@ -309,6 +401,7 @@ private fun FilterSegment(
     selected: Boolean,
     onClick: () -> Unit,
     focusRequester: FocusRequester?,
+    onFocused: () -> Unit,
 ) {
     val shape = RoundedCornerShape(100.dp)
     Surface(
@@ -327,7 +420,9 @@ private fun FilterSegment(
             border = Border.None,
             focusedBorder = Border.None,
         ),
-        modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
+        modifier = Modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { if (it.isFocused) onFocused() },
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
@@ -335,7 +430,10 @@ private fun FilterSegment(
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
+                ),
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -352,6 +450,8 @@ private fun WeekStrip(
     selectedDay: String,
     isCurrentWeek: Boolean,
     hasEvents: (String) -> Boolean,
+    selectedDayFocusRequester: FocusRequester,
+    onControlFocused: () -> Unit,
     onSelectDay: (String) -> Unit,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
@@ -375,6 +475,8 @@ private fun WeekStrip(
                     isSelected = date == selectedDay,
                     isToday = date == today,
                     hasEvents = hasEvents(date),
+                    focusRequester = if (date == selectedDay) selectedDayFocusRequester else null,
+                    onFocused = onControlFocused,
                     onClick = { onSelectDay(date) },
                 )
             }
@@ -386,7 +488,10 @@ private fun WeekStrip(
         Spacer(modifier = Modifier.weight(1f))
         Text(
             text = monthYearLabel(weekDates),
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 15.5.sp,
+                lineHeight = 18.5.sp,
+            ),
             fontWeight = FontWeight.SemiBold,
             color = Color.White.copy(alpha = 0.60f),
         )
@@ -465,10 +570,15 @@ private fun DayCell(
     isSelected: Boolean,
     isToday: Boolean,
     hasEvents: Boolean,
+    focusRequester: FocusRequester?,
+    onFocused: () -> Unit,
     onClick: () -> Unit,
 ) {
     val localDate = remember(date) { LocalDate.parse(date) }
-    val shape = RoundedCornerShape(12.dp)
+    // tvOS CalendarDayButton is 84x96 pt with 18/26 pt type and an 8 pt
+    // event dot. Keep the Android control at half scale while giving its type
+    // a slight optical boost for television viewing distance.
+    val shape = RoundedCornerShape(6.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val inverted = isSelected || isFocused
@@ -496,32 +606,39 @@ private fun DayCell(
             ),
             focusedBorder = Border.None,
         ),
-        modifier = Modifier.size(width = 39.dp, height = 46.dp),
+        modifier = Modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { if (it.isFocused) onFocused() }
+            .size(width = 42.dp, height = 48.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
         ) {
             Text(
                 text = localDate.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())),
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                ),
                 color = if (inverted) {
                     (if (isFocused) FocusedContent else DarkOnPrimary).copy(alpha = 0.7f)
                 } else {
                     Color.White.copy(alpha = 0.6f)
                 },
             )
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = localDate.dayOfMonth.toString(),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
+                ),
                 fontWeight = FontWeight.Bold,
             )
-            Spacer(modifier = Modifier.height(6.dp))
             Box(
                 modifier = Modifier
-                    .size(7.dp)
+                    .size(4.dp)
                     .clip(CircleShape)
                     .background(
                         if (hasEvents) {
@@ -550,9 +667,13 @@ private fun monthYearLabel(weekDates: List<String>): String {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
-private fun DayList(
+private fun CalendarList(
     state: org.siloserver.silo.viewmodel.CalendarUiState,
     listState: LazyListState,
+    controls: @Composable () -> Unit,
+    onRefresh: () -> Unit,
+    onShowEverything: () -> Unit,
+    selectedDayFocusRequester: FocusRequester,
     shelfFocusDay: String?,
     shelfFocusRequest: Int,
     onShelfFocusConsumed: () -> Unit,
@@ -560,8 +681,35 @@ private fun DayList(
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val snapScope = rememberCoroutineScope()
+    var isReturningToControls by remember { mutableStateOf(false) }
+    val firstFocusableDayIndex = state.weekDates.indexOfFirst { state.itemsFor(it).isNotEmpty() }
     val onShelfFocused: (Int) -> Unit = { index ->
-        snapScope.launch { listState.animateScrollToItem(index) }
+        // Item zero is the filter/week control shell.
+        if (!isReturningToControls) {
+            snapScope.launch { listState.animateScrollToItem(index + 1) }
+        }
+    }
+    val onMoveUpToControls: () -> Unit = {
+        if (!isReturningToControls) {
+            isReturningToControls = true
+            snapScope.launch {
+                // Claim the date; its on-focus callback owns the sole vertical
+                // animation. Keeping one scroll authority avoids the small
+                // hitch caused by focus bring-into-view and two list animations
+                // all racing toward item zero.
+                var claimed = runCatching {
+                    selectedDayFocusRequester.requestFocus()
+                }.getOrDefault(false)
+                repeat(6) {
+                    if (claimed) return@repeat
+                    androidx.compose.runtime.withFrameNanos { }
+                    claimed = runCatching { selectedDayFocusRequester.requestFocus() }.getOrDefault(false)
+                    if (!claimed) kotlinx.coroutines.delay(40)
+                }
+                kotlinx.coroutines.delay(80)
+                isReturningToControls = false
+            }
+        }
     }
     // The day-snap is the ONLY vertical scroller: with the default spec the
     // focused card's own bring-into-view fought the snap (it re-scrolled to
@@ -574,13 +722,48 @@ private fun DayList(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
+            .padding(top = TvTopMenuLayout.contentTopInset)
             .focusGroup(),
         contentPadding = PaddingValues(
             top = Spacing.sm,
             bottom = 28.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        item(key = "calendar-controls") {
+            controls()
+        }
+
+        // Keep the control item in this same LazyColumn for every data state.
+        // Loading/filter changes therefore never remove its focus subtree.
+        when {
+            state.isLoading -> item(key = "calendar-loading") {
+                Box(modifier = Modifier.fillParentMaxHeight()) { TvLoadingScreen() }
+            }
+            state.error != null -> item(key = "calendar-error") {
+                Box(modifier = Modifier.fillParentMaxHeight()) {
+                    CalendarMessage(
+                        title = state.error ?: "Failed to load calendar",
+                        subtitle = "Press the week arrows to try another week.",
+                        action = CalendarAction("Refresh", onRefresh),
+                    )
+                }
+            }
+            !state.hasAnyItems -> item(key = "calendar-empty") {
+                Box(modifier = Modifier.fillParentMaxHeight()) {
+                    CalendarMessage(
+                        title = emptyTitle(state.filter),
+                        subtitle = emptyCopy(state.filter),
+                        action = if (state.filter != CalendarFilter.All) {
+                            CalendarAction("Show Everything", onShowEverything)
+                        } else {
+                            CalendarAction("Refresh", onRefresh)
+                        },
+                        topAligned = true,
+                    )
+                }
+            }
+            else -> {
         // Render EVERY weekday so the week keeps its shape; event-less days get
         // a "Nothing scheduled" stub instead of being skipped.
         itemsIndexed(state.weekDates, key = { _, date -> "day-$date" }) { index, date ->
@@ -596,8 +779,11 @@ private fun DayList(
                 // focused CARD, stranding the previous day's caption strip
                 // above and clipping the focused row at the fold).
                 onShelfFocused = { onShelfFocused(index) },
+                onMoveUp = if (index == firstFocusableDayIndex) onMoveUpToControls else null,
                 onOpenItemDetail = onOpenItemDetail,
             )
+        }
+            }
         }
     }
     }
@@ -613,6 +799,7 @@ private fun DayShelf(
     onFocusApplied: () -> Unit = {},
     onItemFocused: (CalendarItem) -> Unit,
     onShelfFocused: () -> Unit = {},
+    onMoveUp: (() -> Unit)? = null,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val firstCardFocusRequester = remember { FocusRequester() }
@@ -638,6 +825,14 @@ private fun DayShelf(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .onPreviewKeyEvent { event ->
+                if (onMoveUp != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                    onMoveUp()
+                    true
+                } else {
+                    false
+                }
+            }
             .onFocusChanged { focusState ->
                 val nowFocused = focusState.hasFocus
                 if (nowFocused && !shelfHasFocus) onShelfFocused()
@@ -659,7 +854,7 @@ private fun DayShelf(
                     start = Spacing.safeArea,
                     end = Spacing.safeArea,
                     top = 8.dp,
-                    bottom = 8.dp,
+                    bottom = 4.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(CalendarCardSpacing),
             ) {
@@ -669,6 +864,7 @@ private fun DayShelf(
                         // First card holds the focus requester so a week-strip
                         // day selection can hand focus down to this shelf.
                         focusRequester = if (item == items.first()) firstCardFocusRequester else null,
+                        onMoveUp = onMoveUp,
                         onFocused = { onItemFocused(item) },
                         onClick = { onOpenItemDetail(item.detailContentId) },
                     )
@@ -728,8 +924,8 @@ private val NoVerticalBringIntoViewSpec: BringIntoViewSpec = object : BringIntoV
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
-private val posterWidth = 120.dp
-private val posterHeight = 180.dp
+private val posterWidth = 124.dp
+private val posterHeight = 186.dp
 private val CalendarCardSpacing = 18.dp
 private val posterShape = RoundedCornerShape(10.dp)
 
@@ -738,6 +934,7 @@ private val posterShape = RoundedCornerShape(10.dp)
 private fun CalendarEventCard(
     item: CalendarItem,
     focusRequester: FocusRequester?,
+    onMoveUp: (() -> Unit)?,
     onFocused: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -766,6 +963,14 @@ private fun CalendarEventCard(
             ),
             colors = CardDefaults.colors(containerColor = Color.White.copy(alpha = 0.06f)),
             modifier = Modifier
+                .onPreviewKeyEvent { event ->
+                    if (onMoveUp != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                        onMoveUp()
+                        true
+                    } else {
+                        false
+                    }
+                }
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .size(posterWidth, posterHeight),
         ) {
@@ -813,7 +1018,7 @@ private fun CalendarEventCard(
                 // Air-time capsule (bottom-trailing) — only for REAL broadcast
                 // times; date-only entries report midnight, which rendered as
                 // a meaningless "00:00" on every card (QA 2026-07-08).
-                item.airTime?.takeIf { it.isNotBlank() && it != "00:00" }?.let { airTime ->
+                item.localDisplayAirTime()?.let { airTime ->
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -824,7 +1029,10 @@ private fun CalendarEventCard(
                     ) {
                         Text(
                             text = airTime,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.5.sp,
+                                lineHeight = 13.5.sp,
+                            ),
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,
                         )
@@ -833,22 +1041,28 @@ private fun CalendarEventCard(
             }
         }
 
-        // Caption below the poster (tvOS CalendarCardCaption): 2-line reserved
-        // title + single subtitle line.
+        // Caption below the poster: titles may wrap to two lines, but a
+        // one-line title does not reserve an empty second line before detail.
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = item.title,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = 17.5.sp,
+                    lineHeight = 20.5.sp,
+                ),
+                fontWeight = FontWeight.SemiBold,
                 color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
                 maxLines = 2,
-                minLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
             cardSubtitle(item)?.let { subtitle ->
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 12.5.sp,
+                        lineHeight = 15.5.sp,
+                    ),
                     color = Color.White.copy(alpha = 0.60f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -865,13 +1079,17 @@ private fun BadgePill(text: String) {
         modifier = Modifier
             .clip(RoundedCornerShape(100.dp))
             .background(Color.White.copy(alpha = 0.92f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+            ),
             fontWeight = FontWeight.Bold,
             color = Color.Black,
+            maxLines = 1,
         )
     }
 }
@@ -882,34 +1100,47 @@ private data class CalendarAction(val label: String, val onClick: () -> Unit)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun CalendarMessage(title: String, subtitle: String, action: CalendarAction) {
+private fun CalendarMessage(
+    title: String,
+    subtitle: String,
+    action: CalendarAction,
+    topAligned: Boolean = false,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = Spacing.safeArea),
-        contentAlignment = Alignment.Center,
+        contentAlignment = if (topAligned) Alignment.TopCenter else Alignment.Center,
     ) {
         Column(
+            modifier = if (topAligned) Modifier.padding(top = 32.dp) else Modifier,
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.CalendarMonth,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.62f),
-                modifier = Modifier.size(28.dp),
+                tint = Color.White.copy(alpha = 0.30f),
+                modifier = Modifier.size(22.dp),
             )
             Text(
                 text = title,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = 15.5.sp,
+                    lineHeight = 18.5.sp,
+                ),
+                fontWeight = FontWeight.SemiBold,
                 color = Color.White,
             )
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 14.5.sp,
+                    lineHeight = 17.5.sp,
+                ),
                 color = Color.White.copy(alpha = 0.62f),
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Surface(
                 onClick = action.onClick,
                 shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(100.dp)),
@@ -931,7 +1162,10 @@ private fun CalendarMessage(title: String, subtitle: String, action: CalendarAct
                 ) {
                     Text(
                         text = action.label,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 15.5.sp,
+                            lineHeight = 18.5.sp,
+                        ),
                         fontWeight = FontWeight.SemiBold,
                     )
                 }

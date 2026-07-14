@@ -205,11 +205,9 @@ fun TvPlayerScreen(
     capabilityDetector: PlaybackCapabilityDetector = koinInject(),
     activePlayerHolder: ActivePlayerHolder = koinInject(),
     pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject(),
-    playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore = koinInject(),
     siloCastReceiver: TvSiloCastReceiver = koinInject(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
     val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     // The real session player (ExoPlayer/MpvPlayer) the service publishes. The
     // PlayerView surface must bind to THIS, not the MediaController, so the
@@ -367,6 +365,10 @@ fun TvPlayerScreen(
     val latestSiloCastMediaController by rememberUpdatedState(mediaController)
     val latestSiloCastSessionPlayer by rememberUpdatedState(sessionPlayer)
     DisposableEffect(siloCastReceiver, viewModel, contentId) {
+        var lastAudibleRemoteVolume = latestSiloCastMediaController
+            ?.volume
+            ?.takeIf { it > 0.001f }
+            ?: 1f
         val adapter = TvSiloCastPlayerAdapter(
             play = {
                 // Watch Together is authoritative for transport: suppress
@@ -418,10 +420,18 @@ fun TvPlayerScreen(
                 )
             },
             setVolume = { volume ->
-                latestSiloCastMediaController?.volume = volume.toFloat().coerceIn(0f, 1f)
+                val next = volume.toFloat().coerceIn(0f, 1f)
+                if (next > 0.001f) lastAudibleRemoteVolume = next
+                latestSiloCastMediaController?.volume = next
             },
             setMuted = { muted ->
-                latestSiloCastMediaController?.volume = if (muted) 0f else 1f
+                val controller = latestSiloCastMediaController
+                if (muted) {
+                    controller?.volume?.takeIf { it > 0.001f }?.let { lastAudibleRemoteVolume = it }
+                    controller?.volume = 0f
+                } else {
+                    controller?.volume = lastAudibleRemoteVolume
+                }
             },
             playNext = viewModel::playNextEpisodeNow,
         )
@@ -432,6 +442,7 @@ fun TvPlayerScreen(
                 hdrEnabled = latestSiloCastHdrEnabled,
                 subtitleDelayMs = latestSiloCastSubtitleDelayMs,
                 subtitleAppearance = latestSiloCastSubtitleAppearance,
+                volume = latestSiloCastMediaController?.volume?.toDouble() ?: 1.0,
             )
         }
         onDispose { registration.close() }
@@ -1227,7 +1238,6 @@ fun TvPlayerScreen(
     LaunchedEffect(
         context,
         mediaController,
-        pictureInPictureEnabled,
         state.streamUrl,
         state.isLoading,
         state.error,
@@ -1241,7 +1251,7 @@ fun TvPlayerScreen(
             activity = context as? Activity,
             surface = SiloPictureInPictureSurface.Tv,
             state = SiloPictureInPicturePlaybackState(
-                enabled = pictureInPictureEnabled,
+                enabled = false,
                 videoActive = state.streamUrl != null && !state.isLoading && state.error == null,
                 isPlaying = state.isPlaying && !state.isPaused,
                 videoWidth = pictureInPictureVideoWidth,
@@ -2671,6 +2681,7 @@ private fun TvPlayerViewModel.UiState.toSiloCastPlaybackState(
     hdrEnabled: Boolean,
     subtitleDelayMs: Int,
     subtitleAppearance: SubtitleAppearance,
+    volume: Double,
 ): SiloCastPlaybackState {
     val activeQualityId = videoQualities.firstOrNull { it.isSelected }?.id ?: VIDEO_QUALITY_AUTO_ID
     return SiloCastPlaybackState(
@@ -2702,8 +2713,8 @@ private fun TvPlayerViewModel.UiState.toSiloCastPlaybackState(
         subtitlePosition = subtitleAppearance.position.toSiloCastPositionValue(),
         supportsSubtitleDelay = true,
         supportsSubtitlePosition = true,
-        volume = 1.0,
-        isMuted = false,
+        volume = volume.coerceIn(0.0, 1.0),
+        isMuted = volume <= 0.001,
         hasNextEpisode = nextEpisode != null,
         nextEpisodeTitle = nextEpisode?.title,
         error = error,
