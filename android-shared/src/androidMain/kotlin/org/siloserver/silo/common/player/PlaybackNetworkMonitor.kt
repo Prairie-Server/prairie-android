@@ -92,13 +92,24 @@ class PlaybackNetworkMonitor(
     }
 
     private fun publish(network: Network?, caps: NetworkCapabilities?) {
+        val transport = caps.transportName()
+        val metered = caps != null &&
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        // Media3's estimate is throughput over completed media transfers — and a
+        // progressive direct play drains its socket at the file's bitrate once
+        // the buffer fills, so after one low-bitrate title the meter honestly
+        // reports a "3 Mbps link" on gigabit ethernet. The server folds this
+        // number into auto-quality rung selection, which pinned LAN transcodes
+        // at 480p. On un-metered ethernet/wifi we therefore withhold the
+        // estimate (device-limit rung applies); metered and cellular/VPN routes
+        // keep it, where a conservative bias protects data budgets.
+        val suppressEstimate = !metered && (transport == "ethernet" || transport == "wifi")
         _state.value = PlaybackNetworkSnapshot(
             connected = network != null && caps != null,
             validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true,
-            metered = caps != null &&
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
-            transport = caps.transportName(),
-            bandwidthEstimateKbps = measuredBitrateBps?.toKbpsInt(),
+            metered = metered,
+            transport = transport,
+            bandwidthEstimateKbps = measuredBitrateBps?.toKbpsInt()?.takeUnless { suppressEstimate },
             linkDownstreamKbps = caps?.linkDownstreamBandwidthKbps?.takeIf { it > 0 },
         )
     }
