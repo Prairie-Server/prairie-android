@@ -57,7 +57,9 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                 val originalPath = request.url.encodedPath
                 val originalParameters = request.url.parameters.build()
                 val originalFragment = request.url.fragment
+                val originalProtocol = request.url.protocol
                 request.url.takeFrom(pinned.serverUrl)
+                request.url.restoreWebSocketProtocol(originalProtocol)
                 request.url.encodedPath = originalPath
                 request.url.parameters.clear()
                 request.url.parameters.appendAll(originalParameters)
@@ -85,8 +87,10 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                 val originalPath = request.url.encodedPath
                 val originalParameters = request.url.parameters.build()
                 val originalFragment = request.url.fragment
+                val originalProtocol = request.url.protocol
 
                 request.url.takeFrom(serverUrl)
+                request.url.restoreWebSocketProtocol(originalProtocol)
                 request.url.encodedPath = originalPath
                 request.url.parameters.clear()
                 request.url.parameters.appendAll(originalParameters)
@@ -332,4 +336,20 @@ private suspend fun HttpRequestBuilder.attachSiloDeviceMetadataHeaders(
     header("X-Silo-Device-Platform", device.platform)
     device.clientName?.takeIf { it.isNotBlank() }?.let { header("X-Silo-Client", it) }
     device.clientVersion?.takeIf { it.isNotBlank() }?.let { header("X-Silo-Client-Version", it) }
+}
+
+/**
+ * Re-applies the websocket protocol after a `takeFrom(serverUrl)` rebase.
+ *
+ * `takeFrom` copies the configured server URL's scheme (http/https) over the
+ * ws/wss protocol Ktor set for `webSocket { }` requests. With the WS scheme
+ * gone the engine sends a plain GET — no Upgrade/Connection/Sec-WebSocket-Key
+ * handshake at all — and the server rejects it (this is exactly how every
+ * events-socket connection from the app failed silently in the field: 19k+
+ * 400s over one week while browsers connected fine). Map back to ws/wss with
+ * TLS matching the server URL's scheme.
+ */
+private fun URLBuilder.restoreWebSocketProtocol(originalProtocol: URLProtocol) {
+    if (originalProtocol != URLProtocol.WS && originalProtocol != URLProtocol.WSS) return
+    protocol = if (protocol.isSecure()) URLProtocol.WSS else URLProtocol.WS
 }

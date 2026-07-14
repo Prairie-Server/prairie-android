@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.siloserver.silo.model.notifications.WsFrameEnvelope
 import org.siloserver.silo.model.notifications.WsSubscribe
+import org.siloserver.silo.network.api.NotificationsApi
 
 /** `user_state.changed` payload (server: user_state_events.go). */
 @Serializable
@@ -44,11 +45,14 @@ sealed class HomeRealtimeEvent {
 
 /**
  * Live-home accelerator over the events websocket (Apple realtime-updates
- * spec, Layer 2). One [connect] = one connection: plain authenticated (the
- * shared client's auth plugin attaches the bearer on the WS upgrade — no
- * ticket needed for user_state/catalog), subscribe both channels, then map
- * frames through [decodeHomeRealtimeFrame]. REST stays the source of truth;
- * events only trigger refetches.
+ * spec, Layer 2). One [connect] = one connection: mint a single-use ticket via
+ * [NotificationsApi.wsTicket] and hand it to the upgrade as `?ticket=` — the
+ * same handshake the notifications socket uses. The previous "plain
+ * authenticated" upgrade (bearer only, no ticket) never connected in the
+ * field: every attempt died as a 4xx handshake rejection, silently costing a
+ * reconnect every backoff interval. Subscribe both channels, then map frames
+ * through [decodeHomeRealtimeFrame]. REST stays the source of truth; events
+ * only trigger refetches.
  */
 interface HomeRealtimeClient {
     fun connect(): Flow<HomeRealtimeEvent>
@@ -56,12 +60,26 @@ interface HomeRealtimeClient {
 
 class DefaultHomeRealtimeClient(
     private val client: HttpClient,
+    private val notificationsApi: NotificationsApi,
     private val json: Json = SiloJson,
 ) : HomeRealtimeClient {
 
     override fun connect(): Flow<HomeRealtimeEvent> = callbackFlow {
+        val ticket = when (val r = notificationsApi.wsTicket()) {
+            is ApiResult.Success -> r.data.ticket
+            is ApiResult.Error -> {
+                trySend(HomeRealtimeEvent.Closed("ticket_error_${r.code}"))
+                close()
+                return@callbackFlow
+            }
+            is ApiResult.NetworkError -> {
+                trySend(HomeRealtimeEvent.Closed("ticket_network_error"))
+                close()
+                return@callbackFlow
+            }
+        }
         try {
-            client.webSocket(urlString = "/api/v1/events/ws") {
+            client.webSocket(urlString = "/api/v1/events/ws?ticket=$ticket") {
                 // Server sends `hello` first and closes if no subscribe lands
                 // within 5s; subscribing immediately satisfies that without
                 // parsing the hello.
