@@ -24,6 +24,7 @@ fun mountVideoMedia(
         artworkUrl = spec.artworkUrl,
         durationMs = spec.durationMs,
         requestHeaders = spec.requestHeaders,
+        expectedDynamicRange = spec.expectedDynamicRange,
         transformations = spec.transformations,
         runtimeCorrections = spec.runtimeCorrections,
     )
@@ -52,6 +53,7 @@ fun refreshMountedVideoMedia(
         artworkUrl = spec.artworkUrl,
         durationMs = spec.durationMs,
         requestHeaders = spec.requestHeaders,
+        expectedDynamicRange = spec.expectedDynamicRange,
         transformations = spec.transformations,
         runtimeCorrections = spec.runtimeCorrections,
     )

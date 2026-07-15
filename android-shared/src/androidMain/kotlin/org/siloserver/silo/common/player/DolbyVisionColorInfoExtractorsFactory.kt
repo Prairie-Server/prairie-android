@@ -18,8 +18,10 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Repairs the incomplete Dolby Vision [Format] emitted by Media3's Matroska
- * extractor for streams whose bitstream is a BT.2020/PQ HDR base layer.
+ * Repairs incomplete HDR [Format] metadata emitted by Media3's Matroska
+ * extractor. Dolby Vision is repaired from its codec identity; HLG is repaired
+ * only when the validated server recipe explicitly identifies the output as
+ * HLG and the container format did not provide conflicting color metadata.
  *
  * The extractor correctly identifies `video/dolby-vision`, but can leave
  * [Format.colorInfo] null. Android configures MediaCodec before the decoder
@@ -33,6 +35,7 @@ internal class DolbyVisionColorInfoExtractorsFactory(
     private val delegate: ExtractorsFactory,
     private val transformMode: DolbyVisionTransformMode = DolbyVisionTransformMode.DISABLED,
     private val converter: DolbyVisionRpuConverter = NativeDolbyVisionRpuConverter,
+    private val expectedDynamicRange: String? = null,
 ) : ExtractorsFactory {
     override fun createExtractors(): Array<Extractor> =
         delegate.createExtractors().map(::wrap).toTypedArray()
@@ -45,17 +48,18 @@ internal class DolbyVisionColorInfoExtractorsFactory(
         .toTypedArray()
 
     private fun wrap(extractor: Extractor): Extractor =
-        ColorInfoExtractor(extractor, transformMode, converter)
+        ColorInfoExtractor(extractor, transformMode, converter, expectedDynamicRange)
 
     private class ColorInfoExtractor(
         private val delegate: Extractor,
         private val transformMode: DolbyVisionTransformMode,
         private val converter: DolbyVisionRpuConverter,
+        private val expectedDynamicRange: String?,
     ) : Extractor by delegate {
         private var output: ColorInfoExtractorOutput? = null
 
         override fun init(output: ExtractorOutput) {
-            val wrapped = ColorInfoExtractorOutput(output, transformMode, converter)
+            val wrapped = ColorInfoExtractorOutput(output, transformMode, converter, expectedDynamicRange)
             this.output = wrapped
             delegate.init(wrapped)
         }
@@ -76,6 +80,7 @@ internal class DolbyVisionColorInfoExtractorsFactory(
         private val delegate: ExtractorOutput,
         private val transformMode: DolbyVisionTransformMode,
         private val converter: DolbyVisionRpuConverter,
+        private val expectedDynamicRange: String?,
     ) : ExtractorOutput {
         private val tracks = mutableMapOf<Int, TrackOutput>()
 
@@ -84,7 +89,7 @@ internal class DolbyVisionColorInfoExtractorsFactory(
             if (type == C.TRACK_TYPE_VIDEO && transformMode != DolbyVisionTransformMode.DISABLED) {
                 DolbyVisionTransformingTrackOutput(output, transformMode, converter)
             } else {
-                ColorInfoTrackOutput(output)
+                ColorInfoTrackOutput(output, expectedDynamicRange)
             }
         }
 
@@ -99,11 +104,16 @@ internal class DolbyVisionColorInfoExtractorsFactory(
 
     private class ColorInfoTrackOutput(
         private val delegate: TrackOutput,
+        private val expectedDynamicRange: String?,
     ) : TrackOutput {
         override fun durationUs(durationUs: Long) = delegate.durationUs(durationUs)
 
         override fun format(format: Format) {
-            delegate.format(format.withDolbyVisionHdrColorInfo())
+            delegate.format(
+                format
+                    .withValidatedDynamicRangeColorInfo(expectedDynamicRange)
+                    .withDolbyVisionHdrColorInfo(),
+            )
         }
 
         override fun sampleData(
@@ -127,6 +137,44 @@ internal class DolbyVisionColorInfoExtractorsFactory(
             cryptoData: TrackOutput.CryptoData?,
         ) = delegate.sampleMetadata(timeUs, flags, size, offset, cryptoData)
     }
+}
+
+@UnstableApi
+internal fun Format.withValidatedDynamicRangeColorInfo(expectedDynamicRange: String?): Format {
+    if (!expectedDynamicRange.equals("hlg", ignoreCase = true) || !MimeTypes.isVideo(sampleMimeType)) {
+        return this
+    }
+    val current = colorInfo
+    if (current != null && (
+        (current.colorSpace != -1 && current.colorSpace != C.COLOR_SPACE_BT2020) ||
+            (current.colorTransfer != -1 && current.colorTransfer != C.COLOR_TRANSFER_HLG) ||
+            (current.colorRange != -1 && current.colorRange != C.COLOR_RANGE_LIMITED)
+        )
+    ) {
+        return this
+    }
+    if (current != null &&
+        current.colorSpace == C.COLOR_SPACE_BT2020 &&
+        current.colorTransfer == C.COLOR_TRANSFER_HLG &&
+        current.colorRange == C.COLOR_RANGE_LIMITED
+    ) {
+        return this
+    }
+
+    val repaired = (current?.buildUpon() ?: androidx.media3.common.ColorInfo.Builder())
+        .apply {
+            if (current == null || current.colorSpace == -1) {
+                setColorSpace(C.COLOR_SPACE_BT2020)
+            }
+            if (current == null || current.colorTransfer == -1) {
+                setColorTransfer(C.COLOR_TRANSFER_HLG)
+            }
+            if (current == null || current.colorRange == -1) {
+                setColorRange(C.COLOR_RANGE_LIMITED)
+            }
+        }
+        .build()
+    return buildUpon().setColorInfo(repaired).build()
 }
 
 @UnstableApi

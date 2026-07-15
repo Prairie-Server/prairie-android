@@ -21,7 +21,10 @@ internal enum class DolbyVisionTransformMode {
     PROFILE7_TO_HDR10,
 }
 
-internal data class SiloMediaTransformTag(val dolbyVisionMode: DolbyVisionTransformMode)
+internal data class SiloMediaTransformTag(
+    val dolbyVisionMode: DolbyVisionTransformMode,
+    val expectedDynamicRange: String? = null,
+)
 
 internal class DolbyVisionTransformException(
     val classification: String,

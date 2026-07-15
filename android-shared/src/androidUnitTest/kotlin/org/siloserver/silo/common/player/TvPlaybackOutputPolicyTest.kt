@@ -8,55 +8,33 @@ import kotlin.test.assertTrue
 
 class TvPlaybackOutputPolicyTest {
     @Test
-    fun `mdarcy Shield recovers decoder-backed HLG when display enumeration omits it`() {
+    fun `decoder HLG is not advertised when active output omits it`() {
         val effective = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
             codec = HdrCapabilities(hdr10 = true, hdr10Plus = true, hlg = true),
             display = HdrCapabilities(hdr10 = true),
-            manufacturer = "NVIDIA",
-            model = "SHIELD Android TV",
-            device = "mdarcy",
         )
 
         assertEquals(
-            HdrCapabilities(hdr10 = true, hlg = true),
+            HdrCapabilities(hdr10 = true),
             effective,
         )
     }
 
     @Test
-    fun `mdarcy Shield quirk never invents HLG decoder support`() {
+    fun `display HLG is not advertised without decoder support`() {
         val effective = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
             codec = HdrCapabilities(hdr10 = true),
             display = HdrCapabilities(hdr10 = true, hlg = true),
-            manufacturer = "NVIDIA",
-            model = "SHIELD Android TV",
-            device = "mdarcy",
         )
 
         assertFalse(effective.hlg)
     }
 
     @Test
-    fun `unconfirmed Shield hardware still requires display HLG`() {
-        val effective = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
-            codec = HdrCapabilities(hdr10 = true, hlg = true),
-            display = HdrCapabilities(hdr10 = true),
-            manufacturer = "NVIDIA",
-            model = "SHIELD Android TV",
-            device = "darcy",
-        )
-
-        assertFalse(effective.hlg)
-    }
-
-    @Test
-    fun `normal display HLG survives on other devices`() {
+    fun `HLG survives when both decoder and active output support it`() {
         val effective = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
             codec = HdrCapabilities(hlg = true),
             display = HdrCapabilities(hlg = true),
-            manufacturer = "Sony",
-            model = "BRAVIA 4K",
-            device = "bravia_atv3_4k",
         )
 
         assertTrue(effective.hlg)

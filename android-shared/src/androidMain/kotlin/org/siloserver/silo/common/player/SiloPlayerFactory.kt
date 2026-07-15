@@ -246,10 +246,17 @@ class SiloPlayerFactory(
             .build()
 
         val mediaLoadErrorHandlingPolicy = SiloMediaLoadErrorHandlingPolicy()
-        fun defaultMediaSourceFactory(mode: DolbyVisionTransformMode) =
+        fun defaultMediaSourceFactory(
+            mode: DolbyVisionTransformMode,
+            expectedDynamicRange: String? = null,
+        ) =
             DefaultMediaSourceFactory(
                 context,
-                DolbyVisionColorInfoExtractorsFactory(configuredExtractorsFactory(), mode),
+                DolbyVisionColorInfoExtractorsFactory(
+                    configuredExtractorsFactory(),
+                    mode,
+                    expectedDynamicRange = expectedDynamicRange,
+                ),
             )
             .setDataSourceFactory(dataSourceFactory)
             .setSubtitleParserFactory(subtitleParserFactory)
@@ -260,6 +267,10 @@ class SiloPlayerFactory(
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
         val mediaSourceFactory = SiloMediaSourceFactory(
             defaultFactory = defaultMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
+            hlgFactory = defaultMediaSourceFactory(
+                DolbyVisionTransformMode.DISABLED,
+                expectedDynamicRange = "hlg",
+            ),
             dv81Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_PROFILE81),
             hdr10Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_HDR10),
             hlsFactory = hlsMediaSourceFactory,
@@ -384,6 +395,7 @@ class SiloPlayerFactory(
         artworkUrl: String? = null,
         durationMs: Long? = null,
         requestHeaders: Map<String, String> = emptyMap(),
+        expectedDynamicRange: String? = null,
         transformations: List<String> = emptyList(),
         runtimeCorrections: List<String> = emptyList(),
     ): MediaItem {
@@ -401,13 +413,14 @@ class SiloPlayerFactory(
             .setSubtitleConfigurations(subtitleConfigurations)
             .setTag(
                 SiloMediaTransformTag(
-                    when {
+                    dolbyVisionMode = when {
                         org.siloserver.silo.model.playback.CLIENT_DV7_TO_DV81 in transformations ->
                             DolbyVisionTransformMode.PROFILE7_TO_PROFILE81
                         org.siloserver.silo.model.playback.CLIENT_DV7_TO_HDR10 in transformations ->
                             DolbyVisionTransformMode.PROFILE7_TO_HDR10
                         else -> DolbyVisionTransformMode.DISABLED
                     },
+                    expectedDynamicRange = expectedDynamicRange,
                 ),
             )
 
@@ -463,6 +476,7 @@ class SiloPlayerFactory(
 
     private class SiloMediaSourceFactory(
         private val defaultFactory: MediaSource.Factory,
+        private val hlgFactory: MediaSource.Factory,
         private val dv81Factory: MediaSource.Factory,
         private val hdr10Factory: MediaSource.Factory,
         private val hlsFactory: MediaSource.Factory,
@@ -474,6 +488,7 @@ class SiloPlayerFactory(
             drmSessionManagerProvider: DrmSessionManagerProvider,
         ): MediaSource.Factory {
             defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            hlgFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             dv81Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             hdr10Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             hlsFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
@@ -485,6 +500,7 @@ class SiloPlayerFactory(
         ): MediaSource.Factory {
             this.loadErrorHandlingPolicy = loadErrorHandlingPolicy
             defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            hlgFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             dv81Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             hdr10Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             hlsFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -503,10 +519,15 @@ class SiloPlayerFactory(
             return if (contentType == C.CONTENT_TYPE_HLS) {
                 createHlsMediaSource(mediaItem)
             } else {
-                when ((localConfiguration.tag as? SiloMediaTransformTag)?.dolbyVisionMode) {
+                val tag = localConfiguration.tag as? SiloMediaTransformTag
+                when (tag?.dolbyVisionMode) {
                     DolbyVisionTransformMode.PROFILE7_TO_PROFILE81 -> dv81Factory.createMediaSource(mediaItem)
                     DolbyVisionTransformMode.PROFILE7_TO_HDR10 -> hdr10Factory.createMediaSource(mediaItem)
-                    else -> defaultFactory.createMediaSource(mediaItem)
+                    else -> if (tag?.expectedDynamicRange.equals("hlg", ignoreCase = true)) {
+                        hlgFactory.createMediaSource(mediaItem)
+                    } else {
+                        defaultFactory.createMediaSource(mediaItem)
+                    }
                 }
             }
         }

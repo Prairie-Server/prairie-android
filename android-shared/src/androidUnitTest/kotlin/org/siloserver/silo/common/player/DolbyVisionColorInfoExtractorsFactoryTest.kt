@@ -68,4 +68,42 @@ class DolbyVisionColorInfoExtractorsFactoryTest {
 
         assertSame(source, source.withDolbyVisionHdrColorInfo())
     }
+
+    @Test
+    fun suppliesHlgColorInfoFromValidatedRecipeWhenContainerMetadataIsMissing() {
+        val source = Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_H265)
+            .build()
+
+        val repaired = source.withValidatedDynamicRangeColorInfo("hlg")
+
+        assertEquals(C.COLOR_SPACE_BT2020, repaired.colorInfo?.colorSpace)
+        assertEquals(C.COLOR_TRANSFER_HLG, repaired.colorInfo?.colorTransfer)
+        assertEquals(C.COLOR_RANGE_LIMITED, repaired.colorInfo?.colorRange)
+        assertNull(repaired.colorInfo?.hdrStaticInfo)
+    }
+
+    @Test
+    fun doesNotOverrideConflictingContainerColorInfoWithHlgRecipe() {
+        val source = Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_H265)
+            .setColorInfo(
+                ColorInfo.Builder()
+                    .setColorSpace(C.COLOR_SPACE_BT2020)
+                    .setColorTransfer(C.COLOR_TRANSFER_ST2084)
+                    .setColorRange(C.COLOR_RANGE_LIMITED)
+                    .build(),
+            )
+            .build()
+
+        assertSame(source, source.withValidatedDynamicRangeColorInfo("hlg"))
+    }
+
+    @Test
+    fun doesNotInventHlgWithoutValidatedRecipe() {
+        val source = Format.Builder().setSampleMimeType(MimeTypes.VIDEO_H265).build()
+
+        assertSame(source, source.withValidatedDynamicRangeColorInfo(null))
+        assertSame(source, source.withValidatedDynamicRangeColorInfo("hdr10"))
+    }
 }

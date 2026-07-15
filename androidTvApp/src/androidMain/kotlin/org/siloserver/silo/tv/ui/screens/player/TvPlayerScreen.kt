@@ -1415,6 +1415,7 @@ fun TvPlayerScreen(
             durationSeconds = state.duration,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = state.requestHeaders,
+            expectedDynamicRange = plan?.source?.hdrFormat,
             transformations = plan?.executableMedia3ClientTransformations().orEmpty(),
             runtimeCorrections = plan?.runtimeCorrections.orEmpty(),
         )
@@ -1463,6 +1464,7 @@ fun TvPlayerScreen(
             durationSeconds = state.duration,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = state.requestHeaders,
+            expectedDynamicRange = plan?.source?.hdrFormat,
             transformations = plan?.executableMedia3ClientTransformations().orEmpty(),
             runtimeCorrections = plan?.runtimeCorrections.orEmpty(),
         )

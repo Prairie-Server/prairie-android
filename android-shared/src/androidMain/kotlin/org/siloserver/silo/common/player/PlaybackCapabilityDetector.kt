@@ -100,9 +100,6 @@ class PlaybackCapabilityDetector(
                     val supportedHdr = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
                         codec = codecProbe.hdr,
                         display = displayHdr,
-                        manufacturer = Build.MANUFACTURER,
-                        model = Build.MODEL,
-                        device = Build.DEVICE,
                     )
                     val supported = isDirectPlayableDolbyVisionProfile(profile, supportedHdr)
                     if (!supported) return Playability.UnsupportedDvProfile(profile)
@@ -167,9 +164,6 @@ class PlaybackCapabilityDetector(
         val intersectedHdr = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
             codec = codecProbe.hdr,
             display = displayHdr,
-            manufacturer = Build.MANUFACTURER,
-            model = Build.MODEL,
-            device = Build.DEVICE,
         ).let { hdr ->
             hdr.copy(
                 dolbyVisionProfiles = DolbyVisionPolicy.advertisableProfiles(

@@ -11,9 +11,9 @@ import org.siloserver.silo.model.playback.HdrCapabilities
  * HDR claim so we don't advertise HDR direct-play on a panel that would
  * tone-map it back to SDR anyway.
  *
- * Callers normally surface `codecHdr AND displayHdr` to the server. A separate
- * output policy may repair a known device-specific display-enumeration bug
- * without changing either raw probe result.
+ * Callers surface `codecHdr AND displayHdr` to the server. Decoder support
+ * alone is insufficient when the active HDMI/display path cannot carry the
+ * same transfer function.
  */
 object DisplayHdrProbe {
 

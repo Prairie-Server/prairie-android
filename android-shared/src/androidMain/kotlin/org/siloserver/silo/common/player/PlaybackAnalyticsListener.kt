@@ -74,7 +74,13 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         format: Format,
         decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
     ) {
-        Log.i(TAG, "Video format: ${format.sampleMimeType} ${format.width}x${format.height}@${format.frameRate} codecs=${format.codecs}")
+        val colorInfo = format.colorInfo
+        Log.i(
+            TAG,
+            "Video format: ${format.sampleMimeType} ${format.width}x${format.height}@${format.frameRate} " +
+                "codecs=${format.codecs} colorSpace=${colorInfo?.colorSpace} " +
+                "colorTransfer=${colorInfo?.colorTransfer} colorRange=${colorInfo?.colorRange}",
+        )
         _events.tryEmit(Event.VideoFormatChanged(format))
     }
 
