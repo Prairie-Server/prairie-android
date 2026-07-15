@@ -265,6 +265,29 @@ object TrackSelectionPresets {
 
 /** Device-specific exceptions to Media3's native Android TV output paths. */
 internal object TvPlaybackOutputPolicy {
+    /**
+     * Produces the HDR capability advertised for the active output without
+     * conflating the raw decoder and display probes.
+     *
+     * Shield Experience on the confirmed `mdarcy` hardware can omit HLG from
+     * [android.view.Display.HdrCapabilities] even when its hardware HEVC
+     * Main10 path can output HLG. Keep the exception exact and decoder-gated:
+     * it repairs only HLG, and only when the codec probe already claimed it.
+     */
+    fun effectiveHdrCapabilities(
+        codec: HdrCapabilities,
+        display: HdrCapabilities,
+        manufacturer: String?,
+        model: String?,
+        device: String?,
+    ): HdrCapabilities {
+        val intersected = DisplayHdrProbe.intersect(codec, display)
+        if (intersected.hlg || !codec.hlg || !hasUnderreportedHlgOutput(manufacturer, model, device)) {
+            return intersected
+        }
+        return intersected.copy(hlg = true)
+    }
+
     fun shouldEnableTunneling(
         manufacturer: String?,
         model: String?,
@@ -276,5 +299,18 @@ internal object TvPlaybackOutputPolicy {
         val isGoogleTvStreamer = normalizedManufacturer == "google" &&
             (normalizedModel.contains("google tv streamer") || normalizedDevice == "mustang")
         return !isGoogleTvStreamer
+    }
+
+    private fun hasUnderreportedHlgOutput(
+        manufacturer: String?,
+        model: String?,
+        device: String?,
+    ): Boolean {
+        val normalizedManufacturer = manufacturer.orEmpty().trim().lowercase()
+        val normalizedModel = model.orEmpty().trim().lowercase()
+        val normalizedDevice = device.orEmpty().trim().lowercase()
+        return normalizedManufacturer == "nvidia" &&
+            normalizedModel == "shield android tv" &&
+            normalizedDevice == "mdarcy"
     }
 }

@@ -45,7 +45,8 @@ import org.siloserver.silo.libass.LibassBridge
  * - Enumerate software-decodable audio codecs from `MediaCodecList` so the
  *   server still picks a compatible track when no passthrough sink is
  *   attached (phone speaker, headphones, Bluetooth).
- * - Intersect codec-level HDR profiles with the panel's advertised HDR types.
+ * - Reconcile codec-level HDR profiles with the panel's advertised HDR types
+ *   and narrowly scoped device output quirks.
  * - Populate `audioPassthrough` from the live [AudioCapabilityManager] state.
  */
 class PlaybackCapabilityDetector(
@@ -96,7 +97,13 @@ class PlaybackCapabilityDetector(
                 if (profile != null) {
                     val codecProbe = MediaCodecCapabilitiesProbe.probe()
                     val displayHdr = DisplayHdrProbe.probe(context)
-                    val supportedHdr = DisplayHdrProbe.intersect(codecProbe.hdr, displayHdr)
+                    val supportedHdr = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
+                        codec = codecProbe.hdr,
+                        display = displayHdr,
+                        manufacturer = Build.MANUFACTURER,
+                        model = Build.MODEL,
+                        device = Build.DEVICE,
+                    )
                     val supported = isDirectPlayableDolbyVisionProfile(profile, supportedHdr)
                     if (!supported) return Playability.UnsupportedDvProfile(profile)
                 }
@@ -157,7 +164,13 @@ class PlaybackCapabilityDetector(
         // which has no watchable base layer) so the server plans base-layer /
         // HDR10 delivery and local direct-play checks agree. Single decision
         // source: DolbyVisionPolicy (Apple parity, silo-apple e9bd775).
-        val intersectedHdr = DisplayHdrProbe.intersect(codecProbe.hdr, displayHdr).let { hdr ->
+        val intersectedHdr = TvPlaybackOutputPolicy.effectiveHdrCapabilities(
+            codec = codecProbe.hdr,
+            display = displayHdr,
+            manufacturer = Build.MANUFACTURER,
+            model = Build.MODEL,
+            device = Build.DEVICE,
+        ).let { hdr ->
             hdr.copy(
                 dolbyVisionProfiles = DolbyVisionPolicy.advertisableProfiles(
                     hdr.dolbyVisionProfiles,
