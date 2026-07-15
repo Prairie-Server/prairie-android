@@ -136,10 +136,9 @@ class SiloPlayerFactory(
         preferFfmpegAudio: Boolean = BuildConfig.FFMPEG_AUDIO_ENABLED,
     ): ExoPlayer {
         // When the flag is on (default), extension renderers (FFmpeg audio)
-        // beat platform renderers for any MIME both can handle, which means
-        // on devices without native E-AC-3/TrueHD/DTS decoders the audio
-        // flows through FFmpeg instead of silently failing back to server
-        // transcode.
+        // follow the platform renderers and fill only codec gaps. This keeps
+        // native passthrough/MediaCodec paths preferred while retaining a
+        // last-resort local decoder for forced-original and recovery cases.
         //
         // When the flag is off (compile-time bisect), we set _MODE_OFF
         // rather than _MODE_ON so extension renderers are *not even

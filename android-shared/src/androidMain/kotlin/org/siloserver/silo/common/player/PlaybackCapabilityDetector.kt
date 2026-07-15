@@ -142,10 +142,10 @@ class PlaybackCapabilityDetector(
     /**
      * @param ffmpegAvailable overridable for tests; production callers omit
      * this to let [FfmpegAudioSupport.isAvailable] probe the real classpath.
-     * When the FFmpeg audio extension is on the classpath, its decodable
-     * codecs are appended to [ClientCodecCapabilities.codecsAudio] so the
-     * server picks DIRECT/REMUX instead of TRANSCODE for streams the
-     * client can now decode locally.
+     * On phones, FFmpeg codecs are appended to
+     * [ClientCodecCapabilities.codecsAudio]. TV planning advertises platform
+     * decoders plus the active sink's separate passthrough capabilities so
+     * extension-only PCM fallback cannot preempt synchronized audio adaptation.
      */
     fun detect(
         ffmpegAvailable: Boolean = FfmpegAudioSupport.isAvailable(),
@@ -166,7 +166,11 @@ class PlaybackCapabilityDetector(
             )
         }
 
-        val softwareAudio = detectSoftwareAudioCodecs(ffmpegAvailable)
+        val softwareAudio = advertisedAudioDecodeCodecs(
+            platformCodecs = detectPlatformSoftwareAudioCodecs(),
+            ffmpegAvailable = ffmpegAvailable,
+            isTv = TvModeDetector.isTv(context),
+        )
         val passthrough = audioCapabilityManager.capabilities.value
         val hasAnyHdr = intersectedHdr.hdr10 ||
             intersectedHdr.hdr10Plus ||
@@ -198,7 +202,7 @@ class PlaybackCapabilityDetector(
         val caps = detect(ffmpegAvailable, dolbyVision)
         val supportedAbis = Build.SUPPORTED_ABIS?.toList().orEmpty()
         val passthrough = caps.audioPassthrough
-        val decodeAudio = detectSoftwareAudioCodecs(ffmpegAvailable)
+        val decodeAudio = caps.codecsAudio
         val media3Audio = decodeAudio
         val libassRendering = libassBridge.isRenderingSupported
         val libassEmbeddedFonts = libassBridge.isEmbeddedFontsSupported
@@ -356,23 +360,7 @@ class PlaybackCapabilityDetector(
         )
     }
 
-    /**
-     * Returns the audio codecs the device can decode itself (for internal
-     * speaker / headphones / Bluetooth). Passthrough codecs come from the
-     * [AudioCapabilityManager]; this covers the complement — platform
-     * [MediaCodec] decoders plus, when the Media3 FFmpeg audio extension
-     * is on the classpath, FFmpeg-reachable codecs.
-     *
-     * The FFmpeg list overlaps with platform decoders on codecs every
-     * modern Android device already handles (e.g., AAC). `distinct()`
-     * in [detect] collapses duplicates.
-     */
-    private fun detectSoftwareAudioCodecs(ffmpegAvailable: Boolean): List<String> {
-        val platform = detectPlatformSoftwareAudioCodecs()
-        val ffmpeg = if (ffmpegAvailable) FfmpegAudioSupport.codecShortCodes else emptyList()
-        return (platform + ffmpeg).distinct()
-    }
-
+    /** Returns codecs backed by an Android platform [MediaCodec] decoder. */
     private fun detectPlatformSoftwareAudioCodecs(): List<String> {
         cachedPlatformSoftwareAudioCodecs?.let { return it }
         val result = mutableSetOf<String>()
@@ -395,6 +383,30 @@ class PlaybackCapabilityDetector(
         }
         return result.toList().also { cachedPlatformSoftwareAudioCodecs = it }
     }
+}
+
+/**
+ * Audio decoders safe to advertise to the server's route planner.
+ *
+ * Media3's FFmpeg [androidx.media3.exoplayer.audio.DecoderAudioRenderer] emits
+ * PCM and does not report tunneling support. On TV, advertising extension-only
+ * codecs such as TrueHD therefore makes the server send original audio into a
+ * software-timed HDMI path even when it could copy the video and adapt only the
+ * audio to a platform-synchronized format. Keep FFmpeg available as a runtime
+ * fallback, but advertise only platform decoders on TV; encoded formats the
+ * active sink can carry remain represented separately by `audioPassthrough`.
+ */
+internal fun advertisedAudioDecodeCodecs(
+    platformCodecs: List<String>,
+    ffmpegAvailable: Boolean,
+    isTv: Boolean,
+): List<String> {
+    val ffmpegCodecs = if (ffmpegAvailable && !isTv) {
+        FfmpegAudioSupport.codecShortCodes
+    } else {
+        emptyList()
+    }
+    return (platformCodecs + ffmpegCodecs).distinct()
 }
 
 private fun Tracks.Group.selectedFormat() =

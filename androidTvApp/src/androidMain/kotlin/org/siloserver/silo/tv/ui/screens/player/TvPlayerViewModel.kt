@@ -643,6 +643,12 @@ class TvPlayerViewModel(
         val sessionId: String? = null,
         val playMethod: PlayMethod? = null,
         val playbackPlan: PlaybackExecutionPlan? = null,
+        /**
+         * Server-normalized output frame rate. Media3 can report
+         * [androidx.media3.common.Format.NO_VALUE] for transformed Dolby Vision
+         * streams even though protocol v3 already knows the exact source rate.
+         */
+        val effectiveFrameRate: Float? = null,
         val requestHeaders: Map<String, String> = emptyMap(),
         val delivery: PlaybackDelivery? = null,
         val streamUrl: String? = null,
@@ -1076,6 +1082,11 @@ class TvPlayerViewModel(
                                 sessionId = result.sessionId,
                                 playMethod = result.playMethod,
                                 playbackPlan = result.playbackPlan,
+                                effectiveFrameRate = result.playbackPlanV3
+                                    ?.effectiveRecipe
+                                    ?.frameRate
+                                    ?.takeIf { frameRate -> frameRate.isFinite() && frameRate > 0.0 }
+                                    ?.toFloat(),
                                 requestHeaders = result.requestHeaders,
                                 delivery = result.delivery,
                                 streamUrl = result.streamUrl,

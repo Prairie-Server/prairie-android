@@ -1,6 +1,7 @@
 package org.siloserver.silo.common.player
 
 import android.content.Context
+import android.os.Build
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
@@ -29,9 +30,13 @@ import org.siloserver.silo.model.playback.HdrCapabilities
 object TrackSelectionPresets {
 
     /**
-     * TV: prioritize passthrough, keep tunneling off, disable audio offload.
-     * Google TV Streamer can report plenty of buffered media while its tunneled
-     * AV sync path stalls around startup, so we avoid forcing Media3 tunneling.
+     * TV: prioritize passthrough and let Media3 use the platform's native
+     * audio-output and hardware A/V-sync paths where the device supports them.
+     *
+     * Google TV Streamer has a confirmed tunneled-startup stall, so only that
+     * device family keeps tunneling disabled. Disabling tunneling globally made
+     * Shield-class devices use Media3's software-timed PCM path even though the
+     * hardware A/V-sync path is available.
      *
      * [ffmpegAvailable] defaults to probing the runtime classpath via
      * [FfmpegAudioSupport.isAvailable]; tests override it directly. When
@@ -39,8 +44,8 @@ object TrackSelectionPresets {
      * audio codecs (TrueHD, DTS-HD, etc.) regardless of passthrough
      * support — the platform renderer still wins selection on
      * passthrough-capable routes because its `supportsFormat` score beats
-     * FFmpeg's, so this widening only affects routes where the sink
-     * can't carry the codec and FFmpeg is the fallback.
+     * FFmpeg's. TV route planning no longer advertises extension-only decode,
+     * so FFmpeg remains here for forced-original and runtime recovery only.
      */
     fun buildTvParameters(
         context: Context,
@@ -54,13 +59,18 @@ object TrackSelectionPresets {
     ): DefaultTrackSelector.Parameters {
         val audioMimes = buildTvAudioMimePreferences(audioCaps, ffmpegAvailable)
         val videoMimes = buildTvVideoMimePreferences(displayHdr, allowHdr)
+        val tunnelingEnabled = TvPlaybackOutputPolicy.shouldEnableTunneling(
+            manufacturer = Build.MANUFACTURER,
+            model = Build.MODEL,
+            device = Build.DEVICE,
+        )
 
         val builder = base.toDefaultBuilder(context)
-            .setTunnelingEnabled(false)
+            .setTunnelingEnabled(tunnelingEnabled)
             .setAudioOffloadPreferences(
                 TrackSelectionParameters.AudioOffloadPreferences.Builder()
                     .setAudioOffloadMode(
-                        TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED,
+                        TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED,
                     )
                     .build(),
             )
@@ -250,5 +260,21 @@ object TrackSelectionPresets {
         } else {
             DefaultTrackSelector.Parameters.Builder(context)
         }
+    }
+}
+
+/** Device-specific exceptions to Media3's native Android TV output paths. */
+internal object TvPlaybackOutputPolicy {
+    fun shouldEnableTunneling(
+        manufacturer: String?,
+        model: String?,
+        device: String?,
+    ): Boolean {
+        val normalizedManufacturer = manufacturer.orEmpty().trim().lowercase()
+        val normalizedModel = model.orEmpty().trim().lowercase()
+        val normalizedDevice = device.orEmpty().trim().lowercase()
+        val isGoogleTvStreamer = normalizedManufacturer == "google" &&
+            (normalizedModel.contains("google tv streamer") || normalizedDevice == "mustang")
+        return !isGoogleTvStreamer
     }
 }

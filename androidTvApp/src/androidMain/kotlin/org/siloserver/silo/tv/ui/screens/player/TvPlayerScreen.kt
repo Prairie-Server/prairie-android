@@ -1185,7 +1185,7 @@ fun TvPlayerScreen(
     // Player listener → ViewModel. Pushes play/pause state, refreshes the
     // track menu state on track changes, and drives HDMI display-mode
     // switching on video size changes.
-    DisposableEffect(mediaController) {
+    DisposableEffect(mediaController, state.effectiveFrameRate) {
         val controller = mediaController
         if (controller == null) {
             onDispose { }
@@ -1244,12 +1244,16 @@ fun TvPlayerScreen(
                     // accessor, so read the frame rate off the currently
                     // selected video track in `currentTracks`. That's the
                     // same signal — `Format.frameRate` flows through both.
-                    val frameRate = controller.currentTracks.groups
+                    val mediaFrameRate = controller.currentTracks.groups
                         .firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
                         ?.let { g ->
                             val mg = g.mediaTrackGroup
                             if (mg.length > 0) mg.getFormat(0).frameRate else 0f
                         } ?: 0f
+                    val frameRate = mediaFrameRate
+                        .takeIf { it.isFinite() && it > 0f }
+                        ?: state.effectiveFrameRate
+                        ?: 0f
                     if (videoSize.width > 0 && videoSize.height > 0) {
                         pictureInPictureVideoWidth = videoSize.width
                         pictureInPictureVideoHeight = videoSize.height

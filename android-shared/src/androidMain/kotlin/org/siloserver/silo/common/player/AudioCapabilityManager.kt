@@ -10,6 +10,7 @@ import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
 import android.os.Build
+import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -59,6 +60,12 @@ class AudioCapabilityManager(
         if (_capabilities.value == next) return
         _capabilities.value = next
         _outputRouteGeneration.value = generationCounter.incrementAndGet()
+        Log.i(
+            TAG,
+            "Audio output capabilities updated: " +
+                "codecs=${next.passthroughCodecs} maxChannels=${next.maxChannels} " +
+                "entries=${next.entries}",
+        )
     }
 
     private fun bumpOutputRouteGeneration() {
@@ -111,9 +118,11 @@ class AudioCapabilityManager(
         } else null
 
     init {
-        // register() fires the listener synchronously with the current state,
-        // so the StateFlow is populated immediately.
-        receiver.register()
+        // register() returns the current snapshot; the listener is only for
+        // later changes. Discarding this value leaves a stable HDMI route at
+        // the empty default forever because no route-change callback follows.
+        val initialCapabilities = receiver.register()
+        publishCapabilities(mapCapabilities(initialCapabilities))
         (appContext.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
             ?.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
         val sp = spatializer
@@ -286,6 +295,8 @@ class AudioCapabilityManager(
     )
 
     private companion object {
+        const val TAG = "AudioCapabilityMgr"
+
         val encodingSupport = listOf(
             EncodingSupport("ac3", AudioFormat.ENCODING_AC3),
             EncodingSupport("eac3", AudioFormat.ENCODING_E_AC3),

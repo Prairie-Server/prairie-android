@@ -28,8 +28,11 @@ import androidx.media3.common.MimeTypes
  */
 object FfmpegAudioSupport {
     /**
-     * Short codec codes emitted into [org.siloserver.silo.model.playback.ClientCodecCapabilities.codecsAudio]
-     * so the server knows the client can handle these audio codecs locally.
+     * Short codec codes available for local FFmpeg decode. Non-TV capability
+     * planning emits these into
+     * [org.siloserver.silo.model.playback.ClientCodecCapabilities.codecsAudio];
+     * TV retains them only as a runtime fallback because extension-decoded PCM
+     * cannot use Media3's hardware tunneled A/V-sync path.
      *
      * Mapping to FFmpeg decoders:
      *   ac3       → ac3

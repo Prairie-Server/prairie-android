@@ -30,14 +30,22 @@ class TrackSelectionPresetsSourceTest {
     }
 
     @Test
-    fun tvPresetDoesNotForceMedia3Tunneling() {
+    fun tvPresetUsesDeviceSpecificMedia3TunnelingPolicy() {
         assertFalse(
             source.contains("setTunnelingEnabled(true)"),
-            "TV presets must not force Media3 tunneling; on Google TV Streamer this can leave playback buffered but stuck in AV sync.",
+            "TV presets must evaluate the device policy instead of forcing tunneling on.",
         )
         assertTrue(
-            source.contains("setTunnelingEnabled(false)"),
-            "TV presets should explicitly leave tunneling off while keeping passthrough/offload preferences.",
+            source.contains("setTunnelingEnabled(tunnelingEnabled)"),
+            "TV presets should use the device-specific tunneling policy.",
+        )
+    }
+
+    @Test
+    fun tvPresetEnablesAudioOffloadWhenSupported() {
+        assertTrue(
+            source.substringBefore("fun buildPhoneParameters").contains("AUDIO_OFFLOAD_MODE_ENABLED"),
+            "TV presets should let Media3 use platform audio offload when the selected format supports it.",
         )
     }
 }

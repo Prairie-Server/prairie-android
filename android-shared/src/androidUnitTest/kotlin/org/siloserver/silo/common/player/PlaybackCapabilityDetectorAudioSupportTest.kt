@@ -2,6 +2,7 @@ package org.siloserver.silo.common.player
 
 import androidx.media3.common.MimeTypes
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -33,6 +34,42 @@ class PlaybackCapabilityDetectorAudioSupportTest {
             isSoftwareDecodableAudioMime(
                 mime = MimeTypes.AUDIO_AAC,
                 ffmpegAvailable = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `TV advertises platform decoders and leaves encoded support to passthrough`() {
+        assertEquals(
+            listOf("aac", "eac3"),
+            advertisedAudioDecodeCodecs(
+                platformCodecs = listOf("aac", "eac3"),
+                ffmpegAvailable = true,
+                isTv = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `phone advertises FFmpeg audio decoders`() {
+        val codecs = advertisedAudioDecodeCodecs(
+            platformCodecs = listOf("aac", "eac3"),
+            ffmpegAvailable = true,
+            isTv = false,
+        )
+
+        assertTrue("truehd" in codecs)
+        assertTrue("dts_hd" in codecs)
+    }
+
+    @Test
+    fun `TV does not lose codecs backed by platform decoders`() {
+        assertEquals(
+            listOf("aac", "truehd"),
+            advertisedAudioDecodeCodecs(
+                platformCodecs = listOf("aac", "truehd"),
+                ffmpegAvailable = true,
+                isTv = true,
             ),
         )
     }
