@@ -28,4 +28,11 @@ class TvAndroidManifestPolicyTest {
         assertTrue(manifest.contains("libmpv declares minSdk 26"))
         assertTrue(manifest.contains("uses Media3 on Android 7/API 24-25"))
     }
+
+    @Test
+    fun tvManifestKeepsSquareIconAndBannerAsDistinctResources() {
+        assertTrue(manifest.contains("""android:icon="@mipmap/ic_launcher""""))
+        assertTrue(manifest.contains("""android:banner="@drawable/tv_banner""""))
+        assertFalse(manifest.contains("""android:icon="@drawable/tv_banner""""))
+    }
 }
