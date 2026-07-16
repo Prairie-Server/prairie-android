@@ -4,6 +4,7 @@ import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TvLauncherIconAssetsTest {
@@ -63,7 +64,7 @@ class TvLauncherIconAssetsTest {
             val image = ImageIO.read(File("src/androidMain/res/$path"))
             assertEquals(size, image.width, path)
             assertEquals(size, image.height, path)
-            assertTrue(!image.colorModel.hasAlpha(), "$path must be opaque for legacy TV launchers.")
+            assertFalse(image.colorModel.hasAlpha(), "$path must be opaque for legacy TV launchers.")
             assertEquals(255, image.alphaAt(0, 0), "$path top-left corner must be opaque.")
             assertEquals(255, image.alphaAt(size - 1, size - 1), "$path bottom-right corner must be opaque.")
         }
@@ -108,16 +109,32 @@ class TvLauncherIconAssetsTest {
         val banner = ImageIO.read(File("src/androidMain/res/drawable/tv_banner.png"))
         assertEquals(320, banner.width)
         assertEquals(180, banner.height)
-        assertTrue(!banner.colorModel.hasAlpha())
+        assertFalse(banner.colorModel.hasAlpha())
 
-        var nearWhitePixels = 0
-        for (y in 0 until banner.height) {
-            for (x in 0 until banner.width) {
-                val rgb = banner.getRGB(x, y)
-                if (rgb.red() > 230 && rgb.green() > 230 && rgb.blue() > 230) nearWhitePixels++
+        val wordmarkPixels = buildList {
+            for (y in 0 until banner.height) {
+                for (x in 0 until banner.width) {
+                    val rgb = banner.getRGB(x, y)
+                    if (rgb.red() > 230 && rgb.green() > 230 && rgb.blue() > 230) {
+                        add(x to y)
+                    }
+                }
             }
         }
-        assertTrue(nearWhitePixels > 500, "TV banner must retain the white Silo wordmark.")
+        assertTrue(wordmarkPixels.size > 500, "TV banner must retain the white Silo wordmark.")
+        val wordmarkBounds = wordmarkPixels.pixelBounds()
+        assertTrue(
+            wordmarkBounds.minX >= 70 && wordmarkBounds.maxX <= 249,
+            "White wordmark must remain inside Fire TV's centered square crop: $wordmarkBounds",
+        )
+        assertTrue(
+            wordmarkBounds.width in 40..180 && wordmarkBounds.height in 10..90,
+            "White wordmark must retain a complete, readable shape: $wordmarkBounds",
+        )
+        assertTrue(
+            wordmarkBounds.width * wordmarkBounds.height >= 500,
+            "White wordmark bounds must not collapse to a small or fragmented mark: $wordmarkBounds",
+        )
     }
 
     @Test
@@ -163,6 +180,23 @@ private data class AlphaBounds(
     val width: Int = maxX - minX + 1
     val height: Int = maxY - minY + 1
 }
+
+private data class PixelBounds(
+    val minX: Int,
+    val minY: Int,
+    val maxX: Int,
+    val maxY: Int,
+) {
+    val width: Int = maxX - minX + 1
+    val height: Int = maxY - minY + 1
+}
+
+private fun List<Pair<Int, Int>>.pixelBounds(): PixelBounds = PixelBounds(
+    minX = minOf { it.first },
+    minY = minOf { it.second },
+    maxX = maxOf { it.first },
+    maxY = maxOf { it.second },
+)
 
 private fun java.awt.image.BufferedImage.opaqueBounds(): AlphaBounds {
     var minX = width

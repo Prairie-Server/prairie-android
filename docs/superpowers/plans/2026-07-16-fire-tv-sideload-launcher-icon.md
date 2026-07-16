@@ -56,7 +56,7 @@ fun legacyTvLauncherIconsAreOpaqueSquaresAtRequiredDensities() {
         val image = ImageIO.read(File("src/androidMain/res/$path"))
         assertEquals(size, image.width, path)
         assertEquals(size, image.height, path)
-        assertTrue(!image.colorModel.hasAlpha(), "$path must be opaque for legacy TV launchers.")
+        assertFalse(image.colorModel.hasAlpha(), "$path must be opaque for legacy TV launchers.")
         assertEquals(255, image.alphaAt(0, 0), "$path top-left corner must be opaque.")
         assertEquals(255, image.alphaAt(size - 1, size - 1), "$path bottom-right corner must be opaque.")
     }
@@ -86,16 +86,23 @@ fun tvBannerRemainsOpaqueWordmarkAtRequiredDimensions() {
     val banner = ImageIO.read(File("src/androidMain/res/drawable/tv_banner.png"))
     assertEquals(320, banner.width)
     assertEquals(180, banner.height)
-    assertTrue(!banner.colorModel.hasAlpha())
+    assertFalse(banner.colorModel.hasAlpha())
 
-    var nearWhitePixels = 0
-    for (y in 0 until banner.height) {
-        for (x in 0 until banner.width) {
-            val rgb = banner.getRGB(x, y)
-            if (rgb.red() > 230 && rgb.green() > 230 && rgb.blue() > 230) nearWhitePixels++
+    val wordmarkPixels = buildList {
+        for (y in 0 until banner.height) {
+            for (x in 0 until banner.width) {
+                val rgb = banner.getRGB(x, y)
+                if (rgb.red() > 230 && rgb.green() > 230 && rgb.blue() > 230) {
+                    add(x to y)
+                }
+            }
         }
     }
-    assertTrue(nearWhitePixels > 500, "TV banner must retain the white Silo wordmark.")
+    assertTrue(wordmarkPixels.size > 500, "TV banner must retain the white Silo wordmark.")
+    val wordmarkBounds = wordmarkPixels.pixelBounds()
+    assertTrue(wordmarkBounds.minX >= 70 && wordmarkBounds.maxX <= 249)
+    assertTrue(wordmarkBounds.width in 40..180 && wordmarkBounds.height in 10..90)
+    assertTrue(wordmarkBounds.width * wordmarkBounds.height >= 500)
 }
 ```
 
@@ -105,6 +112,23 @@ Add these helpers beside `alphaAt`:
 private fun Int.red(): Int = (this ushr 16) and 0xff
 private fun Int.green(): Int = (this ushr 8) and 0xff
 private fun Int.blue(): Int = this and 0xff
+
+private data class PixelBounds(
+    val minX: Int,
+    val minY: Int,
+    val maxX: Int,
+    val maxY: Int,
+) {
+    val width: Int = maxX - minX + 1
+    val height: Int = maxY - minY + 1
+}
+
+private fun List<Pair<Int, Int>>.pixelBounds(): PixelBounds = PixelBounds(
+    minX = minOf { it.first },
+    minY = minOf { it.second },
+    maxX = maxOf { it.first },
+    maxY = maxOf { it.second },
+)
 ```
 
 - [ ] **Step 2: Add a failing manifest-separation test**
@@ -216,9 +240,9 @@ git commit -m "fix(tv): correct sideloaded launcher icon aspect ratio"
 ### Task 2: Verify Fire TV and Google TV launcher behavior
 
 **Files:**
-- Verify: `androidTvApp/build/outputs/apk/debug/androidTvApp-universal-debug.apk`
-- Verify: Fire TV `192.168.1.179:5555`
-- Verify: attached Google TV Streamer `61071HFAG1FWQX`
+- Verify: the locally generated universal debug APK under `androidTvApp/build/outputs/apk/debug/`
+- Verify: the Fire TV device identified by `$FIRE_TV_SERIAL`
+- Verify: the Google TV Streamer identified by `$GOOGLE_TV_SERIAL`
 
 **Interfaces:**
 - Consumes: Debug APK and launcher assets produced by Task 1.
@@ -227,9 +251,13 @@ git commit -m "fix(tv): correct sideloaded launcher icon aspect ratio"
 - [ ] **Step 1: Locate the universal debug APK and record its packaged assets**
 
 ```bash
+export ANDROID_HOME="${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK root}"
+export ANDROID_BUILD_TOOLS_VERSION="${ANDROID_BUILD_TOOLS_VERSION:?Set the installed Android build-tools version}"
+export FIRE_TV_SERIAL="${FIRE_TV_SERIAL:?Set the authorized Fire TV adb serial}"
+export GOOGLE_TV_SERIAL="${GOOGLE_TV_SERIAL:?Set the authorized Google TV adb serial}"
 apk=$(find androidTvApp/build/outputs/apk/debug -name '*universal*debug*.apk' -print -quit)
 test -n "$apk"
-"$HOME/Library/Android/sdk/build-tools/36.0.0/aapt" dump badging "$apk" |
+"$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION/aapt" dump badging "$apk" |
   grep -E "application:|leanback-launchable-activity"
 ```
 
@@ -238,10 +266,10 @@ Expected: the application reports distinct icon and banner resources and exposes
 - [ ] **Step 2: Clean-install on the Fire Stick**
 
 ```bash
-adb -s 192.168.1.179:5555 shell am force-stop org.siloserver.silo
-adb -s 192.168.1.179:5555 uninstall org.siloserver.silo || true
-adb -s 192.168.1.179:5555 install "$apk"
-adb -s 192.168.1.179:5555 shell am start -n com.amazon.venezia/.grid.AppsGridLauncherActivity
+adb -s "$FIRE_TV_SERIAL" shell am force-stop org.siloserver.silo
+adb -s "$FIRE_TV_SERIAL" uninstall org.siloserver.silo || true
+adb -s "$FIRE_TV_SERIAL" install "$apk"
+adb -s "$FIRE_TV_SERIAL" shell am start -n com.amazon.venezia/.grid.AppsGridLauncherActivity
 ```
 
 Expected: installation succeeds and the Fire TV app grid opens.
@@ -249,7 +277,7 @@ Expected: installation succeeds and the Fire TV app grid opens.
 - [ ] **Step 3: Capture and inspect the Fire TV launcher**
 
 ```bash
-adb -s 192.168.1.179:5555 exec-out screencap -p > /tmp/fire-tv-silo-square-launcher.png
+adb -s "$FIRE_TV_SERIAL" exec-out screencap -p > /tmp/fire-tv-silo-square-launcher.png
 ```
 
 Expected: Fire OS retains its outer gray sideload frame, but the inner Silo icon is square, the colorful mark is not compressed, and the mark is materially larger and sharper than before.
@@ -257,10 +285,10 @@ Expected: Fire OS retains its outer gray sideload frame, but the inner Silo icon
 - [ ] **Step 4: Clean-install on the Google TV Streamer**
 
 ```bash
-adb -s 61071HFAG1FWQX shell am force-stop org.siloserver.silo
-adb -s 61071HFAG1FWQX uninstall org.siloserver.silo || true
-adb -s 61071HFAG1FWQX install "$apk"
-adb -s 61071HFAG1FWQX shell monkey -p com.google.android.apps.tv.launcher 1
+adb -s "$GOOGLE_TV_SERIAL" shell am force-stop org.siloserver.silo
+adb -s "$GOOGLE_TV_SERIAL" uninstall org.siloserver.silo || true
+adb -s "$GOOGLE_TV_SERIAL" install "$apk"
+adb -s "$GOOGLE_TV_SERIAL" shell monkey -p com.google.android.apps.tv.launcher 1
 ```
 
 Expected: installation succeeds and the Google TV launcher opens.
@@ -268,7 +296,7 @@ Expected: installation succeeds and the Google TV launcher opens.
 - [ ] **Step 5: Capture and inspect the Google TV launcher**
 
 ```bash
-adb -s 61071HFAG1FWQX exec-out screencap -p > /tmp/google-tv-silo-adaptive-launcher.png
+adb -s "$GOOGLE_TV_SERIAL" exec-out screencap -p > /tmp/google-tv-silo-adaptive-launcher.png
 ```
 
 Expected: Google TV uses the existing adaptive icon with its normal launcher mask; there is no baked square border, stretched banner, or cropped mark.
@@ -277,7 +305,7 @@ Expected: Google TV uses the existing adaptive icon with its normal launcher mas
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest :androidTvApp:assembleDebug
-git diff --check
+git diff --check HEAD^ HEAD
 git status --short --branch
 ```
 
