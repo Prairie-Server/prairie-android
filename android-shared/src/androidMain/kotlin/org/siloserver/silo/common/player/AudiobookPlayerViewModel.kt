@@ -298,6 +298,7 @@ class AudiobookPlayerViewModel(
                     val builtTimeline = buildAudiobookTimeline(
                         versions = d.versions,
                         serverTotalSeconds = d.audiobook?.totalDurationSeconds?.toDouble(),
+                        preferredFileId = selectedVersion.fileId,
                     )
                     val wholeBookDuration = builtTimeline?.totalSeconds
                         ?: d.audiobook?.totalDurationSeconds?.toDouble()
