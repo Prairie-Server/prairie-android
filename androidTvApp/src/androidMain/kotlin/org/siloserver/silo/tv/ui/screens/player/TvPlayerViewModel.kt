@@ -668,6 +668,11 @@ class TvPlayerViewModel(
         val startPosition: Double = 0.0,
         val position: Double = 0.0,
         val duration: Double = 0.0,
+        // Server-declared source runtime (0 when the server didn't provide one).
+        // Authoritative ceiling for engine position/duration reports; unlike
+        // [duration] it is never touched by player callbacks, so an in-progress
+        // transcode's short window can't shrink it.
+        val serverDuration: Double = 0.0,
         // User intent (only flipped by onPlayPause / explicit actions).
         val isPaused: Boolean = false,
         // Actual player state — transient dips during buffering must not
@@ -904,6 +909,27 @@ class TvPlayerViewModel(
                 .distinctUntilChanged()
                 .collect { org.siloserver.silo.common.player.ActivePlaybackFile.set(it) }
         }
+        // Mirror the screen error into the adb test hook — screen-level
+        // failures (terminal server plans) never reach the Media3 player, so
+        // scripted tests can't see them through player state alone.
+        viewModelScope.launch {
+            _uiState
+                .map { it.error }
+                .distinctUntilChanged()
+                .collect { org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = it }
+        }
+        // Mirror the screen's position/duration too — the scrubber renders
+        // from uiState, which can legitimately disagree with the raw player
+        // (growing transcode manifests), so tests must see this view of it.
+        viewModelScope.launch {
+            _uiState
+                .map { it.position to it.duration }
+                .distinctUntilChanged()
+                .collect { (position, duration) ->
+                    org.siloserver.silo.common.player.debug.PlaybackDebugState.screenPositionSec = position
+                    org.siloserver.silo.common.player.debug.PlaybackDebugState.screenDurationSec = duration
+                }
+        }
         // Mirror lifecycle Failed state into the UI error field so the user
         // sees a notice if outage recovery times out or the lifecycle's
         // session fails to start. The phone VM does the same.
@@ -1107,6 +1133,7 @@ class TvPlayerViewModel(
                                 startPosition = result.startPositionSeconds,
                                 position = result.sourceStartPositionSeconds,
                                 duration = result.durationSeconds,
+                                serverDuration = result.durationSeconds,
                                 isPaused = false,
                                 subtitleUrls = result.subtitleUrls,
                                 preferredAudioLanguage = result.preferredAudioLanguage,
@@ -1339,6 +1366,7 @@ class TvPlayerViewModel(
                                 selectedFileResolution = effectiveResolution,
                                 container = effectiveContainer,
                                 duration = effectiveDuration,
+                                serverDuration = effectiveDuration,
                                 subtitleUrls = effectiveSubtitleUrls,
                                 chapters = effectiveVersion?.chapters.orEmpty().ifEmpty {
                                     if (effectiveFileId == fileId) state.chapters else emptyList()
@@ -1423,16 +1451,22 @@ class TvPlayerViewModel(
 
         val currentState = _uiState.value
         val timeline = currentState.playbackPlan?.timeline
-        val knownSourceDuration = currentState.duration.takeIf { it > 0.0 }
+        // Clamp reports against the server-declared runtime, never against
+        // state.duration: while a server transcode/remux is still running the
+        // engine reports the short in-progress window (a few seconds of HLS
+        // playlist), and using a value the engine itself wrote as the ceiling
+        // turns that first short sample into a permanent downward ratchet
+        // (few-second seek bar, forward seeks snapping back).
+        val serverDuration = currentState.serverDuration.takeIf { it > 0.0 }
         val rawPositionSec = positionMs / 1000.0
         val rawDurationSec = durationMs / 1000.0
         val mappedPositionSec = (timeline?.sourcePositionForPlayer(rawPositionSec) ?: rawPositionSec)
-            .let { position -> knownSourceDuration?.let { position.coerceAtMost(it) } ?: position }
+            .let { position -> serverDuration?.let { position.coerceAtMost(it) } ?: position }
         val mappedDurationSec = if (durationMs > 0) {
             timeline?.sourcePositionForPlayer(rawDurationSec) ?: rawDurationSec
         } else {
             0.0
-        }.let { duration -> knownSourceDuration?.let { duration.coerceAtMost(it) } ?: duration }
+        }.let { duration -> serverDuration?.let { duration.coerceAtMost(it) } ?: duration }
         val nowMs = SystemClock.elapsedRealtime()
         val positionDecision = seekPresentationGuard.onPositionReport(
             positionMs = (mappedPositionSec * 1_000.0).toLong().coerceAtLeast(0L),
@@ -1454,7 +1488,9 @@ class TvPlayerViewModel(
         _uiState.update {
             it.copy(
                 position = positionSec,
-                duration = if (durationSec > 0) durationSec else it.duration,
+                // Grow-only: an engine report may extend an unknown runtime (a
+                // growing transcode window) but never shrink a known one.
+                duration = maxOf(it.duration, durationSec),
             )
         }
         // Playback is progressing — restore the transient-network retry budget so
@@ -1474,13 +1510,13 @@ class TvPlayerViewModel(
         // Forward to the lifecycle so its 10s reporter has a fresh sample.
         sessionLifecycle.reportPosition(
             positionSec = positionSec,
-            durationSec = if (durationSec > 0) durationSec else _uiState.value.duration,
+            durationSec = _uiState.value.duration,
             isPaused = _uiState.value.isPaused,
         )
 
         // Track B: durably record (local resume + outbox sync) for both streaming
         // and offline-download; throttled to ~every 10s of content time.
-        maybeRecordPosition(positionSec, if (durationSec > 0) durationSec else _uiState.value.duration)
+        maybeRecordPosition(positionSec, _uiState.value.duration)
     }
 
     fun onPlayingChanged(isPlaying: Boolean) {
@@ -3147,6 +3183,7 @@ class TvPlayerViewModel(
     }
 
     override fun onCleared() {
+        org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(
             _uiState.value.selectedFileId ?: _uiState.value.mediaFileId,
         )

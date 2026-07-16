@@ -245,6 +245,11 @@ class PlayerViewModel(
         val mediaMountGeneration: Long = 0L,
         val position: Double = 0.0,
         val duration: Double = 0.0,
+        // Server-declared source runtime (0 when the server didn't provide one).
+        // Authoritative ceiling for engine position/duration reports; unlike
+        // [duration] it is never touched by player callbacks, so an in-progress
+        // transcode's short window can't shrink it.
+        val serverDuration: Double = 0.0,
         val bufferedPosition: Double = 0.0,
         val isPlaying: Boolean = false,
         val isPaused: Boolean = false,
@@ -533,6 +538,27 @@ class PlayerViewModel(
                 .map { it.mediaFileId }
                 .distinctUntilChanged()
                 .collect { org.siloserver.silo.common.player.ActivePlaybackFile.set(it) }
+        }
+        // Mirror the screen error into the adb test hook — screen-level
+        // failures (terminal server plans) never reach the Media3 player, so
+        // scripted tests can't see them through player state alone.
+        viewModelScope.launch {
+            _uiState
+                .map { it.error }
+                .distinctUntilChanged()
+                .collect { org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = it }
+        }
+        // Mirror the screen's position/duration too — the seek bar renders
+        // from uiState, which can legitimately disagree with the raw player
+        // (growing transcode manifests), so tests must see this view of it.
+        viewModelScope.launch {
+            _uiState
+                .map { it.position to it.duration }
+                .distinctUntilChanged()
+                .collect { (position, duration) ->
+                    org.siloserver.silo.common.player.debug.PlaybackDebugState.screenPositionSec = position
+                    org.siloserver.silo.common.player.debug.PlaybackDebugState.screenDurationSec = duration
+                }
         }
         // Mirror lifecycle Failed state into the UI error field so the user sees a
         // notice when outage recovery times out or the session fails to start. The
@@ -828,6 +854,9 @@ class PlayerViewModel(
                 mediaMountGeneration = mountGeneration,
                 position = playbackState.sourceStartPositionSeconds,
                 duration = playbackState.durationSeconds.takeIf { duration -> duration > 0.0 }
+                    ?: version?.duration
+                    ?: 0.0,
+                serverDuration = playbackState.durationSeconds.takeIf { duration -> duration > 0.0 }
                     ?: version?.duration
                     ?: 0.0,
                 isPlaying = true,
@@ -1311,19 +1340,25 @@ class PlayerViewModel(
 
         val currentState = _uiState.value
         val timeline = currentState.playbackPlan?.timeline
-        val knownSourceDuration = currentState.duration.takeIf { it > 0.0 }
+        // Clamp reports against the server-declared runtime, never against
+        // state.duration: while a server transcode/remux is still running the
+        // engine reports the short in-progress window (a few seconds of HLS
+        // playlist), and using a value the engine itself wrote as the ceiling
+        // turns that first short sample into a permanent downward ratchet
+        // (few-second seek bar, forward seeks snapping back).
+        val serverDuration = currentState.serverDuration.takeIf { it > 0.0 }
         val rawPositionSec = positionMs / 1000.0
         val rawDurationSec = durationMs / 1000.0
         val rawBufferedSec = bufferedPositionMs / 1000.0
         val mappedPositionSec = (timeline?.sourcePositionForPlayer(rawPositionSec) ?: rawPositionSec)
-            .let { position -> knownSourceDuration?.let { position.coerceAtMost(it) } ?: position }
+            .let { position -> serverDuration?.let { position.coerceAtMost(it) } ?: position }
         val mappedDurationSec = if (durationMs > 0) {
             timeline?.sourcePositionForPlayer(rawDurationSec) ?: rawDurationSec
         } else {
             0.0
-        }.let { duration -> knownSourceDuration?.let { duration.coerceAtMost(it) } ?: duration }
+        }.let { duration -> serverDuration?.let { duration.coerceAtMost(it) } ?: duration }
         val mappedBufferedSec = (timeline?.sourcePositionForPlayer(rawBufferedSec) ?: rawBufferedSec)
-            .let { position -> knownSourceDuration?.let { position.coerceAtMost(it) } ?: position }
+            .let { position -> serverDuration?.let { position.coerceAtMost(it) } ?: position }
         val nowMs = SystemClock.elapsedRealtime()
         val positionDecision = seekPresentationGuard.onPositionReport(
             positionMs = (mappedPositionSec * 1_000.0).toLong().coerceAtLeast(0L),
@@ -1332,7 +1367,7 @@ class PlayerViewModel(
         if (positionDecision is SeekPositionDecision.Suppress) {
             _uiState.update { state ->
                 state.copy(
-                    duration = if (mappedDurationSec > 0) mappedDurationSec else state.duration,
+                    duration = maxOf(state.duration, mappedDurationSec),
                     bufferedPosition = mappedBufferedSec,
                 )
             }
@@ -1364,7 +1399,9 @@ class PlayerViewModel(
         _uiState.update { state ->
             state.copy(
                 position = positionSec,
-                duration = if (durationSec > 0) durationSec else state.duration,
+                // Grow-only: an engine report may extend an unknown runtime (a
+                // growing transcode window) but never shrink a known one.
+                duration = maxOf(state.duration, durationSec),
                 bufferedPosition = bufferedSec,
             )
         }
@@ -1391,7 +1428,7 @@ class PlayerViewModel(
         // Recovery (404/outage) is fully owned by the lifecycle.
         sessionLifecycle.reportPosition(
             positionSec = positionSec,
-            durationSec = if (durationSec > 0) durationSec else _uiState.value.duration,
+            durationSec = _uiState.value.duration,
             isPaused = _uiState.value.isPaused,
         )
 
@@ -1399,7 +1436,7 @@ class PlayerViewModel(
         // BOTH streaming and offline-download playback — the lifecycle's server
         // reporter does nothing on the offline-download path (no session). Throttled
         // by content-time delta so it fires ~every 10s of playback, not per tick.
-        maybeRecordPosition(positionSec, if (durationSec > 0) durationSec else _uiState.value.duration)
+        maybeRecordPosition(positionSec, _uiState.value.duration)
     }
 
     private var lastRecordedKey: String? = null
@@ -2975,6 +3012,9 @@ class PlayerViewModel(
                 duration = watchDetail?.versions?.firstOrNull { v -> v.fileId == fileId }?.duration
                     ?: sidecar.durationSeconds
                     ?: 0.0,
+                serverDuration = watchDetail?.versions?.firstOrNull { v -> v.fileId == fileId }?.duration
+                    ?: sidecar.durationSeconds
+                    ?: 0.0,
                 isPlaying = true,
                 isPaused = false,
                 isBuffering = false,
@@ -3001,6 +3041,7 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
         resetPlaybackRecoveryState()
         super.onCleared()
