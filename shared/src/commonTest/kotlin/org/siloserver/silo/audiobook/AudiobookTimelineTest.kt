@@ -152,6 +152,46 @@ class AudiobookTimelineTest {
     }
 
     @Test
+    fun `fallback keeps one presentation variant across all parts`() {
+        val versions = listOf(
+            part(fileId = 301, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "lossless"),
+            part(fileId = 302, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "compressed"),
+            // Reverse the alternate order for part two. Selecting firstOrNull
+            // independently would combine lossless part one with compressed part two.
+            part(fileId = 304, duration = 200.0, partIndex = 1)
+                .copy(presentationGroupKey = "compressed"),
+            part(fileId = 303, duration = 200.0, partIndex = 1)
+                .copy(presentationGroupKey = "lossless"),
+        )
+
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+
+        assertEquals(listOf(301, 303), timeline.tracks.map { it.fileId })
+    }
+
+    @Test
+    fun `chapter indexes follow globally sorted chapter order`() {
+        val versions = listOf(
+            part(
+                fileId = 310,
+                duration = 100.0,
+                partIndex = 0,
+                chapters = listOf(
+                    chapter(1, 60.0, 100.0),
+                    chapter(0, 0.0, 60.0),
+                ),
+            ),
+        )
+
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+
+        assertEquals(listOf(0.0, 60.0), timeline.chapters.map { it.startSeconds })
+        assertEquals(listOf(0, 1), timeline.chapters.map { it.index })
+    }
+
+    @Test
     fun `single part book behaves like today`() {
         val versions = listOf(
             part(

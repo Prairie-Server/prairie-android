@@ -172,9 +172,13 @@ fun buildAudiobookTimeline(
     // reports nothing, the cumulative offset is the whole-book length.
     val total = maxOf(serverTotalSeconds ?: 0.0, offset)
 
+    val sortedChapters = chapters
+        .sortedBy { it.startSeconds }
+        .mapIndexed { index, chapter -> chapter.copy(index = index) }
+
     return AudiobookTimeline(
         tracks = tracks,
-        chapters = chapters.sortedBy { it.startSeconds },
+        chapters = sortedChapters,
         totalSeconds = total,
     )
 }
@@ -205,13 +209,20 @@ internal fun audioParts(versions: List<FileVersion>, preferredFileId: Int? = nul
     val preferredKey = preferred?.presentationVariantKey()
     val indexed = candidates.filter { it.presentationPartIndex != null }
     val selected = if (indexed.isNotEmpty()) {
-        indexed
+        val byPart = indexed
             .groupBy { it.presentationPartIndex }
             .toSortedMap(compareBy(nullsLast()) { it })
-            .values
-            .mapNotNull { partVersions ->
+        val selectedKey = preferredKey ?: candidates
+            .map { it.presentationVariantKey() }
+            .distinct()
+            .firstOrNull { key ->
+                byPart.values.all { partVersions ->
+                    partVersions.any { it.presentationVariantKey() == key }
+                }
+            }
+        byPart.values.mapNotNull { partVersions ->
                 partVersions.firstOrNull { it.fileId == preferredFileId }
-                    ?: preferredKey?.let { key -> partVersions.firstOrNull { it.presentationVariantKey() == key } }
+                    ?: selectedKey?.let { key -> partVersions.firstOrNull { it.presentationVariantKey() == key } }
                     ?: partVersions.firstOrNull()
             }
     } else {
