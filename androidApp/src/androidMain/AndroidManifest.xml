@@ -54,6 +54,20 @@
             </intent-filter>
         </activity>
 
+        <!-- Debug-only adb test hook (scripts/android-playback-test.sh): status as
+             JSON + transport commands via `am broadcast`. Sender must hold
+             android.permission.DUMP (shell only); the receiver additionally
+             no-ops in release builds. -->
+        <receiver
+            android:name="org.siloserver.silo.common.player.debug.PlaybackDebugReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="org.siloserver.silo.debug.PLAYBACK_STATUS" />
+                <action android:name="org.siloserver.silo.debug.PLAYBACK_COMMAND" />
+            </intent-filter>
+        </receiver>
+
         <!-- Media3 documents this as an exported service so system media
              controllers can discover and bind to the app session. -->
         <service
