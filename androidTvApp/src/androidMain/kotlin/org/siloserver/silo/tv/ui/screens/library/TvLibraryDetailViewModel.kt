@@ -46,6 +46,11 @@ enum class TvLibraryTab(val label: String) {
  */
 data class TvCollectionSection(
     val name: String,
+    // "regular" or "user_collections". User-created collections resolve via a
+    // different catalog source (source=user_collection), so the click must
+    // route them to the user-collection detail — otherwise the server rejects
+    // the library_collection lookup with "Catalog source not found" (issue #69).
+    val kind: String = "regular",
     val collections: List<LibraryCollection>,
 )
 
@@ -715,7 +720,7 @@ class TvLibraryDetailViewModel(
             if (group.collections.isEmpty()) continue
             slots += Slot(
                 order = group.sortOrder,
-                section = TvCollectionSection(name = group.name, collections = group.collections),
+                section = TvCollectionSection(name = group.name, kind = group.kind, collections = group.collections),
             )
         }
         if (ungrouped != null && ungrouped.collections.isNotEmpty()) {

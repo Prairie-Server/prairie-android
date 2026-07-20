@@ -86,7 +86,7 @@ fun TvLibraryDetailScreen(
     libraryTitle: String,
     libraryType: String,
     onItemClick: (contentId: String) -> Unit,
-    onCollectionClick: (collectionId: String, title: String) -> Unit,
+    onCollectionClick: (collectionId: String, title: String, isUserCollection: Boolean) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     // When the screen is opened from the Skyline cascade with a committed
     // section pill, this drives the initial tab (Recommended / Library /
@@ -795,7 +795,7 @@ private fun GenreChipCloud(
 @Composable
 private fun CollectionsTab(
     state: TvLibraryDetailViewModel.UiState,
-    onCollectionClick: (String, String) -> Unit,
+    onCollectionClick: (String, String, Boolean) -> Unit,
     onRetry: () -> Unit,
     onInitialContentFocus: () -> Unit,
 ) {
@@ -865,7 +865,13 @@ private fun CollectionsTab(
                     ) { _, collection ->
                         TvCollectionCard(
                             collection = collection,
-                            onClick = { onCollectionClick(collection.id, collection.name) },
+                            onClick = {
+                                onCollectionClick(
+                                    collection.id,
+                                    collection.name,
+                                    section.kind == "user_collections",
+                                )
+                            },
                             focusRequester = firstCollectionFocusRequester
                                 .takeIf { collection.id == firstCollectionId },
                         )

@@ -874,6 +874,7 @@ fun TvMainShell(
                     TvLibrariesScreen(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onUserCollectionClick = onOpenCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
@@ -881,6 +882,7 @@ fun TvMainShell(
                     TvLibrariesScreen(
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onUserCollectionClick = onOpenCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
@@ -898,6 +900,7 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Movies] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onUserCollectionClick = onOpenCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         onContentUpFallbackChanged = onContentUpFallback,
                     )
@@ -911,6 +914,7 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Series] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onUserCollectionClick = onOpenCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         onContentUpFallbackChanged = onContentUpFallback,
                     )
@@ -924,6 +928,7 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Music] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onUserCollectionClick = onOpenCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         onContentUpFallbackChanged = onContentUpFallback,
                     )
@@ -937,6 +942,7 @@ fun TvMainShell(
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Audiobooks] ?: 0,
                         onItemClick = onOpenItemDetail,
                         onLibraryCollectionClick = onOpenLibraryCollectionDetail,
+                        onUserCollectionClick = onOpenCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         onContentUpFallbackChanged = onContentUpFallback,
                     )
@@ -1323,6 +1329,7 @@ private fun TvLibraryTypeContent(
     sectionRequestNonce: Int,
     onItemClick: (contentId: String) -> Unit,
     onLibraryCollectionClick: (libraryId: Int, collectionId: String, title: String) -> Unit,
+    onUserCollectionClick: (collectionId: String, title: String) -> Unit,
     onInitialContentFocus: () -> Unit,
     onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
 ) {
@@ -1357,8 +1364,12 @@ private fun TvLibraryTypeContent(
             libraryTitle = library.name,
             libraryType = library.type,
             onItemClick = onItemClick,
-            onCollectionClick = { collectionId, title ->
-                onLibraryCollectionClick(library.id, collectionId, title)
+            onCollectionClick = { collectionId, title, isUserCollection ->
+                if (isUserCollection) {
+                    onUserCollectionClick(collectionId, title)
+                } else {
+                    onLibraryCollectionClick(library.id, collectionId, title)
+                }
             },
             onInitialContentFocus = onInitialContentFocus,
             initialSection = selectedPill.toLibraryTab(),
