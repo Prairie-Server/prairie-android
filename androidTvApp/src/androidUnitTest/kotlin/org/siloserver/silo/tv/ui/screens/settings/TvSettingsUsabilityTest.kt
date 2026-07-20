@@ -37,7 +37,7 @@ class TvSettingsUsabilityTest {
     fun splitSettingsUseCompactTvDensity() {
         assertTrue(source.contains("modifier = Modifier.width(200.dp)"))
         assertTrue(source.contains("private val RowMaxWidth = 520.dp"))
-        assertTrue(source.contains("private val RowHeight = 38.dp"))
+        assertTrue(source.contains("private val RowHeight = 42.dp"))
         assertTrue(source.contains(".focusGroup()"))
     }
 }
