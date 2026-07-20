@@ -68,6 +68,7 @@ import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
@@ -138,12 +139,14 @@ fun TvPlayerHud(
     selectedFileId: Int? = null,
     onSelectFileVersion: (Int) -> Unit = {},
     subtitleTracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
     videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
     onSelectVideoQuality: (String) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
+    onSelectServerSubtitle: (Int) -> Unit = {},
     onVideoFillModeChanged: (VideoFillMode) -> Unit,
     playbackSpeed: Double,
     onPlaybackSpeedChanged: (Double) -> Unit,
@@ -353,7 +356,9 @@ fun TvPlayerHud(
                     )
                     HudTab.Subtitles -> HudSubtitlesPane(
                         subtitleTracks = subtitleTracks,
+                        subtitleUrls = subtitleUrls,
                         onSelectSubtitle = onSelectSubtitle,
+                        onSelectServerSubtitle = onSelectServerSubtitle,
                         subtitleDelayMs = subtitleDelayMs,
                         onSubtitleDelayChanged = onSubtitleDelayChanged,
                         appearance = subtitleAppearance,
@@ -1171,7 +1176,9 @@ private fun HudAudioPane(
 @Composable
 private fun HudSubtitlesPane(
     subtitleTracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
     onSelectSubtitle: (Int) -> Unit,
+    onSelectServerSubtitle: (Int) -> Unit = {},
     subtitleDelayMs: Int,
     onSubtitleDelayChanged: (Int) -> Unit,
     appearance: SubtitleAppearance,
@@ -1210,25 +1217,60 @@ private fun HudSubtitlesPane(
                     focusRequester = subtitleTrackFocus,
                     rightFocusRequester = subtitleTextColorFocus,
                     onActivate = {
-                        val options = buildList {
-                            add(HudPickerOption(id = "-1", label = "Off"))
-                            subtitleTracks.forEachIndexed { idx, track ->
-                                add(
-                                    HudPickerOption(
-                                        id = track.index.toString(),
-                                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
-                                    ),
-                                )
+                        // The server catalog (subtitleUrls) is the menu source:
+                        // catalog-only/external rows have no mounted Media3
+                        // track until the V3 planner materializes the chosen
+                        // one, so keying this menu off live player tracks
+                        // showed "no subtitles" for titles with plenty. Falls
+                        // back to Media3 tracks only when the server list is
+                        // empty (e.g. embedded-only discoveries).
+                        if (subtitleUrls.isNotEmpty()) {
+                            val options = buildList {
+                                add(HudPickerOption(id = "-1", label = "Off"))
+                                subtitleUrls.forEachIndexed { idx, row ->
+                                    val label = row.label?.trim()?.takeIf { it.isNotBlank() }
+                                        ?: row.language?.trim()?.takeIf { it.isNotBlank() }
+                                        ?: "Track ${idx + 1}"
+                                    add(
+                                        HudPickerOption(
+                                            id = row.index.toString(),
+                                            label = if (row.forced == true) "$label (forced)" else label,
+                                        ),
+                                    )
+                                }
                             }
+                            val selectedServerIndex = selectedSub?.let { sel ->
+                                subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index
+                            } ?: -1
+                            onPresentPicker(
+                                HudPickerPresentation(
+                                    title = "Subtitle Track",
+                                    options = options,
+                                    selectedId = selectedServerIndex.toString(),
+                                    onSelect = { id -> onSelectServerSubtitle(id.toIntOrNull() ?: -1) },
+                                ),
+                            )
+                        } else {
+                            val options = buildList {
+                                add(HudPickerOption(id = "-1", label = "Off"))
+                                subtitleTracks.forEachIndexed { idx, track ->
+                                    add(
+                                        HudPickerOption(
+                                            id = track.index.toString(),
+                                            label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                                        ),
+                                    )
+                                }
+                            }
+                            onPresentPicker(
+                                HudPickerPresentation(
+                                    title = "Subtitle Track",
+                                    options = options,
+                                    selectedId = (selectedSub?.index ?: -1).toString(),
+                                    onSelect = { id -> onSelectSubtitle(id.toIntOrNull() ?: -1) },
+                                ),
+                            )
                         }
-                        onPresentPicker(
-                            HudPickerPresentation(
-                                title = "Subtitle Track",
-                                options = options,
-                                selectedId = (selectedSub?.index ?: -1).toString(),
-                                onSelect = { id -> onSelectSubtitle(id.toIntOrNull() ?: -1) },
-                            ),
-                        )
                     },
                 )
 

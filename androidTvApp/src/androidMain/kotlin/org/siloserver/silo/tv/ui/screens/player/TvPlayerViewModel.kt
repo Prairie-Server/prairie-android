@@ -305,7 +305,7 @@ internal fun resolveInitialSubtitleTrackIndex(
     return subtitleTracks.firstOrNull { it.matchesMountedSubtitle(requested) }?.index
 }
 
-private fun PlayerTrackEntry.matchesMountedSubtitle(subtitle: PlayerSubtitleInfo): Boolean {
+internal fun PlayerTrackEntry.matchesMountedSubtitle(subtitle: PlayerSubtitleInfo): Boolean {
     val targetLabel = subtitle.label?.trim()?.takeIf { it.isNotBlank() }
     if (targetLabel != null) {
         val rawLabel = label.trim()
@@ -2520,6 +2520,33 @@ class TvPlayerViewModel(
         viewModelScope.launch {
             userItemStatePort.recordSubtitleTrackSelection(contentId, fileId, fingerprint)
         }
+    }
+
+    /**
+     * Selects a subtitle by SERVER catalog row index ([PlayerSubtitleInfo.index]),
+     * phone-parity for the HUD/quick-picker menus. Catalog-only rows (blank URL)
+     * have no mounted Media3 track until the V3 planner materializes them, so
+     * the menus must not be keyed off live player tracks. Returns the mounted
+     * Media3 track index when one already exists (caller applies it through the
+     * normal backend path), or null after scheduling a materializing replan
+     * whose track is auto-selected by label once it arrives.
+     */
+    fun onSelectCatalogSubtitle(serverIndex: Int): Int? {
+        val state = _uiState.value
+        val row = state.subtitleUrls.firstOrNull { it.index == serverIndex } ?: return null
+        state.subtitleTracks.firstOrNull { it.matchesMountedSubtitle(row) }?.let { return it.index }
+        pendingSubtitleSelectLabel = row.label?.trim()?.takeIf { it.isNotBlank() }
+            ?: row.language?.trim()?.takeIf { it.isNotBlank() }
+        manualSubtitleSelectionApplied = true
+        if (state.sessionId != null) {
+            startProtocolV3Replan(
+                classification = "subtitle_track_changed",
+                notice = "Applying subtitle selection.",
+                state = state,
+                subtitleTrackIndexOverride = serverIndex,
+            )
+        }
+        return null
     }
 
     fun onManualSubtitleSelectionIntent(index: Int) {

@@ -558,6 +558,19 @@ fun TvPlayerScreen(
             Log.w(TAG, "Subtitle selection deferred or failed for index=$idx")
         }
     }
+    // Server-catalog subtitle selection (HUD/quick-picker menus list the
+    // server's rows, not Media3 tracks): already-mounted rows resolve to a
+    // Media3 index and go through the normal path; catalog-only rows kick off
+    // a materializing replan inside the ViewModel and auto-select on arrival.
+    val applyTvServerSubtitleSelection: (Int) -> Unit = { serverIdx ->
+        if (serverIdx == -1) {
+            applyTvSubtitleSelection(-1, false)
+        } else {
+            viewModel.onSelectCatalogSubtitle(serverIdx)?.let { mediaIdx ->
+                applyTvSubtitleSelection(mediaIdx, false)
+            }
+        }
+    }
 
     fun requestIdleOverlayFocus(target: TvIdleOverlayFocusTarget) {
         idleOverlayFocusRequest = TvIdleOverlayFocusRequest(
@@ -1843,6 +1856,7 @@ fun TvPlayerScreen(
                             selectedFileId = state.selectedFileId ?: state.mediaFileId,
                             onSelectFileVersion = viewModel::onSelectFileVersion,
                             subtitleTracks = state.subtitleTracks,
+                            subtitleUrls = state.subtitleUrls,
                             stats = state.stats,
                             playbackPlan = state.playbackPlan,
                             videoFillMode = state.videoFillMode,
@@ -1861,6 +1875,9 @@ fun TvPlayerScreen(
                                 viewModel.switchQuality(id)
                             },
                             onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, false) },
+                            onSelectServerSubtitle = { serverIdx ->
+                                applyTvServerSubtitleSelection(serverIdx)
+                            },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
                             playbackSpeed = playbackSpeed,
                             onPlaybackSpeedChanged = viewModel::onSetPlaybackSpeed,
@@ -1970,8 +1987,14 @@ fun TvPlayerScreen(
                 if (!isInPictureInPictureMode && showQuickSubtitlePicker) {
                     TvQuickSubtitlePicker(
                         tracks = state.subtitleTracks,
+                        subtitleUrls = state.subtitleUrls,
                         onSelect = { idx ->
                             applyTvSubtitleSelection(idx, false)
+                            showQuickSubtitlePicker = false
+                            viewModel.setControlsVisible(true)
+                        },
+                        onSelectServer = { serverIdx ->
+                            applyTvServerSubtitleSelection(serverIdx)
                             showQuickSubtitlePicker = false
                             viewModel.setControlsVisible(true)
                         },
@@ -2430,20 +2453,48 @@ private fun formatSleepCountdown(seconds: Int): String {
 @Composable
 private fun TvQuickSubtitlePicker(
     tracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<org.siloserver.silo.model.playback.PlayerSubtitleInfo> = emptyList(),
     onSelect: (Int) -> Unit,
+    onSelectServer: (Int) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
+    // Server catalog is the menu source (see HudSubtitlesPane): catalog-only
+    // rows have no Media3 track until chosen, so a tracks-keyed menu shows
+    // "no subtitles" for titles with plenty. Media3 tracks are the fallback
+    // for embedded-only discoveries.
     val selectedTrack = tracks.firstOrNull { it.isSelected }
+    val useServerList = subtitleUrls.isNotEmpty()
     val options = buildList {
         add(HudPickerOption(id = "-1", label = "Off"))
-        tracks.forEachIndexed { idx, track ->
-            add(
-                HudPickerOption(
-                    id = track.index.toString(),
-                    label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
-                ),
-            )
+        if (useServerList) {
+            subtitleUrls.forEachIndexed { idx, row ->
+                val label = row.label?.trim()?.takeIf { it.isNotBlank() }
+                    ?: row.language?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "Track ${idx + 1}"
+                add(
+                    HudPickerOption(
+                        id = row.index.toString(),
+                        label = if (row.forced == true) "$label (forced)" else label,
+                    ),
+                )
+            }
+        } else {
+            tracks.forEachIndexed { idx, track ->
+                add(
+                    HudPickerOption(
+                        id = track.index.toString(),
+                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                    ),
+                )
+            }
         }
+    }
+    val selectedId = if (useServerList) {
+        selectedTrack?.let { sel ->
+            subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index
+        } ?: -1
+    } else {
+        selectedTrack?.index ?: -1
     }
 
     Dialog(
@@ -2460,8 +2511,11 @@ private fun TvQuickSubtitlePicker(
                 presentation = HudPickerPresentation(
                     title = "Subtitles",
                     options = options,
-                    selectedId = (selectedTrack?.index ?: -1).toString(),
-                    onSelect = { id -> onSelect(id.toIntOrNull() ?: -1) },
+                    selectedId = selectedId.toString(),
+                    onSelect = { id ->
+                        val ordinal = id.toIntOrNull() ?: -1
+                        if (useServerList) onSelectServer(ordinal) else onSelect(ordinal)
+                    },
                 ),
                 onClose = onDismiss,
             )
