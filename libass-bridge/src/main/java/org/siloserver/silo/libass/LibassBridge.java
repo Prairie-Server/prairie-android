@@ -329,9 +329,25 @@ public final class LibassBridge {
             // Positive Silo offset means "show later", so render libass at an
             // earlier media time. Ordinary Media3 cues receive the same offset
             // by shifting their start timestamps in OffsetSubtitleParserFactory.
-            handler.setVideoTime(
-                    adjustedPositionUs(positionUs, subtitleOffsetUs.getAsLong())
-            );
+            try {
+                handler.setVideoTime(
+                        adjustedPositionUs(positionUs, subtitleOffsetUs.getAsLong())
+                );
+            } catch (RuntimeException error) {
+                // AssHandler initializes its internal render handler
+                // asynchronously when the subtitle surface attaches; Media3's
+                // render loop can land here a few frames earlier, and the
+                // resulting lateinit UninitializedPropertyAccessException used
+                // to surface as a fatal ExoPlaybackException that killed
+                // playback outright. Dropping the frame during that startup
+                // race is harmless — subtitles begin one frame later. Checked
+                // by name because this Java module has no compile-time Kotlin
+                // stdlib dependency; anything else still propagates.
+                if (!"UninitializedPropertyAccessException"
+                        .equals(error.getClass().getSimpleName())) {
+                    throw error;
+                }
+            }
         }
     }
 
