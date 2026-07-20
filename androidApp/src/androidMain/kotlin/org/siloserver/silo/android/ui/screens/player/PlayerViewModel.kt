@@ -942,12 +942,24 @@ class PlayerViewModel(
                 startPosition = playbackState.startPositionSeconds,
                 mediaMountGeneration = mountGeneration,
                 position = playbackState.sourceStartPositionSeconds,
-                duration = playbackState.durationSeconds.takeIf { duration -> duration > 0.0 }
-                    ?: version?.duration
-                    ?: 0.0,
-                serverDuration = playbackState.durationSeconds.takeIf { duration -> duration > 0.0 }
-                    ?: version?.duration
-                    ?: 0.0,
+                // Full source runtime is both the scrubber total and the clamp
+                // ceiling used in onPositionChanged. A server transcode reports
+                // a SHORT durationSeconds (the seek-to-end window), but player
+                // positions map into FULL source time — so preferring that short
+                // value froze the progress bar and squashed chapter offsets on
+                // transcoded content (e.g. Pixel 9 / Android 16 pushed to server
+                // transcode where another device direct-plays). Take the LARGER
+                // of the catalog runtime and the session value so the ceiling is
+                // never shorter than the real runtime; unchanged for direct play
+                // where the two already match.
+                duration = maxOf(
+                    version?.duration ?: 0.0,
+                    playbackState.durationSeconds.takeIf { it > 0.0 } ?: 0.0,
+                ),
+                serverDuration = maxOf(
+                    version?.duration ?: 0.0,
+                    playbackState.durationSeconds.takeIf { it > 0.0 } ?: 0.0,
+                ),
                 isPlaying = true,
                 isPaused = false,
                 subtitleTracks = playbackState.subtitleUrls,
