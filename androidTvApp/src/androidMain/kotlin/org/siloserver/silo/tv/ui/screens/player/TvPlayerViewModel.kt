@@ -925,6 +925,14 @@ class TvPlayerViewModel(
     private var aiJobPollJob: Job? = null
     private var activeAiJobId: Long? = null
     private var pendingSubtitleSelectLabel: String? = null
+    // The server catalog row (PlayerSubtitleInfo.index) a user asked for that is
+    // still being materialized by a replan. Preferred over the label for
+    // resolving the mounted track once it arrives: unique, so it disambiguates
+    // two same-language externals and handles rows with null label AND language
+    // (which have no usable label key). Cleared on resolve, on Off, and on any
+    // replan failure so a stale pick can't re-enable later.
+    private var pendingSubtitleSelectServerIndex: Int? = null
+    private var pendingSubtitleSelectPersist: Boolean = false
 
     init {
         // Keep the process-wide active-file marker in sync (phone parity), so
@@ -1434,6 +1442,7 @@ class TvPlayerViewModel(
                         }
                     }
                     is VideoSessionStartV3.Terminal -> {
+                        cancelPendingCatalogSubtitle()
                         _uiState.update {
                             it.copy(
                                 error = "Playback unavailable (${decision.reason}): ${decision.message}",
@@ -1443,6 +1452,7 @@ class TvPlayerViewModel(
                         }
                     }
                     VideoSessionStartV3.ServerUpgradeRequired -> {
+                        cancelPendingCatalogSubtitle()
                         _uiState.update {
                             it.copy(
                                 error = "This Silo server must be updated to support playback recovery.",
@@ -1453,9 +1463,11 @@ class TvPlayerViewModel(
                     }
                 }
                 is ApiResult.Error -> {
+                    cancelPendingCatalogSubtitle()
                     onReplanRequestFailed(classification, notice, result.message)
                 }
                 is ApiResult.NetworkError -> {
+                    cancelPendingCatalogSubtitle()
                     onReplanRequestFailed(classification, notice, result.exception.message)
                 }
             }
@@ -2535,8 +2547,10 @@ class TvPlayerViewModel(
         val state = _uiState.value
         val row = state.subtitleUrls.firstOrNull { it.index == serverIndex } ?: return null
         state.subtitleTracks.firstOrNull { it.matchesMountedSubtitle(row) }?.let { return it.index }
+        pendingSubtitleSelectServerIndex = serverIndex
         pendingSubtitleSelectLabel = row.label?.trim()?.takeIf { it.isNotBlank() }
             ?: row.language?.trim()?.takeIf { it.isNotBlank() }
+        pendingSubtitleSelectPersist = true
         manualSubtitleSelectionApplied = true
         if (state.sessionId != null) {
             startProtocolV3Replan(
@@ -2547,6 +2561,17 @@ class TvPlayerViewModel(
             )
         }
         return null
+    }
+
+    /**
+     * Abandons an in-flight catalog-subtitle materialization (user turned
+     * subtitles Off, or otherwise changed their mind) so the pending pick can't
+     * re-enable itself when a later track refresh arrives.
+     */
+    fun cancelPendingCatalogSubtitle() {
+        pendingSubtitleSelectServerIndex = null
+        pendingSubtitleSelectLabel = null
+        pendingSubtitleSelectPersist = false
     }
 
     fun onManualSubtitleSelectionIntent(index: Int) {
@@ -2570,10 +2595,26 @@ class TvPlayerViewModel(
      * Emits the ordinal text-group index for SubtitleManager.selectSubtitle.
      */
     private fun resolvePendingSubtitleSelection(subtitle: List<PlayerTrackEntry>) {
-        val label = pendingSubtitleSelectLabel ?: return
-        val match = subtitle.firstOrNull { it.label == label || it.displayLabel == label } ?: return
+        // Prefer the exact server row the user asked for: unique, so two
+        // same-language externals or a null-label/null-language row resolve
+        // correctly where a label match would pick the wrong (or no) track.
+        val serverIndex = pendingSubtitleSelectServerIndex
+        val match = if (serverIndex != null) {
+            _uiState.value.subtitleUrls.firstOrNull { it.index == serverIndex }
+                ?.let { row -> subtitle.firstOrNull { it.matchesMountedSubtitle(row) } }
+        } else {
+            val label = pendingSubtitleSelectLabel ?: return
+            subtitle.firstOrNull { it.label == label || it.displayLabel == label }
+        } ?: return
+        val persist = pendingSubtitleSelectPersist
+        pendingSubtitleSelectServerIndex = null
         pendingSubtitleSelectLabel = null
+        pendingSubtitleSelectPersist = false
         _subtitleSelectRequests.tryEmit(match.index)
+        // Catalog-only selections auto-select after materialization; persist
+        // here (the mounted path persists in applyTvSubtitleSelection) so the
+        // choice survives a restart — phone parity.
+        if (persist) persistSubtitleTrackSelection(match.index)
     }
 
     fun beginScrub() {

@@ -1225,6 +1225,14 @@ private fun HudSubtitlesPane(
                         // back to Media3 tracks only when the server list is
                         // empty (e.g. embedded-only discoveries).
                         if (subtitleUrls.isNotEmpty()) {
+                            // Embedded tracks the player discovered but the
+                            // server catalog does not enumerate (e.g. in-stream
+                            // CEA-608) — keep them selectable alongside the
+                            // catalog, tagged "media:" so onSelect routes them
+                            // to the Media3-index path instead of a replan.
+                            val embeddedOnly = subtitleTracks.filter { t ->
+                                subtitleUrls.none { t.matchesMountedSubtitle(it) }
+                            }
                             val options = buildList {
                                 add(HudPickerOption(id = "-1", label = "Off"))
                                 subtitleUrls.forEachIndexed { idx, row ->
@@ -1238,16 +1246,29 @@ private fun HudSubtitlesPane(
                                         ),
                                     )
                                 }
+                                embeddedOnly.forEach { track ->
+                                    add(
+                                        HudPickerOption(
+                                            id = "media:${track.index}",
+                                            label = track.displayLabel.ifBlank { "Embedded" },
+                                        ),
+                                    )
+                                }
                             }
-                            val selectedServerIndex = selectedSub?.let { sel ->
-                                subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index
-                            } ?: -1
+                            val selectedId = selectedSub?.let { sel ->
+                                subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index?.toString()
+                                    ?: "media:${sel.index}"
+                            } ?: "-1"
                             onPresentPicker(
                                 HudPickerPresentation(
                                     title = "Subtitle Track",
                                     options = options,
-                                    selectedId = selectedServerIndex.toString(),
-                                    onSelect = { id -> onSelectServerSubtitle(id.toIntOrNull() ?: -1) },
+                                    selectedId = selectedId,
+                                    onSelect = { id ->
+                                        val media = id.removePrefix("media:")
+                                        if (media != id) onSelectSubtitle(media.toIntOrNull() ?: -1)
+                                        else onSelectServerSubtitle(id.toIntOrNull() ?: -1)
+                                    },
                                 ),
                             )
                         } else {

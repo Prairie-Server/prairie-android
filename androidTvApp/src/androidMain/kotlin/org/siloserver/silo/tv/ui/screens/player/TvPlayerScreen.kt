@@ -564,6 +564,9 @@ fun TvPlayerScreen(
     // a materializing replan inside the ViewModel and auto-select on arrival.
     val applyTvServerSubtitleSelection: (Int) -> Unit = { serverIdx ->
         if (serverIdx == -1) {
+            // Cancel any in-flight materialization so a pending pick can't
+            // re-enable itself after the user chose Off.
+            viewModel.cancelPendingCatalogSubtitle()
             applyTvSubtitleSelection(-1, false)
         } else {
             viewModel.onSelectCatalogSubtitle(serverIdx)?.let { mediaIdx ->
@@ -2464,6 +2467,13 @@ private fun TvQuickSubtitlePicker(
     // for embedded-only discoveries.
     val selectedTrack = tracks.firstOrNull { it.isSelected }
     val useServerList = subtitleUrls.isNotEmpty()
+    // Embedded player-discovered tracks not in the server catalog (e.g. in-stream
+    // CEA-608) stay selectable, tagged "media:" for the Media3-index path.
+    val embeddedOnly = if (useServerList) {
+        tracks.filter { t -> subtitleUrls.none { t.matchesMountedSubtitle(it) } }
+    } else {
+        emptyList()
+    }
     val options = buildList {
         add(HudPickerOption(id = "-1", label = "Off"))
         if (useServerList) {
@@ -2475,6 +2485,14 @@ private fun TvQuickSubtitlePicker(
                     HudPickerOption(
                         id = row.index.toString(),
                         label = if (row.forced == true) "$label (forced)" else label,
+                    ),
+                )
+            }
+            embeddedOnly.forEach { track ->
+                add(
+                    HudPickerOption(
+                        id = "media:${track.index}",
+                        label = track.displayLabel.ifBlank { "Embedded" },
                     ),
                 )
             }
@@ -2491,35 +2509,44 @@ private fun TvQuickSubtitlePicker(
     }
     val selectedId = if (useServerList) {
         selectedTrack?.let { sel ->
-            subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index
-        } ?: -1
+            subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index?.toString()
+                ?: "media:${sel.index}"
+        } ?: "-1"
     } else {
-        selectedTrack?.index ?: -1
+        (selectedTrack?.index ?: -1).toString()
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    // Rendered as an in-window overlay, NOT a Dialog. A Dialog is a separate
+    // window; laying a translucent window over the video SurfaceView forces
+    // SurfaceFlinger off the hardware overlay onto GPU composition, which
+    // stutters playback for a frame or two as the picker appears (visible on
+    // Shield). Drawing in the player's own window leaves the video overlay
+    // undisturbed. HudPickerDialog self-focuses and traps D-pad internally;
+    // Back-to-dismiss is provided here since there's no Dialog to own it.
+    BackHandler(enabled = true, onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.42f)),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            HudPickerDialog(
-                presentation = HudPickerPresentation(
-                    title = "Subtitles",
-                    options = options,
-                    selectedId = selectedId.toString(),
-                    onSelect = { id ->
+        HudPickerDialog(
+            presentation = HudPickerPresentation(
+                title = "Subtitles",
+                options = options,
+                selectedId = selectedId,
+                onSelect = { id ->
+                    val media = id.removePrefix("media:")
+                    if (media != id) {
+                        onSelect(media.toIntOrNull() ?: -1)
+                    } else {
                         val ordinal = id.toIntOrNull() ?: -1
                         if (useServerList) onSelectServer(ordinal) else onSelect(ordinal)
-                    },
-                ),
-                onClose = onDismiss,
-            )
-        }
+                    }
+                },
+            ),
+            onClose = onDismiss,
+        )
     }
 }
 

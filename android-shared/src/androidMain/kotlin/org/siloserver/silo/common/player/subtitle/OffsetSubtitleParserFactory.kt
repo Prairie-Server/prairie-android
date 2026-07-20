@@ -1,5 +1,6 @@
 package org.siloserver.silo.common.player.subtitle
 
+import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.Consumer
@@ -53,11 +54,23 @@ private class OffsetSubtitleParser(
             null
         }
         val shifted = Consumer<CuesWithTiming> { cues ->
+            // Clamp the shifted start to 0, and shrink the duration by however
+            // much we clamped so the cue still ends when it should — otherwise a
+            // negative offset (advance subtitles) makes early cues linger past
+            // their intended end and overlap the next one.
+            val rawStart = cues.startTimeUs + offsetUs
+            val clampedStart = rawStart.coerceAtLeast(0L)
+            val clampLossUs = clampedStart - rawStart
+            val adjustedDuration = if (cues.durationUs == C.TIME_UNSET) {
+                cues.durationUs
+            } else {
+                (cues.durationUs - clampLossUs).coerceAtLeast(0L)
+            }
             output.accept(
                 CuesWithTiming(
                     cues.cues,
-                    (cues.startTimeUs + offsetUs).coerceAtLeast(0L),
-                    cues.durationUs,
+                    clampedStart,
+                    adjustedDuration,
                 )
             )
         }
