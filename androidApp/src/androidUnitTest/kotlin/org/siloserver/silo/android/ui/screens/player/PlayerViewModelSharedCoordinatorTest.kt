@@ -137,7 +137,10 @@ class PlayerViewModelSharedCoordinatorTest {
         val body = viewModelSource
             .substringAfter("private fun startProtocolV3Replan(")
             .substringBefore("private fun Playability.failureClassification")
-        assertTrue(body.contains("if (recoveryJob?.isActive == true) return"))
+        // Single flight, but a user track/quality change is queued (newest
+        // wins) and re-driven on completion instead of being silently dropped.
+        assertTrue(body.contains("if (recoveryJob?.isActive == true || serverSeekRecoveryInFlight) {"))
+        assertTrue(body.contains("queuedInvalidationReplan = classification to notice"))
         assertTrue(body.contains("clientPlaybackContext = playbackContext"))
         assertTrue(body.contains("capabilities = capabilities"))
         assertTrue(body.contains("positionSeconds = state.position"))
