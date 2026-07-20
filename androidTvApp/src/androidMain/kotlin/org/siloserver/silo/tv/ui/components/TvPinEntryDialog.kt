@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
@@ -240,12 +241,25 @@ private fun PinKeypad(
     onBackspacePressed: () -> Unit,
 ) {
     val fiveFocusRequester = remember { FocusRequester() }
+    var keypadHasFocus by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(60)
-        runCatching { fiveFocusRequester.requestFocus() }
+        // The Popup window's focus lags composition on TV (Shield/Roku), so a
+        // single delayed requestFocus() often fired before the window was
+        // focusable and silently no-op'd — leaving NO focused key, and with
+        // nothing focused the d-pad can't reach the keypad at all (issue #64:
+        // "PIN display opens but I can't select numbers"). Retry until a key
+        // actually takes focus, then stop so we never fight the user's
+        // navigation.
+        while (!keypadHasFocus) {
+            runCatching { fiveFocusRequester.requestFocus() }
+            delay(60)
+        }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = Modifier.onFocusChanged { keypadHasFocus = it.hasFocus },
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         listOf("123", "456", "789").forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { digit ->

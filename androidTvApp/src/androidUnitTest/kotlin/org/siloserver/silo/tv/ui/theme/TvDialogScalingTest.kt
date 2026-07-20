@@ -85,7 +85,7 @@ class TvDialogScalingTest {
         assertTrue(pinEntryDialog.contains(".padding(horizontal = 28.dp, vertical = 22.dp)"))
         assertTrue(pinEntryDialog.contains("Row(horizontalArrangement = Arrangement.spacedBy(12.dp))"))
         assertTrue(pinEntryDialog.contains(".size(12.dp)"))
-        assertTrue(pinEntryDialog.contains("Column(verticalArrangement = Arrangement.spacedBy(8.dp))"))
+        assertTrue(pinEntryDialog.contains("verticalArrangement = Arrangement.spacedBy(8.dp)"))
         assertTrue(pinEntryDialog.contains("Modifier.size(48.dp)"))
         assertTrue(pinEntryDialog.contains("fontSize = 32.sp"))
         assertFalse(pinEntryDialog.contains(".width(520.dp)"))
