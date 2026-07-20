@@ -139,35 +139,12 @@ fun PlayerSettingsSheet(
                     onSelect = onSetVideoGravity,
                 )
 
-                ToggleRow(
-                    label = "HDR",
-                    subtitle = null,
-                    checked = hdrEnabled,
-                    onCheckedChange = onSetHdrEnabled,
-                )
-
-                // Off plays DV sources as their base layer (HDR10); profile 5
-                // always plays as DV (no watchable base layer). Applies from
-                // the next playback start. Apple parity (silo-apple e9bd775).
-                ToggleRow(
-                    label = "Dolby Vision",
-                    subtitle = "Off plays the HDR10 base layer",
-                    checked = dolbyVisionEnabled,
-                    onCheckedChange = onSetDolbyVisionEnabled,
-                )
-
+                // HDR / Dolby Vision / Playback Stats are demoted to the
+                // Advanced section at the bottom (tester feedback: keep the
+                // primary menu to things people change regularly).
                 // Quality and Chapters intentionally have NO rows here — they
                 // are HUD buttons (product decision: HUD = chapters + tracks +
                 // quality; the gear keeps the long-tail settings).
-                TapRow(
-                    label = "Playback Stats",
-                    subtitle = stats.summaryLabel(),
-                    onClick = {
-                        scope.launch { sheetState.hide() }
-                        onDismiss()
-                        onOpenPlaybackStats()
-                    },
-                )
 
                 SectionHeader(text = "Episodes")
 
@@ -227,6 +204,35 @@ fun PlayerSettingsSheet(
                         scope.launch { sheetState.hide() }
                         onDismiss()
                         onOpenSleepTimer()
+                    },
+                )
+
+                SectionHeader(text = "Advanced")
+
+                ToggleRow(
+                    label = "HDR",
+                    subtitle = null,
+                    checked = hdrEnabled,
+                    onCheckedChange = onSetHdrEnabled,
+                )
+
+                // Off plays DV sources as their base layer (HDR10); profile 5
+                // always plays as DV (no watchable base layer). Applies from
+                // the next playback start. Apple parity (silo-apple e9bd775).
+                ToggleRow(
+                    label = "Dolby Vision",
+                    subtitle = "Off plays the HDR10 base layer",
+                    checked = dolbyVisionEnabled,
+                    onCheckedChange = onSetDolbyVisionEnabled,
+                )
+
+                TapRow(
+                    label = "Playback Stats",
+                    subtitle = stats.summaryLabel(),
+                    onClick = {
+                        scope.launch { sheetState.hide() }
+                        onDismiss()
+                        onOpenPlaybackStats()
                     },
                 )
 
