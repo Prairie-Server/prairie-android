@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -77,6 +78,13 @@ class MainTvActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Own our window insets so WindowInsets.ime is dispatched to Compose.
+        // The login/server-setup screens already use imePadding()+bringIntoView
+        // to lift fields above the soft keyboard, but without this the decor
+        // view consumes the IME inset (reports 0) and those become no-ops — so
+        // on Android TV the keyboard covered the URL/login fields.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Capture the launching intent's Uri (if any) before Compose starts so
         // the navigation collector observes it as soon as it subscribes.
