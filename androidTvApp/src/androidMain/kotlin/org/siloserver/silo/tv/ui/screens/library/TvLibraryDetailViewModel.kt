@@ -165,12 +165,34 @@ class TvLibraryDetailViewModel(
     private var loadedAudiobookGroupBy: String? = null
     private var audiobookGroupsGeneration = 0
 
+    // Last cascade-commit nonce whose section we applied. The screen's
+    // section-apply effect re-runs on every re-entry into composition —
+    // including returning from ItemDetail/Player — and this ViewModel survives
+    // that round-trip, so without gating on the nonce a bare re-entry would
+    // re-apply the initial section and throw away the user's in-screen tab /
+    // A-Z filter (issue #66: Back from a movie returned to the library's main
+    // view instead of the browse list). Only a genuine new commit bumps the
+    // nonce, so we apply then and no-op on re-entry.
+    private var lastAppliedSectionNonce: Int? = null
+
     init {
         // Only the default Recommended tab loads eagerly. Filters (the genre
         // rail) are fetched lazily when Browse is first opened — the
         // `/catalog/filters` call is slow and is wasted work for the (common)
         // case where the user never leaves Recommended.
         loadRecommended()
+    }
+
+    /**
+     * Applies a section committed from the Skyline cascade, but only once per
+     * distinct commit nonce (see [lastAppliedSectionNonce]) so a plain
+     * re-entry into composition — e.g. returning from a detail screen — does
+     * not clobber the user's current tab/filter.
+     */
+    fun applyCommittedSection(tab: TvLibraryTab, nonce: Int) {
+        if (nonce == lastAppliedSectionNonce) return
+        lastAppliedSectionNonce = nonce
+        onTabSelected(tab)
     }
 
     fun onTabSelected(tab: TvLibraryTab) {
