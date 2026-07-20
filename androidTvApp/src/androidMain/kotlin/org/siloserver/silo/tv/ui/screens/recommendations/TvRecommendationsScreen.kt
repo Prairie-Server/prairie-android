@@ -197,10 +197,10 @@ fun TvRecommendationsScreen(
             Text(
                 text = "No recommendations yet — showing your saved titles.",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
                 ),
-                color = Color.White.copy(alpha = 0.62f),
+                color = Color.White.copy(alpha = 0.75f),
                 modifier = Modifier.padding(
                     start = Spacing.safeArea,
                     top = TvTopMenuLayout.contentTopInset + 40.dp,
@@ -229,8 +229,8 @@ fun TvRecommendationsScreen(
                 focusedScaleOverride = 1.045f,
                 focusedGlowElevationOverride = 9.dp,
                 labelStyle = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp,
-                    lineHeight = 15.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 onClick = { savedListSelection = null },
@@ -250,8 +250,8 @@ fun TvRecommendationsScreen(
                 focusedScaleOverride = 1.045f,
                 focusedGlowElevationOverride = 9.dp,
                 labelStyle = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp,
-                    lineHeight = 15.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 onClick = { savedListSelection = SavedListSelection.Watchlist },
@@ -270,8 +270,8 @@ fun TvRecommendationsScreen(
                 focusedScaleOverride = 1.045f,
                 focusedGlowElevationOverride = 9.dp,
                 labelStyle = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp,
-                    lineHeight = 15.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 onClick = { savedListSelection = SavedListSelection.Favorites },

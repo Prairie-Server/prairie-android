@@ -291,8 +291,8 @@ private fun OnDeckCard(
         item.subtitle?.let { subtitle ->
             Text(
                 text = subtitle,
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

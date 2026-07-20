@@ -852,7 +852,7 @@ private fun RemoteChipMenu(
                         enabled = entry.enabled,
                         leadingIcon = {
                             if (entry.selected) {
-                                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.Check, contentDescription = "Selected", modifier = Modifier.size(18.dp))
                             } else {
                                 Spacer(modifier = Modifier.size(18.dp))
                             }

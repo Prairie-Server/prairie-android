@@ -131,7 +131,7 @@ fun TvPinEntryDialog(
                     Spacer(modifier = Modifier.height(7.dp))
                     Text(
                         text = latestError ?: "Verifying...",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                         color = if (latestError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -171,7 +171,7 @@ fun TvPinEntryDialog(
                     Text(
                         text = "Cancel",
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                     )
                 }
             }

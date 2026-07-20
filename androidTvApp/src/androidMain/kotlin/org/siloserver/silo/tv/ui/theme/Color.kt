@@ -8,7 +8,8 @@ import androidx.compose.ui.graphics.Color
 
 val SiloPrimary = Color(0xFFEDEDED)
 val SiloOnSurface = Color(0xFFEDEDED)
-val SiloSecondaryText = Color(0xFFEDEDED).copy(alpha = 0.60f)
+// 0.75 (was 0.60): 10-ft legibility floor for supporting text — audit 2026-07-20.
+val SiloSecondaryText = Color(0xFFEDEDED).copy(alpha = 0.75f)
 
 val DarkBackground = Color(0xFF000000)
 val DarkSurface = Color(0xFF0A0A0A)
@@ -49,7 +50,8 @@ val AccentLavender = SiloOnSurface
 val AccentLavenderSoft = Color.White.copy(alpha = 0.40f)
 val AccentLavenderMuted = Color.White.copy(alpha = 0.15f)
 
-val SiloBlueGlow = Color.White.copy(alpha = 0.08f)
+// 0.28 (was 0.08, invisible on OLED black): focus glow must read at 10 ft.
+val SiloBlueGlow = Color.White.copy(alpha = 0.28f)
 val SiloBlueBorderIdle = Color.White.copy(alpha = 0.16f)
 
 // Hero scrim — tvOS detail hero uses a 4-stop horizontal-then-vertical fade.

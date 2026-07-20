@@ -104,7 +104,7 @@ fun CollectionsScreen(
                                         Text(
                                             text = "No collections in this group.",
                                             style = MaterialTheme.typography.bodySmall,
-                                            fontSize = 11.sp,
+                                            fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier
                                                 .fillMaxWidth()

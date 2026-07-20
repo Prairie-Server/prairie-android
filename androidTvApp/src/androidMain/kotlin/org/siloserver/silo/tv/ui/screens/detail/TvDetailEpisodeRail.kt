@@ -320,10 +320,10 @@ private fun TvDetailEpisodeCard(
             ) {
                 Text(
                     text = "EPISODE ${episode.episodeNumber}",
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.0.sp,
-                    color = SiloOnSurface.copy(alpha = 0.55f),
+                    color = SiloOnSurface.copy(alpha = 0.7f),
                     maxLines = 1,
                 )
                 if (isCurrent) {
@@ -333,7 +333,7 @@ private fun TvDetailEpisodeCard(
 
             Text(
                 text = episode.title ?: "Episode ${episode.episodeNumber}",
-                fontSize = 14.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = when {
                     isCurrent -> SiloOnSurface
@@ -347,9 +347,9 @@ private fun TvDetailEpisodeCard(
             episodeMetadataLine(episode)?.let { metadata ->
                 Text(
                     text = metadata,
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = SiloOnSurface.copy(alpha = 0.58f),
+                    color = SiloOnSurface.copy(alpha = 0.75f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -357,20 +357,20 @@ private fun TvDetailEpisodeCard(
 
             episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
                 // tvOS uses lineLimit(3, reservesSpace: true). Reserve a fixed
-                // 3-line height (20sp line + 3sp spacing ≈ 23sp/line) and pad
-                // the top by 4dp so single/empty descriptions don't shift the
-                // card metrics.
+                // 3-line height (3 × 20sp lineHeight = 60dp) and pad the top
+                // by 2dp so single/empty descriptions don't shift the card
+                // metrics.
                 Text(
                     text = overview,
-                    fontSize = 13.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Normal,
                     color = SiloSecondaryText,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 14.sp,
+                    lineHeight = 20.sp,
                     modifier = Modifier
                         .padding(top = 2.dp)
-                        .height(42.dp),
+                        .height(60.dp),
                 )
             }
         }
@@ -383,13 +383,13 @@ private fun NowViewingTag() {
         modifier = Modifier
             .clip(RoundedCornerShape(50.dp))
             .background(Color.White)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .padding(horizontal = 9.dp, vertical = 3.dp),
     ) {
         Text(
             text = "NOW VIEWING",
             style = capsuleCaps.copy(
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
                 letterSpacing = 0.7.sp,
             ),
             color = Color.Black,

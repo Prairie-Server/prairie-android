@@ -576,8 +576,8 @@ private fun DayCell(
 ) {
     val localDate = remember(date) { LocalDate.parse(date) }
     // tvOS CalendarDayButton is 84x96 pt with 18/26 pt type and an 8 pt
-    // event dot. Keep the Android control at half scale while giving its type
-    // a slight optical boost for television viewing distance.
+    // event dot. Type is floored at 14/16sp for 10-ft legibility, and the
+    // cell grows past half scale (52x60) to hold it — audit 2026-07-20.
     val shape = RoundedCornerShape(6.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -609,7 +609,7 @@ private fun DayCell(
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { if (it.isFocused) onFocused() }
-            .size(width = 42.dp, height = 48.dp),
+            .size(width = 52.dp, height = 60.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -619,20 +619,20 @@ private fun DayCell(
             Text(
                 text = localDate.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())),
                 style = MaterialTheme.typography.labelMedium.copy(
-                    fontSize = 10.sp,
-                    lineHeight = 12.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                 ),
                 color = if (inverted) {
                     (if (isFocused) FocusedContent else DarkOnPrimary).copy(alpha = 0.7f)
                 } else {
-                    Color.White.copy(alpha = 0.6f)
+                    Color.White.copy(alpha = 0.75f)
                 },
             )
             Text(
                 text = localDate.dayOfMonth.toString(),
                 style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 17.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
                 ),
                 fontWeight = FontWeight.Bold,
             )
@@ -1030,8 +1030,8 @@ private fun CalendarEventCard(
                         Text(
                             text = airTime,
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.5.sp,
-                                lineHeight = 13.5.sp,
+                                fontSize = 14.sp,
+                                lineHeight = 18.sp,
                             ),
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,
@@ -1060,10 +1060,10 @@ private fun CalendarEventCard(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 12.5.sp,
-                        lineHeight = 15.5.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
-                    color = Color.White.copy(alpha = 0.60f),
+                    color = Color.White.copy(alpha = 0.75f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
@@ -1084,8 +1084,8 @@ private fun BadgePill(text: String) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
             ),
             fontWeight = FontWeight.Bold,
             color = Color.Black,

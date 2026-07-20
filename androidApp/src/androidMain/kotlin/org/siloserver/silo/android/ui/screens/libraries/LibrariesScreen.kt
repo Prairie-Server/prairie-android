@@ -1138,7 +1138,7 @@ private fun InlineLibraryCollectionCard(
             )
             Text(
                 text = collection.itemCount?.takeIf { it > 0 }?.toString() ?: "Smart",
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = Color.White,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -1157,7 +1157,7 @@ private fun InlineLibraryCollectionCard(
         )
         Text(
             text = collection.itemCount?.let { "$it items" } ?: "Collection",
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

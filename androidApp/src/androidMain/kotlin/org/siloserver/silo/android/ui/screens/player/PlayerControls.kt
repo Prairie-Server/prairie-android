@@ -247,7 +247,8 @@ fun PlayerControls(
 
 /**
  * Top-bar control button matching iOS `controlButton`: a `size 20` icon inside
- * a 44x44 tap target, white, dimmed to 0.3 when disabled.
+ * a 48x48 tap target (Android minimum touch target), white, dimmed to 0.3 when
+ * disabled.
  */
 @Composable
 private fun ControlButton(
@@ -259,7 +260,7 @@ private fun ControlButton(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.size(44.dp),
+        modifier = Modifier.size(48.dp),
     ) {
         Icon(
             imageVector = icon,

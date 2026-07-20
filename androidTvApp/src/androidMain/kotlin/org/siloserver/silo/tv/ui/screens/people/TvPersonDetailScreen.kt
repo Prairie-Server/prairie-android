@@ -476,8 +476,8 @@ private fun MetadataBadge(text: String) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 12.sp,
-                lineHeight = 14.sp,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
             ),
             color = Color.White.copy(alpha = 0.85f),
             fontWeight = FontWeight.Medium,
@@ -526,8 +526,8 @@ private fun FilmographyHeader(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.titleSmall.copy(
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
                     color = PersonSecondaryText,
                     // Optical baseline alignment against the headline.
@@ -623,8 +623,8 @@ private fun FilterChoiceChip(
             // Sized up from the strict tvOS halving (22pt caption → 11sp)
             // for readability, padding scaled with it.
             style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 13.sp,
-                lineHeight = 15.sp,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
             ),
             color = foreground,
             fontWeight = FontWeight.SemiBold,

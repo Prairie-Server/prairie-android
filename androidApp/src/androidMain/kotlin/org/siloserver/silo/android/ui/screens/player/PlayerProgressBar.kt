@@ -107,8 +107,8 @@ fun PlayerProgressBar(
                     chapterTitle?.let { title ->
                         Text(
                             text = title,
-                            fontSize = 11.sp,
-                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 12.sp,
+                            color = Color.White,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                         )

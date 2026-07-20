@@ -62,18 +62,18 @@ internal fun TvDetailFactsTable(
                     style = MaterialTheme.typography.titleSmall.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.0.sp,
-                        fontSize = 13.sp,
-                        lineHeight = 15.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
-                    color = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.width(130.dp),
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.width(140.dp),
                 )
                 Text(
                     text = fact.value,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Normal,
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth(),

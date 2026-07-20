@@ -156,10 +156,14 @@ private fun CatalogLetterRail(
     onNamePrefixSelected: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Touch ergonomics: a full 48dp-per-letter column can't fit 27 rows on a
+    // phone screen, so the rail trades ideal target size for reachability —
+    // a 40dp-wide touch column with 24dp-tall rows, the largest that keeps
+    // the whole alphabet on screen.
     LazyColumn(
         modifier = modifier
-            .width(36.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .width(40.dp)
+            .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f))
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -168,8 +172,8 @@ private fun CatalogLetterRail(
             val selected = selectedNamePrefix == prefix
             Box(
                 modifier = Modifier
-                    .size(width = 28.dp, height = 20.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(width = 40.dp, height = 24.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(
                         if (selected) {
                             MaterialTheme.colorScheme.primary
@@ -187,9 +191,9 @@ private fun CatalogLetterRail(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    fontSize = if (prefix == null) 9.sp else 11.sp,
+                    fontSize = 11.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    lineHeight = 12.sp,
+                    lineHeight = 13.sp,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                 )

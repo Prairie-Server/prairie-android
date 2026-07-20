@@ -381,8 +381,8 @@ private fun ContentRatingChip(text: String) {
     ) {
         Text(
             text = text,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
             fontWeight = FontWeight.ExtraBold,
             letterSpacing = 0.8.sp,
             color = DetailPrimaryText,
@@ -757,11 +757,11 @@ fun SectionHeader(
             if (!label.isNullOrBlank()) {
                 Text(
                     text = label.uppercase(),
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.6.sp,
-                    color = SiloOnSurface.copy(alpha = 0.55f),
+                    color = SiloOnSurface.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -971,11 +971,11 @@ fun DetailFactsList(
             ) {
                 Text(
                     text = label.uppercase(),
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.2.sp,
-                    color = SiloOnSurface.copy(alpha = 0.5f),
+                    color = SiloOnSurface.copy(alpha = 0.7f),
                     modifier = Modifier.width(100.dp),
                 )
                 Text(

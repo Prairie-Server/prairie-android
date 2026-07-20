@@ -324,8 +324,8 @@ private fun TvMenuRow(
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 13.sp,
-                    lineHeight = 16.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                 ),
                 color = if (isFocused) FocusedContent else Color.White,
             )

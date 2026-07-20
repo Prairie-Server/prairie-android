@@ -1227,17 +1227,17 @@ private fun TvVersionPillPlaceholder(modifier: Modifier = Modifier) {
         Icon(
             imageVector = Icons.Filled.Tv,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.58f),
-            modifier = Modifier.size(13.dp),
+            tint = Color.White.copy(alpha = 0.75f),
+            modifier = Modifier.size(15.dp),
         )
         Text(
             text = "Version",
             style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.SemiBold,
             ),
-            color = Color.White.copy(alpha = 0.58f),
+            color = Color.White.copy(alpha = 0.75f),
         )
         Icon(
             imageVector = Icons.Filled.KeyboardArrowDown,

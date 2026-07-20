@@ -33,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -140,7 +142,7 @@ private fun EpisodeRow(
                 Text(
                     text = "NOW VIEWING",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 9.sp,
+                        fontSize = 11.sp,
                         letterSpacing = 0.8.sp,
                     ),
                     fontWeight = FontWeight.Bold,
@@ -251,7 +253,7 @@ private fun EpisodeRow(
             IconButton(
                 onClick = onDownloadClick,
                 enabled = hasFiles,
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 when {
                     downloadState.isDownloaded -> Icon(
@@ -262,7 +264,9 @@ private fun EpisodeRow(
                     )
                     downloadState.progress != null -> CircularProgressIndicator(
                         progress = { downloadState.progress.coerceIn(0f, 1f) },
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier
+                            .size(20.dp)
+                            .semantics { contentDescription = "Downloading" },
                         strokeWidth = 2.dp,
                         color = DetailPrimaryText,
                     )

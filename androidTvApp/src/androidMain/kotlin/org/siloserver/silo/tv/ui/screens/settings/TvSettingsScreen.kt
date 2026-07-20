@@ -472,7 +472,7 @@ private fun SettingsRail(
             text = "Silo ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodySmall.copy(
                 fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 letterSpacing = 1.sp,
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
@@ -666,7 +666,7 @@ private fun SettingsDetailPane(
         )
         Text(
             text = selectedCategory.blurb,
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 16.sp),
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 5.dp, bottom = 14.dp),
         )
@@ -1635,20 +1635,21 @@ private fun SettingsNestedGroup(
 private fun SettingsMonoHeaderStyle() =
     MaterialTheme.typography.labelMedium.copy(
         fontFamily = FontFamily.Monospace,
-        fontSize = 10.sp,
-        lineHeight = 13.sp,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
         letterSpacing = 1.5.sp,
         fontWeight = FontWeight.SemiBold,
     )
 
-/** Shared 14sp text for all detail-pane row labels and values. */
+/** Shared 16sp text for all detail-pane row labels and values. */
 @Composable
 private fun SettingsRowTextStyle() =
-    MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 18.sp)
+    MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 20.sp)
 
 private val RowShape = RoundedCornerShape(10.dp)
 private val RowMaxWidth = 520.dp
-private val RowHeight = 38.dp
+// 42dp keeps the 16sp row text comfortably centered — audit 2026-07-20.
+private val RowHeight = 42.dp
 private val SettingsBackground = Color(0xFF17181A)
 
 // tvOS destructive row colors: bright red at rest on black, deeper red on the
@@ -1719,8 +1720,8 @@ private fun SettingsAccountRow(
                 )
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 10.sp, lineHeight = 13.sp),
-                    color = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.62f),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+                    color = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.75f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1947,8 +1948,8 @@ private fun SettingsInfoRow(label: String, value: String, singleLine: Boolean = 
 private fun SettingsFooterText(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 15.sp),
-        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
         modifier = Modifier
             .widthIn(max = RowMaxWidth)
             .fillMaxWidth()

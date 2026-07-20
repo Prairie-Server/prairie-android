@@ -177,11 +177,11 @@ private fun TvFullScreenPickerRow(
                 option.subtitle?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         text = it,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                         color = if (isFocused) {
-                            DarkOnPrimary.copy(alpha = 0.68f)
+                            DarkOnPrimary.copy(alpha = 0.7f)
                         } else {
-                            Color.White.copy(alpha = 0.6f)
+                            Color.White.copy(alpha = 0.7f)
                         },
                     )
                 }

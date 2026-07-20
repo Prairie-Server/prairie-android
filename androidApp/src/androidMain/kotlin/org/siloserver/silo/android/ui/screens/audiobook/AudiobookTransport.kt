@@ -62,7 +62,7 @@ fun AudiobookTransport(
             IconButton(
                 onClick = onPrevChapter,
                 enabled = enabled,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 Icon(
                     Icons.Filled.SkipPrevious,
@@ -121,7 +121,7 @@ fun AudiobookTransport(
             IconButton(
                 onClick = onNextChapter,
                 enabled = enabled,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 Icon(
                     Icons.Filled.SkipNext,
