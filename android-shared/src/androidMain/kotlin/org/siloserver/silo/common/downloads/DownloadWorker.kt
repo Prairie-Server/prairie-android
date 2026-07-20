@@ -210,6 +210,15 @@ class DownloadWorker(
                         }
                     }
                 }
+
+                // A stream that ends cleanly short of the declared length is a
+                // truncated transfer, not a completed download — throw the
+                // retriable IOException so the resume logic fetches the rest
+                // instead of committing a short file as Completed. Unknown
+                // length (total <= 0) can't be verified; keep current behavior.
+                if (total > 0 && written != total) {
+                    throw IOException("truncated download: $written of $total bytes")
+                }
             }
 
             // Server flips status → completed when its serve handler returns;
@@ -252,31 +261,49 @@ class DownloadWorker(
             }
             throw e
         } catch (e: IOException) {
-            // Transient — let WorkManager retry. KEEP the partial bytes + the
-            // persisted localUri/validator so the retry RESUMES via HTTP Range
-            // instead of re-downloading from zero. Sidecar stays "downloading".
-            Log.w(TAG, "doWork IO error id=$downloadId → retry (resume from partial)", e)
-            Result.retry()
-        } catch (e: Throwable) {
-            // Permanent — clean up local file and let the user retry manually.
-            Log.e(TAG, "doWork fatal id=$downloadId", e)
-            // Delete by scope+fileId so a partial from any attempt is cleaned up
-            // even if this attempt failed before activeUri was assigned.
-            runCatching { storage.delete(serverId, profileId, fileId) }
-            // Best-effort: publish failed state into the repo + sidecar.
-            val record = if (uiPushAllowed(serverId, profileId)) repository.recordForFile(fileId) else null
-            if (record != null) {
-                repository.upsertLocal(record.copy(status = DownloadStatus.Failed.wire))
+            if (isDiskFullError(e)) {
+                // Disk full — retrying can never succeed while the partial
+                // itself squats on the remaining space. Fail permanently so
+                // the bytes are released and the user sees the failure.
+                failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
+            } else {
+                // Transient — let WorkManager retry. KEEP the partial bytes + the
+                // persisted localUri/validator so the retry RESUMES via HTTP Range
+                // instead of re-downloading from zero. Sidecar stays "downloading".
+                Log.w(TAG, "doWork IO error id=$downloadId → retry (resume from partial)", e)
+                Result.retry()
             }
-            updateSidecarStatus(
-                serverId, profileId, fileId,
-                status = DownloadStatus.Failed.wire,
-                bytesSent = 0,
-                fileSize = 0,
-                localUri = activeUri,
-            )
-            Result.failure()
+        } catch (e: Throwable) {
+            failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
         }
+    }
+
+    /** Permanent failure — clean up local file and let the user retry manually. */
+    private suspend fun failPermanently(
+        e: Throwable,
+        downloadId: String,
+        serverId: String,
+        profileId: String,
+        fileId: Int,
+        activeUri: String?,
+    ): Result {
+        Log.e(TAG, "doWork fatal id=$downloadId", e)
+        // Delete by scope+fileId so a partial from any attempt is cleaned up
+        // even if this attempt failed before activeUri was assigned.
+        runCatching { storage.delete(serverId, profileId, fileId) }
+        // Best-effort: publish failed state into the repo + sidecar.
+        val record = if (uiPushAllowed(serverId, profileId)) repository.recordForFile(fileId) else null
+        if (record != null) {
+            repository.upsertLocal(record.copy(status = DownloadStatus.Failed.wire))
+        }
+        updateSidecarStatus(
+            serverId, profileId, fileId,
+            status = DownloadStatus.Failed.wire,
+            bytesSent = 0,
+            fileSize = 0,
+            localUri = activeUri,
+        )
+        return Result.failure()
     }
 
     /**
@@ -445,7 +472,33 @@ class DownloadWorker(
 internal fun downloadHttpStatusFailure(status: HttpStatusCode): Throwable? = when {
     status.isSuccess() -> null
     status.value >= 500 -> IOException("HTTP ${status.value} while downloading")
+    // Transient client statuses — matches SyncEngine's classification
+    // (401 auth refresh, 408 request timeout, 429 rate limit): retry
+    // instead of deleting the partial and marking the download Failed.
+    status.value == 401 || status.value == 408 || status.value == 429 ->
+        IOException("HTTP ${status.value} while downloading")
     else -> IllegalStateException("HTTP ${status.value} while downloading")
+}
+
+/**
+ * True when [e] (or anything in its cause chain) is a disk-full error.
+ * Android surfaces ENOSPC as an IOException whose message contains either
+ * the errno name or the strerror text — there is no typed exception for it.
+ * Depth-capped so a pathological self-referential cause chain can't spin.
+ */
+internal fun isDiskFullError(e: Throwable): Boolean {
+    var cause: Throwable? = e
+    var depth = 0
+    while (cause != null && depth++ < 16) {
+        val message = cause.message.orEmpty()
+        if (message.contains("ENOSPC", ignoreCase = true) ||
+            message.contains("No space left", ignoreCase = true)
+        ) {
+            return true
+        }
+        cause = cause.cause
+    }
+    return false
 }
 
 /** Parsed `Content-Range: bytes start-end/total` (total null for `*`). Returns

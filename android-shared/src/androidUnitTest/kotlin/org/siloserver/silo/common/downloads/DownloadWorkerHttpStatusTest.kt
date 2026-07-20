@@ -16,6 +16,16 @@ class DownloadWorkerHttpStatusTest {
     @Test
     fun `client error download status is permanent failure`() {
         assertIs<IllegalStateException>(downloadHttpStatusFailure(HttpStatusCode.NotFound))
+        assertIs<IllegalStateException>(downloadHttpStatusFailure(HttpStatusCode.Forbidden))
+        assertIs<IllegalStateException>(downloadHttpStatusFailure(HttpStatusCode.Gone))
+    }
+
+    @Test
+    fun `transient client statuses are retryable io failures`() {
+        // Matches SyncEngine's transient classification: 401/408/429.
+        assertIs<IOException>(downloadHttpStatusFailure(HttpStatusCode.Unauthorized))
+        assertIs<IOException>(downloadHttpStatusFailure(HttpStatusCode.RequestTimeout))
+        assertIs<IOException>(downloadHttpStatusFailure(HttpStatusCode.TooManyRequests))
     }
 
     @Test
