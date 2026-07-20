@@ -249,6 +249,12 @@ fun TvPlayerScreen(
     pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject(),
     siloCastReceiver: TvSiloCastReceiver = koinInject(),
 ) {
+    // The player never takes text input, so any soft keyboard visible here
+    // leaked in from a prior screen (e.g. starting playback from a search with
+    // the IME up). Dismiss it on entry — belt-and-braces over the source fixes
+    // in TvSearchScreen / TvTextInputDialog.
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { runCatching { keyboardController?.hide() } }
     val state by viewModel.uiState.collectAsState()
     val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     // PlayerView surface must bind to THIS, not the MediaController, so the

@@ -26,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon as M3Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -128,6 +129,13 @@ fun TvSearchScreen(
 
     LaunchedEffect(activeSearchFieldFocusRequester) {
         runCatching { activeSearchFieldFocusRequester.requestFocus() }
+    }
+    // The search field auto-shows the soft keyboard on focus, but nothing hid
+    // it when leaving Search — on Android TV the system IME then floats over
+    // the next screen (e.g. starting playback from a search result left the
+    // keyboard on top of the video). Dismiss it when Search leaves composition.
+    DisposableEffect(Unit) {
+        onDispose { runCatching { keyboardController?.hide() } }
     }
     LaunchedEffect(backToSearchFieldRequest) {
         if (backToSearchFieldRequest <= 0) return@LaunchedEffect
