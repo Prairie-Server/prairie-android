@@ -245,8 +245,10 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(quickPickerBlock.contains("HudPickerDialog("))
         assertTrue(quickPickerBlock.contains("HudPickerPresentation("))
         assertTrue(quickPickerBlock.contains("selectedId ="))
-        assertTrue(quickPickerBlock.contains("Dialog("))
-        assertTrue(quickPickerBlock.contains("DialogProperties(usePlatformDefaultWidth = false)"))
+        // Keep the picker in the player's window so opening CC does not force
+        // the Shield's video SurfaceView out of its hardware-overlay path.
+        assertTrue(quickPickerBlock.contains("BackHandler("))
+        assertFalse(quickPickerBlock.contains("DialogProperties("))
         assertFalse(quickPickerBlock.contains(".verticalScroll(rememberScrollState())"))
         assertFalse(quickPickerBlock.contains("TvDialogActionRow("))
     }
