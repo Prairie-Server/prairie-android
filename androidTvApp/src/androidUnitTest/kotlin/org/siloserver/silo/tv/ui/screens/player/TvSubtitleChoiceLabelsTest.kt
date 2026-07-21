@@ -128,4 +128,33 @@ class TvAudioChoiceLabelsTest {
         assertEquals("Commentary", audioChoiceLabel(audio(label = "Commentary"), 2))
         assertEquals("Track 3", audioChoiceLabel(audio(), 2))
     }
+
+    @Test
+    fun meaningfulTitleDistinguishesStructuredTracks() {
+        assertEquals(
+            "English AC3 5.1 (Commentary)",
+            audioChoiceLabel(
+                audio(language = "en", codecOrMime = "audio/ac3", channels = 6, label = "Commentary"),
+                0,
+            ),
+        )
+        assertEquals(
+            "English AC3 5.1 (Descriptive Audio)",
+            audioChoiceLabel(
+                audio(language = "en", codecOrMime = "audio/ac3", channels = 6, label = "Descriptive Audio"),
+                1,
+            ),
+        )
+    }
+
+    @Test
+    fun redundantStructuredTitleIsNotRepeated() {
+        assertEquals(
+            "English AC3 5.1",
+            audioChoiceLabel(
+                audio(language = "en", codecOrMime = "audio/ac3", channels = 6, label = "English AC3 5.1"),
+                0,
+            ),
+        )
+    }
 }

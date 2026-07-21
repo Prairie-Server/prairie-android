@@ -92,8 +92,45 @@ internal fun audioChoiceLabel(entry: PlayerTrackEntry, position: Int): String {
     if (parts.isEmpty()) {
         return entry.displayLabel.trim().takeIf { it.isNotBlank() } ?: "Track ${position + 1}"
     }
-    return parts.joinToString(" ")
+    val qualifier = meaningfulAudioTrackTitle(
+        displayLabel = entry.displayLabel,
+        language = language,
+        codec = codec,
+        layout = layout,
+    )
+    return buildString {
+        append(parts.joinToString(" "))
+        qualifier?.let { append(" ($it)") }
+    }
 }
+
+internal fun meaningfulAudioTrackTitle(
+    displayLabel: String,
+    language: String?,
+    codec: String?,
+    layout: String?,
+): String? {
+    val original = displayLabel.trim().takeIf { it.isNotBlank() } ?: return null
+    val lower = original.lowercase(Locale.US)
+    if (AUDIO_FILENAME_SUFFIXES.any(lower::endsWith)) return null
+    if (lower.matches(Regex("(?:audio\\s+)?track\\s*\\d+"))) return null
+
+    var qualifier = original
+    listOfNotNull(language, codec, layout)
+        .sortedByDescending(String::length)
+        .forEach { redundant ->
+            qualifier = qualifier.replace(Regex(Regex.escape(redundant), RegexOption.IGNORE_CASE), " ")
+        }
+    qualifier = qualifier
+        .replace(Regex("[()\\[\\]{}|•·,_/\\-]+"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    return qualifier.takeIf { it.isNotBlank() }
+}
+
+private val AUDIO_FILENAME_SUFFIXES = listOf(
+    ".aac", ".ac3", ".eac3", ".dts", ".dtshd", ".flac", ".m4a", ".mp3", ".opus", ".wav",
+)
 
 /** Media3 audio mimes / codec ids → the short names users know. */
 internal fun audioFormatShortName(codecOrMime: String?): String? =
