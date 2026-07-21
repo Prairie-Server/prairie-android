@@ -594,21 +594,12 @@ private fun TvDetailContent(
                                         onItemDetailReplace(season.contentId)
                                     }
                                 },
-                                // OK plays/resumes the episode immediately. The
-                                // episode's own detail page is pushed first so it
-                                // sits underneath the player in the back stack —
-                                // exiting playback lands on that episode's detail
-                                // rather than back on this page.
+                                // Match tvOS browse semantics: OK opens the
+                                // episode detail. Playback remains an explicit
+                                // Play/Resume action so its version and track
+                                // selectors are honored.
                                 onEpisodeSelected = { episode ->
                                     onItemDetail(episode.contentId)
-                                    onPlay(
-                                        episode.contentId,
-                                        null,
-                                        null,
-                                        null,
-                                        "episode",
-                                        episode.userData?.resumePositionSeconds(),
-                                    )
                                 },
                                 onSetEpisodeWatched = viewModel::onSetEpisodeWatched,
                                 onSetEpisodeFavorite = viewModel::onSetEpisodeFavorite,
