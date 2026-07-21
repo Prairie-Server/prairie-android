@@ -92,6 +92,7 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(optionDialogSource.contains(".semantics { this.selected = selected }"))
         assertTrue(settingsSource.contains(".semantics { this.selected = selected }"))
         assertTrue(hudSource.contains(".semantics { this.selected = isSelected }"))
+        assertTrue(anchoredSelectorSource.contains(".semantics { this.selected = option.selected }"))
         assertTrue(hudSource.contains("contentDescription = if (selected) \"\$label, selected\" else label"))
         assertTrue(aiTranslateSource.contains("contentDescription = \"Mode, \${mode.label}\""))
     }
