@@ -2,6 +2,7 @@ package org.siloserver.silo.common.player.cast
 
 import android.util.Log
 import java.net.URLEncoder
+import io.sentry.SentryLogLevel
 import org.siloserver.silo.common.player.PlaybackNetworkEvidenceProvider
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.mediaItemMimeType
@@ -22,6 +23,7 @@ import org.siloserver.silo.model.playback.VideoDecodeCapability
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.repository.PlaybackRepository
+import org.siloserver.silo.common.telemetry.PlaybackTelemetry
 
 /**
  * Tier-2 Google Cast session preparation.
@@ -81,10 +83,20 @@ class CastPlaybackPreparer(
             is ApiResult.Success -> result.data
             is ApiResult.Error -> {
                 Log.w(TAG, "Cast session start failed: ${result.code} ${result.message}")
+                PlaybackTelemetry.log(
+                    "cast: prepare failed",
+                    mapOf("code" to result.code, "message" to result.message, "file_id" to request.fileId),
+                    SentryLogLevel.WARN,
+                )
                 return null
             }
             is ApiResult.NetworkError -> {
                 Log.w(TAG, "Cast session start network error: ${result.exception}")
+                PlaybackTelemetry.log(
+                    "cast: prepare network error",
+                    mapOf("error" to result.exception.toString(), "file_id" to request.fileId),
+                    SentryLogLevel.WARN,
+                )
                 return null
             }
         }
@@ -97,20 +109,27 @@ class CastPlaybackPreparer(
             resolvePlaybackStreamUrl(serverUrl, session.streamUrl),
             token,
         )
-        // Force h264/mp4 caps means direct → mp4, otherwise HLS. Fall back to the
-        // HLS mime because that is what the server returns for the cast profile in
-        // the common (transcode/remux) case.
-        val mimeType = mediaItemMimeType(
-            session.playMethod,
-            plan?.source?.container,
-            plan?.delivery,
-        ) ?: "application/x-mpegURL"
+        // The receiver must know whether the URL is an HLS manifest or a
+        // progressive stream. The legacy plan often fails tolerant parsing when
+        // the server answers with a V3-shaped plan, so a null plan is the NORMAL
+        // case here — and guessing "HLS" from playMethod alone told the receiver
+        // to parse a progressive fMP4 remux stream as an m3u8 playlist. Trust the
+        // URL shape instead: only the transcode manifest is HLS.
+        val mimeType = if (plan?.delivery != null) {
+            mediaItemMimeType(session.playMethod, plan.source?.container, plan.delivery)
+                ?: castFallbackMimeType(session.streamUrl)
+        } else {
+            castFallbackMimeType(session.streamUrl)
+        }
 
         val subtitles = session.subtitleUrls.orEmpty()
             .filter { it.url.isNotBlank() }
             .map { sub ->
                 CastSubtitleTrack(
-                    url = signStreamUrl(resolvePlaybackStreamUrl(serverUrl, sub.url), token),
+                    url = signStreamUrl(
+                        forceVttFormat(resolvePlaybackStreamUrl(serverUrl, sub.url)),
+                        token,
+                    ),
                     language = sub.language,
                     label = sub.label ?: sub.language ?: "Subtitle",
                     // Activate the track the user selected on the phone.
@@ -120,7 +139,20 @@ class CastPlaybackPreparer(
                 )
             }
 
+        PlaybackTelemetry.log(
+            "cast: media prepared",
+            mapOf(
+                "file_id" to request.fileId,
+                "play_method" to session.playMethod.toString(),
+                "mime" to mimeType,
+                "plan_delivery" to plan?.delivery?.toString(),
+                "subtitles" to subtitles.size,
+                "position" to (session.position.takeIf { it.isFinite() } ?: 0.0),
+            ),
+        )
+
         return CastMediaSpec(
+            fileId = request.fileId,
             streamUrl = castUrl,
             mimeType = mimeType,
             title = request.title,
@@ -149,9 +181,38 @@ class CastPlaybackPreparer(
         return "$url${separator}st=$encoded"
     }
 
+    /**
+     * The Cast Default Media Receiver renders only WebVTT text tracks. The
+     * server defaults subtitle extraction to VTT but honors an explicit
+     * `format=` (the phone requests `ass` for libass rendering), so any
+     * format param is rewritten to `vtt` for the receiver.
+     */
+    private fun forceVttFormat(url: String): String =
+        if (FORMAT_PARAM_REGEX.containsMatchIn(url)) {
+            url.replace(FORMAT_PARAM_REGEX) { "${it.groupValues[1]}format=vtt" }
+        } else {
+            val separator = if (url.contains('?')) '&' else '?'
+            "$url${separator}format=vtt"
+        }
+
     private companion object {
         private const val TAG = "CastPlaybackPreparer"
         private val STREAM_TOKEN_REGEX = Regex("[?&]st=")
+        private val FORMAT_PARAM_REGEX = Regex("([?&])format=[^&]*")
+
+        /**
+         * Mime for a cast URL when the plan's delivery is unknown. The server's
+         * HLS delivery is always a `.m3u8` manifest URL; every other stream URL
+         * is progressive, and under the cast capability profile (mp4-only
+         * containers, progressive remux outputs fragmented MP4) that is always
+         * `video/mp4`.
+         */
+        fun castFallbackMimeType(streamUrl: String): String =
+            if (streamUrl.substringBefore('?').contains(".m3u8")) {
+                "application/x-mpegURL"
+            } else {
+                "video/mp4"
+            }
     }
 }
 
@@ -169,6 +230,7 @@ data class CastPrepareRequest(
 
 /** Self-contained media descriptor handed to the Cast receiver. */
 data class CastMediaSpec(
+    val fileId: Int,
     val streamUrl: String,
     val mimeType: String,
     val title: String,

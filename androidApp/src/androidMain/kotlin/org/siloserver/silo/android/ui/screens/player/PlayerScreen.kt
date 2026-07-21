@@ -319,6 +319,17 @@ fun PlayerScreen(
         }
     }
 
+    // While a cast session is live, opening ANY item routes it to the receiver:
+    // once the local player knows its file id, stage a cast session for it
+    // (idempotent — castState.fileId flips to the staged file, ending the loop).
+    LaunchedEffect(castState.isConnected, castState.fileId, uiState.mediaFileId) {
+        val fileId = uiState.mediaFileId
+        if (castState.isConnected && fileId != null && castState.fileId != fileId) {
+            val spec = viewModel.prepareGoogleCastMedia()
+            if (spec != null) castManager.prepareMedia(spec)
+        }
+    }
+
     // Cast connect/disconnect → pause/resume local Media3. On connect, pause
     // locally (the dongle is now the surface). On disconnect, resume where the
     // remote left off (Fix 6: getLastPosition).
@@ -967,19 +978,30 @@ fun PlayerScreen(
                 )
             }
 
-            // Cast takeover surface — replaces the video while a Cast session is
-            // live. Rendered under the controls so the top-bar cast button (Stop
-            // casting) stays reachable.
+            // Cast takeover surface — replaces the video AND the local player
+            // controls while a Cast session is live. The local controls must not
+            // render on top of it: their seek bar / gestures drive the paused
+            // LOCAL player, which reads as broken buttons while casting. The
+            // overlay carries its own back arrow (exit the player screen, cast
+            // keeps running via the Cast SDK media notification) and play/pause
+            // + stop controls.
             if (castState.isConnected) {
                 SiloCastOverlay(
                     castState = castState,
                     posterUrl = uiState.artworkUrl,
                     onPlayPause = { castManager.togglePlayback() },
                     onStopCasting = { castManager.disconnect() },
+                    onSeek = { castManager.seekTo(it) },
+                    onBack = {
+                        exitRequested = true
+                        roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
+                        viewModel.onExit()
+                        if (!navController.popBackStack()) activity?.finish()
+                    },
                 )
             }
 
-            if (!isInPictureInPictureMode) {
+            if (!isInPictureInPictureMode && !castState.isConnected) {
                 PlayerOverlay(
                     state = uiState,
                     viewModel = viewModel,

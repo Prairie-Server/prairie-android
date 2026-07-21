@@ -5,6 +5,9 @@ import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.framework.CastOptions
 import com.google.android.gms.cast.framework.OptionsProvider
 import com.google.android.gms.cast.framework.SessionProvider
+import com.google.android.gms.cast.framework.media.CastMediaOptions
+import com.google.android.gms.cast.framework.media.NotificationOptions
+import org.siloserver.silo.android.MainActivity
 
 /**
  * Google Cast (Chromecast) configuration. Uses the Default Media Receiver so no
@@ -19,6 +22,21 @@ class SiloCastOptionsProvider : OptionsProvider {
     override fun getCastOptions(context: Context): CastOptions =
         CastOptions.Builder()
             .setReceiverApplicationId(CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID)
+            // Without media-notification options the Cast SDK tears the session
+            // down ~10s after the app leaves the foreground (observed on-device:
+            // background → CastService "Disposing ConnectedClient" → receiver
+            // stops). The notification keeps the session alive app-wide and
+            // gives lock-screen/notification transport controls for free.
+            .setCastMediaOptions(
+                CastMediaOptions.Builder()
+                    .setNotificationOptions(
+                        NotificationOptions.Builder()
+                            .setTargetActivityClassName(MainActivity::class.java.name)
+                            .build(),
+                    )
+                    .build(),
+            )
+            .setEnableReconnectionService(true)
             .build()
 
     override fun getAdditionalSessionProviders(context: Context): List<SessionProvider>? = null

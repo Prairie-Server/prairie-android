@@ -8,8 +8,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -27,7 +30,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
+import org.siloserver.silo.android.cast.GoogleCastMiniBar
 import org.siloserver.silo.android.cast.SiloCastController
+import org.siloserver.silo.android.cast.SiloCastSessionManager
 import org.siloserver.silo.android.ui.screens.cast.SiloCastMiniBar
 import org.siloserver.silo.android.ui.screens.cast.SiloCastRemoteScreen
 import org.siloserver.silo.android.ui.screens.MainScreen
@@ -838,6 +843,30 @@ fun AppNavigation(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding(),
+            )
+        }
+
+        // Google Cast (Chromecast) mini controller — app-wide except the player,
+        // which shows the full cast takeover overlay instead. On tab routes it
+        // stacks above MainScreen's bottom nav menu.
+        val googleCastManager: SiloCastSessionManager = koinInject()
+        val googleCastState by googleCastManager.castState.collectAsState()
+        if (googleCastState.isConnected && currentRoute != Route.Player.ROUTE) {
+            val tabRoutes = setOf(
+                Route.Home.route,
+                Route.Libraries.route,
+                Route.Recommendations.route,
+                Route.Downloads.route,
+                Route.Calendar.route,
+            )
+            GoogleCastMiniBar(
+                castState = googleCastState,
+                onPlayPause = { googleCastManager.togglePlayback() },
+                onStop = { googleCastManager.disconnect() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = if (currentRoute in tabRoutes) 80.dp else 0.dp),
             )
         }
     }

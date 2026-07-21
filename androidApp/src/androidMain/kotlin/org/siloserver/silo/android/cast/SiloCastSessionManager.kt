@@ -7,6 +7,7 @@ import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
+import com.google.android.gms.cast.MediaSeekOptions
 import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.MediaTrack
 import com.google.android.gms.cast.framework.CastContext
@@ -20,7 +21,9 @@ import com.google.android.gms.common.images.WebImage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import io.sentry.SentryLogLevel
 import org.siloserver.silo.common.player.cast.CastMediaSpec
+import org.siloserver.silo.common.telemetry.PlaybackTelemetry
 
 data class SiloCastState(
     val isConnected: Boolean = false,
@@ -29,6 +32,7 @@ data class SiloCastState(
     val position: Double = 0.0,
     val duration: Double = 0.0,
     val title: String = "",
+    val fileId: Int? = null,
 )
 
 data class SiloCastRoute(
@@ -102,11 +106,20 @@ class SiloCastSessionManager(private val context: Context) {
     private val sessionListener = object : SessionManagerListener<CastSession> {
         override fun onSessionStarting(session: CastSession) {}
         override fun onSessionStarted(session: CastSession, sessionId: String) {
+            PlaybackTelemetry.log(
+                "cast: session started",
+                mapOf("device" to session.castDevice?.friendlyName),
+            )
             attachRemoteListeners(session)
             syncCastState()
             loadPendingMedia(session)
         }
         override fun onSessionStartFailed(session: CastSession, error: Int) {
+            PlaybackTelemetry.log(
+                "cast: session start failed",
+                mapOf("error_code" to error),
+                SentryLogLevel.WARN,
+            )
             detachRemoteListeners()
             _castState.value = SiloCastState()
         }
@@ -115,6 +128,11 @@ class SiloCastSessionManager(private val context: Context) {
             captureRemotePosition(session)
         }
         override fun onSessionEnded(session: CastSession, error: Int) {
+            PlaybackTelemetry.log(
+                "cast: session ended",
+                mapOf("error_code" to error, "last_position" to lastPosition),
+                if (error != 0) SentryLogLevel.WARN else SentryLogLevel.INFO,
+            )
             captureRemotePosition(session)
             detachRemoteListeners()
             _castState.value = SiloCastState()
@@ -125,6 +143,11 @@ class SiloCastSessionManager(private val context: Context) {
             syncCastState()
         }
         override fun onSessionResumeFailed(session: CastSession, error: Int) {
+            PlaybackTelemetry.log(
+                "cast: session resume failed",
+                mapOf("error_code" to error),
+                SentryLogLevel.WARN,
+            )
             detachRemoteListeners()
             _castState.value = SiloCastState()
         }
@@ -205,7 +228,7 @@ class SiloCastSessionManager(private val context: Context) {
         ensureInitialized()
         pending = spec
         lastPosition = spec.positionSeconds
-        _castState.value = _castState.value.copy(title = spec.title)
+        _castState.value = _castState.value.copy(title = spec.title, fileId = spec.fileId)
         val session = sessionManager?.currentCastSession
         if (session != null && session.isConnected) loadPendingMedia(session)
     }
@@ -248,7 +271,20 @@ class SiloCastSessionManager(private val context: Context) {
             .apply { if (activeTrackIds.isNotEmpty()) setActiveTrackIds(activeTrackIds) }
             .build()
 
-        remoteClient.load(loadRequest)
+        remoteClient.load(loadRequest).setResultCallback { result ->
+            PlaybackTelemetry.log(
+                "cast: load result",
+                mapOf(
+                    "success" to result.status.isSuccess,
+                    "status_code" to result.status.statusCode,
+                    "mime" to spec.mimeType,
+                    "file_id" to spec.fileId,
+                    "subtitles" to spec.subtitles.size,
+                    "active_subtitle" to spec.subtitles.any { it.selected },
+                ),
+                if (result.status.isSuccess) SentryLogLevel.INFO else SentryLogLevel.WARN,
+            )
+        }
     }
 
     private fun attachRemoteListeners(session: CastSession) {
@@ -283,9 +319,24 @@ class SiloCastSessionManager(private val context: Context) {
         val session = sessionManager?.currentCastSession
         if (session != null) {
             captureRemotePosition(session)
+            PlaybackTelemetry.log("cast: user disconnect", mapOf("last_position" to lastPosition))
             sessionManager?.endCurrentSession(true)
         }
         syncCastState()
+    }
+
+    /** Seeks the remote receiver. Optimistically updates local state so the
+     * scrubber doesn't snap back while the receiver applies the seek. */
+    fun seekTo(seconds: Double) {
+        val remoteClient = sessionManager?.currentCastSession?.remoteMediaClient ?: return
+        remoteClient.seek(
+            MediaSeekOptions.Builder()
+                .setPosition((seconds * 1000).toLong())
+                .build(),
+        )
+        lastPosition = seconds
+        _castState.value = _castState.value.copy(position = seconds)
+        PlaybackTelemetry.log("cast: seek", mapOf("position" to seconds))
     }
 
     fun togglePlayback() {
