@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.section.SectionItem
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -326,6 +327,7 @@ class TvFocusMarqueeState internal constructor() {
 
 /** Tuned Skyline timing: 0.5 s with the tvOS `.easeInOut` curve. */
 const val TvMarqueeCrossfadeMs = 500
+const val TvMarqueeFocusRestMillis = 150L
 val TvMarqueeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
 /**
@@ -341,7 +343,10 @@ fun rememberTvFocusMarqueeState(
     val state = remember { TvFocusMarqueeState() }
     LaunchedEffect(state.candidate?.id) {
         val candidate = state.candidate ?: return@LaunchedEffect
-        state.commit(candidate)
+        // Page-entry seed stays immediate so the hero never opens blank. Only
+        // subsequent D-pad focus moves wait for the focus-rest interval.
+        if (state.content != null) delay(TvMarqueeFocusRestMillis)
+        if (state.candidate?.id == candidate.id) state.commit(candidate)
     }
 
     // Populate the cache and enrich the active hero when identity still

@@ -14,6 +14,11 @@ import org.junit.Test
  */
 class TvFocusMarqueeEnrichmentTest {
 
+    @Test
+    fun `focus rest delay matches tvOS`() {
+        assertEquals(150L, TvMarqueeFocusRestMillis)
+    }
+
     private fun detail(
         contentId: String = "c1",
         type: String = "movie",
