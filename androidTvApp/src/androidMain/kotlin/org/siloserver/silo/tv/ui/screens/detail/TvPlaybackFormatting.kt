@@ -236,7 +236,11 @@ object TvPlaybackFormatting {
 
     // --- Subtitles -------------------------------------------------------
 
-    fun subtitleOptions(version: FileVersion?, selectedSubtitleTrackIndex: Int?): List<TvSubtitleOption> {
+    fun subtitleOptions(
+        version: FileVersion?,
+        selectedSubtitleTrackIndex: Int?,
+        preferredLanguage: String? = null,
+    ): List<TvSubtitleOption> {
         val tracks = version?.subtitleTracks ?: return emptyList()
         // Selection travels in the server's COMBINED space (externals first,
         // embedded after — the identity subtitle_track_index resolves and
@@ -244,7 +248,8 @@ object TvPlaybackFormatting {
         // `index` values are different spaces; sending either selects the
         // wrong track on files with external subtitles.
         val combined = combinedSubtitleSelectionIndexes(tracks)
-        return tracks.mapIndexed { ordinal, track ->
+        return orderedSubtitleCatalogOrdinals(tracks, preferredLanguage).map { ordinal ->
+            val track = tracks[ordinal]
             TvSubtitleOption(
                 selectionIndex = combined[ordinal],
                 title = subtitleTitle(track, ordinal),
@@ -253,6 +258,78 @@ object TvPlaybackFormatting {
                 stableId = "sub-$ordinal",
             )
         }
+    }
+
+    /**
+     * Display-only ordering shared with tvOS: preferred language first, then
+     * language groups alphabetically; within a language prefer text formats,
+     * then full-dialogue, forced, and SDH variants. Original catalog ordinals
+     * travel with every row so combined-space selection identity is unchanged.
+     */
+    internal fun orderedSubtitleCatalogOrdinals(
+        tracks: List<SubtitleTrack>,
+        preferredLanguage: String?,
+    ): List<Int> {
+        if (tracks.size < 2) return tracks.indices.toList()
+        val preferredKey = canonicalSubtitleLanguageKey(preferredLanguage)
+        val namedKeys = tracks
+            .mapNotNull { canonicalSubtitleLanguageKey(it.language) }
+            .distinct()
+            .sortedWith(Comparator<String> { a, b ->
+                when {
+                    a == preferredKey && b != preferredKey -> -1
+                    b == preferredKey && a != preferredKey -> 1
+                    else -> {
+                        val byName = languageDisplayName(a).orEmpty().compareTo(
+                            languageDisplayName(b).orEmpty(),
+                            ignoreCase = true,
+                        )
+                        if (byName != 0) byName else a.compareTo(b)
+                    }
+                }
+            })
+        val groupRanks = namedKeys.withIndex().associate { it.value to it.index }
+        val unknownGroupRank = namedKeys.size
+        return tracks.indices.sortedWith(
+            compareBy<Int> {
+                canonicalSubtitleLanguageKey(tracks[it].language)
+                    ?.let(groupRanks::get) ?: unknownGroupRank
+            }.thenBy { subtitleFormatRank(tracks[it].codec) }
+                .thenBy {
+                    when {
+                        isHearingImpairedSubtitle(tracks[it]) -> 2
+                        tracks[it].forced -> 1
+                        else -> 0
+                    }
+                }
+                .thenBy { if (tracks[it].isDefault) 0 else 1 }
+                .thenBy { it },
+        )
+    }
+
+    private fun subtitleFormatRank(codec: String?): Int {
+        val value = codec?.lowercase(Locale.US)?.takeIf { it.isNotBlank() } ?: return 7
+        return when {
+            value == "srt" || value.contains("subrip") -> 0
+            value.contains("ass") -> 1
+            value.contains("ssa") -> 2
+            value == "vtt" || value.contains("webvtt") -> 3
+            value.contains("mov_text") || value.contains("movtext") || value.contains("tx3g") -> 4
+            value.contains("pgs") || value.contains("hdmv") -> 5
+            value.contains("dvd") || value.contains("vobsub") || value.contains("dvb") -> 6
+            else -> 7
+        }
+    }
+
+    private fun canonicalSubtitleLanguageKey(value: String?): String? {
+        val primary = value
+            ?.trim()
+            ?.lowercase(Locale.US)
+            ?.replace('_', '-')
+            ?.substringBefore('-')
+            ?.takeIf { it.isNotBlank() && it != "und" }
+            ?: return null
+        return languageCodeAliases[primary] ?: primary
     }
 
     /**

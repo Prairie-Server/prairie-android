@@ -409,8 +409,8 @@ class TvPlaybackFormattingTest {
             ),
         )
         val opts = TvPlaybackFormatting.subtitleOptions(v, selectedSubtitleTrackIndex = 3)
-        assertEquals(listOf(2, 3, 0, 1), opts.map { it.selectionIndex })
-        assertTrue(opts[1].isSelected) // embedded English row carries combined 3
+        assertEquals(listOf(2, 0, 3, 1), opts.map { it.selectionIndex })
+        assertTrue(opts[2].isSelected) // embedded English row carries combined 3
         assertEquals(
             "English",
             TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 3),
@@ -429,6 +429,31 @@ class TvPlaybackFormattingTest {
         assertTrue(opts[0].isSelected)
         assertTrue(opts[0].detail.contains("Forced"))
         assertTrue(opts[0].detail.contains("Default"))
+    }
+
+    @Test fun subtitleOptions_orderSemanticallyWithoutRenumberingCombinedIndexes() {
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(index = 10, lang = "jpn", codec = "srt"),
+                subtitleTrack(index = 11, lang = "eng", codec = "srt", forced = true),
+                subtitleTrack(index = 0, lang = "fre", codec = "srt", external = true),
+                subtitleTrack(index = 12, lang = "eng", codec = "pgs"),
+                subtitleTrack(index = 13, lang = "eng", codec = "srt", title = "English SDH"),
+                subtitleTrack(index = 14, lang = "eng", codec = "ass"),
+                subtitleTrack(index = 15, lang = "eng", codec = "srt"),
+            ),
+        )
+
+        val opts = TvPlaybackFormatting.subtitleOptions(
+            v,
+            selectedSubtitleTrackIndex = 6,
+            preferredLanguage = "en",
+        )
+
+        assertEquals(listOf(6, 2, 4, 5, 3, 0, 1), opts.map { it.selectionIndex })
+        assertTrue(opts.first().isSelected)
+        assertEquals("French", opts[5].title)
+        assertEquals("Japanese", opts[6].title)
     }
 
     // --- editions (Android model has no edition data → single group) ---

@@ -209,7 +209,11 @@ fun TvPlaybackSelectorRow(
                     ),
                 )
                 TvPlaybackFormatting
-                    .subtitleOptions(currentVersion, selectedSubtitleTrackIndex)
+                    .subtitleOptions(
+                        currentVersion,
+                        selectedSubtitleTrackIndex,
+                        preferredLanguage = preferredSubtitleLanguage,
+                    )
                     .forEach { option ->
                         add(
                             TvSelectorOption(
