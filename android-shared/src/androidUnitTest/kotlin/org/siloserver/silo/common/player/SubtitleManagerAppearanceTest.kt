@@ -17,7 +17,7 @@ import kotlin.test.assertEquals
 class SubtitleManagerAppearanceTest {
 
     @Test
-    fun subtitleTextFractionsAreCalibratedOneStepSmaller() {
+    fun subtitleTextFractionsUseTheStandardScale() {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "fractionalSizeFor",
             SubtitleFontSizePreset::class.java,

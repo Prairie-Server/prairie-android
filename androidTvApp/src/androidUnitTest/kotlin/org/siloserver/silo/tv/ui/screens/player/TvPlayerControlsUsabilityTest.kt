@@ -161,6 +161,22 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
+    fun subtitleColorSwatchesUseOneActivatingFocusTarget() {
+        val swatchBlock = hudSource
+            .substringAfter("private fun StyleColorSwatch(")
+            .substringBefore("private fun hexToColor")
+
+        assertFalse(
+            swatchBlock.contains(".focusable("),
+            "A separate focusable target receives D-pad focus but cannot invoke the swatch callback on OK",
+        )
+        assertTrue(
+            swatchBlock.contains(".clickable(enabled = enabled, interactionSource = interactionSource"),
+            "The clickable target must own both focus and OK activation",
+        )
+    }
+
+    @Test
     fun hudTabsUseScrollSafePaneViewports() {
         assertTrue(hudSource.contains("private fun HudPaneViewport("))
         assertTrue(hudSource.contains("private fun HudTwoColumnPane("))
@@ -251,6 +267,17 @@ class TvPlayerControlsUsabilityTest {
         assertFalse(quickPickerBlock.contains("DialogProperties("))
         assertFalse(quickPickerBlock.contains(".verticalScroll(rememberScrollState())"))
         assertFalse(quickPickerBlock.contains("TvDialogActionRow("))
+    }
+
+    @Test
+    fun hudPickerComposesEveryScrollableOptionAndTrapsFocusInsideTheModal() {
+        val pickerBlock = hudSource
+            .substringAfter("internal fun HudPickerDialog(")
+            .substringBefore("private fun HudPickerOptionRow(")
+        assertFalse(pickerBlock.contains("LazyColumn("))
+        assertTrue(pickerBlock.contains(".verticalScroll(rememberScrollState())"))
+        assertTrue(pickerBlock.contains("options.forEachIndexed"))
+        assertTrue(pickerBlock.contains("exit = { FocusRequester.Cancel }"))
     }
 
     @Test

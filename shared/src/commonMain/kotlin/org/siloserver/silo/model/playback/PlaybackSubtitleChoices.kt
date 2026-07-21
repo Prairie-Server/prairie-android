@@ -58,13 +58,23 @@ fun buildPlaybackSubtitleChoices(
             source = if (track.external) "external" else "embedded",
             forced = track.forced,
             url = "",
+            catalogLabel = track.title,
+            catalogSource = if (track.external) "external" else "embedded",
+            isDefault = track.isDefault,
         )
         return planned.copy(
             language = planned.language ?: track.language,
             codec = planned.codec ?: track.codec,
+            // Keep the runtime label intact: Media3 uses it to match the
+            // mounted sidecar. Catalog identity is display metadata and must
+            // survive independently of a generic label such as
+            // "Server subtitle".
             label = planned.label ?: track.title,
             source = planned.source ?: if (track.external) "external" else "embedded",
             forced = planned.forced ?: track.forced,
+            catalogLabel = track.title,
+            catalogSource = if (track.external) "external" else "embedded",
+            isDefault = track.isDefault,
         )
     }
 

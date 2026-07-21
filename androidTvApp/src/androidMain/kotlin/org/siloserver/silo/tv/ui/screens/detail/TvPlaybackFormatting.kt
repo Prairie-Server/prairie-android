@@ -581,11 +581,21 @@ object TvPlaybackFormatting {
         val title = nonEmpty(track.title)?.takeUnless { isRedundantSubtitleTitle(it, track) }
             ?: return null
         val lowered = title.lowercase(Locale.US)
+        // Catalog titles for external tracks are often the complete media/show
+        // release filename. Keep that identity internally; never render it in
+        // either subtitle selector.
+        if (title.length > 28 || '[' in title || SUBTITLE_FILENAME_SUFFIXES.any(lowered::endsWith)) {
+            return null
+        }
         if (lowered == "forced" || lowered in listOf("sdh", "cc", "hi", "hearing impaired")) {
             return null
         }
         return displayTitle(title)
     }
+
+    private val SUBTITLE_FILENAME_SUFFIXES = listOf(
+        ".srt", ".ass", ".ssa", ".vtt", ".sub", ".sup", ".idx",
+    )
 
     /** Mirrors tvOS `isForced`: flag OR a "forced" mention in the title. */
     private fun isForcedSubtitle(track: SubtitleTrack): Boolean =

@@ -12,12 +12,25 @@ class SiloPlayerFactorySubtitleParserTest {
     @Test
     fun sidecarSubtitleMediaSourcesUseNormalizingParserFactory() {
         assertTrue(
-            source.contains("delegate = libassBridge.parserFactory"),
+            source.contains("sidecarSubtitleParserFactory = OffsetSubtitleParserFactory(") &&
+                source.contains("offsetUsProvider = subtitleOffsetHolder::getOffsetUs"),
             "SiloPlayerFactory should compose the libass parser with Silo's offset parser.",
         )
         assertTrue(
-            source.contains(".setSubtitleParserFactory(subtitleParserFactory)"),
-            "DefaultMediaSourceFactory must use the normalizing parser for sidecar subtitles.",
+            source.contains("subtitleParserFactory = sidecarSubtitleParserFactory"),
+            "Explicit sidecar media sources must use the source/player timeline correction.",
+        )
+    }
+
+    @Test
+    fun sidecarSubtitleCueTimesUseTheMountedPlaybackTimeline() {
+        assertTrue(
+            source.contains("timelineOffsetSeconds: Double = 0.0"),
+            "buildMediaItem must accept the server-reanchored playback timeline offset.",
+        )
+        assertTrue(
+            source.contains("subtitleOffsetHolder.setTimelineOffsetSeconds(timelineOffsetSeconds)"),
+            "Subtitle cue times must be translated from source time to the mounted player timeline.",
         )
     }
 
@@ -25,8 +38,22 @@ class SiloPlayerFactorySubtitleParserTest {
     fun libassUsesTheSharedParserExtractorRendererAndLifecycle() {
         assertTrue(source.contains("libassBridge.wrapExtractors("))
         assertTrue(source.contains("libassBridge.wrapRenderers("))
-        assertTrue(source.contains("subtitleOffsetHolder::getOffsetUs"))
+        assertTrue(source.contains("subtitleOffsetHolder::getUserOffsetUs"))
         assertTrue(source.contains("builder.build().also(libassBridge::initialize)"))
+    }
+
+    @Test
+    fun timelineCorrectionIsLimitedToSidecars() {
+        assertTrue(
+            source.contains("embeddedSubtitleParserFactory = OffsetSubtitleParserFactory(") &&
+                source.contains("offsetUsProvider = subtitleOffsetHolder::getUserOffsetUs"),
+            "Embedded subtitle samples already share the mounted media timeline and must only use user sync.",
+        )
+        assertTrue(
+            source.contains(".setSubtitleConfigurations(emptyList())") &&
+                source.contains("subtitleConfigurations.mapTo(sources, ::createSubtitleMediaSource)"),
+            "All sidecars must be split from the content source so their source timeline can be corrected independently.",
+        )
     }
 
     @Test

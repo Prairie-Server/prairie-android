@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class SubtitleAppearanceTest {
 
     @Test
-    fun subtitleFontSizePresetsAreCalibratedOneStepSmaller() {
+    fun subtitleFontSizePresetsUseTheStandardScale() {
         assertEquals(36.0, SubtitleFontSizePreset.Small.pointSize)
         assertEquals(44.0, SubtitleFontSizePreset.Medium.pointSize)
         assertEquals(56.0, SubtitleFontSizePreset.Large.pointSize)
@@ -15,7 +15,7 @@ class SubtitleAppearanceTest {
     }
 
     @Test
-    fun defaultSubtitleAppearanceKeepsLargePresetAtSaferRenderedSize() {
+    fun defaultSubtitleAppearanceKeepsTheStandardLargePreset() {
         assertEquals(SubtitleFontSizePreset.Large, SubtitleAppearance.DEFAULT.fontSize)
         assertEquals(56.0, SubtitleAppearance.DEFAULT.fontSize.pointSize)
     }

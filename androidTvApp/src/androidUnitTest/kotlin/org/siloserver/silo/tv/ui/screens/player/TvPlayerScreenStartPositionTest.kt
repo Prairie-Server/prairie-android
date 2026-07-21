@@ -39,6 +39,10 @@ class TvPlayerScreenStartPositionTest {
             source.contains("durationSeconds = state.duration"),
             "TV player media specs must carry known duration into system media metadata",
         )
+        assertTrue(
+            source.countOccurrences("timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0") >= 2,
+            "TV initial mounts and subtitle refreshes must keep subtitle cues on the server-reanchored timeline",
+        )
     }
 
     @Test
@@ -149,4 +153,8 @@ class TvPlayerScreenStartPositionTest {
         assertTrue(mountEffect.contains("plan?.decisionTrace?.size ?: 0"))
         assertTrue(mountEffect.contains("state.transportMountNonce"))
     }
+
+
+    private fun String.countOccurrences(value: String): Int =
+        windowed(value.length, 1).count { it == value }
 }

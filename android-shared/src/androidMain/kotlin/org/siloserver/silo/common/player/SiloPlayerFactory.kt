@@ -98,8 +98,13 @@ class SiloPlayerFactory(
         requestHeadersProvider = ::requestHeadersFor,
     )
 
-    private val subtitleParserFactory = OffsetSubtitleParserFactory(
-        holder = subtitleOffsetHolder,
+    private val embeddedSubtitleParserFactory = OffsetSubtitleParserFactory(
+        offsetUsProvider = subtitleOffsetHolder::getUserOffsetUs,
+        delegate = libassBridge.parserFactory,
+    )
+
+    private val sidecarSubtitleParserFactory = OffsetSubtitleParserFactory(
+        offsetUsProvider = subtitleOffsetHolder::getOffsetUs,
         delegate = libassBridge.parserFactory,
     )
 
@@ -109,7 +114,7 @@ class SiloPlayerFactory(
             // subtitle payloads here makes SRT/ASS tracks crash the text renderer
             // on Android TV with "Legacy decoding is disabled". The offset wrapper
             // delegates to libass for ASS/SSA and Media3 for other text formats.
-            .setSubtitleParserFactory(subtitleParserFactory)
+            .setSubtitleParserFactory(embeddedSubtitleParserFactory)
             // HDMV DTS streams (Blu-ray-sourced M2TS) use a stream type the TS
             // payload reader skips by default, so DTS tracks vanish from
             // Blu-ray-remux transport streams without this flag.
@@ -119,7 +124,7 @@ class SiloPlayerFactory(
             // with "timestamp not found" (androidx/media #8571-class failures).
             // 1500 packets matches what battle-tested players ship.
             .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE),
-        subtitleParserFactory,
+        embeddedSubtitleParserFactory,
     )
 
     private val hlsExtractorFactory = DefaultHlsExtractorFactory(
@@ -130,7 +135,7 @@ class SiloPlayerFactory(
         // progressive-TS only.
         DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS,
         /* exposeCea608WhenMissingDeclarations = */ true,
-    ).setSubtitleParserFactory(subtitleParserFactory)
+    ).setSubtitleParserFactory(embeddedSubtitleParserFactory)
 
     fun createPlayer(
         preferFfmpegAudio: Boolean = BuildConfig.FFMPEG_AUDIO_ENABLED,
@@ -231,7 +236,7 @@ class SiloPlayerFactory(
         }
         val renderersFactory = libassBridge.wrapRenderers(
             media3RenderersFactory,
-            subtitleOffsetHolder::getOffsetUs,
+            subtitleOffsetHolder::getUserOffsetUs,
         )
 
         val trackSelector = DefaultTrackSelector(context).apply {
@@ -259,11 +264,11 @@ class SiloPlayerFactory(
                 ),
             )
             .setDataSourceFactory(dataSourceFactory)
-            .setSubtitleParserFactory(subtitleParserFactory)
+            .setSubtitleParserFactory(embeddedSubtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
         val hlsMediaSourceFactory = HlsMediaSource.Factory(dataSourceFactory)
             .setExtractorFactory(hlsExtractorFactory)
-            .setSubtitleParserFactory(subtitleParserFactory)
+            .setSubtitleParserFactory(embeddedSubtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
         val mediaSourceFactory = SiloMediaSourceFactory(
             defaultFactory = defaultMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
@@ -275,7 +280,7 @@ class SiloPlayerFactory(
             hdr10Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_HDR10),
             hlsFactory = hlsMediaSourceFactory,
             dataSourceFactory = dataSourceFactory,
-            subtitleParserFactory = subtitleParserFactory,
+            subtitleParserFactory = sidecarSubtitleParserFactory,
             loadErrorHandlingPolicy = mediaLoadErrorHandlingPolicy,
         )
 
@@ -394,6 +399,7 @@ class SiloPlayerFactory(
         subtitle: String? = null,
         artworkUrl: String? = null,
         durationMs: Long? = null,
+        timelineOffsetSeconds: Double = 0.0,
         requestHeaders: Map<String, String> = emptyMap(),
         expectedDynamicRange: String? = null,
         transformations: List<String> = emptyList(),
@@ -401,6 +407,7 @@ class SiloPlayerFactory(
     ): MediaItem {
         this.serverUrl = serverUrl
         runtimeCorrectionState.activate(runtimeCorrections)
+        subtitleOffsetHolder.setTimelineOffsetSeconds(timelineOffsetSeconds)
         val absoluteUrl = buildAbsoluteUrl(serverUrl, streamUrl)
         requestHeaderScope = requestHeaders.takeIf { it.isNotEmpty() }?.let {
             RequestHeaderScope(android.net.Uri.parse(absoluteUrl), it)
@@ -512,40 +519,38 @@ class SiloPlayerFactory(
         override fun createMediaSource(mediaItem: MediaItem): MediaSource {
             val localConfiguration = mediaItem.localConfiguration
                 ?: return defaultFactory.createMediaSource(mediaItem)
+            val subtitleConfigurations = localConfiguration.subtitleConfigurations
+            val contentItem = if (subtitleConfigurations.isEmpty()) {
+                mediaItem
+            } else {
+                mediaItem.buildUpon()
+                    .setSubtitleConfigurations(emptyList())
+                    .build()
+            }
             val contentType = Util.inferContentTypeForUriAndMimeType(
                 localConfiguration.uri,
                 localConfiguration.mimeType,
             )
-            return if (contentType == C.CONTENT_TYPE_HLS) {
-                createHlsMediaSource(mediaItem)
+            val contentSource = if (contentType == C.CONTENT_TYPE_HLS) {
+                hlsFactory.createMediaSource(contentItem)
             } else {
                 val tag = localConfiguration.tag as? SiloMediaTransformTag
                 when (tag?.dolbyVisionMode) {
-                    DolbyVisionTransformMode.PROFILE7_TO_PROFILE81 -> dv81Factory.createMediaSource(mediaItem)
-                    DolbyVisionTransformMode.PROFILE7_TO_HDR10 -> hdr10Factory.createMediaSource(mediaItem)
+                    DolbyVisionTransformMode.PROFILE7_TO_PROFILE81 -> dv81Factory.createMediaSource(contentItem)
+                    DolbyVisionTransformMode.PROFILE7_TO_HDR10 -> hdr10Factory.createMediaSource(contentItem)
                     else -> if (tag?.expectedDynamicRange.equals("hlg", ignoreCase = true)) {
-                        hlgFactory.createMediaSource(mediaItem)
+                        hlgFactory.createMediaSource(contentItem)
                     } else {
-                        defaultFactory.createMediaSource(mediaItem)
+                        defaultFactory.createMediaSource(contentItem)
                     }
                 }
             }
-        }
+            if (subtitleConfigurations.isEmpty()) return contentSource
 
-        private fun createHlsMediaSource(mediaItem: MediaItem): MediaSource {
-            val subtitleConfigurations = mediaItem.localConfiguration
-                ?.subtitleConfigurations
-                .orEmpty()
-            if (subtitleConfigurations.isEmpty()) return hlsFactory.createMediaSource(mediaItem)
-
-            // DefaultMediaSourceFactory can merge sidecars, but its internal HLS
-            // factory does not carry Silo's HDMV-DTS TS payload flag. Build the
-            // merge explicitly so HLS retains the configured extractor while
-            // sidecars still use the shared offset/libass parser pipeline.
-            val contentItem = mediaItem.buildUpon()
-                .setSubtitleConfigurations(emptyList())
-                .build()
-            val sources = mutableListOf<MediaSource>(hlsFactory.createMediaSource(contentItem))
+            // Sidecars carry source-timeline cue times, while server-reanchored
+            // content and its embedded tracks use a local player timeline.
+            // Split every sidecar explicitly so only it receives that delta.
+            val sources = mutableListOf(contentSource)
             subtitleConfigurations.mapTo(sources, ::createSubtitleMediaSource)
             return MergingMediaSource(*sources.toTypedArray())
         }

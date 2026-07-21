@@ -334,6 +334,38 @@ internal fun PlayerTrackEntry.matchesMountedSubtitle(subtitle: PlayerSubtitleInf
     return targetCodec == null || trackCodec == null || targetCodec == trackCodec
 }
 
+/**
+ * Holds the stable server subtitle identity across a protocol replan. Replanning
+ * remounts the MediaItem and Media3 drops the live text-track override, so the
+ * freshly reported flat Media3 ordinal must be resolved and selected again.
+ */
+internal class SubtitleRemountReselection {
+    private var pendingServerSubtitleIndex: Int? = null
+
+    fun arm(serverSubtitleIndex: Int?) {
+        pendingServerSubtitleIndex = serverSubtitleIndex
+    }
+
+    fun consume(
+        subtitleTracks: List<PlayerTrackEntry>,
+        mountedSubtitles: List<PlayerSubtitleInfo>,
+    ): Int? {
+        val serverIndex = pendingServerSubtitleIndex ?: return null
+        if (serverIndex == -1) {
+            pendingServerSubtitleIndex = null
+            return -1
+        }
+        val mounted = mountedSubtitles.firstOrNull { it.index == serverIndex } ?: return null
+        val track = subtitleTracks.firstOrNull { it.matchesMountedSubtitle(mounted) } ?: return null
+        pendingServerSubtitleIndex = null
+        return track.index
+    }
+
+    fun clear() {
+        pendingServerSubtitleIndex = null
+    }
+}
+
 private fun normalizedSubtitleLanguage(language: String?): String? {
     val primary = language
         ?.trim()
@@ -933,6 +965,7 @@ class TvPlayerViewModel(
     // replan failure so a stale pick can't re-enable later.
     private var pendingSubtitleSelectServerIndex: Int? = null
     private var pendingSubtitleSelectPersist: Boolean = false
+    private val subtitleRemountReselection = SubtitleRemountReselection()
 
     init {
         // Keep the process-wide active-file marker in sync (phone parity), so
@@ -1392,6 +1425,13 @@ class TvPlayerViewModel(
                             catalogTracks = effectiveVersion?.subtitleTracks.orEmpty(),
                             plannedTracks = plannedSubtitles + preservedSubtitles,
                         )
+                        if (classification == "subtitle_track_changed") {
+                            // A successful user subtitle replan remounts the MediaItem.
+                            // Media3 does not carry the live text-track override across
+                            // that remount, so resolve its new flat ordinal when tracks
+                            // are reported and apply the choice again.
+                            subtitleRemountReselection.arm(selectedSubtitle)
+                        }
                         val effectiveContainer = decision.plan.stream.container
                             ?: effectiveVersion?.container
                             ?: state.container.takeIf { effectiveFileId == fileId }
@@ -2326,6 +2366,7 @@ class TvPlayerViewModel(
      */
     fun onTracksChanged(audio: List<PlayerTrackEntry>, subtitle: List<PlayerTrackEntry>) {
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
+        resolveSubtitleRemountReselection(subtitle)
         // The detail-page explicit pick resolves FIRST so a resolved pick can
         // suppress the persisted/auto fallback (and an unresolvable one lets it
         // proceed) before persisted reads its fingerprint.
@@ -2350,6 +2391,7 @@ class TvPlayerViewModel(
                 videoTracks = video,
             )
         }
+        resolveSubtitleRemountReselection(subtitle)
         // The detail-page explicit pick resolves FIRST so a resolved pick can
         // suppress the persisted/auto fallback (and an unresolvable one lets it
         // proceed) before persisted reads its fingerprint.
@@ -2574,6 +2616,13 @@ class TvPlayerViewModel(
         pendingSubtitleSelectServerIndex = null
         pendingSubtitleSelectLabel = null
         pendingSubtitleSelectPersist = false
+        subtitleRemountReselection.clear()
+    }
+
+    private fun resolveSubtitleRemountReselection(subtitle: List<PlayerTrackEntry>) {
+        subtitleRemountReselection
+            .consume(subtitle, _uiState.value.subtitleUrls)
+            ?.let(_subtitleSelectRequests::tryEmit)
     }
 
     fun onManualSubtitleSelectionIntent(index: Int) {

@@ -12,16 +12,16 @@ class TvSubtitleChoiceLabelsTest {
         label: String? = null,
         source: String? = null,
         forced: Boolean? = null,
+        isDefault: Boolean? = null,
         url: String = "",
     ) = PlayerSubtitleInfo(
         index = index, language = language, codec = codec,
         label = label, source = source, forced = forced, url = url,
+        isDefault = isDefault,
     )
 
     @Test
-    fun sidecarFilenameLabelsCollapseToLanguageFormat() {
-        // The exact shape from the report: external sidecars whose server
-        // label is the release filename rendered N identical truncated rows.
+    fun sidecarFilenameLabelsNeverExposeTheShowOrReleaseName() {
         val label = subtitleChoiceLabel(
             row(
                 language = "da",
@@ -31,17 +31,26 @@ class TvSubtitleChoiceLabelsTest {
             ),
             position = 0,
         )
-        assertEquals("Danish SRT (External)", label)
+        assertEquals("Danish — SRT · External", label)
     }
 
     @Test
     fun embeddedCodecJunkTitleCollapses() {
         assertEquals(
-            "Danish SRT",
-            subtitleChoiceLabel(row(language = "da", codec = "subrip", label = "SUBRIP", source = "embedded"), 0),
+            "Danish — SRT · Default",
+            subtitleChoiceLabel(
+                row(
+                    language = "da",
+                    codec = "subrip",
+                    label = "SUBRIP",
+                    source = "embedded",
+                    isDefault = true,
+                ),
+                0,
+            ),
         )
         assertEquals(
-            "Danish PGS",
+            "Danish — PGS",
             subtitleChoiceLabel(row(language = "da", codec = "hdmv_pgs_subtitle", label = "HDMV_PGS_SUBTITLE"), 0),
         )
     }
@@ -49,23 +58,34 @@ class TvSubtitleChoiceLabelsTest {
     @Test
     fun languageRedundantTitleCollapses() {
         assertEquals(
-            "English SRT",
+            "English — SRT",
             subtitleChoiceLabel(row(language = "en", codec = "subrip", label = "English", source = "embedded"), 0),
+        )
+    }
+
+    @Test
+    fun serverArtifactPlaceholderDoesNotReplaceCatalogName() {
+        assertEquals(
+            "English — SRT",
+            subtitleChoiceLabel(
+                row(language = "en", codec = "srt", label = "Server subtitle", source = "server_artifact"),
+                0,
+            ),
         )
     }
 
     @Test
     fun meaningfulTitleAndQualifiersRideAlong() {
         assertEquals(
-            "English PGS (SDH)",
+            "English — SDH · PGS",
             subtitleChoiceLabel(row(language = "en", codec = "pgs", label = "SDH"), 0),
         )
         assertEquals(
-            "Japanese ASS (Signs, Forced)",
+            "Japanese — Signs · ASS · Forced",
             subtitleChoiceLabel(row(language = "ja", codec = "ass", label = "Signs", forced = true), 0),
         )
         assertEquals(
-            "Danish SRT (Downloaded)",
+            "Danish — SRT · Downloaded",
             subtitleChoiceLabel(row(language = "da", codec = "srt", label = "Some Release (provider) [x264] blah blah", source = "downloaded"), 0),
         )
     }
@@ -73,7 +93,7 @@ class TvSubtitleChoiceLabelsTest {
     @Test
     fun formatFallsBackToUrlExtensionAndPositionCoversUnknowns() {
         assertEquals(
-            "Danish VTT",
+            "Danish — VTT",
             subtitleChoiceLabel(row(language = "da", url = "/stream/s/subtitles/0.vtt?x=1"), 0),
         )
         assertEquals("Track 3", subtitleChoiceLabel(row(), 2))
@@ -115,7 +135,7 @@ class TvAudioChoiceLabelsTest {
         )
         // Subtitle side of the same fix.
         assertEquals(
-            "German SRT (External)",
+            "German — SRT · External",
             subtitleChoiceLabel(
                 PlayerSubtitleInfo(index = 0, language = "ger", codec = "srt", source = "external", url = ""),
                 0,

@@ -517,6 +517,7 @@ fun PlayerScreen(
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
+            timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
             durationSeconds = uiState.duration,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = uiState.requestHeaders,
@@ -572,6 +573,7 @@ fun PlayerScreen(
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
+            timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
             durationSeconds = uiState.duration,
             audioPassthroughCodecs = if (!isLocalMedia) {
                 plan.validatedPassthroughCodecs()

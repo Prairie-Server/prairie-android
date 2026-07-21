@@ -15,6 +15,7 @@ data class VideoPlayerMediaSpec(
     val subtitle: String? = null,
     val artworkUrl: String? = null,
     val startPositionSeconds: Double = 0.0,
+    val timelineOffsetSeconds: Double = 0.0,
     val durationSeconds: Double = 0.0,
     val audioPassthroughCodecs: List<String> = emptyList(),
     val requestHeaders: Map<String, String> = emptyMap(),

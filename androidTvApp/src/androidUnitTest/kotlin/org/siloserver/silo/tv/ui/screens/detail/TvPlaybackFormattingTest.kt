@@ -442,6 +442,24 @@ class TvPlaybackFormattingTest {
         assertTrue(opts[0].detail.contains("Default"))
     }
 
+    @Test fun subtitleOptions_neverExposeShowOrReleaseFilename() {
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(
+                    index = 0,
+                    lang = "dan",
+                    codec = "srt",
+                    title = "Reasonable Doubt (2014) [Bluray-1080p x264]-GROUP.da.srt",
+                    external = true,
+                ),
+            ),
+        )
+
+        val option = TvPlaybackFormatting.subtitleOptions(v, selectedSubtitleTrackIndex = null).single()
+        assertEquals("Danish", option.title)
+        assertEquals("SRT · External", option.detail)
+    }
+
     @Test fun subtitleOptions_orderSemanticallyWithoutRenumberingCombinedIndexes() {
         val v = fileVersion(
             subtitles = listOf(

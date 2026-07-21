@@ -1,24 +1,24 @@
-# Larger TV Subtitle Presets
+# TV Subtitle Preset Calibration
 
 ## Goal
 
-Make the default `Large` subtitle preset readable at normal television viewing distance while preserving the existing preset names and user-selection flow.
+Keep the subtitle scale comfortable at normal television viewing distance while preserving the existing preset names and user-selection flow.
 
 ## Design
 
-Recalibrate the upper three shared subtitle-size presets:
+Use the standard shared subtitle-size presets after Shield validation showed that the enlarged upper presets were excessive:
 
 | Preset | Point size | Android fractional size |
 | --- | ---: | ---: |
 | Small | 36 | 0.032 |
 | Medium | 44 | 0.040 |
-| Large | 68 | 0.060 |
-| XLarge | 82 | 0.072 |
-| XXLarge | 96 | 0.084 |
+| Large | 56 | 0.050 |
+| XLarge | 68 | 0.060 |
+| XXLarge | 82 | 0.072 |
 
-`Large` remains the default preset. `Small` and `Medium` remain unchanged. The larger presets stay distinct rather than making `Large` an alias for the old `XLarge` while leaving the rest of the scale untouched.
+`Large` remains the default preset. All five presets retain the established standard scale.
 
-The change applies wherever the shared subtitle appearance model is rendered, including Android TV and Android phone. Existing profiles that selected `Large`, `XLarge`, or `XXLarge` retain their selected preset name and receive its newly calibrated rendered size. No settings migration or preference rewrite is needed.
+The scale applies wherever the shared subtitle appearance model is rendered, including Android TV and Android phone. Existing profiles retain their selected preset name. No settings migration or preference rewrite is needed.
 
 ## Color-control activation fix
 
@@ -28,13 +28,13 @@ Remove the redundant explicit focus target and let the existing `clickable` modi
 
 ## Testing and verification
 
-- Update shared model tests to assert the new point-size scale and that `Large` remains the default.
-- Update Android renderer tests to assert the new fractional sizes.
+- Update shared model tests to assert the standard point-size scale and that `Large` remains the default.
+- Update Android renderer tests to assert the standard fractional sizes.
 - Add a TV HUD regression test that prevents color swatches from reintroducing a separate non-activating focus target.
 - Run shared, Android-shared, TV, and phone unit tests.
 - Build and install the TV debug APK on the Shield.
-- On the Shield, select Yellow with the remote and verify that the saved appearance changes to `#ffff00` and live subtitles render yellow.
-- Visually verify a two-line subtitle at the recalibrated `Large` size with the existing no-background appearance.
+- On the Shield, select Yellow with the remote and verify that the saved appearance changes to the palette's `#facc15` and live subtitles render yellow.
+- Visually verify a two-line subtitle at the standard selected size with the existing no-background appearance.
 
 ## Scope
 
