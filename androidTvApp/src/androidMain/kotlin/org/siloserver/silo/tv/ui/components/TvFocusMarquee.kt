@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -52,13 +53,18 @@ fun TvFocusMarquee(
     detailLine: String? = content?.detailLine,
     modifier: Modifier = Modifier,
     startPadding: androidx.compose.ui.unit.Dp = 44.dp,
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     animateTransition: Boolean = true,
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(start = startPadding, bottom = bottomPadding),
+            // topPadding reserves the top-menu-bar zone: the block is
+            // bottom-anchored, so any growth (typography floors) pushes it
+            // upward — without this clamp it renders beneath the bar.
+            .padding(start = startPadding, top = topPadding, bottom = bottomPadding)
+            .clipToBounds(),
         contentAlignment = Alignment.BottomStart,
     ) {
         // tvOS first-frame parity: the FIRST content snaps in with no
@@ -105,6 +111,10 @@ private fun TvMarqueeBlock(
     content: TvMarqueeContent,
     detailLine: String?,
 ) {
+    // tvOS parity (TVFocusMarquee): when the text-fallback title wraps to two
+    // lines the synopsis drops to one, keeping the bottom-anchored block's
+    // height bounded so it never climbs into the top-menu-bar zone.
+    var titleLineCount by remember(content.id) { mutableStateOf(1) }
     Column(
         modifier = Modifier.widthIn(max = MarqueeContentWidth),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -139,6 +149,7 @@ private fun TvMarqueeBlock(
                 lineHeight = MarqueeTitleSize * 1.15f,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                onTextLayout = { titleLineCount = it.lineCount },
             )
         }
 
@@ -162,15 +173,16 @@ private fun TvMarqueeBlock(
             }
         }
 
-        // Keep three synopsis lines even when logo art is present. The whole
-        // marquee is raised above the row band to preserve that extra line.
+        // Two synopsis lines (one when a text title wraps): the raised
+        // typography floors made the old three-line block tall enough to
+        // climb under the top menu bar, and the bar zone wins.
         content.synopsis?.takeIf { it.isNotBlank() }?.let { synopsis ->
             Text(
                 text = synopsis,
                 color = SiloSecondaryText,
                 fontSize = MarqueeSynopsisSize,
                 lineHeight = MarqueeSynopsisSize * 1.35f,
-                maxLines = 3,
+                maxLines = if (titleLineCount > 1) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = MarqueeSynopsisMaxWidth),
             )
