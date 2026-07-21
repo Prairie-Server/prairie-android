@@ -88,6 +88,7 @@ fun TvPlaybackSelectorRow(
     ) {
         if (editions.size > 1) {
             TvAnchoredSelectorMenu(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Filled.Layers,
                 label = "Edition",
                 value = currentEdition?.label ?: "Standard",
@@ -109,6 +110,7 @@ fun TvPlaybackSelectorRow(
 
         // Version — tvOS uses the `tv` display glyph, not an HQ badge.
         TvAnchoredSelectorMenu(
+            modifier = Modifier.weight(1f),
             icon = Icons.Filled.Tv,
             label = "Version",
             value = TvPlaybackFormatting.versionShortLabel(currentVersion),
@@ -137,6 +139,7 @@ fun TvPlaybackSelectorRow(
 
         // Audio
         TvAnchoredSelectorMenu(
+            modifier = Modifier.weight(1f),
             icon = Icons.AutoMirrored.Filled.VolumeUp,
             label = "Audio",
             value = TvPlaybackFormatting.audioValueLabel(currentVersion, selectedAudioTrackIndex),
@@ -181,6 +184,7 @@ fun TvPlaybackSelectorRow(
         // lines) is the closest Material glyph, and reads as subtitles rather
         // than the narrower CC (closed captions).
         TvAnchoredSelectorMenu(
+            modifier = Modifier.weight(1f),
             icon = Icons.AutoMirrored.Filled.Chat,
             label = "Subtitles",
             value = TvPlaybackFormatting.subtitleValueLabel(

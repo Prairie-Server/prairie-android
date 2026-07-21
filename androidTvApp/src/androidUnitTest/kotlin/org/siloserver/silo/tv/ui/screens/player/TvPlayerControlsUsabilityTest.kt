@@ -33,11 +33,25 @@ class TvPlayerControlsUsabilityTest {
     private val searchSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt",
     ).readText()
+    private val playbackSelectorSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt",
+    ).readText()
+    private val anchoredSelectorSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvAnchoredSelectorMenu.kt",
+    ).readText()
 
     @Test
     fun searchStatusUsesTextDrivenHeight() {
         assertTrue(searchSource.contains("minLines = 1"))
         assertFalse(searchSource.contains("Modifier.height(18.dp)"))
+    }
+
+    @Test
+    fun playbackSelectorsConstrainLongLabels() {
+        assertTrue(playbackSelectorSource.contains("Modifier.weight(1f)"))
+        assertTrue(anchoredSelectorSource.contains("TextOverflow.Ellipsis"))
+        assertTrue(anchoredSelectorSource.contains("maxLines = 1"))
+        assertTrue(anchoredSelectorSource.contains("Modifier.weight(1f)"))
     }
 
     @Test
