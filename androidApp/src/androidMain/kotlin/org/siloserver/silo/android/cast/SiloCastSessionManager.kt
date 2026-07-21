@@ -277,16 +277,7 @@ class SiloCastSessionManager(private val context: Context) {
             // stock boxed look (opaque black band behind every cue). Match the
             // app's default subtitle appearance instead: white text with a
             // black outline, no background, no window.
-            .setTextTrackStyle(
-                TextTrackStyle().apply {
-                    foregroundColor = android.graphics.Color.WHITE
-                    backgroundColor = android.graphics.Color.TRANSPARENT
-                    windowColor = android.graphics.Color.TRANSPARENT
-                    windowType = TextTrackStyle.WINDOW_TYPE_NONE
-                    edgeType = TextTrackStyle.EDGE_TYPE_OUTLINE
-                    edgeColor = android.graphics.Color.BLACK
-                },
-            )
+            .setTextTrackStyle(castTextTrackStyle())
             .build()
 
         val loadRequest = MediaLoadRequestData.Builder()
@@ -297,6 +288,13 @@ class SiloCastSessionManager(private val context: Context) {
             .build()
 
         remoteClient.load(loadRequest).setResultCallback { result ->
+            // The framework re-applies the phone's SYSTEM caption style after
+            // load (Android's default = opaque black background box), which
+            // overrides the style embedded in the MediaInfo. Re-assert ours
+            // once the load lands so the last write is the unboxed style.
+            if (result.status.isSuccess) {
+                remoteClient.setTextTrackStyle(castTextTrackStyle())
+            }
             PlaybackTelemetry.log(
                 "cast: load result",
                 mapOf(
@@ -310,6 +308,16 @@ class SiloCastSessionManager(private val context: Context) {
                 if (result.status.isSuccess) SentryLogLevel.INFO else SentryLogLevel.WARN,
             )
         }
+    }
+
+    /** White text, black outline, no background box — the app's default look. */
+    private fun castTextTrackStyle(): TextTrackStyle = TextTrackStyle().apply {
+        foregroundColor = android.graphics.Color.WHITE
+        backgroundColor = android.graphics.Color.TRANSPARENT
+        windowColor = android.graphics.Color.TRANSPARENT
+        windowType = TextTrackStyle.WINDOW_TYPE_NONE
+        edgeType = TextTrackStyle.EDGE_TYPE_OUTLINE
+        edgeColor = android.graphics.Color.BLACK
     }
 
     private fun attachRemoteListeners(session: CastSession) {
@@ -377,6 +385,7 @@ class SiloCastSessionManager(private val context: Context) {
         remoteClient.setActiveMediaTracks(
             if (trackId == null) longArrayOf() else longArrayOf(trackId),
         )
+        if (trackId != null) remoteClient.setTextTrackStyle(castTextTrackStyle())
         _castState.value = _castState.value.copy(activeSubtitleId = trackId)
         PlaybackTelemetry.log("cast: subtitle select", mapOf("track_id" to (trackId ?: -1L)))
     }
