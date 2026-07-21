@@ -467,6 +467,26 @@ class TvPlaybackFormattingTest {
         assertEquals("Japanese", opts[6].title)
     }
 
+    @Test fun subtitleOptions_matchTvOsFormatBeforeVariantPrecedence() {
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(index = 10, lang = "eng", codec = "ass"),
+                subtitleTrack(index = 11, lang = "eng", codec = "srt", forced = true),
+                subtitleTrack(index = 12, lang = "eng", codec = "pgs"),
+            ),
+        )
+
+        val opts = TvPlaybackFormatting.subtitleOptions(
+            v,
+            selectedSubtitleTrackIndex = null,
+            preferredLanguage = "en",
+        )
+
+        // Canonical SubtitleDisplayOrder.swift ranks SRT before ASS before PGS,
+        // then applies full/forced/SDH only inside a format rank.
+        assertEquals(listOf(1, 0, 2), opts.map { it.selectionIndex })
+    }
+
     // --- editions (Android model has no edition data → single group) ---
 
     @Test fun editions_collapseToSingleGroup() {
