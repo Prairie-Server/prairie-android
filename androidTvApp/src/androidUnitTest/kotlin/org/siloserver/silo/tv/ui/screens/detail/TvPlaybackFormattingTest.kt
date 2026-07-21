@@ -22,6 +22,17 @@ class TvPlaybackFormattingTest {
         assertFalse(isAudioSelectorOptionSelected(0, 1))
     }
 
+    @Test fun singleChoiceSelectorIsStatic() {
+        assertFalse(selectorIsInteractive(0))
+        assertFalse(selectorIsInteractive(1))
+        assertTrue(selectorIsInteractive(2))
+    }
+
+    @Test fun automaticNoTrackCopyMatchesTvOs() {
+        assertEquals("Auto - None", automaticTrackLabel(null))
+        assertEquals("Auto - English", automaticTrackLabel("English"))
+    }
+
     // --- versionShortLabel ---
 
     @Test fun versionShortLabel_4kHdr() {
@@ -228,7 +239,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto: French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenAudioMatchesPreferred() {
@@ -239,7 +250,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoForcedWhenAudioMatchesAndShowForced() {
@@ -257,27 +268,27 @@ class TvPlaybackFormattingTest {
             showForced = true,
             audioLanguage = "eng",
         )
-        assertEquals("Auto: English (Forced)", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - English (Forced)", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenModeOff() {
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "en", mode = "off")
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenPreferenceIsNoSubs() {
         // Empty (not null) preferred language means "no subs" at this level.
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "", mode = "auto")
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenNoPreferenceAndModeAuto() {
         // No language preference + plain auto → resolver leaves subs off.
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "auto")
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoAlwaysPicksFullDialogueWithNoPreference() {
@@ -290,7 +301,7 @@ class TvPlaybackFormattingTest {
             ),
         )
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "always")
-        assertEquals("Auto: French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoPrefersFullDialogueOverSdh() {
@@ -306,7 +317,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "jpn",
         )
-        assertEquals("Auto: English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoSkipsDvbBitmapForTextTrack() {
@@ -325,7 +336,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto: French · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - French · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoSkipsVobsubBitmapForTextTrack() {
@@ -341,7 +352,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "jpn",
         )
-        assertEquals("Auto: English · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - English · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun resolvedAudioLanguage_returnsAutoTrackLanguage() {

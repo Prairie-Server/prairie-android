@@ -41,6 +41,8 @@ internal fun isAudioSelectorOptionSelected(
     selectedAudioTrackIndex: Int?,
 ): Boolean = optionIndex == selectedAudioTrackIndex
 
+internal fun selectorIsInteractive(optionCount: Int): Boolean = optionCount > 1
+
 @Composable
 fun TvPlaybackSelectorRow(
     versions: List<FileVersion>,
@@ -101,6 +103,7 @@ fun TvPlaybackSelectorRow(
                         },
                     )
                 },
+                interactive = selectorIsInteractive(editions.size),
             )
         }
 
@@ -108,7 +111,7 @@ fun TvPlaybackSelectorRow(
         TvAnchoredSelectorMenu(
             icon = Icons.Filled.Tv,
             label = "Version",
-            value = TvPlaybackFormatting.versionValueLabel(currentVersion, selectedVersionFileId),
+            value = TvPlaybackFormatting.versionShortLabel(currentVersion),
             options = buildList {
                 add(
                     TvSelectorOption(
@@ -129,6 +132,7 @@ fun TvPlaybackSelectorRow(
                     )
                 }
             },
+            interactive = selectorIsInteractive(scopedVersions.size),
         )
 
         // Audio
@@ -170,6 +174,7 @@ fun TvPlaybackSelectorRow(
                     }
                 }
             },
+            interactive = selectorIsInteractive(currentVersion.audioTracks.orEmpty().size),
         )
 
         // Subtitles — tvOS uses `captions.bubble`; Chat (bubble with text
@@ -225,6 +230,7 @@ fun TvPlaybackSelectorRow(
                         )
                     }
             },
+            interactive = selectorIsInteractive(currentVersion.subtitleTracks.orEmpty().size),
         )
     }
 }

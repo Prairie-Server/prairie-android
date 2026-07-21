@@ -7,6 +7,9 @@ import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.player.DolbyVisionDetection
 import java.util.Locale
 
+internal fun automaticTrackLabel(resolvedLabel: String?): String =
+    "Auto - ${resolvedLabel ?: "None"}"
+
 /**
  * Pure formatting helpers for the TV detail playback selector row (Version /
  * Audio / Subtitles / Edition). Mirrors silo-apple's
@@ -377,9 +380,9 @@ object TvPlaybackFormatting {
             if (autoContext != null) {
                 val resolved = autoResolvedSubtitle(version, autoContext)
                 return if (resolved != null) {
-                    "Auto: ${subtitlePillSummary(resolved.first, resolved.second)}"
+                    automaticTrackLabel(subtitlePillSummary(resolved.first, resolved.second))
                 } else {
-                    "Auto: Off"
+                    automaticTrackLabel(null)
                 }
             }
             if (tracks != null && tracks.size == 1) return subtitlePillSummary(tracks[0], 0)

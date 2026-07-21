@@ -75,6 +75,7 @@ fun TvAnchoredSelectorMenu(
     options: List<TvSelectorOption>,
     modifier: Modifier = Modifier,
     triggerFocusRequester: FocusRequester? = null,
+    interactive: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
     // Use the caller's requester when provided (Task 4 directs selector-row
@@ -87,7 +88,7 @@ fun TvAnchoredSelectorMenu(
     Box(modifier = modifier) {
         SquaredPillSurface(
             kind = PillKind.Secondary,
-            onClick = { expanded = true },
+            onClick = { if (interactive) expanded = true },
             modifier = Modifier,
             focusRequester = triggerFr,
             // Secondary .compact pill body padding, tvOS 40×22pt → 20×11dp,
@@ -127,13 +128,15 @@ fun TvAnchoredSelectorMenu(
                     color = fg,
                     maxLines = 1,
                 )
-                Spacer(Modifier.width(7.dp))
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = fg.copy(alpha = 0.6f),
-                    modifier = Modifier.size(9.5.dp),
-                )
+                if (interactive) {
+                    Spacer(Modifier.width(7.dp))
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = fg.copy(alpha = 0.6f),
+                        modifier = Modifier.size(9.5.dp),
+                    )
+                }
             }
         }
 
@@ -144,7 +147,7 @@ fun TvAnchoredSelectorMenu(
         // anchored popup would need a bespoke Popup — deliberate deferral,
         // audit 2026-07-20.
         DropdownMenu(
-            expanded = expanded,
+            expanded = interactive && expanded,
             onDismissRequest = {
                 expanded = false
                 // Guard: the trigger may have left composition (selector row
