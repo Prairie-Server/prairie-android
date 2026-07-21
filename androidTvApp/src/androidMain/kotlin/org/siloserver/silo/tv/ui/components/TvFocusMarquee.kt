@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.components
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -115,14 +117,19 @@ private fun TvMarqueeBlock(
     // lines the synopsis drops to one, keeping the bottom-anchored block's
     // height bounded so it never climbs into the top-menu-bar zone.
     var titleLineCount by remember(content.id) { mutableStateOf(1) }
+    var logoLoaded by remember(content.logoUrl) { mutableStateOf(false) }
+    val logoAlpha by animateFloatAsState(
+        targetValue = if (logoLoaded) 1f else 0f,
+        animationSpec = tween(TvMarqueeCrossfadeMs, easing = TvMarqueeEasing),
+        label = "marqueeLogoAlpha",
+    )
     Column(
         modifier = Modifier.widthIn(max = MarqueeContentWidth),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // Title slot — when logo artwork exists, never substitute the plain
-        // title into this slot. The fallback-to-logo swap reads as a rescale;
-        // preloading supplies the actual artwork while this fixed slot keeps
-        // the rest of the marquee geometrically stable.
+        // Keep the semantic text title visible until transparent logo artwork
+        // has actually decoded. A bad/slow URL therefore never creates a blank
+        // title slot; successful artwork fades over the fixed-height fallback.
         if (!content.logoUrl.isNullOrBlank()) {
             Box(
                 modifier = Modifier
@@ -130,6 +137,19 @@ private fun TvMarqueeBlock(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.CenterStart,
             ) {
+                if (!logoLoaded || logoAlpha < 1f) {
+                    Text(
+                        text = content.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = MarqueeTitleSize,
+                        lineHeight = MarqueeTitleSize * 1.15f,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { titleLineCount = it.lineCount },
+                        modifier = Modifier.alpha(1f - logoAlpha),
+                    )
+                }
                 ThumbhashImage(
                     url = content.logoUrl,
                     thumbhash = null,
@@ -137,7 +157,10 @@ private fun TvMarqueeBlock(
                     contentScale = ContentScale.Fit,
                     transparent = true,
                     crossfadeMillis = 0,
-                    modifier = Modifier.fillMaxSize(),
+                    onSuccess = { logoLoaded = true },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(logoAlpha),
                 )
             }
         } else {
