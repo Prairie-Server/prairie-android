@@ -197,6 +197,12 @@ internal fun advanceCleanPlaybackSeekPreview(
     }
 }
 
+internal fun shouldShowReconnectSpinner(
+    isReconnecting: Boolean,
+    showNextUp: Boolean,
+    isInPictureInPictureMode: Boolean,
+): Boolean = isReconnecting && !showNextUp && !isInPictureInPictureMode
+
 /**
  * Full-screen TV player. The ExoPlayer itself lives in [SiloPlaybackService];
  * we drive it via a [MediaController]. The Compose overlay ([TvPlayerControls])
@@ -2169,7 +2175,11 @@ fun TvPlayerScreen(
         // the player itself can't observe) — and only when the idle overlay
         // isn't already showing the chip. The Up-Next overlay owns its own
         // loading state, so no spinner there either.
-        val showSpinner = sessionState is SessionState.Reconnecting && !state.showNextUp
+        val showSpinner = shouldShowReconnectSpinner(
+            isReconnecting = sessionState is SessionState.Reconnecting,
+            showNextUp = state.showNextUp,
+            isInPictureInPictureMode = isInPictureInPictureMode,
+        )
         if (showSpinner) {
             Box(
                 modifier = Modifier.fillMaxSize(),
