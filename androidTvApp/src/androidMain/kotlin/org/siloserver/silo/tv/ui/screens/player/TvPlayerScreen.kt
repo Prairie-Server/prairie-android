@@ -2478,13 +2478,10 @@ private fun TvQuickSubtitlePicker(
         add(HudPickerOption(id = "-1", label = "Off"))
         if (useServerList) {
             subtitleUrls.forEachIndexed { idx, row ->
-                val label = row.label?.trim()?.takeIf { it.isNotBlank() }
-                    ?: row.language?.trim()?.takeIf { it.isNotBlank() }
-                    ?: "Track ${idx + 1}"
                 add(
                     HudPickerOption(
                         id = row.index.toString(),
-                        label = if (row.forced == true) "$label (forced)" else label,
+                        label = subtitleChoiceLabel(row, idx),
                     ),
                 )
             }

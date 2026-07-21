@@ -1212,7 +1212,15 @@ private fun HudSubtitlesPane(
                 val selectedSub = subtitleTracks.firstOrNull { it.isSelected }
                 HudFocusedSettingRow(
                     label = "Subtitles",
-                    value = selectedSub?.displayLabel?.ifBlank { "On" } ?: "Off",
+                    // Prefer the mounted row's built label ("Danish SRT") —
+                    // Media3 labels echo server identity strings (sidecar
+                    // filenames) verbatim.
+                    value = selectedSub?.let { sel ->
+                        subtitleUrls.withIndex()
+                            .firstOrNull { (_, row) -> sel.matchesMountedSubtitle(row) }
+                            ?.let { (i, row) -> subtitleChoiceLabel(row, i) }
+                            ?: sel.displayLabel.ifBlank { "On" }
+                    } ?: "Off",
                     enabled = enabled,
                     focusRequester = subtitleTrackFocus,
                     rightFocusRequester = subtitleTextColorFocus,
@@ -1236,13 +1244,10 @@ private fun HudSubtitlesPane(
                             val options = buildList {
                                 add(HudPickerOption(id = "-1", label = "Off"))
                                 subtitleUrls.forEachIndexed { idx, row ->
-                                    val label = row.label?.trim()?.takeIf { it.isNotBlank() }
-                                        ?: row.language?.trim()?.takeIf { it.isNotBlank() }
-                                        ?: "Track ${idx + 1}"
                                     add(
                                         HudPickerOption(
                                             id = row.index.toString(),
-                                            label = if (row.forced == true) "$label (forced)" else label,
+                                            label = subtitleChoiceLabel(row, idx),
                                         ),
                                     )
                                 }
