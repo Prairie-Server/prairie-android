@@ -24,10 +24,8 @@ import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay30
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -157,8 +155,11 @@ fun SiloCastOverlay(
                 )
             }
 
+            // Icon-only transport row: five labeled buttons overflow the width
+            // on phones and wrap grotesquely (a one-letter-per-line "Stop"
+            // pill), so every control is an icon with a content description.
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onSkipBack) {
@@ -170,13 +171,13 @@ fun SiloCastOverlay(
                     )
                 }
 
-                FilledTonalButton(onClick = onPlayPause) {
+                IconButton(onClick = onPlayPause, modifier = Modifier.size(64.dp)) {
                     Icon(
                         imageVector = if (castState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (castState.isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(48.dp),
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (castState.isPlaying) "Pause" else "Play")
                 }
 
                 IconButton(onClick = onSkipForward) {
@@ -196,10 +197,13 @@ fun SiloCastOverlay(
                     iconSize = 28.dp,
                 )
 
-                OutlinedButton(onClick = onStopCasting) {
-                    Icon(Icons.Default.Close, contentDescription = "Stop casting")
-                    Spacer(Modifier.width(8.dp))
-                    Text("Stop")
+                IconButton(onClick = onStopCasting) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Stop casting",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp),
+                    )
                 }
             }
         }

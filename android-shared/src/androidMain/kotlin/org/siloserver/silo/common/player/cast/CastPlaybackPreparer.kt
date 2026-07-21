@@ -181,25 +181,25 @@ class CastPlaybackPreparer(
         // the stream URL only, and the subtitle route rejects anything else
         // (observed: all subtitle fetches 401'd with the access token).
         val streamToken = STREAM_TOKEN_VALUE_REGEX.find(castUrl)?.groupValues?.get(1)
-        val subtitles = session.subtitleUrls.orEmpty()
-            .filter { it.url.isNotBlank() }
-            .map { sub ->
-                val base = forceVttFormat(resolvePlaybackStreamUrl(serverUrl, sub.url))
-                CastSubtitleTrack(
-                    url = if (streamToken != null && !STREAM_TOKEN_REGEX.containsMatchIn(base)) {
-                        val sep = if (base.contains('?')) '&' else '?'
-                        "$base${sep}st=$streamToken"
-                    } else {
-                        signStreamUrl(base, token)
-                    },
-                    language = sub.language,
-                    label = sub.label ?: sub.language ?: "Subtitle",
-                    // Activate the track the user selected on the phone.
-                    selected = request.subtitleTrackIndex != null &&
-                        request.subtitleTrackIndex >= 0 &&
-                        sub.index == request.subtitleTrackIndex,
-                )
-            }
+        val usableSubs = session.subtitleUrls.orEmpty().filter { it.url.isNotBlank() }
+        val labels = castSubtitleLabels(usableSubs)
+        val subtitles = usableSubs.mapIndexed { subIndex, sub ->
+            val base = forceVttFormat(resolvePlaybackStreamUrl(serverUrl, sub.url))
+            CastSubtitleTrack(
+                url = if (streamToken != null && !STREAM_TOKEN_REGEX.containsMatchIn(base)) {
+                    val sep = if (base.contains('?')) '&' else '?'
+                    "$base${sep}st=$streamToken"
+                } else {
+                    signStreamUrl(base, token)
+                },
+                language = sub.language,
+                label = labels[subIndex],
+                // Activate the track the user selected on the phone.
+                selected = request.subtitleTrackIndex != null &&
+                    request.subtitleTrackIndex >= 0 &&
+                    sub.index == request.subtitleTrackIndex,
+            )
+        }
 
         PlaybackTelemetry.log(
             "cast: media prepared",
@@ -241,6 +241,38 @@ class CastPlaybackPreparer(
         val separator = if (url.contains('?')) '&' else '?'
         val encoded = URLEncoder.encode(token, "UTF-8")
         return "$url${separator}st=$encoded"
+    }
+
+    /**
+     * Human labels for the CC picker and the receiver's track metadata. The
+     * server's label field is a fallback chain that bottoms out at the sidecar
+     * FILENAME (release-group junk) or the codec name ("SUBRIP"), so it is
+     * ignored: the language code is resolved to its display name ("da" →
+     * "Danish"), forced tracks are marked, and same-language duplicates get a
+     * counter ("English 2") so every menu row is distinct.
+     */
+    private fun castSubtitleLabels(
+        subs: List<org.siloserver.silo.model.playback.PlayerSubtitleInfo>,
+    ): List<String> {
+        val bases = subs.map { sub ->
+            val code = sub.language?.trim()?.takeIf { it.isNotBlank() }
+            val display = code?.let { c ->
+                val locale = java.util.Locale.forLanguageTag(c.replace('_', '-').lowercase())
+                locale.displayLanguage
+                    .takeIf { it.isNotBlank() && !it.equals(locale.language, ignoreCase = true) }
+            }
+            val base = display
+                ?: code?.replaceFirstChar { it.uppercase() }
+                ?: "Subtitle"
+            if (sub.forced == true) "$base (Forced)" else base
+        }
+        val totals = bases.groupingBy { it }.eachCount()
+        val seen = mutableMapOf<String, Int>()
+        return bases.map { base ->
+            val n = (seen[base] ?: 0) + 1
+            seen[base] = n
+            if ((totals[base] ?: 0) > 1) "$base $n" else base
+        }
     }
 
     /**

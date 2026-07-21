@@ -461,6 +461,11 @@ class SiloCastSessionManager(private val context: Context) {
                 duration = remoteClient?.mediaInfo?.streamDuration?.takeIf { it > 0 }?.div(1000.0)
                     ?: _castState.value.duration,
                 title = pending?.title ?: _castState.value.title,
+                // Preserve the staged file id: rebuilding without it re-arms
+                // the player's auto-stage effect on every SDK callback, which
+                // cancels in-flight prepares (LaunchedEffect restart), orphans
+                // their server sessions, and burns the start rate limit.
+                fileId = pending?.fileId ?: _castState.value.fileId,
                 subtitleOptions = subtitleOptions,
                 activeSubtitleId = subtitleOptions
                     .firstOrNull { option -> activeIds?.contains(option.id) == true }
