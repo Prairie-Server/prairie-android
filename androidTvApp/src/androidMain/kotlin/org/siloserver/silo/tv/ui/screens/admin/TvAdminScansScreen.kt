@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -148,12 +149,12 @@ private fun ActionCard(title: String, subtitle: String, enabled: Boolean, onClic
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .height(44.dp),
+            .heightIn(min = 44.dp),
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 16.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
@@ -180,12 +181,12 @@ private fun LibraryRow(library: UserLibrary, busy: Boolean, onClick: () -> Unit)
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .height(44.dp),
+            .heightIn(min = 44.dp),
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 16.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {

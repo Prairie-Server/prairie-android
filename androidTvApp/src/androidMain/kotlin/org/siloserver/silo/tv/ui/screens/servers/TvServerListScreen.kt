@@ -36,6 +36,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -305,6 +306,8 @@ private fun ServerRow(
                         fontFamily = InterFamily,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                         color = foreground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -312,6 +315,8 @@ private fun ServerRow(
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = InterFamily,
                         color = foreground.copy(alpha = if (isFocused) 0.68f else 0.62f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (isActive) {

@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,10 +113,6 @@ fun TvMediaCardContextMenu(
         else -> TvMenuAction.RemoveFromContinueWatching
     }
 
-    LaunchedEffect(expanded) {
-        if (expanded) runCatching { firstRowFocus.requestFocus() }
-    }
-
     if (!expanded) return
 
     Box(
@@ -150,7 +145,8 @@ fun TvMediaCardContextMenu(
                             }
                             true
                         }
-                    },
+                    }
+                    .then(rememberTvDialogInitialFocus(firstRowFocus)),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 TvMediaCardMenuRows(

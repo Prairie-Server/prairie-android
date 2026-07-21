@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,9 +29,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.audiobook.AudiobookBookmark
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 
 /**
  * TV audiobook Bookmarks overlay. Mirrors the phone's bookmarks sheet over the
@@ -50,9 +53,11 @@ fun TvAudiobookBookmarksPanel(
     modifier: Modifier = Modifier,
 ) {
     val addFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { addFocus.requestFocus() } }
 
-    TvAudiobookOverlayScaffold(title = "Bookmarks", modifier = modifier) {
+    TvAudiobookOverlayScaffold(
+        title = "Bookmarks",
+        modifier = modifier.then(rememberTvDialogInitialFocus(addFocus)),
+    ) {
         BookmarkActionRow(
             label = "Bookmark here",
             focusRequester = addFocus,
@@ -133,7 +138,7 @@ private fun BookmarkActionRow(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun BookmarkRow(
     label: String,
@@ -144,35 +149,47 @@ private fun BookmarkRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val fg = if (isFocused) Color.Black else Color.White
-    Row(
+    // TV Surface (same pattern as TvMediaCard's Card): foundation
+    // combinedClickable's onLongClick is unreliable for hardware D-pad
+    // long-press, and delete is the only removal path for a bookmark.
+    Surface(
+        onClick = onSelect,
+        onLongClick = onDelete,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = Color.White,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color.Black,
+            pressedContainerColor = Color.White,
+            pressedContentColor = Color.Black,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isFocused) Color.White else Color.Transparent)
-            .focusable(interactionSource = interactionSource)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onSelect,
-                onLongClick = onDelete,
-            )
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = 4.dp),
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = fg,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = trailing,
-            style = MaterialTheme.typography.bodyMedium,
-            color = fg.copy(alpha = 0.7f),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = trailing,
+                style = MaterialTheme.typography.bodyMedium,
+                color = fg.copy(alpha = 0.7f),
+            )
+        }
     }
 }

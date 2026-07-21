@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -341,7 +340,7 @@ private fun TvDetailEpisodeCard(
                     isFocused -> SiloOnSurface
                     else -> SiloOnSurface.copy(alpha = 0.92f)
                 },
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
 
@@ -356,24 +355,22 @@ private fun TvDetailEpisodeCard(
                 )
             }
 
-            episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-                // tvOS uses lineLimit(3, reservesSpace: true). Reserve a fixed
-                // 3-line height (3 × 20sp lineHeight = 60dp) and pad the top
-                // by 2dp so single/empty descriptions don't shift the card
-                // metrics.
-                Text(
-                    text = overview,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = SiloSecondaryText,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp,
-                    modifier = Modifier
-                        .padding(top = 2.dp)
-                        .heightIn(min = 60.dp),
-                )
-            }
+            // tvOS uses lineLimit(3, reservesSpace: true): always reserve
+            // exactly 3 text lines (minLines/maxLines rather than a fixed dp
+            // clamp so accessibility text scaling can't clip glyphs), and
+            // render even when there is no overview so every card keeps
+            // identical vertical metrics.
+            Text(
+                text = episode.overview?.takeIf { it.isNotBlank() }.orEmpty(),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Normal,
+                color = SiloSecondaryText,
+                minLines = 3,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 20.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

@@ -44,6 +44,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
@@ -66,10 +67,6 @@ fun TvRatingDialog(
     val initialStarFocus = remember { FocusRequester() }
     var preview by remember { mutableIntStateOf(currentRating ?: 0) }
     val initialStar = currentRating?.coerceIn(1, 5) ?: 1
-
-    LaunchedEffect(Unit) {
-        runCatching { initialStarFocus.requestFocus() }
-    }
 
     Popup(
         alignment = Alignment.Center,
@@ -96,7 +93,8 @@ fun TvRatingDialog(
                         shape = panelShape,
                     )
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
-                    .padding(horizontal = 22.dp, vertical = 18.dp),
+                    .padding(horizontal = 22.dp, vertical = 18.dp)
+                    .then(rememberTvDialogInitialFocus(initialStarFocus)),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {

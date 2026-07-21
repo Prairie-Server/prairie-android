@@ -51,6 +51,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
@@ -153,6 +154,9 @@ fun TvProfileForm(
     val submitFocusRequester = remember { FocusRequester() }
     val formScrollState = rememberScrollState()
     var editingTextField by remember { mutableStateOf<ProfileTextField?>(null) }
+    // Local validation feedback: without it, Save on a blank name is a silent
+    // no-op. Keyed on the name so editing it clears the message.
+    var blankNameError by remember(state.name) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -378,9 +382,11 @@ fun TvProfileForm(
                                 },
                         )
 
-                        if (state.error != null) {
+                        val errorText = state.error
+                            ?: "Enter a profile name".takeIf { blankNameError }
+                        if (errorText != null) {
                             Text(
-                                text = state.error,
+                                text = errorText,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error,
                             )
@@ -392,7 +398,13 @@ fun TvProfileForm(
                             variant = TvPillVariant.Filled,
                             focusRequester = submitFocusRequester,
                             upFocusRequester = childFocusRequester,
-                            onClick = { if (!state.isSubmitting && state.name.isNotBlank()) callbacks.onSubmit() },
+                            onClick = {
+                                when {
+                                    state.isSubmitting -> Unit
+                                    state.name.isBlank() -> blankNameError = true
+                                    else -> callbacks.onSubmit()
+                                }
+                            },
                         )
                     }
                 }
@@ -572,6 +584,8 @@ private fun TvProfileTilePreview(
             text = name,
             style = MaterialTheme.typography.titleMedium,
             color = Color.White.copy(alpha = 0.72f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -624,6 +638,8 @@ private fun TvProfileTextEntryField(
                 lineHeight = 22.sp,
                 fontWeight = FontWeight.Normal,
                 color = Color.White.copy(alpha = if (value.isBlank()) 0.42f else 0.88f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

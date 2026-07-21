@@ -78,8 +78,10 @@ class TvScreenSurfaceScalingTest {
     @Test
     fun sessionRowsUseTvOsMappedListGeometry() {
         assertTrue(manageSessions.contains(".widthIn(max = 480.dp)"))
-        assertTrue(manageSessions.contains(".height(48.dp)"))
-        assertTrue(manageSessions.contains(".padding(horizontal = 14.dp, vertical = 8.dp)"))
+        // Usability fix: session rows stack 3 text lines, so the card wraps
+        // its content (min 48dp) instead of clipping at a fixed 48dp height.
+        assertTrue(manageSessions.contains(".heightIn(min = 48.dp)"))
+        assertTrue(manageSessions.contains(".padding(horizontal = 14.dp, vertical = 10.dp)"))
         assertFalse(manageSessions.contains(".widthIn(max = 960.dp)"))
         assertFalse(manageSessions.contains(".height(96.dp)"))
     }

@@ -28,8 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
 
 /**
  * The hero's overview as an expand-in-place control. Mirrors tvOS
@@ -41,8 +41,9 @@ import androidx.tv.material3.Text
  *
  * This is a **focusable leaf** — the hero's only text focus stop, reachable by
  * pressing Up from the action row, and actionable so it never feels "stuck".
- * It owns its own focus visuals: no chrome at rest, on focus a faint
- * `onSurface@0.55` fill (`RoundedRectangle(8.dp)`, no border). The system halo
+ * It owns its own focus visuals: no chrome at rest, on focus a faint dark
+ * `DarkSurfaceElevated@0.55` fill (`RoundedRectangle(8.dp)`, no border) so the
+ * white text stays readable. The system halo
  * is suppressed (`indication = null`), matching the squared-control idiom.
  *
  * `animateContentSize` (≈120ms easeOut) animates the expand/collapse; the
@@ -83,7 +84,7 @@ internal fun TvExpandableSynopsis(
             .then(
                 if (isFocused) {
                     Modifier.background(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        color = DarkSurfaceElevated.copy(alpha = 0.55f),
                         shape = shape,
                     )
                 } else {

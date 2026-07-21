@@ -97,12 +97,30 @@ fun TvAlphabetRail(
     val allFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     var allEntryFocused by remember { mutableStateOf(false) }
+    var railHadFocus by remember { mutableStateOf(false) }
 
     // While the rail holds focus, D-pad Up is handled here: step up the rail,
-    // but HOLD on "All" (never escape to the nav bar). Cleared on focus loss
-    // and on disposal so the shell's default Up routing returns.
+    // but HOLD on "All" (never escape to the nav bar). The shell's fallback
+    // slot reconciles BY IDENTITY (re-announcing your own lambda relinquishes;
+    // null is ignored — see TvMainShell.onContentUpFallback), so the rail must
+    // keep ONE stable lambda and re-announce it on focus loss/disposal. The
+    // old fresh-lambda + null pattern left a stale always-true fallback
+    // registered forever, killing Up-to-menu-bar for the whole library.
+    val railUpFallback = remember {
+        {
+            if (!allEntryFocused) {
+                focusManager.moveFocus(FocusDirection.Up)
+            }
+            true
+        }
+    }
     DisposableEffect(onUpFallbackChanged) {
-        onDispose { onUpFallbackChanged?.invoke(null) }
+        onDispose {
+            // Relinquish only if the rail still owns the slot (it re-announces
+            // on focus loss already); announcing while NOT the owner would
+            // REGISTER the lambda instead.
+            if (railHadFocus) onUpFallbackChanged?.invoke(railUpFallback)
+        }
     }
 
     LazyColumn(
@@ -124,18 +142,15 @@ fun TvAlphabetRail(
             // so there's no collapse/expand flicker during traversal.
             .onFocusChanged { state ->
                 expanded = state.hasFocus
-                onUpFallbackChanged?.invoke(
-                    if (state.hasFocus) {
-                        {
-                            if (!allEntryFocused) {
-                                focusManager.moveFocus(FocusDirection.Up)
-                            }
-                            true
-                        }
-                    } else {
-                        null
-                    },
-                )
+                // Same stable lambda both ways: registering takes the slot,
+                // re-announcing it on focus loss relinquishes it (identity
+                // protocol — null would be ignored by the shell). Announce on
+                // TRANSITIONS only: onFocusChanged can re-fire while hasFocus
+                // stays true, and a same-owner re-announce means relinquish.
+                if (state.hasFocus != railHadFocus) {
+                    railHadFocus = state.hasFocus
+                    onUpFallbackChanged?.invoke(railUpFallback)
+                }
             },
         horizontalAlignment = Alignment.CenterHorizontally,
         // Collapsed entries pack tight so the dot cluster stays small and the

@@ -12,6 +12,7 @@ import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.catalog.sortedForDisplay
+import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.playback.resolveAudioTrackOrdinal
@@ -492,7 +493,11 @@ class TvItemDetailViewModel(
         val subtitleFingerprint = when (val idx = state.selectedSubtitleIndex) {
             null -> null
             -1 -> SUBTITLE_OFF_FINGERPRINT
-            else -> version.subtitleTracks.orEmpty().getOrNull(idx)?.let(::subtitleTrackFingerprint)
+            // selectedSubtitleIndex is a COMBINED-space index (externals
+            // first); map it back to its catalog row before fingerprinting.
+            else -> version.subtitleTracks.orEmpty().let { tracks ->
+                tracks.getOrNull(combinedSubtitleSelectionIndexes(tracks).indexOf(idx))
+            }?.let(::subtitleTrackFingerprint)
         }
         val audioFingerprint = when (val idx = state.selectedAudioIndex) {
             null -> null
@@ -516,7 +521,18 @@ class TvItemDetailViewModel(
         val version = selectedVersionFor(state, detail) ?: return
         viewModelScope.launch {
             val saved = userItemState.localTrackSelection(contentId, version.fileId) ?: return@launch
+            // resolveSubtitleTrackOrdinal returns a catalog position; the
+            // selection state lives in COMBINED space (externals first), so
+            // convert before seeding.
             val subOrdinal = resolveSubtitleTrackOrdinal(version.subtitleTracks.orEmpty(), saved.subtitleFingerprint)
+                ?.let { catalogOrdinal ->
+                    if (catalogOrdinal == -1) {
+                        -1
+                    } else {
+                        combinedSubtitleSelectionIndexes(version.subtitleTracks.orEmpty())
+                            .getOrNull(catalogOrdinal)
+                    }
+                }
             val audOrdinal = resolveAudioTrackOrdinal(version.audioTracks.orEmpty(), saved.audioFingerprint)
             if (subOrdinal == null && audOrdinal == null) return@launch
             _uiState.update {

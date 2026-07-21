@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +38,7 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import org.siloserver.silo.tv.ui.screens.player.TvDialogActionRow
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
@@ -82,7 +82,6 @@ fun TvJoinCodeDialog(
 ) {
     var state by remember { mutableStateOf(JoinCodeState()) }
     val firstKeyFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstKeyFocus.requestFocus() } }
 
     Popup(
         alignment = Alignment.Center,
@@ -106,7 +105,8 @@ fun TvJoinCodeDialog(
                     .width(280.dp)
                     .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 14.dp)
+                    .then(rememberTvDialogInitialFocus(firstKeyFocus)),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
