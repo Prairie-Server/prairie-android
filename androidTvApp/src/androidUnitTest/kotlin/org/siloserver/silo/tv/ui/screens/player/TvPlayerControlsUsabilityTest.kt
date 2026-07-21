@@ -261,9 +261,14 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(quickPickerBlock.contains("HudPickerDialog("))
         assertTrue(quickPickerBlock.contains("HudPickerPresentation("))
         assertTrue(quickPickerBlock.contains("selectedId ="))
-        // Keep the picker in the player's window so opening CC does not force
-        // the Shield's video SurfaceView out of its hardware-overlay path.
+        // Renders in the player's own window (BackHandler + Box overlay), NOT a
+        // Dialog: a translucent Dialog window over the video SurfaceView forces
+        // GPU composition and stutters playback. Guard against regressing to a
+        // Dialog. D-pad modal behavior is preserved by HudPickerDialog's own
+        // internal focus trap.
         assertTrue(quickPickerBlock.contains("BackHandler("))
+        // No Dialog window: DialogProperties is the tell (HudPickerDialog is a
+        // plain composable, not a real Dialog, so it doesn't use it).
         assertFalse(quickPickerBlock.contains("DialogProperties("))
         assertFalse(quickPickerBlock.contains(".verticalScroll(rememberScrollState())"))
         assertFalse(quickPickerBlock.contains("TvDialogActionRow("))

@@ -180,7 +180,7 @@ git commit -m "fix(tv): preserve dolby marquee badges"
 
 - [ ] **Step 1: Add failing ordering test**
 
-Build mixed English, Japanese, forced, SDH, external, and Off/Auto choices. Assert preferred-language regular tracks precede preferred forced/SDH variants, other languages follow by display name, and returned values still identify original combined indexes.
+Build mixed English, Japanese, forced, SDH, external, and Off/Auto choices. Assert the live tvOS precedence exactly: preferred language group, remaining language groups by display name, format rank, full/forced/SDH variant rank, default flag, then original order. Returned values must still identify original combined indexes.
 
 - [ ] **Step 2: Run test and verify RED**
 
@@ -190,7 +190,7 @@ Expected: missing helper or raw-catalog-order assertion failure.
 
 - [ ] **Step 3: Implement stable semantic sort**
 
-Sort option records by preferred-language bucket, localized language label, forced/SDH rank, external/embedded rank, then original combined index. Render sorted records without renumbering their selection indexes.
+Sort option records by preferred-language bucket, localized language label, format rank, forced/SDH rank, default flag, then original catalog order. External/embedded provenance does not participate in tvOS display order; it only determines the stable combined selection index that travels with each row. Render sorted records without renumbering those selection indexes.
 
 - [ ] **Step 4: Run formatting tests and compile**
 
