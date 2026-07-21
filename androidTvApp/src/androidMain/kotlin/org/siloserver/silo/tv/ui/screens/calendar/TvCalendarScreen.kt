@@ -666,6 +666,14 @@ private fun monthYearLabel(weekDates: List<String>): String {
     return anchor.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
 }
 
+internal fun shouldReturnCalendarFocusToControls(
+    focusedShelfIndex: Int?,
+    firstFocusableShelfIndex: Int,
+    isReturningToControls: Boolean,
+): Boolean = focusedShelfIndex != null &&
+    focusedShelfIndex == firstFocusableShelfIndex &&
+    !isReturningToControls
+
 // MARK: - Day list
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
@@ -722,10 +730,15 @@ private fun CalendarList(
     // into the week-strip choreography instead of skipping to the menu bar;
     // when focus is already in the controls item, mirror the shell's default
     // (moveFocus within content; false -> shell hands off to the menu bar).
-    var focusedShelfCount by remember { mutableStateOf(0) }
-    val calendarUpFallback = remember {
+    var focusedShelfIndex by remember { mutableStateOf<Int?>(null) }
+    val calendarUpFallback = remember(firstFocusableDayIndex) {
         {
-            if (focusedShelfCount > 0 && !isReturningToControls) {
+            if (shouldReturnCalendarFocusToControls(
+                    focusedShelfIndex = focusedShelfIndex,
+                    firstFocusableShelfIndex = firstFocusableDayIndex,
+                    isReturningToControls = isReturningToControls,
+                )
+            ) {
                 onMoveUpToControls()
                 true
             } else {
@@ -807,7 +820,11 @@ private fun CalendarList(
                 // above and clipping the focused row at the fold).
                 onShelfFocused = { onShelfFocused(index) },
                 onShelfFocusChanged = { focused ->
-                    focusedShelfCount = (focusedShelfCount + if (focused) 1 else -1).coerceAtLeast(0)
+                    if (focused) {
+                        focusedShelfIndex = index
+                    } else if (focusedShelfIndex == index) {
+                        focusedShelfIndex = null
+                    }
                 },
                 onOpenItemDetail = onOpenItemDetail,
             )
