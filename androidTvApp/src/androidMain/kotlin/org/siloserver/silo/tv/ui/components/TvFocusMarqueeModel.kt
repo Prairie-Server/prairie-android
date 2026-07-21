@@ -315,11 +315,12 @@ class TvFocusMarqueeState internal constructor() {
     internal fun isEnrichmentRequestInFlight(contentId: String): Boolean =
         contentId in enrichmentRequests
 
-    /** Cache freshly-fetched enrichment. It is intentionally not published into
-     *  an already-rendered hero: the next coordinated commit consumes it so an
-     *  aired/cast row never appears as a late second-stage UI update. */
-    internal fun applyEnrichment(contentId: String, enrichment: TvMarqueeEnrichment) {
-        enrichmentCache[contentId] = enrichment
+    /** Cache freshly-fetched enrichment and publish it only if the matching
+     *  card still owns the hero. A stale response warms its cache without
+     *  mutating the active card. */
+    internal fun applyEnrichment(contentId: String, value: TvMarqueeEnrichment) {
+        enrichmentCache[contentId] = value
+        if (content?.contentId == contentId) enrichment = value
     }
 }
 
@@ -330,8 +331,8 @@ val TvMarqueeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 /**
  * @param fetchDetail item-detail fetcher for the §9 marquee enrichment (air
  *  date, cast, series backdrop). Cached detail joins the first rendered frame;
- *  uncached detail loads only for a future visit and never postpones or mutates
- *  the active fade. `null` disables enrichment.
+ *  uncached detail never postpones the active fade and publishes only while
+ *  the fetched content still owns the hero. `null` disables enrichment.
  */
 @Composable
 fun rememberTvFocusMarqueeState(
@@ -343,8 +344,8 @@ fun rememberTvFocusMarqueeState(
         state.commit(candidate)
     }
 
-    // Populate cache for the next visit without changing the currently visible
-    // hero. Near-viewport proactive prefetch usually wins this request; the
+    // Populate the cache and enrich the active hero when identity still
+    // matches. Near-viewport proactive prefetch usually wins this request; the
     // shared claim prevents duplicates when it is already in flight.
     LaunchedEffect(state.content?.contentId, fetchDetail) {
         val fetch = fetchDetail ?: return@LaunchedEffect
