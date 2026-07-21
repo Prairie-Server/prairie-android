@@ -32,8 +32,8 @@ import org.siloserver.silo.tv.ui.components.TvSelectorOption
 // Selection semantics (preserved from the existing VM contract):
 // - Version: fileId; Auto = null.
 // - Audio: zero-based ordinal into the version's audio tracks; Auto = null.
-// - Subtitles: zero-based ordinal into the version's subtitle tracks; Auto =
-//   null; Off = -1.
+// - Subtitles: combined subtitle selection index shared with playback; Auto =
+//   null; Off = -1. Visible sorting does not change that selection identity.
 // ---------------------------------------------------------------------------
 
 internal fun isAudioSelectorOptionSelected(

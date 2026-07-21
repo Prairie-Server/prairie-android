@@ -36,6 +36,12 @@ class TvPlayerControlsUsabilityTest {
     private val playbackSelectorSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt",
     ).readText()
+    private val playbackFormattingSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt",
+    ).readText()
+    private val fullScreenPickerFile = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFullScreenPicker.kt",
+    )
     private val anchoredSelectorSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvAnchoredSelectorMenu.kt",
     ).readText()
@@ -61,6 +67,13 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(anchoredSelectorSource.contains("TextOverflow.Ellipsis"))
         assertTrue(anchoredSelectorSource.contains("maxLines = 1"))
         assertTrue(anchoredSelectorSource.contains("Modifier.weight(1f)"))
+    }
+
+    @Test
+    fun obsoletePickerIsRemovedAndSubtitleIndexDocsMatchTheContract() {
+        assertFalse(fullScreenPickerFile.exists())
+        assertTrue(playbackFormattingSource.contains("combined subtitle selection index"))
+        assertTrue(playbackSelectorSource.contains("combined subtitle selection index"))
     }
 
     @Test

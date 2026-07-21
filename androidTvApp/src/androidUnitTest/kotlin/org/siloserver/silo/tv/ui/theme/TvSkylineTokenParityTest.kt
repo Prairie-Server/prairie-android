@@ -66,10 +66,6 @@ class TvSkylineTokenParityTest {
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/TvSettingsScreen.kt",
     ).readText()
 
-    private val fullScreenPicker = File(
-        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFullScreenPicker.kt",
-    ).readText()
-
     private val cardOverlaySettingsScreen = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/TvCardOverlaySettingsScreen.kt",
     ).readText()
@@ -427,21 +423,6 @@ class TvSkylineTokenParityTest {
         assertTrue(settingsScreen.contains(".size(15.dp)"))
         assertFalse(settingsScreen.contains(".width(680.dp)"))
         assertFalse(settingsScreen.contains(".padding(horizontal = 26.dp, vertical = 18.dp)"))
-    }
-
-    @Test
-    fun genericFullScreenPickerUsesHalfScaleTvOsRows() {
-        assertTrue(fullScreenPicker.contains("style = MaterialTheme.typography.displaySmall.copy(fontSize = 18.sp, lineHeight = 21.sp)"))
-        assertTrue(fullScreenPicker.contains(".width(340.dp)"))
-        assertTrue(fullScreenPicker.contains("contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)"))
-        assertTrue(fullScreenPicker.contains("verticalArrangement = Arrangement.spacedBy(5.dp)"))
-        assertTrue(fullScreenPicker.contains("val shape = RoundedCornerShape(7.dp)"))
-        assertTrue(fullScreenPicker.contains(".padding(horizontal = 13.dp, vertical = 8.dp)"))
-        assertTrue(fullScreenPicker.contains("fontSize = 17.sp"))
-        assertTrue(fullScreenPicker.contains("lineHeight = 20.sp"))
-        assertTrue(fullScreenPicker.contains("modifier = Modifier.size(14.dp)"))
-        assertFalse(fullScreenPicker.contains(".width(680.dp)"))
-        assertFalse(fullScreenPicker.contains(".padding(horizontal = 26.dp, vertical = 18.dp)"))
     }
 
     @Test

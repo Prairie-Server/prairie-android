@@ -21,10 +21,9 @@ internal fun automaticTrackLabel(resolvedLabel: String?): String =
  * - audio `selectedAudioTrackIndex`: `null` = Auto/default, else the
  *   zero-based ordinal into [FileVersion.audioTracks].
  * - subtitle `selectedSubtitleTrackIndex`: `null` = Auto, `-1` = Off, else the
- *   zero-based ORDINAL into [FileVersion.subtitleTracks]. (TV playback selects
- *   subtitles by flat text-track ordinal — `PlayerTrackEntry.index` — NOT the
- *   raw [SubtitleTrack.index] stream index, which is non-ordinal and collides
- *   at 0 for external/unindexed tracks.)
+ *   combined subtitle selection index shared with the player. This identity is
+ *   derived from catalog order plus external-track placement; it is not the raw
+ *   [SubtitleTrack.index] stream index and is not the visible sorted-row ordinal.
  *
  * NOTE on editions: unlike Apple's `FileVersion` (which carries
  * `edition_key` / `edition_raw` / `edition`), the Android [FileVersion] model
@@ -43,8 +42,7 @@ object TvPlaybackFormatting {
     )
 
     data class TvSubtitleOption(
-        /** Zero-based ordinal among subtitle tracks — the value to pass to
-         *  `onSelectSubtitleTrack` (matches the player's flat text-track index). */
+        /** Combined subtitle selection index passed to `onSelectSubtitleTrack`. */
         val selectionIndex: Int,
         val title: String,
         val detail: String,
