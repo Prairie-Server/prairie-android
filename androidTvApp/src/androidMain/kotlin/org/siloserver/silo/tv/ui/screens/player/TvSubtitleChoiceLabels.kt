@@ -94,7 +94,9 @@ internal fun audioChoiceLabel(entry: PlayerTrackEntry, position: Int): String {
     }
     val qualifier = meaningfulAudioTrackTitle(
         displayLabel = entry.displayLabel,
+        rawLanguage = entry.language,
         language = language,
+        rawCodecOrMime = entry.codecOrMime,
         codec = codec,
         layout = layout,
     )
@@ -106,21 +108,60 @@ internal fun audioChoiceLabel(entry: PlayerTrackEntry, position: Int): String {
 
 internal fun meaningfulAudioTrackTitle(
     displayLabel: String,
+    rawLanguage: String?,
     language: String?,
+    rawCodecOrMime: String?,
     codec: String?,
     layout: String?,
 ): String? {
     val original = displayLabel.trim().takeIf { it.isNotBlank() } ?: return null
     val lower = original.lowercase(Locale.US)
     if (AUDIO_FILENAME_SUFFIXES.any(lower::endsWith)) return null
+    if (lower.matches(Regex("\\d+"))) return null
     if (lower.matches(Regex("(?:audio\\s+)?track\\s*\\d+"))) return null
+    if (lower.matches(Regex("[a-z]{2,3}")) &&
+        language != null &&
+        trackLanguageDisplayName(lower)?.equals(language, ignoreCase = true) == true
+    ) {
+        return null
+    }
 
     var qualifier = original
-    listOfNotNull(language, codec, layout)
+    // Remove only complete metadata tokens. Substring replacement corrupts
+    // legitimate titles (for example AAC inside "Isaac Commentary").
+    listOfNotNull(
+        language,
+        rawLanguage?.trim(),
+        codec,
+        rawCodecOrMime?.substringAfterLast('/')?.trim(),
+        layout,
+    )
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase(Locale.US) }
         .sortedByDescending(String::length)
         .forEach { redundant ->
-            qualifier = qualifier.replace(Regex(Regex.escape(redundant), RegexOption.IGNORE_CASE), " ")
+            qualifier = qualifier.replace(
+                Regex(
+                    "(?<![\\p{L}\\p{N}])${Regex.escape(redundant)}(?![\\p{L}\\p{N}])",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
+            )
         }
+    // A raw two/three-letter alias can differ from the selected track's raw
+    // code ("en" metadata with an "eng" server label). Remove it only when
+    // both codes resolve to the same localized language name.
+    if (language != null) {
+        qualifier = qualifier.replace(
+            Regex("(?<![\\p{L}\\p{N}])[a-z]{2,3}(?![\\p{L}\\p{N}])", RegexOption.IGNORE_CASE),
+        ) { match ->
+            if (trackLanguageDisplayName(match.value)?.equals(language, ignoreCase = true) == true) {
+                " "
+            } else {
+                match.value
+            }
+        }
+    }
     qualifier = qualifier
         .replace(Regex("[()\\[\\]{}|•·,_/\\-]+"), " ")
         .replace(Regex("\\s+"), " ")

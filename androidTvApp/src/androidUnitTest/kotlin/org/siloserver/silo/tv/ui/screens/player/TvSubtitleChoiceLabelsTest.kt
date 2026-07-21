@@ -157,4 +157,45 @@ class TvAudioChoiceLabelsTest {
             ),
         )
     }
+
+    @Test
+    fun bareLanguageAliasesAndServerIdentifiersAreNotQualifiers() {
+        assertEquals(
+            "English AC3 5.1",
+            audioChoiceLabel(
+                audio(language = "en", codecOrMime = "audio/ac3", channels = 6, label = "eng"),
+                0,
+            ),
+        )
+        assertEquals(
+            "English AC3 5.1",
+            audioChoiceLabel(
+                audio(language = "en", codecOrMime = "audio/ac3", channels = 6, label = "9073"),
+                0,
+            ),
+        )
+        assertEquals(
+            "English AC3 5.1",
+            audioChoiceLabel(
+                audio(language = "en", codecOrMime = "audio/ac3", channels = 6, label = "release.eng.ac3"),
+                0,
+            ),
+        )
+    }
+
+    @Test
+    fun codecDeduplicationUsesTokenBoundaries() {
+        assertEquals(
+            "English AAC Stereo (Isaac Commentary)",
+            audioChoiceLabel(
+                audio(
+                    language = "en",
+                    codecOrMime = "audio/aac",
+                    channels = 2,
+                    label = "Isaac Commentary",
+                ),
+                0,
+            ),
+        )
+    }
 }
