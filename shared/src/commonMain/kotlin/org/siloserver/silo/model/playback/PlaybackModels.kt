@@ -413,6 +413,11 @@ data class StartPlaybackRequest(
     @SerialName("audio_passthrough") val audioPassthrough: AudioPassthroughCapabilities? = null,
     @SerialName("client_playback_context") val clientPlaybackContext: ClientPlaybackContext? = null,
     @SerialName("disable_progress_persistence") val disableProgressPersistence: Boolean = false,
+    // Set when the stream URL is handed to a device that can only seek via
+    // HTTP Range or an HLS VOD manifest (e.g. a Cast receiver): the server
+    // upgrades a would-be progressive remux (unseekable live pipe) to a
+    // transcode session.
+    @SerialName("seekable_streams_only") val seekableStreamsOnly: Boolean = false,
 )
 
 @Serializable

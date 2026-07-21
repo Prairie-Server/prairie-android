@@ -48,6 +48,7 @@ class PlaybackRepository(
         preserveDirectAudioSelection: Boolean = false,
         playMethod: PlayMethod? = null,
         disableProgressPersistence: Boolean = false,
+        seekableStreamsOnly: Boolean = false,
     ): ApiResult<PlaybackSessionResponse> =
         playbackApi.startPlayback(
             StartPlaybackRequest(
@@ -68,6 +69,7 @@ class PlaybackRepository(
                 audioPassthrough = capabilities.audioPassthrough,
                 clientPlaybackContext = clientPlaybackContext,
                 disableProgressPersistence = disableProgressPersistence,
+                seekableStreamsOnly = seekableStreamsOnly,
             ),
         )
 

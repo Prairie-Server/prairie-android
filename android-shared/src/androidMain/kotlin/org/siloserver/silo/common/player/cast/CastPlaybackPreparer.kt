@@ -77,16 +77,15 @@ class CastPlaybackPreparer(
             startPosition = request.startPositionSeconds,
             clientPlaybackContext = context,
             preserveDirectAudioSelection = false,
-            // Explicit TRANSCODE: this is the only reliable way to get an HLS
-            // manifest out of the server today. Engine-envelope hints alone
-            // still yield a progressive remux (a live ffmpeg pipe), which a
-            // Cast receiver cannot seek. Server-side follow-up: teach the
-            // planner to pick HLS remux for cast-capability sessions so the
-            // video stream can be copied instead of re-encoded.
-            playMethod = PlayMethod.TRANSCODE,
+            // A Cast receiver can seek direct play (HTTP Range on the real
+            // file) and an encoded HLS transcode (full VOD manifest), but
+            // never the progressive remux pipe. The flag makes the server
+            // upgrade a would-be remux to a transcode session; direct-playable
+            // files stay direct at original quality for free.
+            seekableStreamsOnly = true,
         )
 
-        val session = when (result) {
+        val startedSession = when (result) {
             is ApiResult.Success -> result.data
             is ApiResult.Error -> {
                 Log.w(TAG, "Cast session start failed: ${result.code} ${result.message}")
@@ -106,6 +105,54 @@ class CastPlaybackPreparer(
                 )
                 return null
             }
+        }
+
+        // A transcode start response only carries a placeholder manifest URL:
+        // the manifest goes live (and gains its full-recipe ?st= token) when
+        // the transcode is actually started. The phone drives that here — the
+        // receiver only ever sees the final signed manifest URL.
+        val session = if (startedSession.playMethod == PlayMethod.TRANSCODE) {
+            val seekSeconds = startedSession.position
+                .takeIf { it.isFinite() && it >= 0.0 }
+                ?: request.startPositionSeconds
+            val transcodeResult = castSession.startTranscodeFallback(
+                session = startedSession,
+                seekSeconds = seekSeconds,
+                resolution = CAST_TRANSCODE_RESOLUTION,
+                mode = PlaybackSessionManager.TranscodeMode.FULL,
+                audioTrackIndex = request.audioTrackIndex,
+                // Cast subtitles ride as WebVTT text tracks, never burn-in.
+                subtitleTrackIndex = null,
+            )
+            when (transcodeResult) {
+                is ApiResult.Success -> transcodeResult.data
+                is ApiResult.Error -> {
+                    Log.w(TAG, "Cast transcode start failed: ${transcodeResult.code} ${transcodeResult.message}")
+                    PlaybackTelemetry.log(
+                        "cast: transcode start failed",
+                        mapOf(
+                            "code" to transcodeResult.code,
+                            "message" to transcodeResult.message,
+                            "file_id" to request.fileId,
+                        ),
+                        SentryLogLevel.WARN,
+                    )
+                    castSession.stopSession(startedSession.sessionId)
+                    return null
+                }
+                is ApiResult.NetworkError -> {
+                    Log.w(TAG, "Cast transcode start network error: ${transcodeResult.exception}")
+                    PlaybackTelemetry.log(
+                        "cast: transcode start network error",
+                        mapOf("error" to transcodeResult.exception.toString(), "file_id" to request.fileId),
+                        SentryLogLevel.WARN,
+                    )
+                    castSession.stopSession(startedSession.sessionId)
+                    return null
+                }
+            }
+        } else {
+            startedSession
         }
 
         val serverUrl = tokenManager.getServerUrl()
@@ -212,6 +259,10 @@ class CastPlaybackPreparer(
 
     private companion object {
         private const val TAG = "CastPlaybackPreparer"
+
+        // Matches the conservative Chromecast codec profile: 1080p is the
+        // highest rung every generation of the hardware decodes.
+        private const val CAST_TRANSCODE_RESOLUTION = "1080p"
         private val STREAM_TOKEN_REGEX = Regex("[?&]st=")
         private val STREAM_TOKEN_VALUE_REGEX = Regex("[?&]st=([^&]+)")
         private val FORMAT_PARAM_REGEX = Regex("([?&])format=[^&]*")
