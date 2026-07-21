@@ -500,20 +500,14 @@ private fun SearchStage(
             }
         }
 
-        // A fixed-height slot keeps the header completely stable while the
-        // query moves between typing, loading, results, and error states.
-        Box(
-            modifier = Modifier.height(18.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            if (resultStatus != null) {
-                Text(
-                    text = resultStatus,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.62f),
-                )
-            }
-        }
+        // An empty minimum line keeps the header stable while allowing the
+        // actual typography to grow at accessibility text scales.
+        Text(
+            text = resultStatus.orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.62f),
+            minLines = 1,
+        )
     }
 }
 

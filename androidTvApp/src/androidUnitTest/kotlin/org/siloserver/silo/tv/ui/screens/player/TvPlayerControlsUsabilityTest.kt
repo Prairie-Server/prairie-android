@@ -30,6 +30,15 @@ class TvPlayerControlsUsabilityTest {
     private val remoteKeyBridgeSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerRemoteKeyBridge.kt",
     ).takeIf { it.exists() }?.readText().orEmpty()
+    private val searchSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt",
+    ).readText()
+
+    @Test
+    fun searchStatusUsesTextDrivenHeight() {
+        assertTrue(searchSource.contains("minLines = 1"))
+        assertFalse(searchSource.contains("Modifier.height(18.dp)"))
+    }
 
     @Test
     fun idleOverlayDefaultsToPlayPauseInTransportDock() {
