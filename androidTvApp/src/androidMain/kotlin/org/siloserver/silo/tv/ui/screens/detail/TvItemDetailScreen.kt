@@ -846,14 +846,7 @@ private fun HeroActionRow(
                     // otherwise pick whichever toggle sits closest.
                     enter = { playFocus }
                 }
-                .focusGroup()
-                .then(
-                    if (showsSelectorRow) {
-                        Modifier.focusProperties { down = selectorFocus }
-                    } else {
-                        Modifier
-                    },
-            ),
+                .focusGroup(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
