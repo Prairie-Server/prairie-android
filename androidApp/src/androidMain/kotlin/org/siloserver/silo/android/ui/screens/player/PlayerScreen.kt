@@ -325,8 +325,13 @@ fun PlayerScreen(
     LaunchedEffect(castState.isConnected, castState.fileId, uiState.mediaFileId) {
         val fileId = uiState.mediaFileId
         if (castState.isConnected && fileId != null && castState.fileId != fileId) {
+            // prepareGoogleCastMedia is single-flight, so this may resolve to
+            // the same spec the cast-button path is already staging — recheck
+            // the LIVE cast state before loading to avoid a duplicate load.
             val spec = viewModel.prepareGoogleCastMedia()
-            if (spec != null) castManager.prepareMedia(spec)
+            if (spec != null && castManager.castState.value.fileId != spec.fileId) {
+                castManager.prepareMedia(spec)
+            }
         }
     }
 

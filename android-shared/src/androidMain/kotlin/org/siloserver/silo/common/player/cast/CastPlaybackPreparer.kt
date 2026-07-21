@@ -19,6 +19,7 @@ import org.siloserver.silo.model.playback.PlaybackDeviceContext
 import org.siloserver.silo.model.playback.PlaybackEngineKind
 import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackOutputContext
+import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.model.playback.SEEK_REANCHOR_V3_FEATURE
 import org.siloserver.silo.model.playback.VideoDecodeCapability
 import org.siloserver.silo.network.ApiResult
@@ -107,6 +108,25 @@ class CastPlaybackPreparer(
             }
         }
 
+        // From here on a server session exists. If the preparing coroutine is
+        // cancelled before the spec is handed to the Cast SDK, stop the
+        // session — otherwise it lingers, counts against the account's
+        // concurrent-stream cap, and every later cast start 429s.
+        try {
+            return buildCastMediaSpec(request, startedSession, castSession)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                castSession.stopSession(startedSession.sessionId)
+            }
+            throw e
+        }
+    }
+
+    private suspend fun buildCastMediaSpec(
+        request: CastPrepareRequest,
+        startedSession: PlaybackSessionResponse,
+        castSession: PlaybackSessionManager,
+    ): CastMediaSpec? {
         // A transcode start response only carries a placeholder manifest URL:
         // the manifest goes live (and gains its full-recipe ?st= token) when
         // the transcode is actually started. The phone drives that here — the
