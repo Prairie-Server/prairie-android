@@ -488,19 +488,38 @@ class TvItemDetailViewModel(
     private fun persistTrackSelection() {
         val state = _uiState.value
         val detail = state.detail ?: return
-        val version = selectedVersionFor(state, detail) ?: return
-        val subtitleFingerprint = when (val idx = state.selectedSubtitleIndex) {
+        persistTrackSelectionFor(
+            targetContentId = contentId,
+            detail = detail,
+            selectedFileId = state.selectedFileId,
+            selectedAudioIndex = state.selectedAudioIndex,
+            selectedSubtitleIndex = state.selectedSubtitleIndex,
+        )
+    }
+
+    private fun persistTrackSelectionFor(
+        targetContentId: String,
+        detail: ItemDetail,
+        selectedFileId: Int?,
+        selectedAudioIndex: Int?,
+        selectedSubtitleIndex: Int?,
+    ) {
+        val version = selectedFileId
+            ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
+            ?: detail.versions.firstOrNull()
+            ?: return
+        val subtitleFingerprint = when (val idx = selectedSubtitleIndex) {
             null -> null
             -1 -> SUBTITLE_OFF_FINGERPRINT
             else -> version.subtitleTracks.orEmpty().getOrNull(idx)?.let(::subtitleTrackFingerprint)
         }
-        val audioFingerprint = when (val idx = state.selectedAudioIndex) {
+        val audioFingerprint = when (val idx = selectedAudioIndex) {
             null -> null
             else -> version.audioTracks.orEmpty().getOrNull(idx)?.let(::audioTrackFingerprint)
         }
         viewModelScope.launch {
-            userItemState.recordSubtitleTrackSelection(contentId, version.fileId, subtitleFingerprint)
-            userItemState.recordAudioTrackSelection(contentId, version.fileId, audioFingerprint)
+            userItemState.recordSubtitleTrackSelection(targetContentId, version.fileId, subtitleFingerprint)
+            userItemState.recordAudioTrackSelection(targetContentId, version.fileId, audioFingerprint)
         }
     }
 
@@ -819,12 +838,16 @@ class TvItemDetailViewModel(
             // Ignore a late result if the next-up target moved on.
             if (_uiState.value.nextUpEpisode?.contentId != episodeContentId) return@launch
             when (result) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(
-                        nextUpPlaybackDetail = withLocalProgress(result.data),
-                        isLoadingNextUpPlaybackDetail = false,
-                        didLoadNextUpPlaybackDetail = true,
-                    )
+                is ApiResult.Success -> {
+                    val playbackDetail = withLocalProgress(result.data)
+                    _uiState.update {
+                        it.copy(
+                            nextUpPlaybackDetail = playbackDetail,
+                            isLoadingNextUpPlaybackDetail = false,
+                            didLoadNextUpPlaybackDetail = true,
+                        )
+                    }
+                    restoreNextUpTrackSelection(episodeContentId, playbackDetail)
                 }
                 else -> _uiState.update {
                     it.copy(
@@ -875,14 +898,94 @@ class TvItemDetailViewModel(
                 selectedNextUpSubtitleIndex = null,
             )
         }
+        rememberNextUpTrackSelection()
+        seedPersistedNextUpTrackSelection()
     }
 
     fun onNextUpAudioTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedNextUpAudioIndex = index) }
+        rememberNextUpTrackSelection()
+        persistNextUpTrackSelection()
     }
 
     fun onNextUpSubtitleTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedNextUpSubtitleIndex = index) }
+        rememberNextUpTrackSelection()
+        persistNextUpTrackSelection()
+    }
+
+    private fun rememberNextUpTrackSelection() {
+        val state = _uiState.value
+        val nextUpContentId = state.nextUpEpisode?.contentId ?: return
+        TvDetailTrackSelectionSession.remember(
+            nextUpContentId,
+            state.selectedNextUpFileId,
+            state.selectedNextUpAudioIndex,
+            state.selectedNextUpSubtitleIndex,
+        )
+    }
+
+    private fun persistNextUpTrackSelection() {
+        val state = _uiState.value
+        val nextUpContentId = state.nextUpEpisode?.contentId ?: return
+        val detail = state.nextUpPlaybackDetail ?: return
+        persistTrackSelectionFor(
+            targetContentId = nextUpContentId,
+            detail = detail,
+            selectedFileId = state.selectedNextUpFileId,
+            selectedAudioIndex = state.selectedNextUpAudioIndex,
+            selectedSubtitleIndex = state.selectedNextUpSubtitleIndex,
+        )
+    }
+
+    private fun restoreNextUpTrackSelection(episodeContentId: String, detail: ItemDetail) {
+        val session = TvDetailTrackSelectionSession.recall(episodeContentId)
+        if (session != null) {
+            _uiState.update {
+                if (it.nextUpEpisode?.contentId != episodeContentId) it else it.copy(
+                    selectedNextUpFileId = session.fileId,
+                    selectedNextUpAudioIndex = session.audio,
+                    selectedNextUpSubtitleIndex = session.subtitle,
+                )
+            }
+            return
+        }
+        seedPersistedNextUpTrackSelection(episodeContentId, detail)
+    }
+
+    private fun seedPersistedNextUpTrackSelection(
+        episodeContentId: String? = _uiState.value.nextUpEpisode?.contentId,
+        detail: ItemDetail? = _uiState.value.nextUpPlaybackDetail,
+    ) {
+        val targetContentId = episodeContentId ?: return
+        val playbackDetail = detail ?: return
+        val selectedFileId = _uiState.value.selectedNextUpFileId
+        val version = selectedFileId
+            ?.let { fileId -> playbackDetail.versions.firstOrNull { it.fileId == fileId } }
+            ?: playbackDetail.versions.firstOrNull()
+            ?: return
+        viewModelScope.launch {
+            val saved = userItemState.localTrackSelection(targetContentId, version.fileId) ?: return@launch
+            val tracks = version.subtitleTracks.orEmpty()
+            val subtitleIndex = resolveSubtitleTrackOrdinal(tracks, saved.subtitleFingerprint)
+                ?.let { ordinal ->
+                    if (ordinal == -1) -1 else combinedSubtitleSelectionIndexes(tracks).getOrNull(ordinal)
+                }
+            val audioIndex = resolveAudioTrackOrdinal(version.audioTracks.orEmpty(), saved.audioFingerprint)
+            _uiState.update {
+                if (it.nextUpEpisode?.contentId != targetContentId ||
+                    it.selectedNextUpFileId != selectedFileId
+                ) {
+                    it
+                } else {
+                    it.copy(
+                        selectedNextUpSubtitleIndex = it.selectedNextUpSubtitleIndex ?: subtitleIndex,
+                        selectedNextUpAudioIndex = it.selectedNextUpAudioIndex ?: audioIndex,
+                    )
+                }
+            }
+            rememberNextUpTrackSelection()
+        }
     }
 
     private fun loadMoreLikeThis(detail: ItemDetail) {

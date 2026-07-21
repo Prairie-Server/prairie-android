@@ -9,6 +9,9 @@ class TvDetailPlaybackSelectionSourceTest {
     private val source = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailScreen.kt",
     ).readText()
+    private val viewModelSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailViewModel.kt",
+    ).readText()
 
     @Test
     fun playActionKeepsAutoUnpinnedUnlessTrackOverrideIsSelected() {
@@ -31,5 +34,12 @@ class TvDetailPlaybackSelectionSourceTest {
             source.contains("playContentId, selectedFileId,"),
             "The display fallback must not be sent directly; Auto should stay unpinned unless a track override exists.",
         )
+    }
+
+    @Test
+    fun nextUpSelectorsUseSessionAndDurableTrackPersistence() {
+        assertTrue(viewModelSource.contains("rememberNextUpTrackSelection()"))
+        assertTrue(viewModelSource.contains("persistNextUpTrackSelection()"))
+        assertTrue(viewModelSource.contains("restoreNextUpTrackSelection(episodeContentId"))
     }
 }
