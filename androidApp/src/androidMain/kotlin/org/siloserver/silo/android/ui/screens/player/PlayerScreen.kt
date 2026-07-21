@@ -410,13 +410,16 @@ fun PlayerScreen(
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-            val originalOrientation = activity.requestedOrientation
             refreshRateMatcher.attach(activity)
 
             onDispose {
                 refreshRateMatcher.restore()
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
-                activity.requestedOrientation = originalOrientation
+                // Explicitly UNSPECIFIED, never a captured "original": with
+                // stacked player entries (e.g. opening items while casting) the
+                // capture could be the landscape lock a previous player set,
+                // leaving the app stuck horizontal after exit.
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         } else {
             onDispose { }
@@ -450,7 +453,13 @@ fun PlayerScreen(
     // default on the first frame would snap rotateFreely users back to
     // landscape on every player entry.
     val orientationLockedResolved by viewModel.orientationLockedResolved.collectAsState()
-    LaunchedEffect(activity, orientationLockedResolved) {
+    LaunchedEffect(activity, orientationLockedResolved, castState.isConnected) {
+        // While casting, the screen shows the cast takeover panel, not video —
+        // no reason to force landscape (and it must unlock if already forced).
+        if (castState.isConnected) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            return@LaunchedEffect
+        }
         val locked = orientationLockedResolved ?: return@LaunchedEffect
         activity?.requestedOrientation = if (locked) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
