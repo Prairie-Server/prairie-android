@@ -80,6 +80,9 @@ import org.siloserver.silo.player.DolbyVisionDetection
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.siloserver.silo.android.cast.SiloCastButton
+import org.siloserver.silo.android.cast.SiloCastOverlay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
@@ -148,6 +151,15 @@ fun PlayerScreen(
     var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
     var fastForwardHoldActive by remember { mutableStateOf(false) }
+
+    // Google Cast (Chromecast). Distinct from the NSD/mDNS SiloCast device
+    // remote. When a Cast session connects, local Media3 is paused and a
+    // "casting to <device>" overlay takes over; on disconnect, local playback
+    // resumes at the remote position (Fix 6).
+    val castManager: org.siloserver.silo.android.cast.SiloCastSessionManager = koinInject()
+    val castState by castManager.castState.collectAsState()
+    val castScope = rememberCoroutineScope()
+    var wasCasting by remember { mutableStateOf(false) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -304,6 +316,23 @@ fun PlayerScreen(
             }
             mediaController = null
             if (!future.isDone) future.cancel(true)
+        }
+    }
+
+    // Cast connect/disconnect → pause/resume local Media3. On connect, pause
+    // locally (the dongle is now the surface). On disconnect, resume where the
+    // remote left off (Fix 6: getLastPosition).
+    LaunchedEffect(castState.isConnected) {
+        if (castState.isConnected && !wasCasting) {
+            wasCasting = true
+            viewModel.remotePause()
+            mediaController?.pause()
+        } else if (!castState.isConnected && wasCasting) {
+            wasCasting = false
+            val resumeAt = castManager.getLastPosition()
+            if (resumeAt > 0.0) viewModel.remoteSeek(resumeAt)
+            viewModel.remoteUnpause()
+            mediaController?.play()
         }
     }
 
@@ -938,11 +967,34 @@ fun PlayerScreen(
                 )
             }
 
+            // Cast takeover surface — replaces the video while a Cast session is
+            // live. Rendered under the controls so the top-bar cast button (Stop
+            // casting) stays reachable.
+            if (castState.isConnected) {
+                SiloCastOverlay(
+                    castState = castState,
+                    posterUrl = uiState.artworkUrl,
+                    onPlayPause = { castManager.togglePlayback() },
+                    onStopCasting = { castManager.disconnect() },
+                )
+            }
+
             if (!isInPictureInPictureMode) {
                 PlayerOverlay(
                     state = uiState,
                     viewModel = viewModel,
                     roomSnapshot = roomSnapshot,
+                    castSlot = {
+                        SiloCastButton(
+                            castManager = castManager,
+                            onStartCast = {
+                                castScope.launch {
+                                    val spec = viewModel.prepareGoogleCastMedia()
+                                    if (spec != null) castManager.prepareMedia(spec)
+                                }
+                            },
+                        )
+                    },
                     isFastForwardHoldActive = fastForwardHoldActive,
                     onBack = {
                         // In-room exit: leave the room (host close confirm is handled

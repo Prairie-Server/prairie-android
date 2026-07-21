@@ -34,6 +34,9 @@ uiautomator = "2.3.0"
 firebase-messaging = "25.1.0"
 google-services = "4.5.0"
 junit4 = "4.13.2"
+# Google Cast (Chromecast, phone app only) + its MediaRouter dependency.
+play-services-cast-framework = "21.5.0"
+androidx-mediarouter = "1.7.0"
 
 [libraries]
 # BouncyCastle — TLS-PSK server for the LAN companion-pairing receiver
@@ -118,6 +121,11 @@ androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "a
 androidx-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebase-messaging" }
 junit4 = { module = "junit:junit", version.ref = "junit4" }
+
+# Google Cast (Chromecast) — phone app only. Tier 2 casting starts a separate
+# cast-capability playback session; the raw phone stream is never cast.
+play-services-cast-framework = { module = "com.google.android.gms:play-services-cast-framework", version.ref = "play-services-cast-framework" }
+androidx-mediarouter = { module = "androidx.mediarouter:mediarouter", version.ref = "androidx-mediarouter" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
