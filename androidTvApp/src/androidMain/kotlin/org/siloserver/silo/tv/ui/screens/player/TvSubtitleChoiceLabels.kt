@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.screens.player
 
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import org.siloserver.silo.player.trackLanguageDisplayName
 import java.util.Locale
 
 /**
@@ -12,8 +13,10 @@ import java.util.Locale
  * "SDH") still rides along; codec junk ("SUBRIP") and filenames do not.
  */
 internal fun subtitleChoiceLabel(row: PlayerSubtitleInfo, position: Int): String {
+    // trackLanguageDisplayName handles ISO 639-2/B codes ("ger","fre","dut")
+    // that Locale(code) alone cannot; fall back to the uppercased raw code.
     val language = row.language?.trim()?.takeIf { it.isNotBlank() }
-        ?.let { tvLanguageDisplayName(it) }
+        ?.let { trackLanguageDisplayName(it) ?: it.uppercase(Locale.US) }
     val format = subtitleFormatShortName(
         row.codec?.trim()?.takeIf { it.isNotBlank() }
             ?: row.url.substringBefore('?').substringBefore('#').substringAfterLast('.', ""),
@@ -73,3 +76,51 @@ private fun meaningfulSubtitleRowTitle(
 }
 
 private val FILENAME_SUFFIXES = listOf(".srt", ".ass", ".ssa", ".vtt", ".sub", ".sup", ".idx")
+
+/**
+ * Human labels for audio track rows ("English DTS 5.1", "Japanese AAC
+ * Stereo") — the audio twin of [subtitleChoiceLabel]. Media3 labels echo
+ * server identity strings and the old fallback was a bare uppercased ISO
+ * code, so pickers build from language + codec + channel layout instead.
+ */
+internal fun audioChoiceLabel(entry: PlayerTrackEntry, position: Int): String {
+    val language = entry.language?.trim()?.takeIf { it.isNotBlank() }
+        ?.let { trackLanguageDisplayName(it) ?: it.uppercase(Locale.US) }
+    val codec = audioFormatShortName(entry.codecOrMime)
+    val layout = audioChannelLayoutLabel(entry.channelCount)
+    val parts = listOfNotNull(language, codec, layout)
+    if (parts.isEmpty()) {
+        return entry.displayLabel.trim().takeIf { it.isNotBlank() } ?: "Track ${position + 1}"
+    }
+    return parts.joinToString(" ")
+}
+
+/** Media3 audio mimes / codec ids → the short names users know. */
+internal fun audioFormatShortName(codecOrMime: String?): String? =
+    when (codecOrMime?.trim()?.lowercase(Locale.US)?.substringAfterLast('/')) {
+        null, "" -> null
+        "mp4a-latm", "aac", "mp4a" -> "AAC"
+        "ac3" -> "AC3"
+        "eac3" -> "E-AC3"
+        "eac3-joc" -> "Atmos"
+        "true-hd", "truehd" -> "TrueHD"
+        "vnd.dts", "dts" -> "DTS"
+        "vnd.dts.hd", "dts.hd" -> "DTS-HD"
+        "vnd.dts.uhd;profile=p2", "dts.uhd" -> "DTS:X"
+        "opus" -> "Opus"
+        "flac" -> "FLAC"
+        "mpeg", "mp3", "mpeg-l2" -> "MP3"
+        "vorbis" -> "Vorbis"
+        "raw", "pcm", "wav" -> "PCM"
+        else -> codecOrMime.substringAfterLast('/').uppercase(Locale.US).take(12)
+    }
+
+/** Channel count → familiar layout name. */
+internal fun audioChannelLayoutLabel(channelCount: Int): String? = when {
+    channelCount <= 0 -> null
+    channelCount == 1 -> "Mono"
+    channelCount == 2 -> "Stereo"
+    channelCount == 6 -> "5.1"
+    channelCount == 8 -> "7.1"
+    else -> "${channelCount}ch"
+}

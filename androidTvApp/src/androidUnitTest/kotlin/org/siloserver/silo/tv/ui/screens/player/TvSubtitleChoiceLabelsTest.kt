@@ -79,3 +79,53 @@ class TvSubtitleChoiceLabelsTest {
         assertEquals("Track 3", subtitleChoiceLabel(row(), 2))
     }
 }
+
+class TvAudioChoiceLabelsTest {
+    private fun audio(
+        language: String? = null,
+        codecOrMime: String? = null,
+        channels: Int = 0,
+        label: String = "",
+    ) = PlayerTrackEntry(
+        index = 0, label = label, language = language, isSelected = false,
+        displayLabel = label, codecOrMime = codecOrMime, channelCount = channels,
+    )
+
+    @Test
+    fun buildsLanguageCodecLayout() {
+        assertEquals(
+            "English DTS 5.1",
+            audioChoiceLabel(audio(language = "en", codecOrMime = "audio/vnd.dts", channels = 6), 0),
+        )
+        assertEquals(
+            "Japanese AAC Stereo",
+            audioChoiceLabel(audio(language = "ja", codecOrMime = "audio/mp4a-latm", channels = 2), 0),
+        )
+        assertEquals(
+            "English Atmos 7.1",
+            audioChoiceLabel(audio(language = "en", codecOrMime = "audio/eac3-joc", channels = 8), 0),
+        )
+    }
+
+    @Test
+    fun iso639TwoBibliographicCodesResolve() {
+        assertEquals(
+            "German E-AC3 5.1",
+            audioChoiceLabel(audio(language = "ger", codecOrMime = "audio/eac3", channels = 6), 0),
+        )
+        // Subtitle side of the same fix.
+        assertEquals(
+            "German SRT (External)",
+            subtitleChoiceLabel(
+                PlayerSubtitleInfo(index = 0, language = "ger", codec = "srt", source = "external", url = ""),
+                0,
+            ),
+        )
+    }
+
+    @Test
+    fun fallsBackToDisplayLabelThenPosition() {
+        assertEquals("Commentary", audioChoiceLabel(audio(label = "Commentary"), 2))
+        assertEquals("Track 3", audioChoiceLabel(audio(), 2))
+    }
+}

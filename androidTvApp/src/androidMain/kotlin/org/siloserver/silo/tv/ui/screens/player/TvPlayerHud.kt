@@ -317,6 +317,7 @@ fun TvPlayerHud(
                             stats = stats,
                             playbackPlan = playbackPlan,
                             subtitleTracks = subtitleTracks,
+                            subtitleUrls = subtitleUrls,
                             chapters = chapters,
                         )
                     }
@@ -530,6 +531,7 @@ private fun HudInfoPane(
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan?,
     subtitleTracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
     chapters: List<VersionChapter>,
     modifier: Modifier = Modifier,
 ) {
@@ -551,7 +553,15 @@ private fun HudInfoPane(
         stats.videoCodec?.let { add("Video" to it.uppercase()) }
         stats.audioCodec?.let { add("Audio" to it.uppercase()) }
         val sub = subtitleTracks.firstOrNull { it.isSelected }
-        add("Subtitles" to (sub?.displayLabel?.ifBlank { "On" } ?: "Off"))
+        // Built label ("Danish SRT (External)") via the mounted row — the raw
+        // Media3 displayLabel echoes sidecar filenames.
+        val subLabel = sub?.let { sel ->
+            subtitleUrls.withIndex()
+                .firstOrNull { (_, row) -> sel.matchesMountedSubtitle(row) }
+                ?.let { (i, row) -> subtitleChoiceLabel(row, i) }
+                ?: sel.displayLabel.ifBlank { "On" }
+        } ?: "Off"
+        add("Subtitles" to subLabel)
         currentChapterTitle(chapters, positionSec)?.let { add("Chapter" to it) }
     }
     val badges = buildList {
@@ -1125,7 +1135,9 @@ private fun HudAudioPane(
                 val selectedTrack = audioTracks.firstOrNull { it.isSelected }
                 HudFocusedSettingRow(
                     label = "Audio track",
-                    value = selectedTrack?.displayLabel?.ifBlank { "Track ${selectedTrack.index + 1}" }
+                    // Built labels ("English DTS 5.1") — raw Media3 labels echo
+                    // server identity strings or bare ISO codes.
+                    value = selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
                         ?: "Default",
                     enabled = enabled && audioTracks.size > 1,
                     onActivate = {
@@ -1135,7 +1147,7 @@ private fun HudAudioPane(
                                 options = audioTracks.mapIndexed { idx, track ->
                                     HudPickerOption(
                                         id = track.index.toString(),
-                                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                                        label = audioChoiceLabel(track, idx),
                                     )
                                 },
                                 selectedId = (selectedTrack?.index ?: 0).toString(),

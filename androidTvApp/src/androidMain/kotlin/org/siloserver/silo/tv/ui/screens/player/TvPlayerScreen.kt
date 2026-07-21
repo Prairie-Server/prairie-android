@@ -15,6 +15,8 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -1007,6 +1009,10 @@ fun TvPlayerScreen(
             if (event.action == KeyEvent.ACTION_DOWN &&
                 event.repeatCount == 0 &&
                 latestIntroSkipState is IntroAutoSkipState.ShowingButton &&
+                // Only while the transport overlay is hidden: with controls up
+                // a focused button owns Select — hijacking it here made every
+                // OK press skip the intro for the whole intro window.
+                !playerState.showControls &&
                 event.keyCode in setOf(
                     KeyEvent.KEYCODE_DPAD_CENTER,
                     KeyEvent.KEYCODE_ENTER,
@@ -2725,13 +2731,20 @@ private fun TvPlayerNextUpOverlay(
                         onClick = onBack,
                         modifier = Modifier.width(160.dp),
                     )
+                    // Interactive toggle (was a dead focusable): OK flips
+                    // auto-play; focus inverts the pill so the D-pad stop is
+                    // visible.
+                    var autoPlayToggleFocused by remember { mutableStateOf(false) }
                     androidx.tv.material3.Text(
                         text = "Auto-play is ${if (autoPlayEnabled) "On" else "Off"}",
-                        color = Color.White.copy(alpha = 0.54f),
+                        color = if (autoPlayToggleFocused) Color.Black else Color.White.copy(alpha = 0.54f),
                         style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
                         modifier = Modifier
-                            .focusable()
-                            .clip(RoundedCornerShape(percent = 50)),
+                            .onFocusChanged { autoPlayToggleFocused = it.isFocused }
+                            .clip(RoundedCornerShape(percent = 50))
+                            .background(if (autoPlayToggleFocused) Color.White else Color.Transparent)
+                            .clickable { onToggleAutoPlay() }
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                 } else {
                     // Finished / no-next-episode state.
