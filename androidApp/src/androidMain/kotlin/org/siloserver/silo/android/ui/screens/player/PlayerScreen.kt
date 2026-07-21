@@ -1001,6 +1001,7 @@ fun PlayerScreen(
                     onPlayPause = { castManager.togglePlayback() },
                     onSkipBack = { castManager.skipBy(-30.0) },
                     onSkipForward = { castManager.skipBy(30.0) },
+                    onSelectSubtitle = { castManager.selectSubtitleTrack(it) },
                     onStopCasting = { castManager.disconnect() },
                     onSeek = { castManager.seekTo(it) },
                     onBack = {

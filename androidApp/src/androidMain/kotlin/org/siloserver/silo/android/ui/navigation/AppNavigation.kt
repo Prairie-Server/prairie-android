@@ -864,6 +864,7 @@ fun AppNavigation(
                 onPlayPause = { googleCastManager.togglePlayback() },
                 onSkipBack = { googleCastManager.skipBy(-30.0) },
                 onSkipForward = { googleCastManager.skipBy(30.0) },
+                onSelectSubtitle = { googleCastManager.selectSubtitleTrack(it) },
                 onStop = { googleCastManager.disconnect() },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

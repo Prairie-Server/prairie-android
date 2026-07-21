@@ -10,6 +10,7 @@ import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.MediaSeekOptions
 import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.MediaTrack
+import com.google.android.gms.cast.TextTrackStyle
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManager
@@ -33,6 +34,16 @@ data class SiloCastState(
     val duration: Double = 0.0,
     val title: String = "",
     val fileId: Int? = null,
+    /** Text tracks declared on the loaded media, for the phone-side CC picker. */
+    val subtitleOptions: List<CastSubtitleOption> = emptyList(),
+    /** Track id (from [subtitleOptions]) the receiver is rendering, null = off. */
+    val activeSubtitleId: Long? = null,
+)
+
+/** A selectable receiver text track (id is the declared MediaTrack id). */
+data class CastSubtitleOption(
+    val id: Long,
+    val label: String,
 )
 
 data class SiloCastRoute(
@@ -262,6 +273,20 @@ class SiloCastSessionManager(private val context: Context) {
             .setContentType(spec.mimeType)
             .setMetadata(metadata)
             .apply { if (tracks.isNotEmpty()) setMediaTracks(tracks) }
+            // Without an explicit style the Default Media Receiver renders its
+            // stock boxed look (opaque black band behind every cue). Match the
+            // app's default subtitle appearance instead: white text with a
+            // black outline, no background, no window.
+            .setTextTrackStyle(
+                TextTrackStyle().apply {
+                    foregroundColor = android.graphics.Color.WHITE
+                    backgroundColor = android.graphics.Color.TRANSPARENT
+                    windowColor = android.graphics.Color.TRANSPARENT
+                    windowType = TextTrackStyle.WINDOW_TYPE_NONE
+                    edgeType = TextTrackStyle.EDGE_TYPE_OUTLINE
+                    edgeColor = android.graphics.Color.BLACK
+                },
+            )
             .build()
 
         val loadRequest = MediaLoadRequestData.Builder()
@@ -346,6 +371,16 @@ class SiloCastSessionManager(private val context: Context) {
         _castState.value = _castState.value.copy(isPlaying = !isPlayingNow)
     }
 
+    /** Activates a declared receiver text track; null turns captions off. */
+    fun selectSubtitleTrack(trackId: Long?) {
+        val remoteClient = sessionManager?.currentCastSession?.remoteMediaClient ?: return
+        remoteClient.setActiveMediaTracks(
+            if (trackId == null) longArrayOf() else longArrayOf(trackId),
+        )
+        _castState.value = _castState.value.copy(activeSubtitleId = trackId)
+        PlaybackTelemetry.log("cast: subtitle select", mapOf("track_id" to (trackId ?: -1L)))
+    }
+
     /** Relative seek from the receiver's live position, clamped to the item. */
     fun skipBy(deltaSeconds: Double) {
         val remoteClient = sessionManager?.currentCastSession?.remoteMediaClient ?: return
@@ -407,6 +442,17 @@ class SiloCastSessionManager(private val context: Context) {
         val session = sessionManager?.currentCastSession
         val remoteClient = session?.remoteMediaClient
         _castState.value = if (session != null && session.isConnected) {
+            val textTracks = remoteClient?.mediaInfo?.mediaTracks.orEmpty()
+                .filter { it.type == MediaTrack.TYPE_TEXT }
+            val subtitleOptions = textTracks.mapIndexed { index, track ->
+                CastSubtitleOption(
+                    id = track.id,
+                    label = track.name?.takeIf { it.isNotBlank() }
+                        ?: track.language?.takeIf { it.isNotBlank() }
+                        ?: "Subtitle ${index + 1}",
+                )
+            }
+            val activeIds = remoteClient?.mediaStatus?.activeTrackIds
             SiloCastState(
                 isConnected = true,
                 deviceName = session.castDevice?.friendlyName,
@@ -415,6 +461,10 @@ class SiloCastSessionManager(private val context: Context) {
                 duration = remoteClient?.mediaInfo?.streamDuration?.takeIf { it > 0 }?.div(1000.0)
                     ?: _castState.value.duration,
                 title = pending?.title ?: _castState.value.title,
+                subtitleOptions = subtitleOptions,
+                activeSubtitleId = subtitleOptions
+                    .firstOrNull { option -> activeIds?.contains(option.id) == true }
+                    ?.id,
             )
         } else {
             _castState.value.copy(isConnected = false, deviceName = null, isPlaying = false)

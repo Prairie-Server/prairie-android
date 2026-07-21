@@ -60,6 +60,7 @@ fun SiloCastOverlay(
     onPlayPause: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
+    onSelectSubtitle: (Long?) -> Unit,
     onStopCasting: () -> Unit,
     onBack: () -> Unit,
     onSeek: (Double) -> Unit,
@@ -186,6 +187,14 @@ fun SiloCastOverlay(
                         modifier = Modifier.size(32.dp),
                     )
                 }
+
+                CastSubtitleMenuButton(
+                    options = castState.subtitleOptions,
+                    activeId = castState.activeSubtitleId,
+                    onSelect = onSelectSubtitle,
+                    tint = Color.White,
+                    iconSize = 28.dp,
+                )
 
                 OutlinedButton(onClick = onStopCasting) {
                     Icon(Icons.Default.Close, contentDescription = "Stop casting")

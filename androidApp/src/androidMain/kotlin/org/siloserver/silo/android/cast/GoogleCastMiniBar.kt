@@ -35,6 +35,7 @@ fun GoogleCastMiniBar(
     onPlayPause: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
+    onSelectSubtitle: (Long?) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -94,6 +95,11 @@ fun GoogleCastMiniBar(
                     contentDescription = "Forward 30 seconds",
                 )
             }
+            CastSubtitleMenuButton(
+                options = castState.subtitleOptions,
+                activeId = castState.activeSubtitleId,
+                onSelect = onSelectSubtitle,
+            )
             IconButton(onClick = onStop) {
                 Icon(
                     imageVector = Icons.Default.Close,
