@@ -20,8 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +58,8 @@ fun SiloCastOverlay(
     castState: SiloCastState,
     posterUrl: String?,
     onPlayPause: () -> Unit,
+    onSkipBack: () -> Unit,
+    onSkipForward: () -> Unit,
     onStopCasting: () -> Unit,
     onBack: () -> Unit,
     onSeek: (Double) -> Unit,
@@ -156,6 +160,15 @@ fun SiloCastOverlay(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onSkipBack) {
+                    Icon(
+                        imageVector = Icons.Default.Replay30,
+                        contentDescription = "Back 30 seconds",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+
                 FilledTonalButton(onClick = onPlayPause) {
                     Icon(
                         imageVector = if (castState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -163,6 +176,15 @@ fun SiloCastOverlay(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(if (castState.isPlaying) "Pause" else "Play")
+                }
+
+                IconButton(onClick = onSkipForward) {
+                    Icon(
+                        imageVector = Icons.Default.Forward30,
+                        contentDescription = "Forward 30 seconds",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp),
+                    )
                 }
 
                 OutlinedButton(onClick = onStopCasting) {

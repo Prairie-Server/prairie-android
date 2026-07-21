@@ -346,6 +346,19 @@ class SiloCastSessionManager(private val context: Context) {
         _castState.value = _castState.value.copy(isPlaying = !isPlayingNow)
     }
 
+    /** Relative seek from the receiver's live position, clamped to the item. */
+    fun skipBy(deltaSeconds: Double) {
+        val remoteClient = sessionManager?.currentCastSession?.remoteMediaClient ?: return
+        val current = remoteClient.approximateStreamPosition
+            .takeIf { it > 0 }?.let { it / 1000.0 }
+            ?: _castState.value.position
+        val duration = _castState.value.duration
+        var target = current + deltaSeconds
+        if (target < 0.0) target = 0.0
+        if (duration > 0.0 && target > duration) target = duration
+        seekTo(target)
+    }
+
     fun refreshRoutes() {
         ensureInitialized()
         syncCastState()

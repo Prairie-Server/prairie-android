@@ -6,6 +6,7 @@ import com.google.android.gms.cast.framework.CastOptions
 import com.google.android.gms.cast.framework.OptionsProvider
 import com.google.android.gms.cast.framework.SessionProvider
 import com.google.android.gms.cast.framework.media.CastMediaOptions
+import com.google.android.gms.cast.framework.media.MediaIntentReceiver
 import com.google.android.gms.cast.framework.media.NotificationOptions
 import org.siloserver.silo.android.MainActivity
 
@@ -32,6 +33,19 @@ class SiloCastOptionsProvider : OptionsProvider {
                     .setNotificationOptions(
                         NotificationOptions.Builder()
                             .setTargetActivityClassName(MainActivity::class.java.name)
+                            // ±30s alongside play/pause and stop; the compact
+                            // (lock-screen) view keeps the three transport
+                            // actions. The Cast framework handles the seeks.
+                            .setActions(
+                                listOf(
+                                    MediaIntentReceiver.ACTION_REWIND,
+                                    MediaIntentReceiver.ACTION_TOGGLE_PLAYBACK,
+                                    MediaIntentReceiver.ACTION_FORWARD,
+                                    MediaIntentReceiver.ACTION_STOP_CASTING,
+                                ),
+                                intArrayOf(0, 1, 2),
+                            )
+                            .setSkipStepMs(30_000L)
                             .build(),
                     )
                     .build(),

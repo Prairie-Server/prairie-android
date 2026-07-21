@@ -862,6 +862,8 @@ fun AppNavigation(
             GoogleCastMiniBar(
                 castState = googleCastState,
                 onPlayPause = { googleCastManager.togglePlayback() },
+                onSkipBack = { googleCastManager.skipBy(-30.0) },
+                onSkipForward = { googleCastManager.skipBy(30.0) },
                 onStop = { googleCastManager.disconnect() },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

@@ -9,8 +9,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +33,8 @@ import androidx.compose.ui.unit.dp
 fun GoogleCastMiniBar(
     castState: SiloCastState,
     onPlayPause: () -> Unit,
+    onSkipBack: () -> Unit,
+    onSkipForward: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -72,10 +76,22 @@ fun GoogleCastMiniBar(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            IconButton(onClick = onSkipBack) {
+                Icon(
+                    imageVector = Icons.Default.Replay30,
+                    contentDescription = "Back 30 seconds",
+                )
+            }
             IconButton(onClick = onPlayPause) {
                 Icon(
                     imageVector = if (castState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (castState.isPlaying) "Pause" else "Play",
+                )
+            }
+            IconButton(onClick = onSkipForward) {
+                Icon(
+                    imageVector = Icons.Default.Forward30,
+                    contentDescription = "Forward 30 seconds",
                 )
             }
             IconButton(onClick = onStop) {

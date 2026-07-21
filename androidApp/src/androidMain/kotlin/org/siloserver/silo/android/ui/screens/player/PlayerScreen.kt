@@ -999,6 +999,8 @@ fun PlayerScreen(
                     castState = castState,
                     posterUrl = uiState.artworkUrl,
                     onPlayPause = { castManager.togglePlayback() },
+                    onSkipBack = { castManager.skipBy(-30.0) },
+                    onSkipForward = { castManager.skipBy(30.0) },
                     onStopCasting = { castManager.disconnect() },
                     onSeek = { castManager.seekTo(it) },
                     onBack = {
