@@ -630,7 +630,7 @@ fun TvSkylineSectionFeed(
             TvFocusMarquee(
                 content = marquee.content,
                 detailLine = marquee.enrichment?.detailLine,
-                startPadding = Spacing.safeArea,
+                startPadding = TvSkyline.safeAreaX,
                 // Keep the marquee out of the top-menu-bar zone: the block is
                 // bottom-anchored and grows upward, and the raised typography
                 // floors made it tall enough to collide with the bar.
@@ -677,7 +677,7 @@ fun TvSkylineSectionFeed(
                             onSeeAllClick = onSeeAllClickForSection(section),
                             showProgress = showProgress,
                             style = styleForSection(section),
-                            startPadding = Spacing.safeArea,
+                            startPadding = TvSkyline.safeAreaX,
                             endPadding = Spacing.safeArea,
                             itemSpacing = TvSkylineItemSpacing,
                             rowTopPadding = TvSkylineRowCardVerticalPadding,
