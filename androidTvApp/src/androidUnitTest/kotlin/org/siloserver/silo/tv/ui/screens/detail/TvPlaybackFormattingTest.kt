@@ -11,6 +11,17 @@ import kotlin.test.assertTrue
 
 class TvPlaybackFormattingTest {
 
+    @Test fun autoModeChecksOnlyAutoRow() {
+        assertTrue(isAudioSelectorOptionSelected(null, null))
+        assertFalse(isAudioSelectorOptionSelected(1, null))
+    }
+
+    @Test fun explicitModeChecksOnlyPhysicalTrack() {
+        assertFalse(isAudioSelectorOptionSelected(null, 1))
+        assertTrue(isAudioSelectorOptionSelected(1, 1))
+        assertFalse(isAudioSelectorOptionSelected(0, 1))
+    }
+
     // --- versionShortLabel ---
 
     @Test fun versionShortLabel_4kHdr() {
@@ -132,7 +143,7 @@ class TvPlaybackFormattingTest {
         assertTrue(opts[1].isSelected)
     }
 
-    @Test fun audioOptions_defaultSelectedWhenNoSelection() {
+    @Test fun audioOptions_noPhysicalTrackSelectedWhenAuto() {
         val v = fileVersion(
             audio = listOf(
                 audioTrack(codec = "aac", lang = "eng"),
@@ -141,7 +152,7 @@ class TvPlaybackFormattingTest {
         )
         val opts = TvPlaybackFormatting.audioOptions(v, selectedAudioTrackIndex = null)
         assertFalse(opts[0].isSelected)
-        assertTrue(opts[1].isSelected)
+        assertFalse(opts[1].isSelected)
     }
 
     @Test fun audioValueLabel_effectiveIndexBeatsDefaultWhenAuto() {
@@ -170,7 +181,7 @@ class TvPlaybackFormattingTest {
         assertEquals("Auto: French · EAC3 · 5.1", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
     }
 
-    @Test fun audioOptions_effectiveIndexSelectedWhenNoSelection() {
+    @Test fun audioOptions_effectiveIndexDoesNotDuplicateAutoSelection() {
         val v = fileVersion(
             audio = listOf(
                 audioTrack(codec = "aac", lang = "eng", default = true),
@@ -180,7 +191,7 @@ class TvPlaybackFormattingTest {
         )
         val opts = TvPlaybackFormatting.audioOptions(v, selectedAudioTrackIndex = null)
         assertFalse(opts[0].isSelected)
-        assertTrue(opts[1].isSelected)
+        assertFalse(opts[1].isSelected)
     }
 
     // --- subtitleValueLabel / subtitleOptions ---

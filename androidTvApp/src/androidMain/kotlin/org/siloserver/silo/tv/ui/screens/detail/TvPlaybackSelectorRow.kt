@@ -36,6 +36,11 @@ import org.siloserver.silo.tv.ui.components.TvSelectorOption
 //   null; Off = -1.
 // ---------------------------------------------------------------------------
 
+internal fun isAudioSelectorOptionSelected(
+    optionIndex: Int?,
+    selectedAudioTrackIndex: Int?,
+): Boolean = optionIndex == selectedAudioTrackIndex
+
 @Composable
 fun TvPlaybackSelectorRow(
     versions: List<FileVersion>,
@@ -136,7 +141,7 @@ fun TvPlaybackSelectorRow(
                     TvSelectorOption(
                         title = "Auto",
                         detail = "Use the file default track",
-                        selected = selectedAudioTrackIndex == null,
+                        selected = isAudioSelectorOptionSelected(null, selectedAudioTrackIndex),
                         onSelect = { onSelectAudioTrack(null) },
                     ),
                 )

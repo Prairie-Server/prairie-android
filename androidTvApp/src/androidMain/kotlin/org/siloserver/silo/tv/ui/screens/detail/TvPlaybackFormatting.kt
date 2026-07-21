@@ -152,13 +152,12 @@ object TvPlaybackFormatting {
 
     fun audioOptions(version: FileVersion?, selectedAudioTrackIndex: Int?): List<TvAudioOption> {
         if (version == null) return emptyList()
-        val selectedOrdinal = resolvedAudioOrdinal(version, selectedAudioTrackIndex)
         return (version.audioTracks ?: emptyList()).mapIndexed { ordinal, track ->
             TvAudioOption(
                 ordinal = ordinal,
                 title = audioTitle(track, ordinal),
                 detail = audioDetail(track, ordinal, version),
-                isSelected = selectedOrdinal == ordinal,
+                isSelected = isAudioSelectorOptionSelected(ordinal, selectedAudioTrackIndex),
             )
         }
     }
