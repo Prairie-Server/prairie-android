@@ -2235,8 +2235,15 @@ class PlayerViewModel(
      * phone's current (possibly MKV/HEVC, header-authenticated) stream. Returns
      * the self-contained cast media spec, or null when unavailable.
      */
+    private val castPrepareInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     suspend fun prepareGoogleCastMedia(): CastMediaSpec? {
         val preparer = castPlaybackPreparer ?: return null
+        // The cast button and the connect-time auto-stage effect can race;
+        // a second concurrent prepare only burns the server's playback/start
+        // rate limit (observed 429s), so it is dropped.
+        if (!castPrepareInFlight.compareAndSet(false, true)) return null
+        try {
         val state = _uiState.value
         val fileId = state.mediaFileId ?: return null
         val profileId = profileRepository.getActiveProfileId() ?: return null
@@ -2260,6 +2267,9 @@ class PlayerViewModel(
                 appVersion = BuildConfig.VERSION_NAME,
             ),
         )
+        } finally {
+            castPrepareInFlight.set(false)
+        }
     }
 
     /**

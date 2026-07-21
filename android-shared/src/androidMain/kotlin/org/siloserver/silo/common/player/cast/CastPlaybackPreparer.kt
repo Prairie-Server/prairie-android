@@ -17,6 +17,7 @@ import org.siloserver.silo.model.playback.MEDIA3_ONLY_FEATURE
 import org.siloserver.silo.model.playback.PLAYBACK_PLAN_V3_FEATURE
 import org.siloserver.silo.model.playback.PlaybackDeviceContext
 import org.siloserver.silo.model.playback.PlaybackEngineKind
+import org.siloserver.silo.model.playback.PlayMethod
 import org.siloserver.silo.model.playback.PlaybackOutputContext
 import org.siloserver.silo.model.playback.SEEK_REANCHOR_V3_FEATURE
 import org.siloserver.silo.model.playback.VideoDecodeCapability
@@ -76,7 +77,13 @@ class CastPlaybackPreparer(
             startPosition = request.startPositionSeconds,
             clientPlaybackContext = context,
             preserveDirectAudioSelection = false,
-            playMethod = null,
+            // Explicit TRANSCODE: this is the only reliable way to get an HLS
+            // manifest out of the server today. Engine-envelope hints alone
+            // still yield a progressive remux (a live ffmpeg pipe), which a
+            // Cast receiver cannot seek. Server-side follow-up: teach the
+            // planner to pick HLS remux for cast-capability sessions so the
+            // video stream can be copied instead of re-encoded.
+            playMethod = PlayMethod.TRANSCODE,
         )
 
         val session = when (result) {
