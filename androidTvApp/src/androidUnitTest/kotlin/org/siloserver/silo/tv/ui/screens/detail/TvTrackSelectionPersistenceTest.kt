@@ -67,6 +67,24 @@ class TvTrackSelectionPersistenceTest {
         assertFalse(shouldApplyNextUpTrackRestore("episode-42", "episode-42", 23, 22))
     }
 
+    @Test
+    fun sessionSelectedFileMergesItsDurableTracksOnReentry() {
+        val version = version()
+        val session = TvDetailTrackSelectionSession.Saved(fileId = 22, audio = null, subtitle = null)
+        val durable = restoreTrackSelection(
+            version,
+            LocalTrackSelection(
+                audioFingerprint = audioTrackFingerprint(version.audioTracks!![1]),
+                subtitleFingerprint = subtitleTrackFingerprint(version.subtitleTracks!![1]),
+            ),
+        )
+
+        val merged = mergeTrackSelection(session.audio, session.subtitle, durable)
+
+        assertEquals(1, merged.audioIndex)
+        assertEquals(0, merged.subtitleIndex)
+    }
+
     private fun version() = FileVersion(
         fileId = 22,
         audioTracks = listOf(

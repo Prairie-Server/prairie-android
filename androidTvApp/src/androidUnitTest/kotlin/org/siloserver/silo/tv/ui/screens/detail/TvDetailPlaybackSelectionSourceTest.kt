@@ -41,5 +41,10 @@ class TvDetailPlaybackSelectionSourceTest {
         assertTrue(viewModelSource.contains("rememberNextUpTrackSelection()"))
         assertTrue(viewModelSource.contains("persistNextUpTrackSelection()"))
         assertTrue(viewModelSource.contains("restoreNextUpTrackSelection(episodeContentId"))
+        val restoreBlock = viewModelSource
+            .substringAfter("private fun restoreNextUpTrackSelection")
+            .substringBefore("private fun seedPersistedNextUpTrackSelection")
+        assertTrue(restoreBlock.contains("seedPersistedNextUpTrackSelection(episodeContentId, detail)"))
+        assertTrue(restoreBlock.substringBefore("seedPersistedNextUpTrackSelection").contains("return").not())
     }
 }
