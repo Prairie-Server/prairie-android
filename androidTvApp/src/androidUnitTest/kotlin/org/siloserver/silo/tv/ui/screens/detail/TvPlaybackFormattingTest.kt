@@ -362,10 +362,11 @@ class TvPlaybackFormattingTest {
         assertEquals("English (SDH)", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
     }
 
-    @Test fun subtitleOptions_useFlatOrdinalNotStreamIndex() {
+    @Test fun subtitleOptions_useCombinedSpaceNotStreamIndex() {
         // Stream indexes are non-ordinal and collide (external tracks decode 0).
-        // selectionIndex must be the 0-based ordinal, with distinct stable ids,
-        // and selection matches by ordinal.
+        // selectionIndex must be the COMBINED index the server resolves
+        // (externals first, embedded after), with distinct stable ids, and
+        // selection matches in the same space.
         val v = fileVersion(
             subtitles = listOf(
                 subtitleTrack(index = 0, lang = "eng", external = true),
@@ -379,6 +380,30 @@ class TvPlaybackFormattingTest {
         assertFalse(opts[0].isSelected)
         assertTrue(opts[1].isSelected)
         assertFalse(opts[2].isSelected)
+    }
+
+    @Test fun subtitleOptions_embeddedFirstCatalogStillEmitsCombinedIndexes() {
+        // Catalog order is embedded-first (the server lists embedded tracks
+        // before external sidecars), but the selection space is externals-first.
+        // A Bluray with embedded da/en plus da/sv sidecars: picking the
+        // embedded English row must target combined index 3, not position 1 —
+        // position 1 is the Swedish sidecar and selecting it used to start
+        // playback with the wrong track entirely.
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(index = 2, lang = "dan"),
+                subtitleTrack(index = 3, lang = "eng"),
+                subtitleTrack(index = 0, lang = "dan", external = true),
+                subtitleTrack(index = 0, lang = "swe", external = true),
+            ),
+        )
+        val opts = TvPlaybackFormatting.subtitleOptions(v, selectedSubtitleTrackIndex = 3)
+        assertEquals(listOf(2, 3, 0, 1), opts.map { it.selectionIndex })
+        assertTrue(opts[1].isSelected) // embedded English row carries combined 3
+        assertEquals(
+            "English",
+            TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 3),
+        )
     }
 
     @Test fun subtitleOptions_carryForcedAndDefaultDetail() {

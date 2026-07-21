@@ -2437,10 +2437,12 @@ class TvPlayerViewModel(
      * -1 = Off: emitted immediately; the screen's collector finds no match and
      * calls selectSubtitle(null), turning subtitles off.
      *
-     * A positive value is the detail selector's ordinal into
-     * FileVersion.subtitleTracks, not Media3's flattened text-track ordinal.
-     * Resolve it through the mounted server subtitle metadata first so embedded
-     * CEA-608 or other player-discovered tracks do not shift the target.
+     * A positive value is a COMBINED-space subtitle index (externals first,
+     * embedded after — the identity mounted subtitle_urls carry and
+     * subtitle_track_index requests resolve), not Media3's flattened
+     * text-track ordinal. Resolve it through the mounted server subtitle
+     * metadata first so embedded CEA-608 or other player-discovered tracks do
+     * not shift the target.
      */
     private fun resolvePendingInitialSubtitle(subtitle: List<PlayerTrackEntry>) {
         val index = pendingInitialSubtitleIndex ?: return

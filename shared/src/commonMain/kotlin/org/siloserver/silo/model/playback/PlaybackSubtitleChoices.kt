@@ -21,6 +21,22 @@ import org.siloserver.silo.model.catalog.SubtitleTrack
  * catalog row a speculative stream URL makes Media3 prepare every sidecar eagerly; one missing
  * artifact can then prevent the primary media source from becoming ready.
  */
+/**
+ * Maps each catalog track (by list position) to its COMBINED selection index:
+ * externals count up from 0 in catalog order, embedded tracks follow after
+ * every external. This is the identity `subtitle_track_index` requests and
+ * session `subtitle_urls` resolve against — catalog `index` values are a
+ * different space and must never be sent as a selection.
+ */
+fun combinedSubtitleSelectionIndexes(catalogTracks: List<SubtitleTrack>): List<Int> {
+    val externalCount = catalogTracks.count(SubtitleTrack::external)
+    var externalsSeen = 0
+    var embeddedSeen = 0
+    return catalogTracks.map { track ->
+        if (track.external) externalsSeen++ else externalCount + embeddedSeen++
+    }
+}
+
 fun buildPlaybackSubtitleChoices(
     catalogTracks: List<SubtitleTrack>,
     plannedTracks: List<PlayerSubtitleInfo>,

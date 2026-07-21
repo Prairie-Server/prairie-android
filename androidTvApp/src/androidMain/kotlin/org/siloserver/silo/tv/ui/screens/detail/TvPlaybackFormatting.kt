@@ -3,6 +3,7 @@ package org.siloserver.silo.tv.ui.screens.detail
 import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.player.DolbyVisionDetection
 import java.util.Locale
 
@@ -238,12 +239,18 @@ object TvPlaybackFormatting {
 
     fun subtitleOptions(version: FileVersion?, selectedSubtitleTrackIndex: Int?): List<TvSubtitleOption> {
         val tracks = version?.subtitleTracks ?: return emptyList()
+        // Selection travels in the server's COMBINED space (externals first,
+        // embedded after — the identity subtitle_track_index resolves and
+        // mounted subtitle_urls carry). Catalog positions and raw catalog
+        // `index` values are different spaces; sending either selects the
+        // wrong track on files with external subtitles.
+        val combined = combinedSubtitleSelectionIndexes(tracks)
         return tracks.mapIndexed { ordinal, track ->
             TvSubtitleOption(
-                selectionIndex = ordinal,
+                selectionIndex = combined[ordinal],
                 title = subtitleTitle(track, ordinal),
                 detail = subtitleDetail(track),
-                isSelected = selectedSubtitleTrackIndex == ordinal,
+                isSelected = selectedSubtitleTrackIndex == combined[ordinal],
                 stableId = "sub-$ordinal",
             )
         }
@@ -306,8 +313,11 @@ object TvPlaybackFormatting {
         // An explicit positive selection that doesn't resolve in this version's
         // track list: a subtitle IS requested, so "On" (not "Auto"/"Off").
         if (tracks == null) return "On"
-        val track = tracks.getOrNull(selectedSubtitleTrackIndex) ?: return "On"
-        return subtitlePillSummary(track, selectedSubtitleTrackIndex)
+        // The selection is a combined-space index (see subtitleOptions); map it
+        // back to the catalog position for display.
+        val ordinal = combinedSubtitleSelectionIndexes(tracks).indexOf(selectedSubtitleTrackIndex)
+        val track = tracks.getOrNull(ordinal) ?: return "On"
+        return subtitlePillSummary(track, ordinal)
     }
 
     /**
