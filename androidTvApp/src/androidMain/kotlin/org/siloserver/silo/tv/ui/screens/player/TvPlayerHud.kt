@@ -2066,7 +2066,11 @@ internal fun HudPickerDialog(
             ) {
                 itemsIndexed(
                     options,
-                    key = { _, o -> o.id },
+                    // Position-suffixed: option ids come from server data and
+                    // must never be trusted to be unique (a duplicate key is a
+                    // fatal Compose crash). The modal list never reorders, so
+                    // positional keys are stable.
+                    key = { i, o -> "${o.id}#$i" },
                     contentType = { _, _ -> "hud-picker-option" },
                 ) { index, option ->
                     HudPickerOptionRow(

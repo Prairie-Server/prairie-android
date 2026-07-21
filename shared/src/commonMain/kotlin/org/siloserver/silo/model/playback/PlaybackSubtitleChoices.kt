@@ -5,6 +5,17 @@ import org.siloserver.silo.model.catalog.SubtitleTrack
 /**
  * Combines catalog subtitle alternatives with artifacts selected by the playback plan.
  *
+ * Output rows live in the server's COMBINED index space — the identity that
+ * session `subtitle_urls` carry and that `subtitle_track_index` replans
+ * resolve: externals occupy 0..n-1 in catalog order, embedded tracks follow
+ * at n+ordinal (the server counts burn-in-only tracks it omits from
+ * `subtitle_urls`, and the catalog lists all of them, so the ordinals line
+ * up). Catalog `index` values are deliberately ignored for identity: embedded
+ * entries carry ffprobe stream indexes (a different space) and older servers
+ * serialize every external as index 0, which used to produce duplicate rows —
+ * the picker keys rows by index, so duplicates crashed it and made selection
+ * ambiguous.
+ *
  * Catalog-only rows deliberately have no URL. They remain available as selection metadata,
  * while choosing one asks playback V3 to materialize the corresponding artifact. Giving every
  * catalog row a speculative stream URL makes Media3 prepare every sidecar eagerly; one missing
@@ -14,20 +25,17 @@ fun buildPlaybackSubtitleChoices(
     catalogTracks: List<SubtitleTrack>,
     plannedTracks: List<PlayerSubtitleInfo>,
 ): List<PlayerSubtitleInfo> {
-    if (catalogTracks.isEmpty()) return plannedTracks
+    // The picker keys rows by index — never publish duplicates, whatever the
+    // server sent.
+    if (catalogTracks.isEmpty()) return plannedTracks.distinctBy(PlayerSubtitleInfo::index)
 
     val plannedByIndex = plannedTracks.associateBy(PlayerSubtitleInfo::index)
-    val catalogChoices = catalogTracks.map { track ->
-        plannedByIndex[track.index]?.let { planned ->
-            planned.copy(
-                language = planned.language ?: track.language,
-                codec = planned.codec ?: track.codec,
-                label = planned.label ?: track.title,
-                source = planned.source ?: if (track.external) "external" else "embedded",
-                forced = planned.forced ?: track.forced,
-            )
-        } ?: PlayerSubtitleInfo(
-            index = track.index,
+    val externals = catalogTracks.filter(SubtitleTrack::external)
+    val embedded = catalogTracks.filterNot(SubtitleTrack::external)
+
+    fun choiceAt(combinedIndex: Int, track: SubtitleTrack): PlayerSubtitleInfo {
+        val planned = plannedByIndex[combinedIndex] ?: return PlayerSubtitleInfo(
+            index = combinedIndex,
             language = track.language,
             codec = track.codec,
             label = track.title,
@@ -35,7 +43,20 @@ fun buildPlaybackSubtitleChoices(
             forced = track.forced,
             url = "",
         )
+        return planned.copy(
+            language = planned.language ?: track.language,
+            codec = planned.codec ?: track.codec,
+            label = planned.label ?: track.title,
+            source = planned.source ?: if (track.external) "external" else "embedded",
+            forced = planned.forced ?: track.forced,
+        )
     }
-    val catalogIndices = catalogTracks.mapTo(mutableSetOf(), SubtitleTrack::index)
-    return catalogChoices + plannedTracks.filterNot { it.index in catalogIndices }
+
+    val catalogChoices = buildList {
+        externals.forEachIndexed { i, track -> add(choiceAt(i, track)) }
+        embedded.forEachIndexed { i, track -> add(choiceAt(externals.size + i, track)) }
+    }
+    val covered = catalogChoices.mapTo(mutableSetOf(), PlayerSubtitleInfo::index)
+    return (catalogChoices + plannedTracks.filterNot { it.index in covered })
+        .distinctBy(PlayerSubtitleInfo::index)
 }
