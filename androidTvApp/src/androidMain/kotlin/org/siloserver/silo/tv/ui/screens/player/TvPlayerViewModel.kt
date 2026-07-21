@@ -1434,7 +1434,6 @@ class TvPlayerViewModel(
                         }
                     }
                     is VideoSessionStartV3.Terminal -> {
-                        cancelPendingCatalogSubtitle()
                         _uiState.update {
                             it.copy(
                                 error = "Playback unavailable (${decision.reason}): ${decision.message}",
@@ -1444,7 +1443,6 @@ class TvPlayerViewModel(
                         }
                     }
                     VideoSessionStartV3.ServerUpgradeRequired -> {
-                        cancelPendingCatalogSubtitle()
                         _uiState.update {
                             it.copy(
                                 error = "This Silo server must be updated to support playback recovery.",
@@ -1455,11 +1453,9 @@ class TvPlayerViewModel(
                     }
                 }
                 is ApiResult.Error -> {
-                    cancelPendingCatalogSubtitle()
                     onReplanRequestFailed(classification, notice, result.message)
                 }
                 is ApiResult.NetworkError -> {
-                    cancelPendingCatalogSubtitle()
                     onReplanRequestFailed(classification, notice, result.exception.message)
                 }
             }
