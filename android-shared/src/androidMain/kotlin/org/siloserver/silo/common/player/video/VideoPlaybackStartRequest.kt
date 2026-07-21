@@ -23,4 +23,10 @@ data class VideoPlaybackStartRequest(
      * resume, which gets the rewind.
      */
     val suppressResumeRewind: Boolean = false,
+    /**
+     * "Try Anyway" escape hatch: bypass the pre-play server-reachability gate and
+     * attempt the normal server path even while the monitor reports the origin
+     * unreachable (issue #33). Default false = the gate applies.
+     */
+    val force: Boolean = false,
 )

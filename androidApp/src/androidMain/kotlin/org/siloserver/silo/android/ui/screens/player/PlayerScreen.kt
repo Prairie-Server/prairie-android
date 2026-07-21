@@ -11,10 +11,14 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -854,12 +858,27 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = uiState.error ?: "Unknown error",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge,
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.padding(32.dp),
-                )
+                ) {
+                    Text(
+                        text = uiState.error ?: "Unknown error",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    // Server-unreachable gets Retry (fresh probe + reload) plus a
+                    // Try Anyway escape hatch; generic errors keep the bare message.
+                    if (uiState.serverUnreachable) {
+                        Button(onClick = { viewModel.retryServerReachability() }) {
+                            Text("Retry")
+                        }
+                        OutlinedButton(onClick = { viewModel.playIgnoringServerReachability() }) {
+                            Text("Try Anyway")
+                        }
+                    }
+                }
             }
         } else {
             val controller = mediaController

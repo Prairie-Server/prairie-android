@@ -25,6 +25,18 @@ sealed interface VideoPlayerUiState {
         override val hasPlayableMedia: Boolean = false
     }
 
+    /**
+     * Server unreachable with no local copy — the player VM surfaces a distinct
+     * "Can't reach server" state with Retry / Try Anyway rather than a generic
+     * error (issue #33). Carried straight through from
+     * [VideoPlaybackStartResult.ServerUnreachable].
+     */
+    data class ServerUnreachable(
+        override val contentId: String,
+    ) : VideoPlayerUiState {
+        override val hasPlayableMedia: Boolean = false
+    }
+
     data class Ready(
         override val contentId: String,
         val fileId: Int?,

@@ -1,6 +1,7 @@
 package org.siloserver.silo.android.ui.screens.player
 
 import android.util.Log
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
@@ -10,6 +11,7 @@ import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlaybackStartResult
 import org.siloserver.silo.common.player.video.VideoPlaybackStarter
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
+import org.siloserver.silo.common.player.video.shouldReachServerForPlayback
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.android.BuildConfig
@@ -30,9 +32,17 @@ class MobileVideoPlaybackStarter(
     private val capabilityDetector: PlaybackCapabilityDetector,
     private val playerSettingsStore: PlayerSettingsStore,
     private val sessionLifecycle: PlaybackSessionLifecycle,
+    private val reachabilityMonitor: ServerReachabilityMonitor,
 ) : VideoPlaybackStarter {
 
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult {
+        // Pre-play gate: don't launch a doomed server session when the origin is
+        // unreachable (issue #33). Playable local downloads are already served by
+        // PlayerViewModel.tryLocalPlayback *before* this starter runs, so an
+        // Unreachable status here means no local copy exists.
+        if (!shouldReachServerForPlayback(reachabilityMonitor, request.force)) {
+            return VideoPlaybackStartResult.ServerUnreachable(request.contentId)
+        }
         return try {
             val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
                 is ApiResult.Success -> r.data

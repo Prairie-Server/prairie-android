@@ -60,7 +60,13 @@ fun createSiloClient(
         }
 
         install(HttpTimeout) {
-            connectTimeoutMillis = 30_000
+            // Connect timeout is the "is the server reachable" signal — a dead
+            // server should fail fast here rather than hang. Kept short (10s) so
+            // server-down is detected quickly; request/socket stay generous so
+            // legitimately slow but connected calls (transcode start, large
+            // catalog pages) aren't cut off. Individual slow endpoints may still
+            // raise their own per-request timeout.
+            connectTimeoutMillis = 10_000
             requestTimeoutMillis = 60_000
             socketTimeoutMillis = 60_000
         }

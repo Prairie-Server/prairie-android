@@ -167,6 +167,7 @@ val androidTvModule = module {
             capabilityDetector = get(),
             playerSettingsStore = get(),
             sessionLifecycle = get(),
+            reachabilityMonitor = get(),
         )
     }
     factory {
@@ -440,6 +441,7 @@ val androidTvModule = module {
             userItemStatePort = get(),
             outboxSyncScheduler = get(),
             catalogRepository = get(),
+            serverReachabilityMonitor = get(),
             launchArgs = params.get<TvPlayerLaunchArgs>(),
         )
     }
