@@ -2,7 +2,6 @@ package org.siloserver.silo.common.player.cast
 
 import android.util.Log
 import java.net.URLEncoder
-import io.sentry.SentryLogLevel
 import org.siloserver.silo.common.player.PlaybackNetworkEvidenceProvider
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.mediaItemMimeType
@@ -25,7 +24,6 @@ import org.siloserver.silo.model.playback.VideoDecodeCapability
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.repository.PlaybackRepository
-import org.siloserver.silo.common.telemetry.PlaybackTelemetry
 
 /**
  * Tier-2 Google Cast session preparation.
@@ -90,20 +88,10 @@ class CastPlaybackPreparer(
             is ApiResult.Success -> result.data
             is ApiResult.Error -> {
                 Log.w(TAG, "Cast session start failed: ${result.code} ${result.message}")
-                PlaybackTelemetry.log(
-                    "cast: prepare failed",
-                    mapOf("code" to result.code, "message" to result.message, "file_id" to request.fileId),
-                    SentryLogLevel.WARN,
-                )
                 return null
             }
             is ApiResult.NetworkError -> {
                 Log.w(TAG, "Cast session start network error: ${result.exception}")
-                PlaybackTelemetry.log(
-                    "cast: prepare network error",
-                    mapOf("error" to result.exception.toString(), "file_id" to request.fileId),
-                    SentryLogLevel.WARN,
-                )
                 return null
             }
         }
@@ -148,25 +136,11 @@ class CastPlaybackPreparer(
                 is ApiResult.Success -> transcodeResult.data
                 is ApiResult.Error -> {
                     Log.w(TAG, "Cast transcode start failed: ${transcodeResult.code} ${transcodeResult.message}")
-                    PlaybackTelemetry.log(
-                        "cast: transcode start failed",
-                        mapOf(
-                            "code" to transcodeResult.code,
-                            "message" to transcodeResult.message,
-                            "file_id" to request.fileId,
-                        ),
-                        SentryLogLevel.WARN,
-                    )
                     castSession.stopSession(startedSession.sessionId)
                     return null
                 }
                 is ApiResult.NetworkError -> {
                     Log.w(TAG, "Cast transcode start network error: ${transcodeResult.exception}")
-                    PlaybackTelemetry.log(
-                        "cast: transcode start network error",
-                        mapOf("error" to transcodeResult.exception.toString(), "file_id" to request.fileId),
-                        SentryLogLevel.WARN,
-                    )
                     castSession.stopSession(startedSession.sessionId)
                     return null
                 }
@@ -220,18 +194,6 @@ class CastPlaybackPreparer(
                     sub.index == request.subtitleTrackIndex,
             )
         }
-
-        PlaybackTelemetry.log(
-            "cast: media prepared",
-            mapOf(
-                "file_id" to request.fileId,
-                "play_method" to session.playMethod.toString(),
-                "mime" to mimeType,
-                "plan_delivery" to plan?.delivery?.toString(),
-                "subtitles" to subtitles.size,
-                "position" to (session.position.takeIf { it.isFinite() } ?: 0.0),
-            ),
-        )
 
         return CastMediaSpec(
             fileId = request.fileId,

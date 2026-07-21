@@ -23,9 +23,7 @@ import com.google.android.gms.common.images.WebImage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import io.sentry.SentryLogLevel
 import org.siloserver.silo.common.player.cast.CastMediaSpec
-import org.siloserver.silo.common.telemetry.PlaybackTelemetry
 
 data class SiloCastState(
     val isConnected: Boolean = false,
@@ -122,20 +120,11 @@ class SiloCastSessionManager(private val context: Context) {
     private val sessionListener = object : SessionManagerListener<CastSession> {
         override fun onSessionStarting(session: CastSession) {}
         override fun onSessionStarted(session: CastSession, sessionId: String) {
-            PlaybackTelemetry.log(
-                "cast: session started",
-                mapOf("device" to session.castDevice?.friendlyName),
-            )
             attachRemoteListeners(session)
             syncCastState()
             loadPendingMedia(session)
         }
         override fun onSessionStartFailed(session: CastSession, error: Int) {
-            PlaybackTelemetry.log(
-                "cast: session start failed",
-                mapOf("error_code" to error),
-                SentryLogLevel.WARN,
-            )
             detachRemoteListeners()
             _castState.value = SiloCastState()
         }
@@ -144,11 +133,6 @@ class SiloCastSessionManager(private val context: Context) {
             captureRemotePosition(session)
         }
         override fun onSessionEnded(session: CastSession, error: Int) {
-            PlaybackTelemetry.log(
-                "cast: session ended",
-                mapOf("error_code" to error, "last_position" to lastPosition),
-                if (error != 0) SentryLogLevel.WARN else SentryLogLevel.INFO,
-            )
             captureRemotePosition(session)
             detachRemoteListeners()
             _castState.value = SiloCastState()
@@ -159,11 +143,6 @@ class SiloCastSessionManager(private val context: Context) {
             syncCastState()
         }
         override fun onSessionResumeFailed(session: CastSession, error: Int) {
-            PlaybackTelemetry.log(
-                "cast: session resume failed",
-                mapOf("error_code" to error),
-                SentryLogLevel.WARN,
-            )
             detachRemoteListeners()
             _castState.value = SiloCastState()
         }
@@ -305,18 +284,6 @@ class SiloCastSessionManager(private val context: Context) {
                     )
                 }
             }
-            PlaybackTelemetry.log(
-                "cast: load result",
-                mapOf(
-                    "success" to result.status.isSuccess,
-                    "status_code" to result.status.statusCode,
-                    "mime" to spec.mimeType,
-                    "file_id" to spec.fileId,
-                    "subtitles" to spec.subtitles.size,
-                    "active_subtitle" to spec.subtitles.any { it.selected },
-                ),
-                if (result.status.isSuccess) SentryLogLevel.INFO else SentryLogLevel.WARN,
-            )
         }
     }
 
@@ -373,7 +340,6 @@ class SiloCastSessionManager(private val context: Context) {
         val session = sessionManager?.currentCastSession
         if (session != null) {
             captureRemotePosition(session)
-            PlaybackTelemetry.log("cast: user disconnect", mapOf("last_position" to lastPosition))
             sessionManager?.endCurrentSession(true)
         }
         syncCastState()
@@ -390,7 +356,6 @@ class SiloCastSessionManager(private val context: Context) {
         )
         lastPosition = seconds
         _castState.value = _castState.value.copy(position = seconds)
-        PlaybackTelemetry.log("cast: seek", mapOf("position" to seconds))
     }
 
     fun togglePlayback() {
@@ -408,7 +373,6 @@ class SiloCastSessionManager(private val context: Context) {
         )
         if (trackId != null) remoteClient.setTextTrackStyle(castTextTrackStyle())
         _castState.value = _castState.value.copy(activeSubtitleId = trackId)
-        PlaybackTelemetry.log("cast: subtitle select", mapOf("track_id" to (trackId ?: -1L)))
     }
 
     /** Relative seek from the receiver's live position, clamped to the item. */
