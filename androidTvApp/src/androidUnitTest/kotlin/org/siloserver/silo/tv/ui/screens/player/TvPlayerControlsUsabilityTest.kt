@@ -55,6 +55,17 @@ class TvPlayerControlsUsabilityTest {
     }
 
     @Test
+    fun hudPickerDistinguishesSelectedFromFocusedRows() {
+        val row = hudSource
+            .substringAfter("private fun HudPickerOptionRow")
+            .substringBefore("private fun formatTime")
+        assertTrue(row.contains("isFocused -> Color.White"))
+        assertTrue(row.contains("isSelected -> Color.White.copy(alpha = 0.14f)"))
+        assertTrue(row.contains("isFocused -> Color.Black"))
+        assertTrue(row.contains("isSelected -> Color.White"))
+    }
+
+    @Test
     fun idleOverlayDefaultsToPlayPauseInTransportDock() {
         assertTrue(screenSource.contains("LaunchedEffect(focusRequest.nonce)"))
         assertTrue(

@@ -2115,8 +2115,16 @@ private fun HudPickerOptionRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val bg = if (isFocused || isSelected) Color.White else Color.Transparent
-    val fg = if (isFocused || isSelected) Color.Black else Color.White
+    val bg = when {
+        isFocused -> Color.White
+        isSelected -> Color.White.copy(alpha = 0.14f)
+        else -> Color.Transparent
+    }
+    val fg = when {
+        isFocused -> Color.Black
+        isSelected -> Color.White
+        else -> Color.White
+    }
 
     Row(
         modifier = Modifier
