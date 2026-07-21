@@ -122,14 +122,22 @@ class CastPlaybackPreparer(
             castFallbackMimeType(session.streamUrl)
         }
 
+        // Subtitle URLs are signed with the STREAM token from the cast URL, not
+        // the account access token: the server stamps a session-scoped ?st= on
+        // the stream URL only, and the subtitle route rejects anything else
+        // (observed: all subtitle fetches 401'd with the access token).
+        val streamToken = STREAM_TOKEN_VALUE_REGEX.find(castUrl)?.groupValues?.get(1)
         val subtitles = session.subtitleUrls.orEmpty()
             .filter { it.url.isNotBlank() }
             .map { sub ->
+                val base = forceVttFormat(resolvePlaybackStreamUrl(serverUrl, sub.url))
                 CastSubtitleTrack(
-                    url = signStreamUrl(
-                        forceVttFormat(resolvePlaybackStreamUrl(serverUrl, sub.url)),
-                        token,
-                    ),
+                    url = if (streamToken != null && !STREAM_TOKEN_REGEX.containsMatchIn(base)) {
+                        val sep = if (base.contains('?')) '&' else '?'
+                        "$base${sep}st=$streamToken"
+                    } else {
+                        signStreamUrl(base, token)
+                    },
                     language = sub.language,
                     label = sub.label ?: sub.language ?: "Subtitle",
                     // Activate the track the user selected on the phone.
@@ -198,6 +206,7 @@ class CastPlaybackPreparer(
     private companion object {
         private const val TAG = "CastPlaybackPreparer"
         private val STREAM_TOKEN_REGEX = Regex("[?&]st=")
+        private val STREAM_TOKEN_VALUE_REGEX = Regex("[?&]st=([^&]+)")
         private val FORMAT_PARAM_REGEX = Regex("([?&])format=[^&]*")
 
         /**
@@ -316,20 +325,14 @@ fun chromecastPlaybackContext(appVersion: String): ClientPlaybackContext {
                 subtitles = plainTextSubtitles,
                 features = listOf("hls", "buffer_reporting"),
             ),
-            PlaybackEngineKind.MEDIA3_DIRECT to EngineCapabilityEnvelope(
-                enabled = true,
-                supportedOnDevice = true,
-                containers = listOf("mp4"),
-                videoCodecs = videoCodecs,
-                audioDecodeCodecs = audioCodecs,
-                subtitles = plainTextSubtitles,
-                features = listOf("buffer_reporting"),
-            ),
-            // NO progressive-remux engine: the server's progressive remux is a
-            // live ffmpeg pipe (chunked, no byte ranges), which a Cast receiver
-            // cannot seek — every seek restarted playback from zero. Without
-            // this engine the server delivers HLS for non-direct sources, which
-            // the receiver seeks natively via segments.
+            // HLS is deliberately the ONLY engine. Any progressive delivery
+            // (direct or remux) reaches the receiver as a chunked/range-less
+            // stream it cannot seek — the slider and ±30s skips restarted
+            // playback from zero, and the receiver reported a live, growing
+            // duration. Advertising MEDIA3_DIRECT (mp4) was enough for the
+            // planner to keep choosing progressive remux, so it goes too: with
+            // HLS alone the server must serve a VOD manifest, which the
+            // receiver seeks natively via segments.
         ),
     )
 }
