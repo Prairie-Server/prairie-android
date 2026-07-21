@@ -97,6 +97,16 @@ class TvListPerformanceSourceTest {
     }
 
     @Test
+    fun recommendationsReserveTheFixedFilterBand() {
+        assertTrue(recommendations.contains("RecommendationsFilterBandHeight"))
+        assertTrue(
+            recommendations.contains(
+                "top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight",
+            ),
+        )
+    }
+
+    @Test
     fun tvCardActionObjectsAreRememberedPerContentId() {
         assertTrue(
             cardActionsHelpers.contains("val actions = remember(item.contentId, coordinator, scope)"),
