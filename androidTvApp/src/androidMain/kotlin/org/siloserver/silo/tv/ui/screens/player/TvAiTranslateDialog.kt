@@ -25,6 +25,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -187,7 +189,9 @@ fun TvAiTranslateDialog(
                                             TvAiTranslateMode.Subtitles
                                         }
                                     },
-                                    modifier = Modifier.focusRequester(firstRowFocus),
+                                    modifier = Modifier
+                                        .focusRequester(firstRowFocus)
+                                        .semantics { contentDescription = "Mode, ${mode.label}" },
                                 )
                             }
 
@@ -199,9 +203,10 @@ fun TvAiTranslateDialog(
                                 }
                             if (mode == TvAiTranslateMode.Subtitles) {
                                 val pos = subtitleSourcePos.coerceIn(0, subtitleSources.lastIndex)
+                                val sourceLabel = subtitleSourceLabel(subtitleSources[pos], pos)
                                 TvDialogCyclerRow(
                                     title = "Source subtitle",
-                                    value = subtitleSourceLabel(subtitleSources[pos], pos),
+                                    value = sourceLabel,
                                     onPrevious = {
                                         subtitleSourcePos =
                                             (pos - 1 + subtitleSources.size) % subtitleSources.size
@@ -209,31 +214,41 @@ fun TvAiTranslateDialog(
                                     onNext = {
                                         subtitleSourcePos = (pos + 1) % subtitleSources.size
                                     },
-                                    modifier = sourceFocusModifier,
+                                    modifier = sourceFocusModifier.semantics {
+                                        contentDescription = "Source subtitle, $sourceLabel"
+                                    },
                                 )
                             } else {
                                 val pos = audioSourcePos.coerceIn(0, audioSources.lastIndex)
+                                val sourceLabel = audioChoiceLabel(audioSources[pos], pos)
                                 TvDialogCyclerRow(
                                     title = "Source audio",
-                                    value = audioChoiceLabel(audioSources[pos], pos),
+                                    value = sourceLabel,
                                     onPrevious = {
                                         audioSourcePos =
                                             (pos - 1 + audioSources.size) % audioSources.size
                                     },
                                     onNext = { audioSourcePos = (pos + 1) % audioSources.size },
-                                    modifier = sourceFocusModifier,
+                                    modifier = sourceFocusModifier.semantics {
+                                        contentDescription = "Source audio, $sourceLabel"
+                                    },
                                 )
                             }
 
+                            val targetLanguageLabel =
+                                tvLanguageDisplayName(TvSubtitleLanguageOptions[targetPos])
                             TvDialogCyclerRow(
                                 title = "Target language",
-                                value = tvLanguageDisplayName(TvSubtitleLanguageOptions[targetPos]),
+                                value = targetLanguageLabel,
                                 onPrevious = {
                                     targetPos = (targetPos - 1 + TvSubtitleLanguageOptions.size) %
                                         TvSubtitleLanguageOptions.size
                                 },
                                 onNext = {
                                     targetPos = (targetPos + 1) % TvSubtitleLanguageOptions.size
+                                },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Target language, $targetLanguageLabel"
                                 },
                             )
 

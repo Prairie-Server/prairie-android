@@ -39,6 +39,15 @@ class TvPlayerControlsUsabilityTest {
     private val anchoredSelectorSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvAnchoredSelectorMenu.kt",
     ).readText()
+    private val optionDialogSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvOptionDialog.kt",
+    ).readText()
+    private val settingsSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/TvSettingsScreen.kt",
+    ).readText()
+    private val aiTranslateSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvAiTranslateDialog.kt",
+    ).readText()
 
     @Test
     fun searchStatusUsesTextDrivenHeight() {
@@ -63,6 +72,15 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(row.contains("isSelected -> Color.White.copy(alpha = 0.14f)"))
         assertTrue(row.contains("isFocused -> Color.Black"))
         assertTrue(row.contains("isSelected -> Color.White"))
+    }
+
+    @Test
+    fun selectableRowsAndColorSwatchesExposeSemantics() {
+        assertTrue(optionDialogSource.contains(".semantics { this.selected = selected }"))
+        assertTrue(settingsSource.contains(".semantics { this.selected = selected }"))
+        assertTrue(hudSource.contains(".semantics { this.selected = isSelected }"))
+        assertTrue(hudSource.contains("contentDescription = if (selected) \"\$label, selected\" else label"))
+        assertTrue(aiTranslateSource.contains("contentDescription = \"Mode, \${mode.label}\""))
     }
 
     @Test

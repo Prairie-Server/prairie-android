@@ -60,6 +60,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1496,6 +1499,7 @@ private fun HudSubtitlesPane(
                 TEXT_COLOR_SWATCHES.forEachIndexed { index, hex ->
                     StyleColorSwatch(
                         hex = hex,
+                        label = TvSubtitleAppearanceOptions.fontColorLabel(hex),
                         selected = appearance.fontColor.equals(hex, ignoreCase = true),
                         enabled = enabled,
                         focusRequester = if (index == 0) subtitleTextColorFocus else null,
@@ -1509,6 +1513,7 @@ private fun HudSubtitlesPane(
                 BACKGROUND_COLOR_SWATCHES.forEachIndexed { index, hex ->
                     StyleColorSwatch(
                         hex = hex,
+                        label = TvSubtitleAppearanceOptions.backgroundColorLabel(hex),
                         selected = appearance.backgroundColor.equals(hex, ignoreCase = true),
                         enabled = enabled,
                         focusRequester = if (index == 0) subtitleBackgroundColorFocus else null,
@@ -1523,6 +1528,7 @@ private fun HudSubtitlesPane(
                     OUTLINE_COLOR_SWATCHES.forEachIndexed { index, hex ->
                         StyleColorSwatch(
                             hex = hex,
+                            label = TvSubtitleAppearanceOptions.outlineColorLabel(hex),
                             selected = appearance.textOutlineColor.equals(hex, ignoreCase = true),
                             enabled = enabled,
                             focusRequester = if (index == 0) subtitleOutlineColorFocus else null,
@@ -1670,6 +1676,7 @@ private fun StyleSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun StyleColorSwatch(
     hex: String,
+    label: String,
     selected: Boolean,
     enabled: Boolean,
     focusRequester: FocusRequester? = null,
@@ -1699,7 +1706,11 @@ private fun StyleColorSwatch(
             .background(swatchColor)
             .border(width = if (isFocused || selected) 2.dp else 1.dp, color = ring, shape = CircleShape)
             .focusable(enabled = enabled, interactionSource = interactionSource)
-            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() },
+            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() }
+            .semantics {
+                contentDescription = if (selected) "$label, selected" else label
+                this.selected = selected
+            },
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {
@@ -2171,6 +2182,7 @@ private fun HudPickerOptionRow(
             .background(bg)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(interactionSource = interactionSource, indication = null) { onSelect() }
+            .semantics { this.selected = isSelected }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
