@@ -163,8 +163,8 @@ class TvPlayerControlsUsabilityTest {
             "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScrubber.kt",
         ).readText()
 
-        assertTrue(scrubberSource.contains("formatScrubberTime(positionSec)"))
-        assertTrue(scrubberSource.contains("formatRemainingTime(durationSec - positionSec)"))
+        assertTrue(scrubberSource.contains("formatScrubberTime(labelPositionSec)"))
+        assertTrue(scrubberSource.contains("formatRemainingTime(durationSec - labelPositionSec)"))
         assertTrue(scrubberSource.contains("Chapter marker"))
         assertTrue(scrubberSource.contains("alpha = 0.45f"))
     }
@@ -563,7 +563,8 @@ class TvPlayerControlsUsabilityTest {
         // the lifecycle Reconnecting state only.
         assertTrue(screenSource.contains("text = \"Buffering\""))
         assertTrue(screenSource.contains("Icons.Filled.Bedtime"))
-        assertTrue(screenSource.contains("sessionState is SessionState.Reconnecting && !state.showNextUp"))
+        assertTrue(screenSource.contains("shouldShowReconnectSpinner("))
+        assertTrue(screenSource.contains("isInPictureInPictureMode = isInPictureInPictureMode"))
         assertFalse(screenSource.contains("val showSpinner = state.isBuffering"))
     }
 
