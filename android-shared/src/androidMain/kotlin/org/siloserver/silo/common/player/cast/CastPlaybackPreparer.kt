@@ -278,8 +278,9 @@ fun chromecastCodecCapabilities(): ClientCodecCapabilities = ClientCodecCapabili
 
 /**
  * Mirrors the shape [org.siloserver.silo.common.player.PlaybackCapabilityDetector.detectPlaybackContext]
- * produces, but declares the Chromecast-oriented engine set (HLS + direct MP4 +
- * progressive remux, all enabled) instead of the phone's probed engines.
+ * produces, but declares the Chromecast-oriented engine set (HLS + direct MP4)
+ * instead of the phone's probed engines. Progressive remux is deliberately
+ * absent — see the inline note.
  */
 fun chromecastPlaybackContext(appVersion: String): ClientPlaybackContext {
     val videoCodecs = listOf("h264")
@@ -324,15 +325,11 @@ fun chromecastPlaybackContext(appVersion: String): ClientPlaybackContext {
                 subtitles = plainTextSubtitles,
                 features = listOf("buffer_reporting"),
             ),
-            PlaybackEngineKind.MEDIA3_PROGRESSIVE_REMUX to EngineCapabilityEnvelope(
-                enabled = true,
-                supportedOnDevice = true,
-                containers = listOf("mp4"),
-                videoCodecs = videoCodecs,
-                audioDecodeCodecs = audioCodecs,
-                subtitles = plainTextSubtitles,
-                features = listOf("progressive", "buffer_reporting"),
-            ),
+            // NO progressive-remux engine: the server's progressive remux is a
+            // live ffmpeg pipe (chunked, no byte ranges), which a Cast receiver
+            // cannot seek — every seek restarted playback from zero. Without
+            // this engine the server delivers HLS for non-direct sources, which
+            // the receiver seeks natively via segments.
         ),
     )
 }
