@@ -2,6 +2,7 @@ package org.siloserver.silo.android.cast
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.MediaInfo
@@ -73,6 +74,10 @@ data class SiloCastRoute(
  *     exposed via [getLastPosition] so local playback resumes where casting left.
  */
 class SiloCastSessionManager(private val context: Context) {
+    private companion object {
+        private const val TAG = "SiloCastSessionMgr"
+    }
+
 
     private val playServicesAvailable: Boolean =
         runCatching {
@@ -288,12 +293,17 @@ class SiloCastSessionManager(private val context: Context) {
             .build()
 
         remoteClient.load(loadRequest).setResultCallback { result ->
-            // The framework re-applies the phone's SYSTEM caption style after
-            // load (Android's default = opaque black background box), which
-            // overrides the style embedded in the MediaInfo. Re-assert ours
-            // once the load lands so the last write is the unboxed style.
+            Log.i(TAG, "cast load result success=${result.status.isSuccess} code=${result.status.statusCode}")
+            // The MediaInfo-embedded style alone doesn't reach the receiver's
+            // renderer; re-assert via the tracks channel once the load lands.
             if (result.status.isSuccess) {
-                remoteClient.setTextTrackStyle(castTextTrackStyle())
+                remoteClient.setTextTrackStyle(castTextTrackStyle()).setResultCallback { styleResult ->
+                    Log.i(
+                        TAG,
+                        "cast setTextTrackStyle result success=${styleResult.status.isSuccess} " +
+                            "code=${styleResult.status.statusCode} msg=${styleResult.status.statusMessage}",
+                    )
+                }
             }
             PlaybackTelemetry.log(
                 "cast: load result",
@@ -312,9 +322,15 @@ class SiloCastSessionManager(private val context: Context) {
 
     /** White text, black outline, no background box — the app's default look. */
     private fun castTextTrackStyle(): TextTrackStyle = TextTrackStyle().apply {
+        // GMS gotcha (verified against play-services-cast bytecode):
+        // TextTrackStyle.COLOR_UNSPECIFIED == 0 == Color.TRANSPARENT, so a
+        // pure-transparent color is treated as "unset", omitted from the
+        // payload, and the receiver keeps its opaque black default band.
+        // Alpha-1 black is visually transparent but survives serialization.
+        val nearTransparent = android.graphics.Color.argb(1, 0, 0, 0)
         foregroundColor = android.graphics.Color.WHITE
-        backgroundColor = android.graphics.Color.TRANSPARENT
-        windowColor = android.graphics.Color.TRANSPARENT
+        backgroundColor = nearTransparent
+        windowColor = nearTransparent
         windowType = TextTrackStyle.WINDOW_TYPE_NONE
         edgeType = TextTrackStyle.EDGE_TYPE_OUTLINE
         edgeColor = android.graphics.Color.BLACK
