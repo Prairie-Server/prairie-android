@@ -1,8 +1,8 @@
 # Android TV UI Audit Remediation Design
 
-**Date:** 2026-07-21  
-**Status:** Approved for implementation planning  
-**Reference:** `ops-notes/tv-ui-deep-dive-2026-07-21.md`  
+**Date:** 2026-07-21
+**Status:** Approved for implementation planning
+**Reference:** `ops-notes/tv-ui-deep-dive-2026-07-21.md`
 **Baseline:** `fix/usability-audit` at `29a258cb`
 
 ## Objective
