@@ -334,6 +334,11 @@ class SiloCastSessionManager(private val context: Context) {
         windowType = TextTrackStyle.WINDOW_TYPE_NONE
         edgeType = TextTrackStyle.EDGE_TYPE_OUTLINE
         edgeColor = android.graphics.Color.BLACK
+        // The receiver's default caption typeface is monospaced, which renders
+        // punctuation (apostrophes, commas) oddly wide; use a normal
+        // proportional face. (Font sentinel is -1, so 0 == SANS_SERIF is safe
+        // to send — unlike the color sentinel above.)
+        fontGenericFamily = TextTrackStyle.FONT_FAMILY_SANS_SERIF
     }
 
     private fun attachRemoteListeners(session: CastSession) {
