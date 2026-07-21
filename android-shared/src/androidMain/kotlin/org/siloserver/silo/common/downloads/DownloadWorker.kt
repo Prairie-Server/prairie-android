@@ -7,6 +7,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.Constraints
 import androidx.work.Data
@@ -26,6 +27,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
@@ -36,6 +38,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
 
 /**
  * Streams `GET /api/v1/downloads/{id}/file` to the local
@@ -135,6 +138,18 @@ class DownloadWorker(
                     // Drop the partial; partialSize→0 makes the retry a fresh GET.
                     storage.delete(serverId, profileId, fileId)
                     throw IOException("range not satisfiable — restarting fresh")
+                }
+                // A non-original (remux/transcode) row is still `preparing`: the
+                // /file endpoint answers 409 `download_inactive` until the
+                // artifact is `ready` (docs §4.5). That is transient, NOT the
+                // fatal "revoked" case — throw the preparing sentinel so we wait
+                // (WorkManager backoff) and re-probe on the next attempt instead
+                // of deleting the download. Other 409s stay fatal below.
+                if (response.status == HttpStatusCode.Conflict) {
+                    val errorCode = runCatching { response.bodyAsText() }
+                        .getOrNull()
+                        ?.let { extractDownloadErrorCode(it) }
+                    if (errorCode == DOWNLOAD_INACTIVE_ERROR) throw DownloadPreparingException()
                 }
                 downloadHttpStatusFailure(response.status)?.let { throw it }
 
@@ -260,6 +275,20 @@ class DownloadWorker(
                 runCatching { storage.delete(serverId, profileId, fileId) }
             }
             throw e
+        } catch (e: DownloadPreparingException) {
+            // Server is still building the remux/transcode artifact. No bytes
+            // reached disk (we never got past the range GET), so there is
+            // nothing to clean up and the sidecar stays as-is. Bound the wait:
+            // a genuinely stuck prepare eventually fails instead of retrying
+            // forever. The server keeps any finished artifact, so a manual retry
+            // after this cap finds it `ready` and downloads instantly.
+            if (runAttemptCount >= MAX_PREPARE_ATTEMPTS) {
+                Log.w(TAG, "doWork prepare gave up id=$downloadId after $runAttemptCount attempts")
+                failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
+            } else {
+                Log.i(TAG, "doWork preparing id=$downloadId attempt=$runAttemptCount → retry (awaiting ready)")
+                Result.retry()
+            }
         } catch (e: IOException) {
             if (isDiskFullError(e)) {
                 // Disk full — retrying can never succeed while the partial
@@ -415,6 +444,16 @@ class DownloadWorker(
          *  timeout is disabled per-request; this still fails a stalled connection. */
         private const val IDLE_TIMEOUT_MS = 60_000L
 
+        /**
+         * Max WorkManager attempts to spend waiting on a `preparing` artifact
+         * (409 `download_inactive`) before failing. With [PREPARE_BACKOFF_SECONDS]
+         * linear backoff this is roughly `MAX_PREPARE_ATTEMPTS × backoff` of
+         * polling (~15 min at the defaults) — enough for a typical transcode,
+         * bounded so a stuck prepare doesn't retry forever.
+         */
+        private const val MAX_PREPARE_ATTEMPTS = 30
+        private const val PREPARE_BACKOFF_SECONDS = 30L
+
         fun tagFor(downloadId: String): String = "download_$downloadId"
         private fun notificationIdFor(downloadId: String): Int =
             // Stable per download, avoids collisions across concurrent workers.
@@ -456,6 +495,10 @@ class DownloadWorker(
                 .setInputData(data)
                 .setConstraints(constraints)
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                // Linear backoff so a `preparing` transcode is re-probed on a
+                // predictable cadence (see MAX_PREPARE_ATTEMPTS) rather than the
+                // exponentially-widening default that would over-wait a ready row.
+                .setBackoffCriteria(BackoffPolicy.LINEAR, PREPARE_BACKOFF_SECONDS, TimeUnit.SECONDS)
                 .addTag(tagFor(downloadId))
                 .build()
             Log.i(TAG, "enqueue id=$downloadId fileId=$fileId wifiOnly=$wifiOnly")
@@ -468,6 +511,30 @@ class DownloadWorker(
         }
     }
 }
+
+/** Server error code (docs §12) meaning the row's artifact is not servable
+ *  yet — for a fresh remux/transcode row that means "still preparing". */
+internal const val DOWNLOAD_INACTIVE_ERROR = "download_inactive"
+
+/**
+ * A 409 `download_inactive` while the server is still preparing a remux/
+ * transcode artifact (issue #20). Retriable — wait for the row to reach
+ * `ready` — NOT a permanent failure. Subclasses [IOException] so it flows
+ * through the retry-friendly plumbing, but doWork catches it FIRST to apply
+ * the bounded preparing-retry cap instead of resuming/deleting a partial.
+ */
+private class DownloadPreparingException : IOException("download artifact still preparing")
+
+/**
+ * Pull the `error` code out of the server's flat error envelope
+ * (`{"error":"download_inactive","message":"..."}`, docs §12). Returns null
+ * when absent/malformed. Pure + string-only so it stays unit-testable without
+ * a live HTTP response.
+ */
+internal fun extractDownloadErrorCode(body: String): String? =
+    downloadErrorCodeRegex.find(body)?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+
+private val downloadErrorCodeRegex = Regex("""(?i)"error"\s*:\s*"([^"]*)"""")
 
 internal fun downloadHttpStatusFailure(status: HttpStatusCode): Throwable? = when {
     status.isSuccess() -> null

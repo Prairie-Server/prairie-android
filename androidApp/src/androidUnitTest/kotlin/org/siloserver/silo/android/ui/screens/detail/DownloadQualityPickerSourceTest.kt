@@ -25,7 +25,12 @@ class DownloadQualityPickerSourceTest {
     fun qualityPickerListsAllSupportedDownloadPresets() {
         assertTrue(picker.exists(), "DownloadQualityPickerSheet should be a focused detail-screen component")
         val source = picker.readText()
-        assertTrue(source.contains("DownloadQuality.entries.forEach"))
+        // The picker is capability-gated: it iterates the allowedQualities passed
+        // in (filtered to what the server/account permits) rather than all six
+        // presets, and never renders an empty list (falls back to Original).
+        assertTrue(source.contains("allowedQualities: List<DownloadQuality>"))
+        assertTrue(source.contains("allowedQualities.ifEmpty { listOf(DownloadQuality.Original) }"))
+        assertTrue(source.contains("qualities.forEach"))
         assertTrue(source.contains("quality.label"))
         assertTrue(source.contains("onQualitySelected(quality)"))
     }

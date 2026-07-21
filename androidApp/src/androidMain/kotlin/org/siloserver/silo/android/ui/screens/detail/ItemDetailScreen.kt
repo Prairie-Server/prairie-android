@@ -136,9 +136,20 @@ fun ItemDetailScreen(
     // describe the real file rather than defaulting to versions[0].
     val playerSettingsStore: PlayerSettingsStore = koinInject()
     val preferredQuality by playerSettingsStore.preferredQualityFlow.collectAsState(initial = null)
+    // Server capability gates which quality presets the picker may offer
+    // (issue #20 GAP 4). Until it loads (or if the fetch fails) we optimistically
+    // offer every preset; the server still rejects a disallowed quality.
+    val downloadCapability by viewModel.downloadCapability.collectAsState()
+    val allowedVideoQualities = downloadCapability?.allowedQualities()
+        ?: DownloadQuality.entries.toList()
     var pendingDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingCancelDownloadAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingDownloadQualityAction by remember { mutableStateOf<((DownloadQuality) -> Unit)?>(null) }
+    // Presets the currently-open picker should show (video → capability-gated;
+    // books → Original only). Set when a quality action is armed.
+    var pendingDownloadAllowedQualities by remember {
+        mutableStateOf<List<DownloadQuality>>(emptyList())
+    }
     var pendingDownloadEstimate by remember {
         mutableStateOf<org.siloserver.silo.model.download.DownloadSizeEstimate?>(null)
     }
@@ -172,12 +183,21 @@ fun ItemDetailScreen(
     fun runDownloadQualityAction(
         requirePermission: Boolean = true,
         estimate: org.siloserver.silo.model.download.DownloadSizeEstimate? = null,
+        allowedQualities: List<DownloadQuality> = allowedVideoQualities,
         action: (DownloadQuality) -> Unit,
     ) {
         runDownloadAction(requirePermission = requirePermission) {
-            pendingDownloadQualityAction = action
-            pendingDownloadEstimate = estimate
-            showDownloadQualityPicker = true
+            val presets = allowedQualities.ifEmpty { listOf(DownloadQuality.Original) }
+            if (presets.size <= 1) {
+                // A single choice (books, or a transcode-disabled account) needs
+                // no picker — download it directly at the only allowed quality.
+                action(presets.first())
+            } else {
+                pendingDownloadQualityAction = action
+                pendingDownloadEstimate = estimate
+                pendingDownloadAllowedQualities = presets
+                showDownloadQualityPicker = true
+            }
         }
     }
 
@@ -186,10 +206,16 @@ fun ItemDetailScreen(
         directAction: () -> Unit,
         qualityAction: (DownloadQuality) -> Unit,
         estimate: org.siloserver.silo.model.download.DownloadSizeEstimate? = null,
+        allowedQualities: List<DownloadQuality> = allowedVideoQualities,
     ) {
         when {
             !downloadState.isDownloaded && downloadState.progress == null -> {
-                runDownloadQualityAction(requirePermission = true, estimate = estimate, action = qualityAction)
+                runDownloadQualityAction(
+                    requirePermission = true,
+                    estimate = estimate,
+                    allowedQualities = allowedQualities,
+                    action = qualityAction,
+                )
             }
             // In flight — the tap cancels, so confirm before discarding
             // the partial download (iOS parity).
@@ -381,6 +407,9 @@ fun ItemDetailScreen(
                                         },
                                         estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
                                             .estimate(versions = listOf(version), fileId = version.fileId),
+                                        // Bitrate presets are video-only; audiobooks
+                                        // download at Original (no picker). GAP 4.
+                                        allowedQualities = listOf(DownloadQuality.Original),
                                     )
                                 }
                             },
@@ -443,6 +472,9 @@ fun ItemDetailScreen(
                                         },
                                         estimate = org.siloserver.silo.model.download.DownloadSizeEstimate
                                             .estimate(versions = listOf(version), fileId = version.fileId),
+                                        // eBooks have no bitrate variants — download
+                                        // at Original with no picker. GAP 4.
+                                        allowedQualities = listOf(DownloadQuality.Original),
                                     )
                                 }
                             },
@@ -549,19 +581,22 @@ fun ItemDetailScreen(
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
                             onSeriesDownloadClick = {
+                                // Series/season batches are Original-only server-side
+                                // (501 bulk_quality_unavailable otherwise), so no
+                                // quality picker — just start the batch. GAP 3.
                                 if (seriesDownloadState.isDownloaded) {
                                     runDownloadAction(requirePermission = false) {
                                         viewModel.onSeriesDownloadTapped()
                                     }
                                 } else {
-                                    runDownloadQualityAction { quality ->
-                                        viewModel.onSeriesDownloadTapped(downloadQuality = quality)
+                                    runDownloadAction {
+                                        viewModel.onSeriesDownloadTapped()
                                     }
                                 }
                             },
                             onSeasonDownloadClick = { season ->
-                                runDownloadQualityAction { quality ->
-                                    viewModel.onSeasonDownloadTapped(season, downloadQuality = quality)
+                                runDownloadAction {
+                                    viewModel.onSeasonDownloadTapped(season)
                                 }
                             },
                             onEpisodeDownloadClick = { ep ->
@@ -803,15 +838,18 @@ fun ItemDetailScreen(
                     }
                     pendingDownloadQualityAction = null
                     pendingDownloadEstimate = null
+                    pendingDownloadAllowedQualities = emptyList()
                     showDownloadQualityPicker = false
                 },
                 onDismiss = {
                     pendingDownloadQualityAction = null
                     pendingDownloadEstimate = null
+                    pendingDownloadAllowedQualities = emptyList()
                     showDownloadQualityPicker = false
                 },
                 estimate = pendingDownloadEstimate,
                 availableBytes = remember { downloadStorage.usableSpaceBytes() },
+                allowedQualities = pendingDownloadAllowedQualities,
             )
         }
 

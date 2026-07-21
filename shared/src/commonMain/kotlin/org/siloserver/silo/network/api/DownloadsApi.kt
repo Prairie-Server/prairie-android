@@ -1,5 +1,6 @@
 package org.siloserver.silo.network.api
 
+import org.siloserver.silo.model.download.DownloadCapability
 import org.siloserver.silo.model.download.DownloadRecord
 import org.siloserver.silo.model.download.DownloadRequest
 import org.siloserver.silo.model.download.DownloadsListResponse
@@ -32,6 +33,16 @@ open class DownloadsApi(protected val client: HttpClient) {
         // the bare `/api/v1/downloads` to `/api/v1/downloads/`. Ktor's POST
         // doesn't follow redirects, which surfaced as ApiResult.Error(302).
         client.get("/api/v1/downloads/")
+    }
+
+    /**
+     * Feature detection (issue #20 §3). Call at detail load / profile switch;
+     * the picker offers only `quality_presets` and hides bitrate presets when
+     * transcode is disabled. No trailing slash — this is a named subpath, not
+     * the collection root that chi 302-redirects.
+     */
+    open suspend fun capability(): ApiResult<DownloadCapability> = safeApiCall {
+        client.get("/api/v1/downloads/capability")
     }
 
     open suspend fun create(request: DownloadRequest): ApiResult<DownloadRecord> = safeApiCall {

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.components.ProgressIndicator
 import org.siloserver.silo.common.ui.components.ThumbhashImage
+import org.siloserver.silo.model.download.DownloadQuality
 
 /**
  * A single row in the downloads list.
@@ -79,7 +80,11 @@ fun DownloadItemRow(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = formatBytes(item.fileSizeBytes),
+                // "Quality • size" (e.g. "5 Mbps • 420 MB", "Original • 1.2 GB");
+                // just the size when the row carries no quality (issue #20 GAP 5).
+                text = downloadItemQualityLabel(item)
+                    ?.let { "$it • ${formatBytes(item.fileSizeBytes)}" }
+                    ?: formatBytes(item.fileSizeBytes),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -101,5 +106,17 @@ fun DownloadItemRow(
             )
         }
     }
+}
+
+/**
+ * Human label for a download's quality, preferring what the server actually
+ * delivered (`effectiveQuality`) over what was requested. Null when the row
+ * carries no quality (older sidecars) so the row falls back to size-only.
+ */
+private fun downloadItemQualityLabel(item: DownloadItem): String? {
+    val wire = item.effectiveQuality?.takeIf { it.isNotBlank() }
+        ?: item.quality?.takeIf { it.isNotBlank() }
+        ?: return null
+    return DownloadQuality.fromWire(wire).label
 }
 

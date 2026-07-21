@@ -38,8 +38,13 @@ internal fun detailDownloadStateForFile(
     val status = record?.statusEnum()
     val progress = record
         ?.takeIf {
+            // Preparing/Ready are the early transcode lifecycle states — treat
+            // them as in-flight so the button shows progress (0%), not a fresh
+            // "download" affordance that would re-POST (issue #20 GAP 1).
             status == DownloadStatus.Downloading ||
-                status == DownloadStatus.Queued
+                status == DownloadStatus.Queued ||
+                status == DownloadStatus.Preparing ||
+                status == DownloadStatus.Ready
         }
         ?.let { rec ->
             if (rec.fileSize > 0) {
@@ -61,6 +66,10 @@ internal fun detailDownloadTapAction(
     status: DownloadStatus?,
     forceRedownloadMissingLocal: Boolean,
 ): DetailDownloadTapAction = when (status) {
+    // Preparing/Ready are in-flight (server building or ready-to-fetch), so a
+    // tap cancels like Queued/Downloading rather than starting a duplicate.
+    DownloadStatus.Preparing,
+    DownloadStatus.Ready,
     DownloadStatus.Queued,
     DownloadStatus.Downloading,
     -> DetailDownloadTapAction.Cancel

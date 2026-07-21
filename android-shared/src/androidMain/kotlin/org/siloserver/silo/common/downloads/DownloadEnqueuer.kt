@@ -150,7 +150,11 @@ class DownloadEnqueuer(
             downloadRequest(
                 contentId = seriesContentId,
                 series = true,
-                downloadQualityOverride = downloadQualityOverride,
+                // Batch (series/season) downloads are original-only: the server
+                // returns 501 bulk_quality_unavailable for any other quality
+                // (docs §5 + error table). Force Original regardless of the
+                // override the caller passed (issue #20 GAP 3).
+                downloadQualityOverride = DownloadQuality.Original,
             ),
         )) {
             is ApiResult.Success -> r.data.also { Log.i(TAG, "startSeries: server returned ${it.size} records") }
@@ -241,7 +245,10 @@ class DownloadEnqueuer(
                 episodeNumber = ep.episodeNumber,
                 episodeTitle = ep.title,
                 posterUrl = posterUrl,
-                downloadQualityOverride = downloadQualityOverride,
+                // Season batch is original-only (server rejects a non-original
+                // batch with 501 bulk_quality_unavailable). Force Original even
+                // though startEpisode itself honors quality for single episodes.
+                downloadQualityOverride = DownloadQuality.Original,
             )
             if (result is ApiResult.Success) queued++
             else if (firstError == null) firstError = result

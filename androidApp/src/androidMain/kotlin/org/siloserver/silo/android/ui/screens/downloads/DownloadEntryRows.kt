@@ -563,6 +563,10 @@ internal fun downloadStatusLabel(
     if (isMissingLocal) {
         "Missing file"
     } else when (status) {
+        // Early transcode lifecycle (issue #20): the server is building the
+        // artifact, then it is ready to fetch — both read as "getting ready".
+        DownloadStatus.Preparing -> "Preparing…"
+        DownloadStatus.Ready -> "Queued"
         DownloadStatus.Queued -> "Queued"
         DownloadStatus.Downloading -> {
             val percent = (progress.coerceIn(0f, 1f) * 100).toInt()
