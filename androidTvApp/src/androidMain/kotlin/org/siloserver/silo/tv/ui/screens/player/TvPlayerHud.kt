@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,7 +51,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -1564,18 +1567,35 @@ private fun HudSubtitlePreview(
     appearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
 ) {
+    val safe = appearance.sanitized()
     val shape = RoundedCornerShape(6.dp)
-    val backgroundAlpha = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.None) {
-        0f
-    } else {
-        appearance.backgroundOpacity.coerceIn(0, 100) / 100f
-    }
-    val backgroundColor = hexToColor(appearance.backgroundColor).copy(alpha = backgroundAlpha)
-    val borderColor = when {
-        appearance.textOutline || appearance.backgroundStyle == SubtitleBackgroundStylePreset.Outline ->
-            hexToColor(appearance.textOutlineColor).copy(alpha = 0.7f)
-        else -> Color.Transparent
-    }
+    val decoration = TvSubtitleAppearanceOptions.previewDecoration(safe)
+    val fontSize = TvSubtitleAppearanceOptions.previewFontSizeSp(safe.fontSize).sp
+    val fontFamily = TvSubtitleAppearanceOptions.previewFontFamily(safe.fontFamily)
+    val foreground = hexToColor(safe.fontColor)
+    val outline = hexToColor(safe.textOutlineColor)
+    val backgroundColor = hexToColor(safe.backgroundColor).copy(
+        alpha = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) {
+            safe.backgroundOpacity.coerceIn(0, 100) / 100f
+        } else {
+            0f
+        },
+    )
+    val textStyle = MaterialTheme.typography.bodyLarge.copy(
+        fontSize = fontSize,
+        lineHeight = fontSize * 1.18f,
+        fontFamily = fontFamily,
+        fontWeight = FontWeight.SemiBold,
+        shadow = if (decoration.shadow) {
+            Shadow(
+                color = outline.copy(alpha = 0.9f),
+                offset = Offset(1f, 2f),
+                blurRadius = 5f,
+            )
+        } else {
+            null
+        },
+    )
 
     Column(
         modifier = modifier
@@ -1591,23 +1611,41 @@ private fun HudSubtitlePreview(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(76.dp)
                 .clip(shape)
-                .background(backgroundColor)
-                .border(0.5.dp, borderColor, shape)
+                .background(DarkSurfaceElevated.copy(alpha = 0.72f))
                 .padding(horizontal = 10.dp, vertical = 7.dp),
-            contentAlignment = Alignment.Center,
+            contentAlignment = TvSubtitleAppearanceOptions.previewAlignment(safe.position),
         ) {
-            Text(
-                text = "Subtitle example",
-                color = hexToColor(appearance.fontColor),
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = HudBodyTextSize,
-                    lineHeight = HudBodyLineHeight,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(backgroundColor)
+                    .padding(
+                        horizontal = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) 7.dp else 0.dp,
+                        vertical = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) 2.dp else 0.dp,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (decoration.outline) {
+                    listOf(-1 to -1, -1 to 1, 1 to -1, 1 to 1).forEach { (x, y) ->
+                        Text(
+                            text = "Subtitle example",
+                            color = outline,
+                            style = textStyle.copy(shadow = null),
+                            maxLines = 1,
+                            modifier = Modifier.offset(x.dp, y.dp),
+                        )
+                    }
+                }
+                Text(
+                    text = "Subtitle example",
+                    color = foreground,
+                    style = textStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
