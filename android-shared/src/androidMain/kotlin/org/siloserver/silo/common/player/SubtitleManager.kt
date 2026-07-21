@@ -233,11 +233,11 @@ class SubtitleManager(
         }
         val background = parseHexColor(appearance.backgroundColor, backgroundAlpha)
         val edgeType = when {
-            appearance.textOutline -> CaptionStyleCompat.EDGE_TYPE_OUTLINE
-            appearance.backgroundStyle == SubtitleBackgroundStylePreset.Outline ->
-                CaptionStyleCompat.EDGE_TYPE_OUTLINE
             appearance.backgroundStyle == SubtitleBackgroundStylePreset.Shadow ->
                 CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+            appearance.backgroundStyle == SubtitleBackgroundStylePreset.Outline ->
+                CaptionStyleCompat.EDGE_TYPE_OUTLINE
+            appearance.textOutline -> CaptionStyleCompat.EDGE_TYPE_OUTLINE
             else -> CaptionStyleCompat.EDGE_TYPE_NONE
         }
         val edgeColor = parseHexColor(appearance.textOutlineColor)
@@ -279,7 +279,7 @@ class SubtitleManager(
 
     private fun bottomPaddingFor(position: SubtitlePositionPreset): Float {
         return when (position) {
-            SubtitlePositionPreset.Bottom -> 0.06f
+            SubtitlePositionPreset.Bottom -> 0.09f
             SubtitlePositionPreset.LowerThird -> 0.18f
             SubtitlePositionPreset.Top -> 0.74f
         }

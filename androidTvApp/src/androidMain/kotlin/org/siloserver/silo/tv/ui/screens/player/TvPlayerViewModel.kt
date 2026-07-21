@@ -1066,7 +1066,11 @@ class TvPlayerViewModel(
         }
     }
 
-    private fun nextTransportMountNonce(): Long {
+    private fun nextTransportMountNonce(subtitleServerIndexToRestore: Int?): Long {
+        // Media3 does not carry a live text-track override across MediaItem
+        // replacement. Every same-content remount declares the stable server
+        // subtitle index to restore; the first mount explicitly passes null.
+        subtitleServerIndexToRestore?.let(subtitleRemountReselection::arm)
         transportMountSequence = if (transportMountSequence == Long.MAX_VALUE) {
             1L
         } else {
@@ -1158,7 +1162,7 @@ class TvPlayerViewModel(
                 if (generation != contentLoadGeneration) return@launch
                 when (result) {
                     is VideoPlayerUiState.Ready -> {
-                        val transportMountNonce = nextTransportMountNonce()
+                        val transportMountNonce = nextTransportMountNonce(null)
                         val localTrackSelection = result.fileId
                             ?.let { fileId -> userItemStatePort.localTrackSelection(contentId, fileId) }
                         pendingPersistedAudioFingerprint = if (initialAudioTrackIndex == null) {
@@ -1324,7 +1328,7 @@ class TvPlayerViewModel(
         ) {
             transientNetworkRetries++
             val plan = state.playbackPlan
-            val transportMountNonce = nextTransportMountNonce()
+            val transportMountNonce = nextTransportMountNonce(selectedSubtitleTrackIndex(state))
             _uiState.update {
                 it.copy(
                     error = null,
@@ -1425,13 +1429,6 @@ class TvPlayerViewModel(
                             catalogTracks = effectiveVersion?.subtitleTracks.orEmpty(),
                             plannedTracks = plannedSubtitles + preservedSubtitles,
                         )
-                        if (classification == "subtitle_track_changed") {
-                            // A successful user subtitle replan remounts the MediaItem.
-                            // Media3 does not carry the live text-track override across
-                            // that remount, so resolve its new flat ordinal when tracks
-                            // are reported and apply the choice again.
-                            subtitleRemountReselection.arm(selectedSubtitle)
-                        }
                         val effectiveContainer = decision.plan.stream.container
                             ?: effectiveVersion?.container
                             ?: state.container.takeIf { effectiveFileId == fileId }
@@ -1453,7 +1450,7 @@ class TvPlayerViewModel(
                         )
                         coroutineContext.ensureActive()
                         if (recoveryContentGeneration != contentLoadGeneration) return@launch
-                        val transportMountNonce = nextTransportMountNonce()
+                        val transportMountNonce = nextTransportMountNonce(selectedSubtitle)
                         _uiState.update {
                             it.copy(
                                 error = null,
@@ -2073,20 +2070,21 @@ class TvPlayerViewModel(
         seekRecoveryRollbackInvalidated = false
         val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
         if (!isCurrentSeekRecovery(request)) return
+        val selectedSubtitle = selectedSubtitleTrackIndex(before)
         sessionLifecycle.adoptActiveSession(
             params = StartParams(
                 contentId = contentId,
                 fileId = fileId,
                 capabilities = capabilityDetector.detect(dolbyVision = dolbyVision),
                 audioTrackIndex = decision.session.audioTrackIndex,
-                subtitleTrackIndex = selectedSubtitleTrackIndex(before),
+                subtitleTrackIndex = selectedSubtitle,
                 startPosition = sourcePosition,
             ),
             session = decision.session,
             renewMissingSessionWithLegacyStart = false,
         )
         if (!isCurrentSeekRecovery(request)) return
-        val transportMountNonce = nextTransportMountNonce()
+        val transportMountNonce = nextTransportMountNonce(selectedSubtitle)
         _uiState.update {
             if (!isCurrentSeekRecovery(request)) return@update it
             it.copy(
@@ -3237,7 +3235,7 @@ class TvPlayerViewModel(
             if (mime != null && plan != null &&
                 playbackSessionManager.trySingleLocalPcmRetry(mime, selectedTrack?.channelCount ?: 0)
             ) {
-                val transportMountNonce = nextTransportMountNonce()
+                val transportMountNonce = nextTransportMountNonce(selectedSubtitleTrackIndex(state))
                 _uiState.update {
                     it.copy(
                         error = null,
@@ -3302,7 +3300,7 @@ class TvPlayerViewModel(
             transientNetworkRetries++
             Log.i(TAG, "Transient network error; retrying same route ($transientNetworkRetries/$MAX_TRANSIENT_NETWORK_RETRIES)")
             val plan = state.playbackPlan
-            val transportMountNonce = nextTransportMountNonce()
+            val transportMountNonce = nextTransportMountNonce(selectedSubtitleTrackIndex(state))
             _uiState.update {
                 it.copy(
                     isLoading = false,

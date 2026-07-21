@@ -1,11 +1,18 @@
 package org.siloserver.silo.tv.ui.screens.player
 
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SubtitleRemountReselectionTest {
+    private val viewModelSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerViewModel.kt",
+    ).readText()
+
     @Test
     fun selectedServerSubtitleIsReappliedWhenTheReplannedTrackArrives() {
         val latch = SubtitleRemountReselection()
@@ -39,5 +46,24 @@ class SubtitleRemountReselectionTest {
 
         assertEquals(-1, latch.consume(emptyList(), emptyList()))
         assertNull(latch.consume(emptyList(), emptyList()))
+    }
+
+    @Test
+    fun everyTransportRemountMustDeclareTheSubtitleSelectionToRestore() {
+        assertFalse(
+            viewModelSource.contains("nextTransportMountNonce()"),
+            "Every mount must explicitly pass the stable subtitle index, or null for the first mount",
+        )
+    }
+
+    @Test
+    fun seekRecoveryReappliesTheSelectedSubtitleAfterItsRemount() {
+        val seekRecoveryBlock = viewModelSource
+            .substringAfter("private suspend fun adoptSeekRecoveryDecision(")
+            .substringBefore("private fun isCurrentSeekRecovery(")
+
+        assertTrue(seekRecoveryBlock.contains("val selectedSubtitle = selectedSubtitleTrackIndex(before)"))
+        assertTrue(seekRecoveryBlock.contains("subtitleTrackIndex = selectedSubtitle"))
+        assertTrue(seekRecoveryBlock.contains("nextTransportMountNonce(selectedSubtitle)"))
     }
 }
