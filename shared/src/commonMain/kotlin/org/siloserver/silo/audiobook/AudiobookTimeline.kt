@@ -124,8 +124,9 @@ private const val AUDIOBOOK_PART_KIND = "audiobook_part"
 fun buildAudiobookTimeline(
     versions: List<FileVersion>,
     serverTotalSeconds: Double?,
+    preferredFileId: Int? = null,
 ): AudiobookTimeline? {
-    val parts = audioParts(versions)
+    val parts = audioParts(versions, preferredFileId)
     if (parts.isEmpty()) return null
 
     val tracks = ArrayList<AudioPlaybackTrack>(parts.size)
@@ -152,7 +153,10 @@ fun buildAudiobookTimeline(
         for (chapter in part.chapters.orEmpty()) {
             chapters.add(
                 AudioPlaybackChapter(
-                    index = chapter.index,
+                    // File chapter indexes restart at zero for every part.
+                    // The player exposes one book-wide list, so its index must
+                    // be the merged ordinal rather than the file-local value.
+                    index = chapters.size,
                     title = chapter.title,
                     startSeconds = offset + chapter.startSeconds,
                     endSeconds = offset + chapter.endSeconds,
@@ -168,34 +172,76 @@ fun buildAudiobookTimeline(
     // reports nothing, the cumulative offset is the whole-book length.
     val total = maxOf(serverTotalSeconds ?: 0.0, offset)
 
+    val sortedChapters = chapters
+        .sortedBy { it.startSeconds }
+        .mapIndexed { index, chapter -> chapter.copy(index = index) }
+
     return AudiobookTimeline(
         tracks = tracks,
-        chapters = chapters.sortedBy { it.startSeconds },
+        chapters = sortedChapters,
         totalSeconds = total,
     )
 }
 
 /**
- * The playable audio parts of [versions], in book order. A version is a part
- * when it is tagged `audiobook_part`, or (fallback for un-tagged libraries) when
- * it carries an audio codec or a positive duration. Sorted by
- * `presentationPartIndex` ascending (parts without one sort last), tie-broken by
- * `fileId` for a stable order.
+ * Selects one playable file for each ordered audiobook part. A version is
+ * playable when it is tagged `audiobook_part`, or (fallback for un-tagged
+ * libraries) when it carries an audio codec or a positive duration. Alternate
+ * files in the same part are reduced to the variant matching [preferredFileId]
+ * so their durations and chapters cannot be stitched into the book twice.
  *
  * Mirrors Apple `AudiobookPlaybackContext.audioParts(of:)` (AudiobookPlaybackContext.swift:89-101).
  */
-internal fun audioParts(versions: List<FileVersion>): List<FileVersion> =
-    versions
+internal fun audioParts(versions: List<FileVersion>, preferredFileId: Int? = null): List<FileVersion> {
+    val candidates = versions
         .filter { version ->
             if (version.presentationKind == AUDIOBOOK_PART_KIND) return@filter true
             version.codecAudio != null || version.duration > 0.0
         }
-        .sortedWith(
-            compareBy(
-                { it.presentationPartIndex ?: Int.MAX_VALUE },
-                { it.fileId },
-            )
+
+    if (candidates.isEmpty()) return emptyList()
+
+    // Detail responses contain alternate files for each logical audiobook
+    // part. Pick one coherent variant across all parts; treating every file as
+    // a sequential part shifts chapter offsets by the duration/chapter count
+    // of each alternate file.
+    val preferred = preferredFileId?.let { id -> candidates.firstOrNull { it.fileId == id } }
+    val preferredKey = preferred?.presentationVariantKey()
+    val indexed = candidates.filter { it.presentationPartIndex != null }
+    val selected = if (indexed.isNotEmpty()) {
+        val byPart = indexed
+            .groupBy { it.presentationPartIndex }
+            .toSortedMap(compareBy(nullsLast()) { it })
+        val candidateKeys = candidates
+            .map { it.presentationVariantKey() }
+            .distinct()
+        fun isCompleteVariant(key: String): Boolean = byPart.values.all { partVersions ->
+            partVersions.any { it.presentationVariantKey() == key }
+        }
+        val selectedKey = preferredKey
+            ?.takeIf(::isCompleteVariant)
+            ?: candidateKeys.firstOrNull(::isCompleteVariant)
+
+        byPart.values.mapNotNull { partVersions ->
+            selectedKey?.let { key ->
+                partVersions.firstOrNull { it.presentationVariantKey() == key }
+            } ?: partVersions.firstOrNull { it.fileId == preferredFileId }
+                ?: partVersions.firstOrNull()
+        }
+    } else {
+        listOf(
+            preferred
+                ?: preferredKey?.let { key -> candidates.firstOrNull { it.presentationVariantKey() == key } }
+                ?: candidates.first(),
         )
+    }
+
+    return selected.sortedWith(compareBy({ it.presentationPartIndex ?: Int.MAX_VALUE }, { it.fileId }))
+}
+
+private fun FileVersion.presentationVariantKey(): String =
+    listOf(presentationKind.orEmpty(), presentationGroupKey.orEmpty())
+        .joinToString("\u0000")
 
 /**
  * Duration of a part: the probed [FileVersion.duration] when finite and

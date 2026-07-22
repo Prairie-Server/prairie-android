@@ -258,6 +258,7 @@ data class FileVersion(
     // `presentation_part_index` (pre-sorted by index). The client stitches these parts
     // into one virtual whole-book timeline. Defaults keep single-file items unchanged.
     @SerialName("presentation_kind") val presentationKind: String? = null,
+    @SerialName("presentation_group_key") val presentationGroupKey: String? = null,
     @SerialName("presentation_part_index") val presentationPartIndex: Int? = null,
     @SerialName("presentation_part_total") val presentationPartTotal: Int? = null
 )

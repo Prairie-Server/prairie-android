@@ -26,6 +26,18 @@ class AudiobookPlayerStartPositionTest {
     }
 
     @Test
+    fun offlineCachedTimelinePrefersDownloadedFile() {
+        val offlineBody = source
+            .substringAfter("private suspend fun loadOfflineOnly")
+            .substringBefore("fun onPositionChanged")
+
+        assertTrue(
+            offlineBody.contains("preferredFileId = media.fileId"),
+            "offline cached timeline must select the downloaded presentation variant",
+        )
+    }
+
+    @Test
     fun stopPlaybackSessionClearsPlayableStateEvenWithoutRemoteSession() {
         val stopBody = source
             .substringAfter("fun stopPlaybackSession()")

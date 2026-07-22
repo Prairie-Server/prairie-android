@@ -97,16 +97,118 @@ class AudiobookTimelineTest {
         assertEquals(4, timeline.chapters.size)
 
         // Part-2's first chapter (local start 0) sits at part2 offset (100).
-        val part2First = timeline.chapters.first { it.trackIndex == 1 && it.index == 0 }
+        val part2First = timeline.chapters.first { it.trackIndex == 1 && it.startSeconds == 100.0 }
         assertEquals(100.0, part2First.startSeconds)   // part2Offset(100) + localStart(0)
         assertEquals(190.0, part2First.endSeconds)     // part2Offset(100) + localEnd(90)
 
         // Part-2's second chapter: 100 + 90 = 190 start.
-        val part2Second = timeline.chapters.first { it.trackIndex == 1 && it.index == 1 }
+        val part2Second = timeline.chapters.first { it.trackIndex == 1 && it.startSeconds == 190.0 }
         assertEquals(190.0, part2Second.startSeconds)
 
         // Global sort order (ascending by startSeconds).
         assertEquals(listOf(0.0, 60.0, 100.0, 190.0), timeline.chapters.map { it.startSeconds })
+        assertEquals(listOf(0, 1, 2, 3), timeline.chapters.map { it.index })
+    }
+
+    @Test
+    fun oneVersionPerOrderedPartIsStitchedWhenPartsHaveAlternateFiles() {
+        val versions = listOf(
+            part(
+                fileId = 201,
+                duration = 100.0,
+                partIndex = 1,
+                chapters = listOf(chapter(0, 0.0, 60.0), chapter(1, 60.0, 100.0)),
+            ).copy(presentationGroupKey = "lossless"),
+            part(
+                fileId = 202,
+                duration = 100.0,
+                partIndex = 1,
+                chapters = listOf(chapter(0, 0.0, 55.0), chapter(1, 55.0, 100.0)),
+            ).copy(presentationGroupKey = "compressed"),
+            part(
+                fileId = 203,
+                duration = 200.0,
+                partIndex = 2,
+                chapters = listOf(chapter(0, 0.0, 90.0), chapter(1, 90.0, 200.0)),
+            ).copy(presentationGroupKey = "lossless"),
+            part(
+                fileId = 204,
+                duration = 200.0,
+                partIndex = 2,
+                chapters = listOf(chapter(0, 0.0, 80.0), chapter(1, 80.0, 200.0)),
+            ).copy(presentationGroupKey = "compressed"),
+        )
+
+        val timeline = buildAudiobookTimeline(
+            versions = versions,
+            serverTotalSeconds = null,
+            preferredFileId = 201,
+        )!!
+
+        assertEquals(listOf(201, 203), timeline.tracks.map { it.fileId })
+        assertEquals(listOf(0.0, 100.0), timeline.tracks.map { it.startOffsetSeconds })
+        assertEquals(listOf(0.0, 60.0, 100.0, 190.0), timeline.chapters.map { it.startSeconds })
+        assertEquals(listOf(0, 1, 2, 3), timeline.chapters.map { it.index })
+    }
+
+    @Test
+    fun fallbackKeepsOnePresentationVariantAcrossAllParts() {
+        val versions = listOf(
+            part(fileId = 301, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "lossless"),
+            part(fileId = 302, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "compressed"),
+            // Reverse the alternate order for part two. Selecting firstOrNull
+            // independently would combine lossless part one with compressed part two.
+            part(fileId = 304, duration = 200.0, partIndex = 1)
+                .copy(presentationGroupKey = "compressed"),
+            part(fileId = 303, duration = 200.0, partIndex = 1)
+                .copy(presentationGroupKey = "lossless"),
+        )
+
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+
+        assertEquals(listOf(301, 303), timeline.tracks.map { it.fileId })
+    }
+
+    @Test
+    fun incompletePreferredVariantFallsBackToACompleteVariant() {
+        val versions = listOf(
+            part(fileId = 401, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "lossless"),
+            part(fileId = 402, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "compressed"),
+            part(fileId = 403, duration = 200.0, partIndex = 1)
+                .copy(presentationGroupKey = "compressed"),
+        )
+
+        val timeline = buildAudiobookTimeline(
+            versions = versions,
+            serverTotalSeconds = null,
+            preferredFileId = 401,
+        )!!
+
+        assertEquals(listOf(402, 403), timeline.tracks.map { it.fileId })
+    }
+
+    @Test
+    fun chapterIndexesFollowGloballySortedChapterOrder() {
+        val versions = listOf(
+            part(
+                fileId = 310,
+                duration = 100.0,
+                partIndex = 0,
+                chapters = listOf(
+                    chapter(1, 60.0, 100.0),
+                    chapter(0, 0.0, 60.0),
+                ),
+            ),
+        )
+
+        val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
+
+        assertEquals(listOf(0.0, 60.0), timeline.chapters.map { it.startSeconds })
+        assertEquals(listOf(0, 1), timeline.chapters.map { it.index })
     }
 
     @Test
@@ -231,8 +333,9 @@ class AudiobookTimelineTest {
     }
 
     @Test
-    fun `parts sort by presentation index then file id`() {
-        // Provided out of order; missing index sorts last, tie-broken by fileId.
+    fun indexedPartsExcludeUnindexedFallbackCandidates() {
+        // Once indexed logical parts exist, unindexed candidates are excluded;
+        // indexed parts remain ordered by presentation index then file ID.
         val versions = listOf(
             part(fileId = 73, duration = 10.0, partIndex = null),
             part(fileId = 71, duration = 10.0, partIndex = 1),
@@ -240,6 +343,6 @@ class AudiobookTimelineTest {
             part(fileId = 70, duration = 10.0, partIndex = 0),
         )
         val timeline = buildAudiobookTimeline(versions, serverTotalSeconds = null)!!
-        assertEquals(listOf(70, 71, 72, 73), timeline.tracks.map { it.fileId })
+        assertEquals(listOf(70, 71), timeline.tracks.map { it.fileId })
     }
 }
