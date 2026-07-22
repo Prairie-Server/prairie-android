@@ -42,7 +42,8 @@ import org.siloserver.silo.model.section.SectionItem
  * the leading edge and the bottom by a two-axis corner mask into a color
  * sampled from the art itself, which is carried (dimmed) diagonally
  * topEnd → bottomStart across the page so the metadata and rows sit on the same
- * tint. A ~190dp top scrim keeps the menu bar legible over bright art.
+ * tint. A ~95dp top scrim maps the tvOS 190pt ramp into the half-scale Android
+ * TV layout and keeps the menu bar legible over bright art.
  *
  * Driven by whichever row card holds focus — pass that item's marquee
  * [content]; when null the page renders flat on the app background.
@@ -262,7 +263,7 @@ fun TvRootHeroBackdrop(
 
 private const val ArtWidthFraction = 0.64f
 private const val ArtHeightFraction = 0.70f
-private val TopScrimHeight = 190.dp
+private val TopScrimHeight = 95.dp
 private const val TintOnlyDitherAlpha = 0.28f
 private const val EmptyWashDitherAlpha = 0.34f
 
