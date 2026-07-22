@@ -535,7 +535,6 @@ fun TvPlayerScreen(
             onPlayNext(req.contentId, req.autoAdvanceCount, req.preferredQuality)
         }
     }
-    val latestPlayerState by rememberUpdatedState(state)
     val latestIntroSkipState by rememberUpdatedState(introSkipState)
     val latestRoomSnapshot by rememberUpdatedState(roomSnapshot)
     val latestShowLeaveDialog by rememberUpdatedState(showLeaveDialog)
@@ -587,7 +586,7 @@ fun TvPlayerScreen(
     }
 
     fun handleSkipIntroNow(): Boolean {
-        val target = latestPlayerState.intro?.end ?: return false
+        val target = viewModel.uiState.value.intro?.end ?: return false
         if (roomController != null) {
             if (tvRoomTransportGate(latestRoomSnapshot, TvTransportIntent.Seek) != TransportGate.Send) {
                 return true
@@ -626,7 +625,7 @@ fun TvPlayerScreen(
         captureQuickSkipBurst: Boolean = false,
     ): Boolean {
         val controller = mediaController ?: return true
-        val playerState = latestPlayerState
+        val playerState = viewModel.uiState.value
         if (roomController != null &&
             tvRoomTransportGate(snapshot, TvTransportIntent.Seek) != TransportGate.Send
         ) {
@@ -695,7 +694,7 @@ fun TvPlayerScreen(
         quickSkipCaptureJob?.cancel()
         quickSkipCaptureJob = null
         quickSkipCaptureActive = false
-        cleanSeekPreviewSec = latestPlayerState.position.coerceAtLeast(0.0)
+        cleanSeekPreviewSec = viewModel.uiState.value.position.coerceAtLeast(0.0)
         cleanSeekRate = if (direction < 0) -1 else 1
 
         cleanSeekTickJob?.cancel()
@@ -703,7 +702,7 @@ fun TvPlayerScreen(
             while (isActive && cleanSeekRate != 0) {
                 cleanSeekPreviewSec = advanceCleanPlaybackSeekPreview(
                     previewSec = cleanSeekPreviewSec,
-                    durationSec = latestPlayerState.duration,
+                    durationSec = viewModel.uiState.value.duration,
                     rate = cleanSeekRate,
                 )
                 delay(CLEAN_SEEK_TICK_MS)
@@ -737,8 +736,8 @@ fun TvPlayerScreen(
                 delay(CLEAN_SEEK_HOLD_THRESHOLD_MS)
                 if (pendingCleanSeekGeneration == generation &&
                     pendingCleanSeekDirection == direction &&
-                    !latestPlayerState.showControls &&
-                    !latestPlayerState.showNextUp
+                    !viewModel.uiState.value.showControls &&
+                    !viewModel.uiState.value.showNextUp
                 ) {
                     beginCleanPlaybackSeek(direction, latestRoomSnapshot)
                 }
@@ -864,7 +863,7 @@ fun TvPlayerScreen(
 
     DisposableEffect(viewModel, roomController) {
         val handler: (KeyEvent) -> Boolean = handler@{ event ->
-            val playerState = latestPlayerState
+            val playerState = viewModel.uiState.value
             if (playerState.streamUrl == null || playerState.isLoading || playerState.error != null) {
                 return@handler false
             }

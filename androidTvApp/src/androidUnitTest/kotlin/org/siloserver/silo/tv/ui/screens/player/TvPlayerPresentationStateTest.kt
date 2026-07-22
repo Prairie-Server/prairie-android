@@ -27,5 +27,6 @@ class TvPlayerPresentationStateTest {
         assertFalse(source.contains("val state by viewModel.uiState.collectAsState()"))
         assertTrue(source.contains("viewModel.playbackClock.collectAsState()"))
         assertTrue(source.contains("viewModel.uiState.value.toSiloCastPlaybackState("))
+        assertFalse(source.contains("latestPlayerState"))
     }
 }
