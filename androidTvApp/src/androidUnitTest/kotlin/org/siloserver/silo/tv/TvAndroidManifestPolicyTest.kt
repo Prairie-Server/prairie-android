@@ -28,4 +28,11 @@ class TvAndroidManifestPolicyTest {
         assertFalse(manifest.contains("overrideLibrary"))
         assertFalse(manifest.contains("libmpv"))
     }
+
+    @Test
+    fun tvManifestKeepsSquareIconAndBannerAsDistinctResources() {
+        assertTrue(manifest.contains("""android:icon="@mipmap/ic_launcher""""))
+        assertTrue(manifest.contains("""android:banner="@drawable/tv_banner""""))
+        assertFalse(manifest.contains("""android:icon="@drawable/tv_banner""""))
+    }
 }
