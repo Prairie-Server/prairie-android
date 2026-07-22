@@ -3,6 +3,7 @@ package org.siloserver.silo.android.ui.screens.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -25,16 +27,23 @@ import androidx.compose.material.icons.filled.ScreenLockRotation
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.automirrored.filled.SpeakerNotes
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.siloserver.silo.android.ui.layout.useCompactPlayerToolbar
 
 /**
  * Transport controls overlay for the video player. Top-bar icon layout
@@ -105,76 +114,57 @@ fun PlayerControls(
             // Top bar — iOS HStack(spacing: 16): back · spacer · title · spacer ·
             // lock · chapters · tracks · settings. Title is centered between the
             // two spacers, single-line, `.subheadline`, no subtitle.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                ControlButton(
-                    icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = "Back",
-                    onClick = onBack,
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val trailingActionCount = 3 +
+                    (if (hasChapters) 1 else 0) +
+                    (if (hasMultipleVersions) 1 else 0)
+                val compact = useCompactPlayerToolbar(
+                    availableWidthDp = maxWidth.value,
+                    trailingActionCount = trailingActionCount,
                 )
 
-                // The title owns the flexible middle and shrinks first: in
-                // portrait with every button visible (rotate · chapters ·
-                // tracks · quality · gear) a free-width title used to push
-                // the trailing buttons off-screen entirely.
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.Center,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(
-                        text = title,
-                        fontSize = 15.sp,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                // Orientation toggle — rotation glyphs, not a padlock: the
-                // control changes rotation behavior, it doesn't lock the app.
-                ControlButton(
-                    icon = if (isOrientationLocked) Icons.Default.ScreenLockRotation else Icons.Default.ScreenRotation,
-                    contentDescription = if (isOrientationLocked) "Landscape Locked" else "Rotate Freely",
-                    onClick = onToggleOrientationLock,
-                )
-
-                // Chapters — only shown when the file has chapters (iOS parity).
-                if (hasChapters) {
                     ControlButton(
-                        icon = Icons.AutoMirrored.Filled.List,
-                        contentDescription = "Chapters",
-                        onClick = onOpenChapters,
+                        icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "Back",
+                        onClick = onBack,
                     )
-                }
 
-                // Tracks (audio + subtitles) — iOS uses `captions.bubble`. Dimmed
-                // to 0.3 opacity when there's nothing to pick.
-                ControlButton(
-                    icon = Icons.AutoMirrored.Filled.SpeakerNotes,
-                    contentDescription = "Audio and subtitles",
-                    onClick = onOpenTracks,
-                    enabled = hasTracks,
-                )
-
-                // Quality (file versions) — dedicated HUD button; only shown
-                // when there is more than one version to pick from.
-                if (hasMultipleVersions) {
-                    ControlButton(
-                        icon = Icons.Default.HighQuality,
-                        contentDescription = "Quality",
-                        onClick = onOpenQuality,
+                    PlayerToolbarTitle(
+                        title = title,
+                        modifier = Modifier.weight(1f),
                     )
-                }
 
-                // Settings — iOS `gearshape`, opens the playback settings sheet.
-                ControlButton(
-                    icon = Icons.Default.Settings,
-                    contentDescription = "Playback settings",
-                    onClick = onOpenSettings,
-                )
+                    if (compact) {
+                        PlayerToolbarOverflow(
+                            isOrientationLocked = isOrientationLocked,
+                            hasChapters = hasChapters,
+                            hasTracks = hasTracks,
+                            hasMultipleVersions = hasMultipleVersions,
+                            onToggleOrientationLock = onToggleOrientationLock,
+                            onOpenChapters = onOpenChapters,
+                            onOpenTracks = onOpenTracks,
+                            onOpenQuality = onOpenQuality,
+                            onOpenSettings = onOpenSettings,
+                        )
+                    } else {
+                        PlayerToolbarActions(
+                            isOrientationLocked = isOrientationLocked,
+                            hasChapters = hasChapters,
+                            hasTracks = hasTracks,
+                            hasMultipleVersions = hasMultipleVersions,
+                            onToggleOrientationLock = onToggleOrientationLock,
+                            onOpenChapters = onOpenChapters,
+                            onOpenTracks = onOpenTracks,
+                            onOpenQuality = onOpenQuality,
+                            onOpenSettings = onOpenSettings,
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.weight(1f))
@@ -240,6 +230,139 @@ fun PlayerControls(
                 enabled = seekEnabled,
                 chapters = chapters,
                 intro = intro,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerToolbarTitle(
+    title: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = title,
+            fontSize = 15.sp,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun PlayerToolbarActions(
+    isOrientationLocked: Boolean,
+    hasChapters: Boolean,
+    hasTracks: Boolean,
+    hasMultipleVersions: Boolean,
+    onToggleOrientationLock: () -> Unit,
+    onOpenChapters: () -> Unit,
+    onOpenTracks: () -> Unit,
+    onOpenQuality: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    ControlButton(
+        icon = if (isOrientationLocked) Icons.Default.ScreenLockRotation else Icons.Default.ScreenRotation,
+        contentDescription = if (isOrientationLocked) "Landscape Locked" else "Rotate Freely",
+        onClick = onToggleOrientationLock,
+    )
+    if (hasChapters) {
+        ControlButton(
+            icon = Icons.AutoMirrored.Filled.List,
+            contentDescription = "Chapters",
+            onClick = onOpenChapters,
+        )
+    }
+    ControlButton(
+        icon = Icons.AutoMirrored.Filled.SpeakerNotes,
+        contentDescription = "Audio and subtitles",
+        onClick = onOpenTracks,
+        enabled = hasTracks,
+    )
+    if (hasMultipleVersions) {
+        ControlButton(
+            icon = Icons.Default.HighQuality,
+            contentDescription = "Quality",
+            onClick = onOpenQuality,
+        )
+    }
+    ControlButton(
+        icon = Icons.Default.Settings,
+        contentDescription = "Playback settings",
+        onClick = onOpenSettings,
+    )
+}
+
+@Composable
+private fun PlayerToolbarOverflow(
+    isOrientationLocked: Boolean,
+    hasChapters: Boolean,
+    hasTracks: Boolean,
+    hasMultipleVersions: Boolean,
+    onToggleOrientationLock: () -> Unit,
+    onOpenChapters: () -> Unit,
+    onOpenTracks: () -> Unit,
+    onOpenQuality: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        ControlButton(
+            icon = Icons.Default.MoreVert,
+            contentDescription = "More playback controls",
+            onClick = { expanded = true },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Text(if (isOrientationLocked) "Unlock orientation" else "Lock orientation")
+                },
+                onClick = {
+                    expanded = false
+                    onToggleOrientationLock()
+                },
+            )
+            if (hasChapters) {
+                DropdownMenuItem(
+                    text = { Text("Chapters") },
+                    onClick = {
+                        expanded = false
+                        onOpenChapters()
+                    },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Audio and subtitles") },
+                enabled = hasTracks,
+                onClick = {
+                    expanded = false
+                    onOpenTracks()
+                },
+            )
+            if (hasMultipleVersions) {
+                DropdownMenuItem(
+                    text = { Text("Quality") },
+                    onClick = {
+                        expanded = false
+                        onOpenQuality()
+                    },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Playback settings") },
+                onClick = {
+                    expanded = false
+                    onOpenSettings()
+                },
             )
         }
     }
