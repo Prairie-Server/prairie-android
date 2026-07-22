@@ -313,7 +313,7 @@ val androidModule = module {
     }
 
     // ViewModels
-    factory {
+    viewModel {
         PlayerViewModel(
             videoPlaybackCoordinator = get(),
             catalogRepository = get(),
@@ -331,7 +331,7 @@ val androidModule = module {
             sleepTimer = get(),
             subtitlesRepository = get(),
             userItemStatePort = get(),
-            outboxSyncScheduler = get(),
+            finalPlaybackPositionWriter = get(),
             sectionRepository = get(),
             castPlaybackPreparer = get(),
         )

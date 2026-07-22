@@ -12,6 +12,8 @@ import org.siloserver.silo.common.downloads.OfflineMediaResolver
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
+import org.siloserver.silo.common.player.FinalPlaybackPosition
+import org.siloserver.silo.common.player.FinalPlaybackPositionWriter
 import org.siloserver.silo.common.player.Playability
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
@@ -79,15 +81,12 @@ import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.SubtitlesRepository
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +103,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * ViewModel for the video player screen.
@@ -185,7 +185,7 @@ class PlayerViewModel(
     private val subtitlesRepository: SubtitlesRepository,
     // Track B: durable offline-safe position (resume + outbox sync).
     private val userItemStatePort: org.siloserver.silo.repository.port.UserItemStatePort,
-    private val outboxSyncScheduler: org.siloserver.silo.common.data.sync.OutboxSyncScheduler,
+    private val finalPlaybackPositionWriter: FinalPlaybackPositionWriter,
     // iOS PlayerNextUpScreen On Deck carousel — home continue-watching pool.
     private val sectionRepository: org.siloserver.silo.repository.SectionRepository? = null,
     // Google Cast (Chromecast) Tier-2 session preparer. Optional so existing
@@ -602,6 +602,7 @@ class PlayerViewModel(
     private var introObserverJob: Job? = null
     private var lifecycleObserverJob: Job? = null
     private var resolveNextEpisodeJob: Job? = null
+    private val exitPrepared = AtomicBoolean(false)
 
     init {
         // Reclaim-Watched must never delete the file the player is using
@@ -3105,45 +3106,40 @@ class PlayerViewModel(
 
     /** Called when the user exits the player. */
     fun onExit() {
+        if (!exitPrepared.compareAndSet(false, true)) return
         resetPlaybackRecoveryState()
-        viewModelScope.launch {
-            // Track B: durably record the final position for both paths, then ask
-            // the outbox to drain promptly (covers the online offline-download case
-            // where there's no live session and no connectivity change to trigger it).
-            val cid = _uiState.value.contentId.takeIf { it.isNotBlank() }
-            val fid = currentFileId()
-            if (cid != null && fid != null) {
-                userItemStatePort.recordPosition(
-                    cid,
-                    fid,
-                    _uiState.value.position,
-                    _uiState.value.duration.takeIf { it > 0.0 },
+        val state = _uiState.value
+        val cid = state.contentId.takeIf { it.isNotBlank() }
+        val fid = currentFileId()
+        if (cid != null && fid != null) {
+            finalPlaybackPositionWriter.submit(
+                FinalPlaybackPosition(
+                    contentId = cid,
+                    fileId = fid,
+                    positionSeconds = state.position,
+                    durationSeconds = state.duration.takeIf { it > 0.0 },
                 )
-                outboxSyncScheduler.requestSync()
-            }
-            // Lifecycle.stop() handles: final progress report, snapshot via PersonalData,
-            // session stop, and reporter cancellation. The single call replaces the
-            // duplicated reportProgress/stopSession + syncProgressSnapshot flow.
-            sessionLifecycle.stop()
-            controlsHideJob?.cancel()
-            introObserverJob?.cancel()
-            searchJob?.cancel()
-            aiJobHandle?.cancel()
-            introAutoSkipController.reset()
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    sessionId = null,
-                    playMethod = null,
-                    playbackPlan = null,
-                    delivery = null,
-                    streamUrl = null,
-                    container = null,
-                    subtitleTracks = emptyList(),
-                    isPaused = true,
-                    isPlaying = false,
-                )
-            }
+            )
+        }
+        sessionLifecycle.stopAsync()
+        controlsHideJob?.cancel()
+        introObserverJob?.cancel()
+        searchJob?.cancel()
+        aiJobHandle?.cancel()
+        introAutoSkipController.reset()
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                sessionId = null,
+                playMethod = null,
+                playbackPlan = null,
+                delivery = null,
+                streamUrl = null,
+                container = null,
+                subtitleTracks = emptyList(),
+                isPaused = true,
+                isPlaying = false,
+            )
         }
     }
 
@@ -3302,26 +3298,7 @@ class PlayerViewModel(
     override fun onCleared() {
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
-        resetPlaybackRecoveryState()
-        super.onCleared()
-        // Guarantee the final resume position is persisted on teardown. onExit's
-        // write runs in viewModelScope, which is cancelling here — so AWAIT one
-        // last write under NonCancellable (brief local Room write off the main
-        // thread). Without this, exiting while playing could lose the last spot.
-        val cid = _uiState.value.contentId.takeIf { it.isNotBlank() }
-        val fid = currentFileId()
-        if (cid != null && fid != null) {
-            runCatching {
-                runBlocking(NonCancellable + Dispatchers.IO) {
-                    userItemStatePort.recordPosition(
-                        cid,
-                        fid,
-                        _uiState.value.position,
-                        _uiState.value.duration.takeIf { it > 0.0 },
-                    )
-                }
-            }
-        }
+        onExit()
         controlsHideJob?.cancel()
         introObserverJob?.cancel()
         lifecycleObserverJob?.cancel()
@@ -3329,15 +3306,7 @@ class PlayerViewModel(
         aiJobHandle?.cancel()
         upNextCountdownJob?.cancel()
         introAutoSkipController.reset()
-        // Best-effort session stop. Lifecycle.stop() is suspend-based and may not
-        // complete after onCleared (viewModelScope is cancelling) — fire & forget,
-        // preferring at least one of the two paths to durably persist progress.
-        val sessionId = _uiState.value.sessionId
-        if (sessionId != null) {
-            viewModelScope.launch {
-                playbackSessionManager.stopSession(sessionId)
-            }
-        }
+        super.onCleared()
     }
 
     private suspend fun resolveDownloadScope(): Pair<String, String> {

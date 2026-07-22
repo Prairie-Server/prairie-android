@@ -86,6 +86,7 @@ import org.siloserver.silo.android.cast.SiloCastOverlay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
@@ -134,7 +135,7 @@ fun PlayerScreen(
     // room (clock sync, transport mirroring, gating, room_closed exit).
     roomId: String? = null,
     navController: NavHostController,
-    viewModel: PlayerViewModel = koinInject(),
+    viewModel: PlayerViewModel = koinViewModel(),
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
