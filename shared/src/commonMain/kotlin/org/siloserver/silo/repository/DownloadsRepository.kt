@@ -1,5 +1,6 @@
 package org.siloserver.silo.repository
 
+import org.siloserver.silo.model.download.DownloadCapability
 import org.siloserver.silo.model.download.DownloadRecord
 import org.siloserver.silo.model.download.DownloadRequest
 import org.siloserver.silo.network.ApiResult
@@ -39,6 +40,24 @@ class DownloadsRepository(
 
     private val _records = MutableStateFlow<List<DownloadRecord>>(emptyList())
     val records: StateFlow<List<DownloadRecord>> = _records.asStateFlow()
+
+    /** Cached download capability (issue #20 §3). Null until the first
+     *  successful [refreshCapability]; the quality picker reads it to gate the
+     *  presets it offers. */
+    private val _capability = MutableStateFlow<DownloadCapability?>(null)
+    val capability: StateFlow<DownloadCapability?> = _capability.asStateFlow()
+
+    /** Fetch + cache the server's download capability. Best-effort: on failure
+     *  the cache keeps its previous value (or null) and the picker falls back
+     *  to an optimistic preset list. */
+    suspend fun refreshCapability(): ApiResult<DownloadCapability> = when (val r = api.capability()) {
+        is ApiResult.Success -> {
+            _capability.update { r.data }
+            r
+        }
+        is ApiResult.Error -> ApiResult.Error(r.code, r.error, r.message)
+        is ApiResult.NetworkError -> ApiResult.NetworkError(r.exception)
+    }
 
     /** Ids the user has asked to delete but which the server still returns
      *  (active records that the server only marks cancelled on first DELETE).

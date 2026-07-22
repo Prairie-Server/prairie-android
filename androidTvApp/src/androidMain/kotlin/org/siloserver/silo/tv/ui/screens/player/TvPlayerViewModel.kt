@@ -34,6 +34,7 @@ import org.siloserver.silo.common.player.seek.decideSeek
 import org.siloserver.silo.common.player.seek.isSameRouteSeekReanchorCandidate
 import org.siloserver.silo.common.player.seek.playerPositionForSource
 import org.siloserver.silo.common.player.seek.sourcePositionForPlayer
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
@@ -496,11 +497,15 @@ class TvPlayerViewModel(
     private val outboxSyncScheduler: org.siloserver.silo.common.data.sync.OutboxSyncScheduler,
     // Next-episode resolution for auto-advance (F2).
     private val catalogRepository: org.siloserver.silo.repository.CatalogRepository,
+    // Pre-play reachability gate (issue #33): drives Retry's fresh probe.
+    private val serverReachabilityMonitor: ServerReachabilityMonitor,
     private val launchArgs: TvPlayerLaunchArgs,
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "TvPlayerViewModel"
+        const val SERVER_UNREACHABLE_MESSAGE =
+            "Can't reach server — check your connection."
         // A transient network blip retries the same route this many times before
         // demoting to a server transcode (resets once playback progresses).
         private const val MAX_TRANSIENT_NETWORK_RETRIES = 1
@@ -632,6 +637,12 @@ class TvPlayerViewModel(
     data class UiState(
         val isLoading: Boolean = true,
         val error: String? = null,
+        /**
+         * Distinct "Can't reach server" state (issue #33): when true, [error]
+         * carries the reachability message and the error screen offers Retry
+         * (fresh probe + reload) plus Try Anyway, rather than a generic failure.
+         */
+        val serverUnreachable: Boolean = false,
         val title: String = "",
         /**
          * Artwork URL for Now Playing lock-screen / Bluetooth / Wear surfaces.
@@ -1049,6 +1060,9 @@ class TvPlayerViewModel(
         // True for retry: re-load at the current position without nudging back
         // (a normal first resume keeps the default false so it gets the rewind).
         suppressResumeRewind: Boolean = false,
+        // Try Anyway escape hatch (issue #33): bypass the pre-play reachability
+        // gate and attempt the server even while it reports unreachable.
+        force: Boolean = false,
     ) {
         // Capture this pipeline's generation; a later loadContent bump makes
         // this one inert before it can touch _uiState.
@@ -1060,7 +1074,7 @@ class TvPlayerViewModel(
         manualSubtitleSelectionApplied = false
         _uiState.update { it.copy(isBuffering = false) }
 
-        _uiState.update { it.copy(isLoading = true, error = null) }
+        _uiState.update { it.copy(isLoading = true, error = null, serverUnreachable = false) }
         viewModelScope.launch {
             try {
                 runCatching { playerSettingsStore.refreshFromServer() }
@@ -1075,6 +1089,7 @@ class TvPlayerViewModel(
                         preferredQualityOverride = preferredQuality,
                         playbackQualityIntent = qualityOverride,
                         suppressResumeRewind = suppressResumeRewind,
+                        force = force,
                     ),
                 )
                 // A newer loadContent superseded this pipeline while start()
@@ -1165,6 +1180,13 @@ class TvPlayerViewModel(
                         resolveNextEpisode()
                     }
                     is VideoPlayerUiState.Error -> fail(result.message)
+                    is VideoPlayerUiState.ServerUnreachable -> _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = SERVER_UNREACHABLE_MESSAGE,
+                            serverUnreachable = true,
+                        )
+                    }
                     is VideoPlayerUiState.Loading -> Unit
                 }
             } catch (e: Exception) {
@@ -3159,6 +3181,23 @@ class TvPlayerViewModel(
     }
 
     /** Reload the current content from the last known position (error-screen retry). */
+    /**
+     * Retry after a "Can't reach server": issue one fresh health probe, then
+     * reload. A recovered server flips the monitor to Reachable so the reload
+     * passes the gate; while still offline the probe fails fast.
+     */
+    fun retryServerReachability() {
+        viewModelScope.launch {
+            runCatching { serverReachabilityMonitor.retryNow() }
+            loadContent()
+        }
+    }
+
+    /** "Try Anyway" escape hatch: reload bypassing the reachability gate. */
+    fun playIgnoringServerReachability() {
+        loadContent(force = true)
+    }
+
     fun retry() {
         resetSeekRecoveryForContentChange()
         transportMountGate.beginLoad()

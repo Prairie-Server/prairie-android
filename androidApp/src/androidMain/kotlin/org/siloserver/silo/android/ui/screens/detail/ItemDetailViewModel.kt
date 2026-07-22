@@ -10,6 +10,7 @@ import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.sortedForDisplay
+import org.siloserver.silo.model.download.DownloadCapability
 import org.siloserver.silo.model.download.DownloadRecord
 import org.siloserver.silo.model.download.statusEnum
 import org.siloserver.silo.network.ApiResult
@@ -108,6 +109,10 @@ class ItemDetailViewModel(
     val downloads: StateFlow<List<DownloadRecord>> = downloadsRepository.records
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Server download capability (issue #20 §3). The screen reads this to gate
+     *  which quality presets the picker offers. Null until the first fetch. */
+    val downloadCapability: StateFlow<DownloadCapability?> = downloadsRepository.capability
+
     private var watchedMutationGeneration = 0
 
     private val descriptionTranslation = DescriptionTranslationController(
@@ -121,6 +126,11 @@ class ItemDetailViewModel(
         // lands on the detail screen (e.g., to show 'Downloaded' on a file
         // that was downloaded in a previous app session).
         viewModelScope.launch { downloadsRepository.refresh() }
+        // Fetch download capability so the quality picker only offers presets
+        // this account may request (issue #20 GAP 4). Best-effort: on failure
+        // the picker falls back to an optimistic list; the server still rejects
+        // a disallowed quality. Cached in the repo, so this is cheap per detail.
+        viewModelScope.launch { downloadsRepository.refreshCapability() }
     }
 
     /**

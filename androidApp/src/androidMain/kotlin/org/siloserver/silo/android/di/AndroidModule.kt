@@ -240,6 +240,7 @@ val androidModule = module {
             capabilityDetector = get(),
             playerSettingsStore = get(),
             sessionLifecycle = get(),
+            reachabilityMonitor = get(),
         )
     }
     factory {
@@ -304,6 +305,7 @@ val androidModule = module {
             capabilityDetector = get(),
             offlineMediaResolver = get(),
             serverRegistry = get(),
+            serverReachabilityMonitor = get(),
             playerSettingsStore = get(),
             introAutoSkipController = get(),
             sessionLifecycle = get(),

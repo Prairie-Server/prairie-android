@@ -44,6 +44,9 @@ class VideoPlaybackSessionCoordinator(
                 contentId = result.contentId,
                 message = result.message,
             )
+            is VideoPlaybackStartResult.ServerUnreachable -> VideoPlayerUiState.ServerUnreachable(
+                contentId = result.contentId,
+            )
         }
     }
 }

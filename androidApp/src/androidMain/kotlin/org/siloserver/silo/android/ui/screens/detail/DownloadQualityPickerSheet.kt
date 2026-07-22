@@ -36,7 +36,11 @@ fun DownloadQualityPickerSheet(
     modifier: Modifier = Modifier,
     estimate: DownloadSizeEstimate? = null,
     availableBytes: Long = 0,
+    // Presets to offer, already gated by server capability + media type (issue
+    // #20 GAP 4). Empty falls back to Original so the sheet is never blank.
+    allowedQualities: List<DownloadQuality> = DownloadQuality.entries,
 ) {
+    val qualities = allowedQualities.ifEmpty { listOf(DownloadQuality.Original) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -81,7 +85,7 @@ fun DownloadQualityPickerSheet(
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            DownloadQuality.entries.forEach { quality ->
+            qualities.forEach { quality ->
                 ListItem(
                     headlineContent = {
                         Text(

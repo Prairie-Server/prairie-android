@@ -60,6 +60,11 @@ data class DownloadItem(
     val localUri: String? = null,
     val displayName: String? = null,
     val container: String? = null,
+    /** Requested public quality wire string (e.g. "original", "5mbps"). */
+    val quality: String? = null,
+    /** What the server actually delivered after any compatibility fallback;
+     *  preferred over [quality] for display. Null on older/plain rows. */
+    val effectiveQuality: String? = null,
 )
 
 data class DownloadSubscriptionUiItem(
@@ -85,11 +90,15 @@ internal fun downloadItemFileState(
     return DownloadItemFileState(
         isComplete = status == DownloadStatus.Completed && hasLocalMedia,
         isMissingLocal = isMissingLocal,
+        // Only genuinely-terminal failures are red. Preparing/Ready are the
+        // early transcode lifecycle states and Unknown is a not-yet-mapped
+        // status from a newer server — all three are in-progress, not failed,
+        // so a just-requested bitrate download no longer flashes a red badge
+        // (issue #20 GAP 1).
         isFailed = isMissingLocal ||
             status in setOf(
                 DownloadStatus.Failed,
                 DownloadStatus.Cancelled,
-                DownloadStatus.Unknown,
             ),
     )
 }
@@ -671,6 +680,10 @@ class DownloadsViewModel(
             localUri = located?.uriString,
             displayName = located?.displayName ?: fileName,
             container = container,
+            // Prefer the live record's quality (fresher for in-flight rows),
+            // falling back to the sidecar's stored record (issue #20 GAP 5).
+            quality = rec.quality ?: record.quality,
+            effectiveQuality = rec.effectiveQuality ?: record.effectiveQuality,
         )
     }
 

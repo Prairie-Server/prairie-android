@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.android.BuildConfig
 import org.siloserver.silo.common.downloads.DownloadEnqueuer
 import org.siloserver.silo.common.downloads.OfflineMediaResolver
+import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.Playability
@@ -146,6 +147,8 @@ class PlayerViewModel(
     private val capabilityDetector: PlaybackCapabilityDetector,
     private val offlineMediaResolver: OfflineMediaResolver,
     private val serverRegistry: ServerRegistry,
+    // Pre-play reachability gate (issue #33): drives Retry's fresh probe.
+    private val serverReachabilityMonitor: ServerReachabilityMonitor,
     // Phase 1 Phase 0-infra dependencies:
     private val playerSettingsStore: PlayerSettingsStore,
     private val introAutoSkipController: IntroAutoSkipController,
@@ -161,8 +164,23 @@ class PlayerViewModel(
     private val sectionRepository: org.siloserver.silo.repository.SectionRepository? = null,
 ) : ViewModel() {
 
+    // Last load request, replayed by the "Can't reach server" Retry / Try Anyway.
+    private var lastLoadArgs: LoadArgs? = null
+
+    private data class LoadArgs(
+        val contentId: String,
+        val preferredFileId: Int?,
+        val preferredQuality: String?,
+        val initialAudioTrackIndex: Int?,
+        val initialSubtitleTrackIndex: Int?,
+        val resumePositionOverride: Double?,
+        val suppressResumeRewind: Boolean,
+    )
+
     companion object {
         private const val TAG = "PlayerViewModel"
+        const val SERVER_UNREACHABLE_MESSAGE =
+            "Can't reach server — check your connection."
         private const val CONTROLS_AUTO_HIDE_MS = 3_000L
         // Record a durable position roughly every 10s of content time (matches the
         // server reporter cadence) to bound DB/outbox churn.
@@ -210,6 +228,13 @@ class PlayerViewModel(
     data class PlayerUiState(
         val isLoading: Boolean = true,
         val error: String? = null,
+        /**
+         * Distinct "Can't reach server" state (issue #33): when true, [error]
+         * carries the reachability message and the error surface offers Retry
+         * (fresh probe + reload) plus a Try Anyway escape hatch, rather than a
+         * generic failure.
+         */
+        val serverUnreachable: Boolean = false,
         /**
          * Transient, dismissable message for a failed quality/version switch.
          * Unlike [error] it does NOT gate the video surface — the previous
@@ -644,7 +669,21 @@ class PlayerViewModel(
         // skip-back nudge). The request's roomId is always null on mobile, so WT
         // can't be inferred from it the way the TV starter does.
         suppressResumeRewind: Boolean = false,
+        // Try Anyway escape hatch (issue #33): bypass the pre-play reachability
+        // gate and attempt the server even while it reports unreachable.
+        force: Boolean = false,
     ) {
+        // Remember the exact request so a "Can't reach server" Retry / Try Anyway
+        // can replay it faithfully (this screen has no other retry entry point).
+        lastLoadArgs = LoadArgs(
+            contentId = contentId,
+            preferredFileId = preferredFileId,
+            preferredQuality = preferredQuality,
+            initialAudioTrackIndex = initialAudioTrackIndex,
+            initialSubtitleTrackIndex = initialSubtitleTrackIndex,
+            resumePositionOverride = resumePositionOverride,
+            suppressResumeRewind = suppressResumeRewind,
+        )
         // A fresh load resets any in-flight intro countdown / cancellation memory.
         introAutoSkipController.reset()
         // New item: re-arm the once-per-episode auto-advance trigger. (The
@@ -666,6 +705,7 @@ class PlayerViewModel(
                 isLoading = true,
                 isBuffering = false,
                 error = null,
+                serverUnreachable = false,
                 contentId = contentId,
                 nextEpisode = null,
                 showUpNext = false,
@@ -703,6 +743,7 @@ class PlayerViewModel(
                         audioTrackIndex = initialAudioTrackIndex,
                         subtitleTrackIndex = initialSubtitleTrackIndex,
                         suppressResumeRewind = suppressResumeRewind,
+                        force = force,
                     ),
                 )) {
                     is VideoPlayerUiState.Ready -> applyCoordinatorStateToUi(
@@ -716,6 +757,15 @@ class PlayerViewModel(
                             it.copy(isLoading = false, error = playbackState.message)
                         }
                     }
+                    is VideoPlayerUiState.ServerUnreachable -> {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                error = SERVER_UNREACHABLE_MESSAGE,
+                                serverUnreachable = true,
+                            )
+                        }
+                    }
                     is VideoPlayerUiState.Loading -> Unit
                 }
             } catch (e: CancellationException) {
@@ -727,6 +777,39 @@ class PlayerViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Retry after a "Can't reach server": issue one fresh health probe, then
+     * replay the last load. The probe cannot land while offline (it fails fast),
+     * but a recovered server flips the monitor to Reachable so the replayed load
+     * passes the gate.
+     */
+    fun retryServerReachability() {
+        val args = lastLoadArgs ?: return
+        viewModelScope.launch {
+            runCatching { serverReachabilityMonitor.retryNow() }
+            replayLoad(args, force = false)
+        }
+    }
+
+    /** "Try Anyway" escape hatch: replay the last load bypassing the gate. */
+    fun playIgnoringServerReachability() {
+        val args = lastLoadArgs ?: return
+        replayLoad(args, force = true)
+    }
+
+    private fun replayLoad(args: LoadArgs, force: Boolean) {
+        loadContent(
+            contentId = args.contentId,
+            preferredFileId = args.preferredFileId,
+            preferredQuality = args.preferredQuality,
+            initialAudioTrackIndex = args.initialAudioTrackIndex,
+            initialSubtitleTrackIndex = args.initialSubtitleTrackIndex,
+            resumePositionOverride = args.resumePositionOverride,
+            suppressResumeRewind = args.suppressResumeRewind,
+            force = force,
+        )
     }
 
     private suspend fun applyCoordinatorStateToUi(

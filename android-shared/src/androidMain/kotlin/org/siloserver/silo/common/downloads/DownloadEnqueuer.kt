@@ -7,6 +7,8 @@ import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.download.DownloadMediaType
 import org.siloserver.silo.model.download.DownloadRequest
 import org.siloserver.silo.model.download.DownloadSidecar
+import org.siloserver.silo.model.download.DownloadStatus
+import org.siloserver.silo.model.download.statusEnum
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.model.catalog.FileVersion
@@ -53,6 +55,10 @@ class DownloadEnqueuer(
         downloadQualityOverride: DownloadQuality? = null,
     ): ApiResult<Unit> {
         Log.i(TAG, "start: contentId=$contentId fileId=$fileId title=$displayTitle")
+        if (activeDownloadExists(fileId)) {
+            Log.i(TAG, "start: fileId=$fileId already queued/downloading — skipping duplicate")
+            return ApiResult.Success(Unit)
+        }
         val record = when (val r = repository.create(
             downloadRequest(
                 contentId = contentId,
@@ -87,6 +93,10 @@ class DownloadEnqueuer(
         downloadQualityOverride: DownloadQuality? = null,
     ): ApiResult<Unit> {
         Log.i(TAG, "startEpisode: series=$seriesContentId ep=$episodeContentId fileId=$fileId S${seasonNumber}E${episodeNumber}")
+        if (activeDownloadExists(fileId)) {
+            Log.i(TAG, "startEpisode: fileId=$fileId already queued/downloading — skipping duplicate")
+            return ApiResult.Success(Unit)
+        }
         val displayTitle = "$seriesTitle S${seasonNumber}E${episodeNumber}" +
             (episodeTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
         val record = when (val r = repository.create(
@@ -140,7 +150,11 @@ class DownloadEnqueuer(
             downloadRequest(
                 contentId = seriesContentId,
                 series = true,
-                downloadQualityOverride = downloadQualityOverride,
+                // Batch (series/season) downloads are original-only: the server
+                // returns 501 bulk_quality_unavailable for any other quality
+                // (docs §5 + error table). Force Original regardless of the
+                // override the caller passed (issue #20 GAP 3).
+                downloadQualityOverride = DownloadQuality.Original,
             ),
         )) {
             is ApiResult.Success -> r.data.also { Log.i(TAG, "startSeries: server returned ${it.size} records") }
@@ -155,6 +169,12 @@ class DownloadEnqueuer(
         val posterUrl = seriesDetail?.posterUrl
 
         for (record in records) {
+            // Same duplicate guard as start/startEpisode: a second worker for
+            // an already-active fileId would wipe the first one's partial.
+            if (activeDownloadExists(record.mediaFileId)) {
+                Log.i(TAG, "startSeries: fileId=${record.mediaFileId} already queued/downloading — skipping duplicate")
+                continue
+            }
             val ep = episodeByFileId[record.mediaFileId]
             val episodeDetail = ep?.let { (catalogRepository.getItemDetail(it.contentId) as? ApiResult.Success)?.data }
             val version = episodeDetail?.versionFor(record.mediaFileId)
@@ -225,7 +245,10 @@ class DownloadEnqueuer(
                 episodeNumber = ep.episodeNumber,
                 episodeTitle = ep.title,
                 posterUrl = posterUrl,
-                downloadQualityOverride = downloadQualityOverride,
+                // Season batch is original-only (server rejects a non-original
+                // batch with 501 bulk_quality_unavailable). Force Original even
+                // though startEpisode itself honors quality for single episodes.
+                downloadQualityOverride = DownloadQuality.Original,
             )
             if (result is ApiResult.Success) queued++
             else if (firstError == null) firstError = result
@@ -256,6 +279,24 @@ class DownloadEnqueuer(
             }
         }
         return map
+    }
+
+    /**
+     * True when the active scope already has a queued/downloading record for
+     * [fileId]. Two workers for one fileId share the same on-disk target, and
+     * [DownloadStorage.prepareWrite] recreates that directory — so a duplicate
+     * enqueue lets the second worker wipe the first one's partial mid-stream.
+     * The sidecar store is the local source of truth for per-scope status.
+     */
+    private suspend fun activeDownloadExists(fileId: Int): Boolean {
+        val serverId = serverRegistry.activeServerId.value ?: DEFAULT_SERVER_ID
+        val profileId = profileRepository.getActiveProfileId() ?: DEFAULT_PROFILE_ID
+        val existing = runCatching { metadataStore.readSidecar(serverId, profileId, fileId) }.getOrNull()
+            ?: return false
+        return when (existing.record.statusEnum()) {
+            DownloadStatus.Queued, DownloadStatus.Downloading -> true
+            else -> false
+        }
     }
 
     private suspend fun downloadRequest(

@@ -25,6 +25,15 @@ data class DownloadRecord(
     val status: String,
     @SerialName("created_at") val createdAt: String,
     @SerialName("completed_at") val completedAt: String? = null,
+    // Quality contract (issue #20 §5). `quality` is what the client asked for;
+    // `effective_quality` is what the server actually delivered after any
+    // compatibility fallback; `delivery_format` is original/remux/transcode;
+    // `target_bitrate_kbps` is 0 for original/remux, the cap for transcodes.
+    // All nullable — older servers and ephemeral/batch rows may omit them.
+    val quality: String? = null,
+    @SerialName("effective_quality") val effectiveQuality: String? = null,
+    @SerialName("delivery_format") val deliveryFormat: String? = null,
+    @SerialName("target_bitrate_kbps") val targetBitrateKbps: Int? = null,
 )
 
 /**
@@ -83,6 +92,13 @@ data class DownloadRequest(
  * extension doesn't crash the client.
  */
 enum class DownloadStatus(val wire: String) {
+    // Non-original (remux/transcode) rows start `preparing` while the server
+    // builds the artifact, flip to `ready` when it is servable, then follow
+    // the same downloading→completed path as originals (issue #20 §5). A
+    // client that maps these to Unknown treats a just-requested transcode as
+    // "failed" and self-destructs the download, so they are first-class here.
+    Preparing("preparing"),
+    Ready("ready"),
     Queued("queued"),
     Downloading("downloading"),
     Completed("completed"),
@@ -108,6 +124,48 @@ enum class DownloadKind(val wire: String) {
     companion object {
         fun fromWire(value: String?): DownloadKind =
             entries.firstOrNull { it.wire == value?.lowercase() } ?: Unknown
+    }
+}
+
+/**
+ * `GET /api/v1/downloads/capability` response — the server's per-account
+ * download feature gate (issue #20 §3). Fetched at detail load / profile
+ * switch so the quality picker offers only [qualityPresets] and never a
+ * value the server will reject (a bitrate request against a transcode-disabled
+ * account is a guaranteed 403 `transcode_disabled`). Mirrors Apple's
+ * `DownloadCapability`. Every field is defaulted so an older server that
+ * lacks the endpoint or a field still decodes leniently.
+ */
+@Serializable
+data class DownloadCapability(
+    val enabled: Boolean = false,
+    @SerialName("download_allowed") val downloadAllowed: Boolean = false,
+    @SerialName("quality_presets") val qualityPresets: List<String> = emptyList(),
+    @SerialName("transcode_enabled") val transcodeEnabled: Boolean = false,
+    @SerialName("transcode_user_allowed") val transcodeUserAllowed: Boolean = false,
+    @SerialName("season_download") val seasonDownload: Boolean = false,
+    @SerialName("series_monitoring") val seriesMonitoring: Boolean = false,
+    @SerialName("monitoring_modes") val monitoringModes: List<String> = emptyList(),
+) {
+    /** Downloads are usable only when the feature is on AND this user may download. */
+    val isUsable: Boolean get() = enabled && downloadAllowed
+
+    /**
+     * The [DownloadQuality] presets to offer this user, in ladder order.
+     * Filters the enum to the server's [qualityPresets], then drops every
+     * bitrate preset unless transcode is BOTH server-enabled and permitted for
+     * this user. Always returns at least [DownloadQuality.Original] so the
+     * picker is never empty.
+     */
+    fun allowedQualities(): List<DownloadQuality> {
+        val allowedWire = qualityPresets.map { it.lowercase().trim() }.toSet()
+        val presets = DownloadQuality.entries.filter { it.wire in allowedWire }
+        val gated = if (transcodeEnabled && transcodeUserAllowed) {
+            presets
+        } else {
+            presets.filter { it == DownloadQuality.Original }
+        }
+        return gated.ifEmpty { listOf(DownloadQuality.Original) }
     }
 }
 

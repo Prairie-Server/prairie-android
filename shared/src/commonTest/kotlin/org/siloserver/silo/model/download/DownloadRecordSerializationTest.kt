@@ -67,6 +67,58 @@ class DownloadRecordSerializationTest {
     }
 
     @Test
+    fun `DownloadRecord decodes the transcode quality fields and preparing status`() {
+        // A just-requested bitrate transcode: status `preparing`, quality the
+        // client asked for, and the delivery contract the server will produce.
+        val source = """
+            {
+              "id": "dl_transcode",
+              "content_id": "mv_1",
+              "media_file_id": 7,
+              "file_size": 100,
+              "bytes_sent": 0,
+              "kind": "queued",
+              "status": "preparing",
+              "quality": "5mbps",
+              "effective_quality": "5mbps",
+              "delivery_format": "transcode",
+              "target_bitrate_kbps": 5000,
+              "created_at": "2026-05-24T00:00:00Z"
+            }
+        """.trimIndent()
+
+        val r = json.decodeFromString<DownloadRecord>(source)
+        assertEquals(DownloadStatus.Preparing, r.statusEnum())
+        assertEquals("5mbps", r.quality)
+        assertEquals("5mbps", r.effectiveQuality)
+        assertEquals("transcode", r.deliveryFormat)
+        assertEquals(5000, r.targetBitrateKbps)
+    }
+
+    @Test
+    fun `DownloadStatus maps preparing and ready lifecycle states`() {
+        assertEquals(DownloadStatus.Preparing, DownloadStatus.fromWire("preparing"))
+        assertEquals(DownloadStatus.Ready, DownloadStatus.fromWire("ready"))
+        // Quality fields are optional — a plain original row omits them.
+        assertNull(
+            json.decodeFromString<DownloadRecord>(
+                """
+                {
+                  "id": "dl_orig",
+                  "content_id": "mv_2",
+                  "media_file_id": 8,
+                  "file_size": 1,
+                  "bytes_sent": 0,
+                  "kind": "queued",
+                  "status": "ready",
+                  "created_at": "2026-05-24T00:00:00Z"
+                }
+                """.trimIndent()
+            ).quality
+        )
+    }
+
+    @Test
     fun `DownloadStatus fromWire is lenient on unknown values`() {
         // A newer server adds a status the client doesn't know about — the
         // record must still decode, mapping to Unknown for downstream

@@ -1659,7 +1659,15 @@ fun TvPlayerScreen(
             state.isLoading -> TvLoadingScreen()
             state.error != null -> TvErrorScreen(
                 message = state.error!!,
-                onRetry = { viewModel.retry() },
+                // Server-unreachable: Retry re-probes then reloads, and Try Anyway
+                // bypasses the gate (issue #33). Other errors keep the plain retry.
+                onRetry = {
+                    if (state.serverUnreachable) viewModel.retryServerReachability()
+                    else viewModel.retry()
+                },
+                secondaryActionLabel = "Try Anyway".takeIf { state.serverUnreachable },
+                onSecondaryAction = { viewModel.playIgnoringServerReachability() }
+                    .takeIf { state.serverUnreachable },
             )
             state.streamUrl != null -> {
                 val controller = mediaController

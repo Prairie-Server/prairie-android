@@ -56,4 +56,14 @@ sealed interface VideoPlaybackStartResult {
         val contentId: String,
         val message: String,
     ) : VideoPlaybackStartResult
+
+    /**
+     * The configured server is unreachable and no playable local download
+     * exists, so playback was not even attempted (no doomed player spin-up).
+     * Distinct from [Error] so the UI can offer Retry / Try Anyway instead of a
+     * generic failure. Mirrors silo-apple ItemDetailView.swift:817-857.
+     */
+    data class ServerUnreachable(
+        val contentId: String,
+    ) : VideoPlaybackStartResult
 }

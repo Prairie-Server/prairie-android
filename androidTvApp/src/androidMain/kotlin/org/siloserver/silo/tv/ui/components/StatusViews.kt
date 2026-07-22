@@ -34,6 +34,10 @@ fun TvLoadingScreen(modifier: Modifier = Modifier) {
 fun TvErrorScreen(
     message: String,
     onRetry: (() -> Unit)? = null,
+    // Optional secondary action, e.g. the "Try Anyway" escape hatch shown when
+    // the server is unreachable (issue #33).
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -58,6 +62,14 @@ fun TvErrorScreen(
                     contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
                 ) {
                     Text("Retry", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            if (secondaryActionLabel != null && onSecondaryAction != null) {
+                Button(
+                    onClick = onSecondaryAction,
+                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+                ) {
+                    Text(secondaryActionLabel, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
