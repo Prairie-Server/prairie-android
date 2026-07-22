@@ -93,7 +93,7 @@ fun CatalogGrid(
             contentPadding = PaddingValues(
                 start = 16.dp,
                 top = 8.dp,
-                end = if (onNamePrefixSelected != null) 40.dp else 16.dp,
+                end = if (onNamePrefixSelected != null) 56.dp else 16.dp,
                 bottom = 8.dp,
             ),
             horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
@@ -156,14 +156,12 @@ private fun CatalogLetterRail(
     onNamePrefixSelected: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Touch ergonomics: a full 48dp-per-letter column can't fit 27 rows on a
-    // phone screen, so the rail trades ideal target size for reachability —
-    // a 40dp-wide touch column with 24dp-tall rows, the largest that keeps
-    // the whole alphabet on screen.
+    // The alphabet is intentionally scrollable so every entry can retain the
+    // 48dp minimum touch target on short phone screens.
     LazyColumn(
         modifier = modifier
-            .width(40.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .width(48.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f))
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -172,8 +170,8 @@ private fun CatalogLetterRail(
             val selected = selectedNamePrefix == prefix
             Box(
                 modifier = Modifier
-                    .size(width = 40.dp, height = 24.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
                     .background(
                         if (selected) {
                             MaterialTheme.colorScheme.primary
