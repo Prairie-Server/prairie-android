@@ -69,6 +69,8 @@ fun PlayerOverlay(
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectVersion: (Int) -> Unit,
+    // Google Cast (Chromecast) button rendered in the transport top bar.
+    castSlot: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // Sheet visibility — one bool per sheet. iOS uses a sealed `activeSheet`
@@ -344,6 +346,7 @@ fun PlayerOverlay(
                 onOpenTracks = { tracksSheetVisible = true },
                 onOpenQuality = { showQualitySelector = true },
                 onOpenSettings = { settingsSheetVisible = true },
+                castSlot = castSlot,
             )
         }
 

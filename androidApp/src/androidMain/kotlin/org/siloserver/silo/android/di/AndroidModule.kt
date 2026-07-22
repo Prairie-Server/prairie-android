@@ -24,6 +24,7 @@ import org.siloserver.silo.common.player.SiloPlayerFactory
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.SubtitleManager
+import org.siloserver.silo.common.player.cast.CastPlaybackPreparer
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStarter
@@ -83,6 +84,7 @@ import org.siloserver.silo.android.ui.screens.settings.SettingsViewModel
 import org.siloserver.silo.android.cast.SharedPrefsSiloCastLastTargetStore
 import org.siloserver.silo.android.cast.SiloCastController
 import org.siloserver.silo.android.cast.SiloCastLastTargetStore
+import org.siloserver.silo.android.cast.SiloCastSessionManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
@@ -232,6 +234,17 @@ val androidModule = module {
         )
     }
     single { PlaybackSessionManager(get(), get(), get()) }
+    // Google Cast (Chromecast) — phone only. The session manager owns the Cast
+    // SDK lifecycle; the preparer opens the separate Tier-2 cast-capability
+    // playback session so the raw phone stream is never cast.
+    single { SiloCastSessionManager(androidContext()) }
+    single {
+        CastPlaybackPreparer(
+            playbackRepository = get(),
+            tokenManager = get(),
+            networkEvidenceProvider = get(),
+        )
+    }
     factory<VideoPlaybackStarter>(named("mobileVideoPlaybackStarter")) {
         MobileVideoPlaybackStarter(
             catalogRepository = get(),
@@ -314,6 +327,7 @@ val androidModule = module {
             userItemStatePort = get(),
             outboxSyncScheduler = get(),
             sectionRepository = get(),
+            castPlaybackPreparer = get(),
         )
     }
     viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull()) }

@@ -80,6 +80,9 @@ import org.siloserver.silo.player.DolbyVisionDetection
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.siloserver.silo.android.cast.SiloCastButton
+import org.siloserver.silo.android.cast.SiloCastOverlay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
@@ -148,6 +151,15 @@ fun PlayerScreen(
     var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
     var fastForwardHoldActive by remember { mutableStateOf(false) }
+
+    // Google Cast (Chromecast). Distinct from the NSD/mDNS SiloCast device
+    // remote. When a Cast session connects, local Media3 is paused and a
+    // "casting to <device>" overlay takes over; on disconnect, local playback
+    // resumes at the remote position (Fix 6).
+    val castManager: org.siloserver.silo.android.cast.SiloCastSessionManager = koinInject()
+    val castState by castManager.castState.collectAsState()
+    val castScope = rememberCoroutineScope()
+    var wasCasting by remember { mutableStateOf(false) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The controller owns the room WS connection + RoomSyncEngine for the
@@ -307,6 +319,39 @@ fun PlayerScreen(
         }
     }
 
+    // While a cast session is live, opening ANY item routes it to the receiver:
+    // once the local player knows its file id, stage a cast session for it
+    // (idempotent — castState.fileId flips to the staged file, ending the loop).
+    LaunchedEffect(castState.isConnected, castState.fileId, uiState.mediaFileId) {
+        val fileId = uiState.mediaFileId
+        if (castState.isConnected && fileId != null && castState.fileId != fileId) {
+            // prepareGoogleCastMedia is single-flight, so this may resolve to
+            // the same spec the cast-button path is already staging — recheck
+            // the LIVE cast state before loading to avoid a duplicate load.
+            val spec = viewModel.prepareGoogleCastMedia()
+            if (spec != null && castManager.castState.value.fileId != spec.fileId) {
+                castManager.prepareMedia(spec)
+            }
+        }
+    }
+
+    // Cast connect/disconnect → pause/resume local Media3. On connect, pause
+    // locally (the dongle is now the surface). On disconnect, resume where the
+    // remote left off (Fix 6: getLastPosition).
+    LaunchedEffect(castState.isConnected) {
+        if (castState.isConnected && !wasCasting) {
+            wasCasting = true
+            viewModel.remotePause()
+            mediaController?.pause()
+        } else if (!castState.isConnected && wasCasting) {
+            wasCasting = false
+            val resumeAt = castManager.getLastPosition()
+            if (resumeAt > 0.0) viewModel.remoteSeek(resumeAt)
+            viewModel.remoteUnpause()
+            mediaController?.play()
+        }
+    }
+
     val hdrEnabled by viewModel.hdrEnabled.collectAsState()
     val preferredPlaybackSpeed by viewModel.playbackSpeed.collectAsState()
 
@@ -370,13 +415,16 @@ fun PlayerScreen(
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-            val originalOrientation = activity.requestedOrientation
             refreshRateMatcher.attach(activity)
 
             onDispose {
                 refreshRateMatcher.restore()
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
-                activity.requestedOrientation = originalOrientation
+                // Explicitly UNSPECIFIED, never a captured "original": with
+                // stacked player entries (e.g. opening items while casting) the
+                // capture could be the landscape lock a previous player set,
+                // leaving the app stuck horizontal after exit.
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         } else {
             onDispose { }
@@ -410,7 +458,13 @@ fun PlayerScreen(
     // default on the first frame would snap rotateFreely users back to
     // landscape on every player entry.
     val orientationLockedResolved by viewModel.orientationLockedResolved.collectAsState()
-    LaunchedEffect(activity, orientationLockedResolved) {
+    LaunchedEffect(activity, orientationLockedResolved, castState.isConnected) {
+        // While casting, the screen shows the cast takeover panel, not video —
+        // no reason to force landscape (and it must unlock if already forced).
+        if (castState.isConnected) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            return@LaunchedEffect
+        }
         val locked = orientationLockedResolved ?: return@LaunchedEffect
         activity?.requestedOrientation = if (locked) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -938,11 +992,48 @@ fun PlayerScreen(
                 )
             }
 
-            if (!isInPictureInPictureMode) {
+            // Cast takeover surface — replaces the video AND the local player
+            // controls while a Cast session is live. The local controls must not
+            // render on top of it: their seek bar / gestures drive the paused
+            // LOCAL player, which reads as broken buttons while casting. The
+            // overlay carries its own back arrow (exit the player screen, cast
+            // keeps running via the Cast SDK media notification) and play/pause
+            // + stop controls.
+            if (castState.isConnected) {
+                SiloCastOverlay(
+                    castState = castState,
+                    posterUrl = uiState.artworkUrl,
+                    onPlayPause = { castManager.togglePlayback() },
+                    onSkipBack = { castManager.skipBy(-30.0) },
+                    onSkipForward = { castManager.skipBy(30.0) },
+                    onSelectSubtitle = { castManager.selectSubtitleTrack(it) },
+                    onStopCasting = { castManager.disconnect() },
+                    onSeek = { castManager.seekTo(it) },
+                    onBack = {
+                        exitRequested = true
+                        roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
+                        viewModel.onExit()
+                        if (!navController.popBackStack()) activity?.finish()
+                    },
+                )
+            }
+
+            if (!isInPictureInPictureMode && !castState.isConnected) {
                 PlayerOverlay(
                     state = uiState,
                     viewModel = viewModel,
                     roomSnapshot = roomSnapshot,
+                    castSlot = {
+                        SiloCastButton(
+                            castManager = castManager,
+                            onStartCast = {
+                                castScope.launch {
+                                    val spec = viewModel.prepareGoogleCastMedia()
+                                    if (spec != null) castManager.prepareMedia(spec)
+                                }
+                            },
+                        )
+                    },
                     isFastForwardHoldActive = fastForwardHoldActive,
                     onBack = {
                         // In-room exit: leave the room (host close confirm is handled

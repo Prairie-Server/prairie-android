@@ -16,6 +16,8 @@ import org.siloserver.silo.common.player.Playability
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.VideoSessionStartV3
+import org.siloserver.silo.common.player.cast.CastMediaSpec
+import org.siloserver.silo.common.player.cast.CastPrepareRequest
 import org.siloserver.silo.common.player.PlayerNotice
 import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SessionState
@@ -81,6 +83,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -162,6 +165,9 @@ class PlayerViewModel(
     private val outboxSyncScheduler: org.siloserver.silo.common.data.sync.OutboxSyncScheduler,
     // iOS PlayerNextUpScreen On Deck carousel — home continue-watching pool.
     private val sectionRepository: org.siloserver.silo.repository.SectionRepository? = null,
+    // Google Cast (Chromecast) Tier-2 session preparer. Optional so existing
+    // unit tests that construct the VM directly stay source-compatible.
+    private val castPlaybackPreparer: org.siloserver.silo.common.player.cast.CastPlaybackPreparer? = null,
 ) : ViewModel() {
 
     // Last load request, replayed by the "Can't reach server" Retry / Try Anyway.
@@ -2222,6 +2228,65 @@ class PlayerViewModel(
         _remoteMessage.value = RemoteMessage(++remoteMessageCounter, message)
     }
     fun clearRemoteMessage() { _remoteMessage.value = null }
+
+    /**
+     * Google Cast (Chromecast) Tier-2 session start. Opens a SEPARATE
+     * cast-capability playback session (H.264/AAC/MP4) off the live player state
+     * so the dongle gets a stream it can actually fetch and decode — never the
+     * phone's current (possibly MKV/HEVC, header-authenticated) stream. Returns
+     * the self-contained cast media spec, or null when unavailable.
+     */
+    private val castPrepareLock = Any()
+    private var castPrepareShared: Pair<Int, kotlinx.coroutines.Deferred<CastMediaSpec?>>? = null
+
+    /**
+     * Single-flight per file: the cast button and the connect-time auto-stage
+     * effect both land here, and each server prepare burns a playback/start
+     * (tight rate limit) plus a session. Concurrent and back-to-back callers
+     * share one Deferred; running it in [viewModelScope] also survives the
+     * caller's cancellation (a LaunchedEffect restart used to abort the
+     * prepare mid-flight and orphan its server session).
+     */
+    suspend fun prepareGoogleCastMedia(): CastMediaSpec? {
+        val fileId = _uiState.value.mediaFileId ?: return null
+        val shared = synchronized(castPrepareLock) {
+            val existing = castPrepareShared
+            if (existing != null && existing.first == fileId && existing.second.isActive) {
+                existing.second
+            } else {
+                viewModelScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                    doPrepareGoogleCastMedia(fileId)
+                }.also { castPrepareShared = fileId to it }
+            }
+        }
+        return shared.await()
+    }
+
+    private suspend fun doPrepareGoogleCastMedia(fileId: Int): CastMediaSpec? {
+        val preparer = castPlaybackPreparer ?: return null
+        val state = _uiState.value
+        val profileId = profileRepository.getActiveProfileId() ?: return null
+        val audioTrackIndex = selectedServerAudioTrackIndex(
+            selectedOrdinal = state.selectedAudioIndex,
+            audioTracks = state.versions.getOrNull(state.selectedVersionIndex)?.audioTracks.orEmpty(),
+        )
+        val subtitleTrackIndex = selectedServerSubtitleTrackIndex(
+            selectedOrdinal = state.selectedSubtitleIndex,
+            subtitleTracks = state.subtitleTracks,
+        )
+        return preparer.prepareCastMedia(
+            CastPrepareRequest(
+                fileId = fileId,
+                profileId = profileId,
+                startPositionSeconds = state.position,
+                audioTrackIndex = audioTrackIndex,
+                subtitleTrackIndex = subtitleTrackIndex,
+                title = state.title,
+                posterUrl = state.artworkUrl,
+                appVersion = BuildConfig.VERSION_NAME,
+            ),
+        )
+    }
 
     /**
      * Remote `set_audio_track` / `set_subtitle_track`. Validate the index against

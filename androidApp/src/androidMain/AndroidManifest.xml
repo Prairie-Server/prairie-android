@@ -30,6 +30,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Silo"
         android:usesCleartextTraffic="true">
+        <!-- Google Cast (Chromecast) options provider — phone app only. The Cast
+             framework reads this to configure the default media receiver. This
+             is DISTINCT from the NSD/mDNS SiloCast device-remote. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="org.siloserver.silo.android.cast.SiloCastOptionsProvider" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

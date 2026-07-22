@@ -91,6 +91,10 @@ fun PlayerControls(
     onOpenTracks: () -> Unit,
     onOpenQuality: () -> Unit,
     onOpenSettings: () -> Unit,
+    // Google Cast (Chromecast) button — sits in the top bar alongside the other
+    // controls. Provided by PlayerScreen; empty by default so this stateless
+    // composable stays test-friendly and decoupled from the Cast SDK.
+    castSlot: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // iOS dims the entire screen with a flat `Color.black.opacity(0.4)`
@@ -115,7 +119,7 @@ fun PlayerControls(
             // lock · chapters · tracks · settings. Title is centered between the
             // two spacers, single-line, `.subheadline`, no subtitle.
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val trailingActionCount = 3 +
+                val trailingActionCount = 4 +
                     (if (hasChapters) 1 else 0) +
                     (if (hasMultipleVersions) 1 else 0)
                 val compact = useCompactPlayerToolbar(
@@ -140,6 +144,9 @@ fun PlayerControls(
                     )
 
                     if (compact) {
+                        // Keep Cast directly reachable; the SDK route button
+                        // cannot be represented as a regular menu callback.
+                        castSlot()
                         PlayerToolbarOverflow(
                             isOrientationLocked = isOrientationLocked,
                             hasChapters = hasChapters,
@@ -162,6 +169,7 @@ fun PlayerControls(
                             onOpenTracks = onOpenTracks,
                             onOpenQuality = onOpenQuality,
                             onOpenSettings = onOpenSettings,
+                            castSlot = castSlot,
                         )
                     }
                 }
@@ -265,6 +273,7 @@ private fun PlayerToolbarActions(
     onOpenTracks: () -> Unit,
     onOpenQuality: () -> Unit,
     onOpenSettings: () -> Unit,
+    castSlot: @Composable () -> Unit,
 ) {
     ControlButton(
         icon = if (isOrientationLocked) Icons.Default.ScreenLockRotation else Icons.Default.ScreenRotation,
@@ -291,6 +300,7 @@ private fun PlayerToolbarActions(
             onClick = onOpenQuality,
         )
     }
+    castSlot()
     ControlButton(
         icon = Icons.Default.Settings,
         contentDescription = "Playback settings",

@@ -41,7 +41,7 @@ class MobilePictureInPictureSourceTest {
         assertTrue(pipEffect.contains("uiState.isPlaying"))
         assertTrue(player.contains("isPlaying = uiState.isPlaying && !uiState.isPaused"))
         assertTrue(player.contains("onGloballyPositioned"))
-        assertTrue(player.contains("if (!isInPictureInPictureMode)"))
+        assertTrue(player.contains("if (!isInPictureInPictureMode && !castState.isConnected)"))
     }
 
     @Test
