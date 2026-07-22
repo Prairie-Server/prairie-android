@@ -404,6 +404,7 @@ fun PlayerScreen(
 
     // Load content on first composition
     LaunchedEffect(contentId, initialFileId, initialQuality, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
+        if (!shouldLoadPlayerContent(viewModel.uiState.value.contentId, contentId)) return@LaunchedEffect
         viewModel.loadContent(
             contentId = contentId,
             preferredFileId = initialFileId,
@@ -864,11 +865,6 @@ fun PlayerScreen(
         if (backend.selectSubtitle(subtitleTrackEntry(uiState.subtitleTracks, uiState.selectedSubtitleIndex))) {
             viewModel.onSubtitleSelectionApplied(uiState.selectedSubtitleIndex)
         }
-    }
-
-    // Notify the ViewModel we're leaving the screen.
-    DisposableEffect(Unit) {
-        onDispose { viewModel.onExit() }
     }
 
     LaunchedEffect(

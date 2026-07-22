@@ -3,6 +3,8 @@ package org.siloserver.silo.android.ui.screens.player
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class MobilePlayerPresentationStateTest {
     @Test
@@ -18,5 +20,12 @@ class MobilePlayerPresentationStateTest {
         assertEquals(first.withoutPlaybackClock(), second.withoutPlaybackClock())
         assertNotEquals(first.toPlaybackClock(), second.toPlaybackClock())
         assertEquals(second, second.withoutPlaybackClock().withPlaybackClock(second.toPlaybackClock()))
+    }
+
+    @Test
+    fun configurationRecreationDoesNotReloadTheSameContent() {
+        assertFalse(shouldLoadPlayerContent(currentContentId = "movie-1", requestedContentId = "movie-1"))
+        assertTrue(shouldLoadPlayerContent(currentContentId = "", requestedContentId = "movie-1"))
+        assertTrue(shouldLoadPlayerContent(currentContentId = "movie-1", requestedContentId = "movie-2"))
     }
 }

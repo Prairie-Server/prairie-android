@@ -150,6 +150,9 @@ internal fun PlayerViewModel.PlayerUiState.withPlaybackClock(clock: PlaybackCloc
         bufferedPosition = clock.bufferedPosition,
     )
 
+internal fun shouldLoadPlayerContent(currentContentId: String, requestedContentId: String): Boolean =
+    currentContentId != requestedContentId
+
 internal fun selectedServerAudioTrackIndex(
     selectedOrdinal: Int,
     audioTracks: List<AudioTrack>,

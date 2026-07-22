@@ -24,6 +24,8 @@ class MobilePlayerLifecyclePerformanceSourceTest {
         assertTrue(viewModel.contains("finalPlaybackPositionWriter.submit("))
         assertTrue(viewModel.contains("sessionLifecycle.stopAsync()"))
         assertTrue(!viewModel.contains("runBlocking("))
+        assertTrue(!screen.contains("onDispose { viewModel.onExit() }"))
+        assertTrue(screen.contains("shouldLoadPlayerContent("))
         assertTrue(
             !viewModel.contains(
                 "viewModelScope.launch {\n                playbackSessionManager.stopSession(sessionId)",
