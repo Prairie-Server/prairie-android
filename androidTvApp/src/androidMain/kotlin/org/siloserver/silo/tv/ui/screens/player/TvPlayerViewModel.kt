@@ -829,6 +829,22 @@ class TvPlayerViewModel(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    val presentationState: StateFlow<UiState> = uiState
+        .map(UiState::withoutPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.withoutPlaybackClock(),
+        )
+    val playbackClock: StateFlow<PlaybackClock> = uiState
+        .map(UiState::toPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.toPlaybackClock(),
+        )
 
     /** Intro auto-skip banner state. The screen consumes this directly. */
     val introSkipState: StateFlow<IntroAutoSkipState> = introAutoSkipController.state
@@ -3502,6 +3518,17 @@ class TvPlayerViewModel(
     }
 
 }
+
+data class PlaybackClock(
+    val position: Double,
+    val duration: Double,
+)
+
+internal fun TvPlayerViewModel.UiState.withoutPlaybackClock(): TvPlayerViewModel.UiState =
+    copy(position = 0.0)
+
+internal fun TvPlayerViewModel.UiState.toPlaybackClock(): PlaybackClock =
+    PlaybackClock(position = position, duration = duration)
 
 private fun PlayerTrackEntry.selectionFingerprint(): String =
     trackSelectionFingerprint(

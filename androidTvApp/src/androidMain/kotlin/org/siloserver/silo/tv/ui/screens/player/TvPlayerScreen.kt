@@ -263,7 +263,7 @@ fun TvPlayerScreen(
     // in TvSearchScreen / TvTextInputDialog.
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { runCatching { keyboardController?.hide() } }
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.presentationState.collectAsState()
     val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     // PlayerView surface must bind to THIS, not the MediaController, so the
     // swap. Mirrors phone PlayerScreen. The MediaController is kept for transport.
@@ -291,7 +291,6 @@ fun TvPlayerScreen(
     val aiTranslate by viewModel.aiTranslate.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestOnExit by rememberUpdatedState(onExit)
-    val latestSiloCastState by rememberUpdatedState(state)
     val latestSiloCastPlaybackSpeed by rememberUpdatedState(playbackSpeed)
     val latestSiloCastSubtitleDelayMs by rememberUpdatedState(subtitleDelayMs)
     val latestSiloCastHdrEnabled by rememberUpdatedState(hdrEnabled)
@@ -459,7 +458,7 @@ fun TvPlayerScreen(
             setQuality = { qualityId ->
                 val player = latestSiloCastMediaController ?: latestSiloCastSessionPlayer
                 if (player != null && selectVideoQuality(player, qualityId)) {
-                    val resolution = latestSiloCastState.videoQualities
+                    val resolution = viewModel.uiState.value.videoQualities
                         .firstOrNull { it.id == qualityId }
                         ?.resolution
                     viewModel.onVideoQualitySelectionApplied(resolution)
@@ -492,7 +491,7 @@ fun TvPlayerScreen(
             playNext = viewModel::playNextEpisodeNow,
         )
         val registration = siloCastReceiver.registerPlayer(adapter) {
-            latestSiloCastState.toSiloCastPlaybackState(
+            viewModel.uiState.value.toSiloCastPlaybackState(
                 contentId = contentId,
                 playbackSpeed = latestSiloCastPlaybackSpeed,
                 hdrEnabled = latestSiloCastHdrEnabled,
@@ -1765,13 +1764,14 @@ fun TvPlayerScreen(
                         (mediaController?.bufferedPosition ?: 0L) -
                             (mediaController?.currentPosition ?: 0L)
                     ).coerceAtLeast(0L) / 1000.0
+                    TvPlayerClockScope(viewModel) { clock ->
                     TvPlayerIdleOverlay(
                         title = state.title,
                         episodeTag = state.seasonNumber?.let { season ->
                             state.episodeNumber?.let { ep -> "S$season·E$ep" }
                         },
-                        positionSec = state.position,
-                        durationSec = state.duration,
+                        positionSec = clock.position,
+                        durationSec = clock.duration,
                         isPaused = state.isPaused,
                         isScrubbing = state.isScrubbing,
                         scrubPreviewSec = state.scrubPreviewSec,
@@ -1858,6 +1858,7 @@ fun TvPlayerScreen(
                             }
                         },
                     )
+                    }
                 }
 
                 if (!isInPictureInPictureMode && state.hudOpen) {
@@ -1869,10 +1870,11 @@ fun TvPlayerScreen(
                             .padding(top = 56.dp),
                         contentAlignment = androidx.compose.ui.Alignment.TopCenter,
                     ) {
+                        TvPlayerClockScope(viewModel) { clock ->
                         TvPlayerHud(
                             title = state.title,
-                            positionSec = state.position,
-                            durationSec = state.duration,
+                            positionSec = clock.position,
+                            durationSec = clock.duration,
                             seasonNumber = state.seasonNumber,
                             episodeNumber = state.episodeNumber,
                             audioTracks = state.audioTracks,
@@ -1967,6 +1969,7 @@ fun TvPlayerScreen(
                             initialTab = requestedHudTab,
                             onPickerOpenChanged = { hudPickerOpen = it },
                         )
+                        }
                     }
                 }
 
@@ -3198,6 +3201,15 @@ private fun String.toSiloCastSubtitlePosition(): SubtitlePositionPreset {
             else -> SubtitlePositionPreset.Bottom
         }
     }
+}
+
+@Composable
+private fun TvPlayerClockScope(
+    viewModel: TvPlayerViewModel,
+    content: @Composable (PlaybackClock) -> Unit,
+) {
+    val clock by viewModel.playbackClock.collectAsState()
+    content(clock)
 }
 
 
