@@ -35,9 +35,10 @@ import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
  * The hero's overview as an expand-in-place control. Mirrors tvOS
  * `TVExpandableSynopsis` 1:1.
  *
- * The overview is clamped to 3 lines at tvOS÷2 sizing (26pt regular → 13sp).
- * Pressing OK/Select toggles [expanded]: when expanded the line clamp is
- * removed AND the [tagline] is shown above the overview (only when non-blank).
+ * The overview defaults to a 3-line clamp at tvOS÷2 sizing (26pt regular →
+ * 13sp); constrained hero layouts can supply a smaller [collapsedMaxLines].
+ * Pressing OK/Select toggles [expanded]: when expanded the line clamp is removed
+ * AND the [tagline] is shown above the overview (only when non-blank).
  *
  * This is a **focusable leaf** — the hero's only text focus stop, reachable by
  * pressing Up from the action row, and actionable so it never feels "stuck".
@@ -55,7 +56,10 @@ internal fun TvExpandableSynopsis(
     overview: String,
     tagline: String?,
     modifier: Modifier = Modifier,
+    collapsedMaxLines: Int = 3,
 ) {
+    require(collapsedMaxLines > 0) { "collapsedMaxLines must be positive" }
+
     var expanded by remember(overview) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -124,7 +128,7 @@ internal fun TvExpandableSynopsis(
             lineHeight = 19.sp,
             color = Color.White.copy(alpha = 0.82f),
             textAlign = TextAlign.Start,
-            maxLines = if (expanded) Int.MAX_VALUE else 3,
+            maxLines = if (expanded) Int.MAX_VALUE else collapsedMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
     }

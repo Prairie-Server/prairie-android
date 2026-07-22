@@ -8,9 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -103,19 +104,15 @@ internal fun TvDetailHero(
     // directly to the Android TV layout canvas.
     val heroHeight = LocalConfiguration.current.screenHeightDp.dp * HERO_HEIGHT_FRACTION
     val contentMaxWidth = 600.dp
+    val usesConstrainedEditorial = heroHeight < DetailHeroComfortableHeight
+    val editorialSpacing = if (usesConstrainedEditorial) 8.dp else 12.dp
+    val collapsedSynopsisLines = if (usesConstrainedEditorial) 2 else 3
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            // Minimum, NOT a fixed height. The bottom-anchored editorial + action
-            // column can measure taller than 0.907×viewport (large display title,
-            // 3-line synopsis, action row + selector row). A fixed `.height`
-            // clamps the Column's measure constraints, so `Column` hands the
-            // trailing action/selector rows ~0 remaining height and collapses them
-            // — they stay focusable but paint nothing. A min height lets the hero
-            // grow to fit; the backdrop/gradients track the final size via
-            // `matchParentSize` (they can't `fillMaxSize` under an unbounded max).
-            .heightIn(min = heroHeight),
+            .height(heroHeight)
+            .clipToBounds(),
     ) {
         // Backdrop (fill; else siloSurface).
         if (!backdropUrl.isNullOrEmpty() || !backdropThumbhash.isNullOrEmpty()) {
@@ -190,43 +187,43 @@ internal fun TvDetailHero(
             )
         }
 
-        // Bottom-anchored editorial column + action cluster. Bottom inset +
-        // inter-row gaps kept tight so the full stack (tagline → title →
-        // synopsis → facts → actions → selector) fits within heroHeight on a
-        // 540dp-tall canvas instead of overflowing and clipping the tagline off
-        // the top. (tvOS point values were ~2x these.) Bottom inset is part of
-        // the TvDetailSectionGap handoff math on the detail page.
-        Column(
+        // Reserve and pin the action cluster before measuring the editorial
+        // column. The hero can therefore keep the fixed tvOS viewport framing
+        // without letting tall copy collapse visible-but-focusable controls.
+        TvDetailHeroContentLayout(
             modifier = Modifier
-                .align(Alignment.BottomStart)
+                .fillMaxSize()
                 .padding(start = Spacing.safeArea, end = Spacing.safeArea, bottom = TvDetailHeroBottomInset),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            EditorialColumn(
-                title = title,
-                seriesTitle = seriesTitle,
-                logoUrl = logoUrl,
-                sourceTokens = sourceTokens,
-                ratingChip = ratingChip,
-                overview = overview,
-                tagline = tagline,
-                factsLine = factsLine,
-                contentMaxWidth = contentMaxWidth,
-                translation = translation,
-            )
-
-            // Full-width, leading-aligned focus container for the action +
-            // selector cluster (own focus section).
-            Box(
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .focusGroup(),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                actions()
-            }
-        }
+            editorial = {
+                EditorialColumn(
+                    title = title,
+                    seriesTitle = seriesTitle,
+                    logoUrl = logoUrl,
+                    sourceTokens = sourceTokens,
+                    ratingChip = ratingChip,
+                    overview = overview,
+                    tagline = tagline,
+                    factsLine = factsLine,
+                    contentMaxWidth = contentMaxWidth,
+                    verticalSpacing = editorialSpacing,
+                    collapsedSynopsisLines = collapsedSynopsisLines,
+                    translation = translation,
+                )
+            },
+            actions = {
+                // Full-width, leading-aligned focus container for the action +
+                // selector cluster (own focus section).
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .fillMaxWidth()
+                        .focusGroup(),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    actions()
+                }
+            },
+        )
     }
 }
 
@@ -241,12 +238,14 @@ private fun EditorialColumn(
     tagline: String?,
     factsLine: List<TvHeroFactToken>,
     contentMaxWidth: androidx.compose.ui.unit.Dp,
+    verticalSpacing: androidx.compose.ui.unit.Dp,
+    collapsedSynopsisLines: Int,
     translation: (@Composable () -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier.widthIn(max = contentMaxWidth),
         horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(verticalSpacing),
     ) {
         TitleBlock(
             title = title,
@@ -259,10 +258,14 @@ private fun EditorialColumn(
         }
 
         // Synopsis slot — the hero's only text focus stop. A focusable leaf
-        // that clamps the overview to 3 lines and, on OK/Select, expands to
-        // the full overview with the tagline revealed above it.
+        // that clamps the overview to the current height budget and, on
+        // OK/Select, expands with the tagline revealed above it.
         overview?.takeIf { it.isNotBlank() }?.let { line ->
-            TvExpandableSynopsis(overview = line, tagline = tagline)
+            TvExpandableSynopsis(
+                overview = line,
+                tagline = tagline,
+                collapsedMaxLines = collapsedSynopsisLines,
+            )
         }
         translation?.invoke()
 
@@ -512,6 +515,7 @@ private fun splitDisplayTitle(raw: String): Pair<String, String?> {
 
 /** heroHeight = 980 of a 1080-pt tvOS canvas ≈ 0.907. */
 private const val HERO_HEIGHT_FRACTION = 0.907f
+private val DetailHeroComfortableHeight = 500.dp
 
 /**
  * Condensed family for the hero display title. tvOS renders the title in SF
