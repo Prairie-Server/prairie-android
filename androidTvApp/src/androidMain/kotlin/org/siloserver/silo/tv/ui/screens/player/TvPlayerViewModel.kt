@@ -592,6 +592,21 @@ class TvPlayerViewModel(
     /** Guards [startServerRecoveryFallback] against concurrent fallbacks racing the same session. */
     private var recoveryJob: Job? = null
 
+    private data class QueuedInvalidationReplan(
+        val classification: String,
+        val notice: String,
+        val qualityPreference: String?,
+        val subtitleTrackIndexOverride: Int?,
+    )
+
+    /**
+     * Latest user track/quality/route change that arrived while [recoveryJob]
+     * held the replan single-flight guard. Re-driven against the then-current
+     * UiState once that flight completes so the selection isn't silently
+     * dropped; last-write-wins because only the newest selection matters.
+     */
+    private var queuedInvalidationReplan: QueuedInvalidationReplan? = null
+
     /**
      * Seek recovery has its own latest-target-wins single flight. It is intentionally separate
      * from [recoveryJob]: a committed seek HTTP request is never cancelled by a newer seek, and
@@ -1044,6 +1059,10 @@ class TvPlayerViewModel(
     private fun resetSeekRecoveryForContentChange() {
         recoveryJob?.cancel()
         recoveryJob = null
+        queuedInvalidationReplan = null
+        // A budget exhausted on the previous content/version must not leak
+        // into the next one (phone parity: resetPlaybackRecoveryState).
+        transientNetworkRetries = 0
         seekRecoveryQueue.reset()
         cancelPendingQuickSkip()
         seekPresentationGuard.cancel()
@@ -1292,8 +1311,22 @@ class TvPlayerViewModel(
         state: UiState,
         qualityPreference: String? = null,
         diagnostics: Map<String, String> = emptyMap(),
+        subtitleTrackIndexOverride: Int? = null,
     ) {
-        if (recoveryJob?.isActive == true) return
+        if (recoveryJob?.isActive == true) {
+            // Never silently drop a user selection: queue it (newest wins) and
+            // re-drive it when the in-flight recovery completes. Failure-driven
+            // replans stay dropped — onPlayerError re-raises those.
+            if (classification in PlaybackSessionManager.USER_INVALIDATION_CLASSIFICATIONS) {
+                queuedInvalidationReplan = QueuedInvalidationReplan(
+                    classification = classification,
+                    notice = notice,
+                    qualityPreference = qualityPreference,
+                    subtitleTrackIndexOverride = subtitleTrackIndexOverride,
+                )
+            }
+            return
+        }
         val fileId = state.selectedFileId ?: state.mediaFileId ?: return
         val recoveryContentGeneration = contentLoadGeneration
         recoveryJob = viewModelScope.launch {
@@ -1302,7 +1335,7 @@ class TvPlayerViewModel(
                 catalogAudioTracks = state.fileVersions.firstOrNull { it.fileId == fileId }?.audioTracks,
                 currentPlanTrackIndex = state.playbackPlan?.selectedTracks?.audioIndex,
             )
-            val selectedSubtitle = selectedSubtitleTrackIndex(state)
+            val selectedSubtitle = subtitleTrackIndexOverride ?: selectedSubtitleTrackIndex(state)
             val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
             coroutineContext.ensureActive()
             if (recoveryContentGeneration != contentLoadGeneration) return@launch
@@ -1400,17 +1433,72 @@ class TvPlayerViewModel(
                             )
                         }
                     }
-                    is VideoSessionStartV3.Terminal -> _uiState.update {
-                        it.copy(error = "Playback unavailable (${decision.reason}): ${decision.message}")
+                    is VideoSessionStartV3.Terminal -> {
+                        _uiState.update {
+                            it.copy(
+                                error = "Playback unavailable (${decision.reason}): ${decision.message}",
+                                isLoading = false,
+                                isBuffering = false,
+                            )
+                        }
                     }
-                    VideoSessionStartV3.ServerUpgradeRequired -> _uiState.update {
-                        it.copy(error = "This Silo server must be updated to support playback recovery.")
+                    VideoSessionStartV3.ServerUpgradeRequired -> {
+                        _uiState.update {
+                            it.copy(
+                                error = "This Silo server must be updated to support playback recovery.",
+                                isLoading = false,
+                                isBuffering = false,
+                            )
+                        }
                     }
                 }
-                is ApiResult.Error -> _uiState.update { it.copy(error = "$notice (${result.message})") }
-                is ApiResult.NetworkError -> _uiState.update {
-                    it.copy(error = "$notice (${result.exception.message})")
+                is ApiResult.Error -> {
+                    onReplanRequestFailed(classification, notice, result.message)
                 }
+                is ApiResult.NetworkError -> {
+                    onReplanRequestFailed(classification, notice, result.exception.message)
+                }
+            }
+        }.also { job ->
+            // Cancellation means a content change / reset already cleared the
+            // queue; only a completed flight re-drives a queued user selection.
+            job.invokeOnCompletion { cause ->
+                if (cause == null) redriveQueuedInvalidationReplan()
+            }
+        }
+    }
+
+    private fun redriveQueuedInvalidationReplan() {
+        val queued = queuedInvalidationReplan ?: return
+        queuedInvalidationReplan = null
+        // Current state, not the queuing-time state, so the replan carries the
+        // latest committed track/quality selection.
+        startProtocolV3Replan(
+            classification = queued.classification,
+            notice = queued.notice,
+            state = _uiState.value,
+            qualityPreference = queued.qualityPreference,
+            subtitleTrackIndexOverride = queued.subtitleTrackIndexOverride,
+        )
+    }
+
+    /**
+     * A replan HTTP failure is only fatal when the replan was recovering a
+     * broken route. For a user track/quality/route change the old route is
+     * still mounted and healthy, so a benign 409 or a network blip must not
+     * tear playback down with a fatal error banner.
+     */
+    private fun onReplanRequestFailed(classification: String, notice: String, detail: String?) {
+        if (classification in PlaybackSessionManager.USER_INVALIDATION_CLASSIFICATIONS) {
+            Log.w(TAG, "Invalidation replan failed ($classification): $detail")
+            _uiState.update { it.copy(isLoading = false, isBuffering = false) }
+        } else {
+            _uiState.update {
+                it.copy(
+                    error = "$notice ($detail)",
+                    isLoading = false,
+                    isBuffering = false,
+                )
             }
         }
     }

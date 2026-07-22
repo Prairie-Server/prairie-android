@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -138,6 +139,16 @@ fun PlayerProgressBar(
                 activeTrackColor = MaterialTheme.colorScheme.primary,
                 inactiveTrackColor = Color.White.copy(alpha = 0.3f),
             ),
+            // iOS-style dot instead of Material's chunky pill: a small circle
+            // that grows slightly while scrubbing (the target time shows in the
+            // floating preview bubble above). Ignores the SliderState param.
+            thumb = {
+                Box(
+                    modifier = Modifier
+                        .size(if (isSeeking) 16.dp else 11.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                )
+            },
             track = {
                 Box(
                     modifier = Modifier

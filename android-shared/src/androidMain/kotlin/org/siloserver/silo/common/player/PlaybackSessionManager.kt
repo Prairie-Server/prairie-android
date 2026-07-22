@@ -252,12 +252,7 @@ open class PlaybackSessionManager(
         val currentContext = clientPlaybackContext ?: active.context
         val network = networkEvidenceProvider.snapshot()
         val failedKey = active.planAttemptKey
-        val invalidation = classification in setOf(
-            "audio_track_changed",
-            "subtitle_track_changed",
-            "quality_changed",
-            "output_route_changed",
-        )
+        val invalidation = classification in USER_INVALIDATION_CLASSIFICATIONS
         val attemptedKeys = if (invalidation) {
             emptyList()
         } else {
@@ -681,8 +676,11 @@ open class PlaybackSessionManager(
             qualityPreference = active.qualityPreference,
             positionSeconds = positionSeconds,
             outputRouteGeneration = active.context.output.outputRouteGeneration,
-            metered = active.networkEvidence.metered,
-            bandwidthEstimateKbps = active.networkEvidence.bandwidthEstimateKbps,
+            // Fresh snapshot, matching replanActiveVideoSession: this path lets
+            // the server pick a different route, so session-start network
+            // evidence would misinform that decision.
+            metered = network.metered,
+            bandwidthEstimateKbps = network.bandwidthEstimateKbps,
             selectedTracks = active.plan.selectedTracks,
             failure = PlaybackFailureV3(
                 classification = classification,
@@ -1081,6 +1079,19 @@ open class PlaybackSessionManager(
 
     companion object {
         private const val TAG = "PlaybackSessionMgr"
+
+        /**
+         * Replan classifications that mean a user-initiated track/quality/route
+         * change rather than a playback failure. For these the previous route
+         * stays mounted and valid while the replan is negotiated, so callers
+         * must not treat a failed replan request as fatal to playback.
+         */
+        val USER_INVALIDATION_CLASSIFICATIONS = setOf(
+            "audio_track_changed",
+            "subtitle_track_changed",
+            "quality_changed",
+            "output_route_changed",
+        )
     }
 
     /**
