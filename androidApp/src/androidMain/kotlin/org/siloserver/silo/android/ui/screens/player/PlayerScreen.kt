@@ -96,6 +96,9 @@ import androidx.compose.ui.unit.sp
 
 private const val TAG = "PlayerScreen"
 
+internal fun shouldClearPlaybackOnControllerDispose(isChangingConfigurations: Boolean): Boolean =
+    !isChangingConfigurations
+
 @Composable
 private fun PlayerClockScope(
     viewModel: PlayerViewModel,
@@ -312,15 +315,19 @@ fun PlayerScreen(
             MoreExecutors.directExecutor(),
         )
         onDispose {
-            // Stop and clear media items before releasing the controller —
-            // releasing the controller alone leaves the service's player
-            // running, so audio keeps playing after the screen exits.
-            // Mirrors TvPlayerScreen.stopPlaybackAndExit semantics.
+            val shouldClearPlayback = shouldClearPlaybackOnControllerDispose(
+                isChangingConfigurations = activity?.isChangingConfigurations == true,
+            )
+            // A configuration recreation releases only this controller connection;
+            // the retained ViewModel and service player keep the active session.
+            // A real destination exit still clears Media3 before releasing.
             mediaController?.let { controller ->
-                runCatching {
-                    controller.pause()
-                    controller.stop()
-                    controller.clearMediaItems()
+                if (shouldClearPlayback) {
+                    runCatching {
+                        controller.pause()
+                        controller.stop()
+                        controller.clearMediaItems()
+                    }
                 }
                 controller.release()
             }
@@ -404,7 +411,7 @@ fun PlayerScreen(
 
     // Load content on first composition
     LaunchedEffect(contentId, initialFileId, initialQuality, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
-        if (!shouldLoadPlayerContent(viewModel.uiState.value.contentId, contentId)) return@LaunchedEffect
+        if (!viewModel.claimInitialRouteLoad()) return@LaunchedEffect
         viewModel.loadContent(
             contentId = contentId,
             preferredFileId = initialFileId,
@@ -499,6 +506,7 @@ fun PlayerScreen(
         val backend = videoBackend ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
+        if (!viewModel.shouldApplyMediaMount(uiState.mediaMountGeneration)) return@LaunchedEffect
         val serverUrl = uiState.serverUrl
         // serverUrl is intentionally empty for local-file playback (offline
         // path sets streamUrl to a local file/content URI and serverUrl=""). For remote playback
@@ -565,6 +573,7 @@ fun PlayerScreen(
         if (exitRequested) return@LaunchedEffect
         if (uiState.subtitleRefreshNonce == 0) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
+        if (!viewModel.claimSubtitleRefresh(uiState.subtitleRefreshNonce)) return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
 

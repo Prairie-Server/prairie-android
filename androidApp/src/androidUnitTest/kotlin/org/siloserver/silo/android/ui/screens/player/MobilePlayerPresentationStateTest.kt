@@ -23,9 +23,28 @@ class MobilePlayerPresentationStateTest {
     }
 
     @Test
-    fun configurationRecreationDoesNotReloadTheSameContent() {
-        assertFalse(shouldLoadPlayerContent(currentContentId = "movie-1", requestedContentId = "movie-1"))
-        assertTrue(shouldLoadPlayerContent(currentContentId = "", requestedContentId = "movie-1"))
-        assertTrue(shouldLoadPlayerContent(currentContentId = "movie-1", requestedContentId = "movie-2"))
+    fun configurationRecreationDoesNotReclaimInitialRouteLoadAfterInPlaceTransition() {
+        val gate = InitialPlayerLoadGate()
+
+        assertTrue(gate.claim())
+        assertFalse(gate.claim())
+    }
+
+    @Test
+    fun configurationDisposalReleasesControllerWithoutClearingPlayback() {
+        assertFalse(shouldClearPlaybackOnControllerDispose(isChangingConfigurations = true))
+        assertTrue(shouldClearPlaybackOnControllerDispose(isChangingConfigurations = false))
+    }
+
+    @Test
+    fun subtitleRefreshNonceCanRestartAfterANewMediaMount() {
+        val gate = SubtitleRefreshGate()
+
+        assertTrue(gate.claim(1))
+        assertFalse(gate.claim(1))
+
+        gate.reset()
+
+        assertTrue(gate.claim(1))
     }
 }

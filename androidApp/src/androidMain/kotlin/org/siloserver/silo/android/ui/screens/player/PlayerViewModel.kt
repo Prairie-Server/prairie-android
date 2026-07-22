@@ -133,6 +133,26 @@ data class PlaybackClock(
     val bufferedPosition: Double,
 )
 
+internal class InitialPlayerLoadGate {
+    private val claimed = AtomicBoolean(false)
+
+    fun claim(): Boolean = claimed.compareAndSet(false, true)
+}
+
+internal class SubtitleRefreshGate {
+    private var lastAppliedNonce = 0
+
+    fun claim(nonce: Int): Boolean {
+        if (nonce <= 0 || nonce == lastAppliedNonce) return false
+        lastAppliedNonce = nonce
+        return true
+    }
+
+    fun reset() {
+        lastAppliedNonce = 0
+    }
+}
+
 internal fun PlayerViewModel.PlayerUiState.withoutPlaybackClock(): PlayerViewModel.PlayerUiState =
     copy(position = 0.0, duration = 0.0, bufferedPosition = 0.0)
 
@@ -149,9 +169,6 @@ internal fun PlayerViewModel.PlayerUiState.withPlaybackClock(clock: PlaybackCloc
         duration = clock.duration,
         bufferedPosition = clock.bufferedPosition,
     )
-
-internal fun shouldLoadPlayerContent(currentContentId: String, requestedContentId: String): Boolean =
-    currentContentId != requestedContentId
 
 internal fun selectedServerAudioTrackIndex(
     selectedOrdinal: Int,
@@ -528,6 +545,7 @@ class PlayerViewModel(
     private var playbackRecoveryGeneration = 0L
     private var mediaMountSequence = 0L
     private var awaitingMediaMountGeneration: Long? = null
+    private val subtitleRefreshGate = SubtitleRefreshGate()
     private var positionReportsBlockedForPendingLoad = false
     private var seekRecoveryRollbackInvalidated = false
     private var pendingNativeSeekAfterMount: Pair<Double, Boolean>? = null
@@ -606,6 +624,9 @@ class PlayerViewModel(
     private var lifecycleObserverJob: Job? = null
     private var resolveNextEpisodeJob: Job? = null
     private val exitPrepared = AtomicBoolean(false)
+    private val initialPlayerLoadGate = InitialPlayerLoadGate()
+
+    fun claimInitialRouteLoad(): Boolean = initialPlayerLoadGate.claim()
 
     init {
         // Reclaim-Watched must never delete the file the player is using
@@ -1517,9 +1538,15 @@ class PlayerViewModel(
     }
 
     /** Called synchronously after PlayerScreen has applied this mount to Media3. */
+    fun shouldApplyMediaMount(generation: Long): Boolean =
+        awaitingMediaMountGeneration == generation
+
+    fun claimSubtitleRefresh(nonce: Int): Boolean = subtitleRefreshGate.claim(nonce)
+
     fun onMediaMountApplied(generation: Long) {
         if (awaitingMediaMountGeneration == generation) {
             awaitingMediaMountGeneration = null
+            subtitleRefreshGate.reset()
             positionReportsBlockedForPendingLoad = false
             pendingNativeSeekAfterMount?.let { (targetSeconds, immediate) ->
                 pendingNativeSeekAfterMount = null

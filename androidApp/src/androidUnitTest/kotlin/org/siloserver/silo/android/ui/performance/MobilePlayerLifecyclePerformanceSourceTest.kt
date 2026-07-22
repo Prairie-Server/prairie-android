@@ -25,7 +25,10 @@ class MobilePlayerLifecyclePerformanceSourceTest {
         assertTrue(viewModel.contains("sessionLifecycle.stopAsync()"))
         assertTrue(!viewModel.contains("runBlocking("))
         assertTrue(!screen.contains("onDispose { viewModel.onExit() }"))
-        assertTrue(screen.contains("shouldLoadPlayerContent("))
+        assertTrue(screen.contains("viewModel.claimInitialRouteLoad()"))
+        assertTrue(screen.contains("activity?.isChangingConfigurations == true"))
+        assertTrue(screen.contains("viewModel.shouldApplyMediaMount(uiState.mediaMountGeneration)"))
+        assertTrue(screen.contains("viewModel.claimSubtitleRefresh(uiState.subtitleRefreshNonce)"))
         assertTrue(
             !viewModel.contains(
                 "viewModelScope.launch {\n                playbackSessionManager.stopSession(sessionId)",
