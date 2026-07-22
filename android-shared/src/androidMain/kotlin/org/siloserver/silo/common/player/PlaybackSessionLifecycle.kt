@@ -14,6 +14,7 @@ import org.siloserver.silo.network.api.HealthApi
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -86,6 +87,8 @@ class PlaybackSessionLifecycle(
     private var reporterJob: Job? = null
     private var recoveryJob: Job? = null
     private var outageJob: Job? = null
+    private val pendingStopLock = Any()
+    private var pendingStopJob: Job? = null
 
     // ---- Public API ---------------------------------------------------------
 
@@ -95,6 +98,7 @@ class PlaybackSessionLifecycle(
      * failure (Error or NetworkError).
      */
     suspend fun start(params: StartParams): SessionState {
+        awaitPendingStop()
         DiagnosticsPlaybackLogger.sessionEvent("session start requested")
         // New start cancels any in-flight recovery / outage probing, by design:
         // this is the explicit "user/code wants a fresh session now" path.
@@ -117,6 +121,7 @@ class PlaybackSessionLifecycle(
         stopSessionOnStop: Boolean = true,
         renewMissingSessionWithLegacyStart: Boolean = true,
     ) {
+        awaitPendingStop()
         val diagnosticsRecording = playbackSessions.recording()
         mutex.withLock {
             cancelRecoveryJobs()
@@ -279,7 +284,25 @@ class PlaybackSessionLifecycle(
      * [NonCancellable] keeps the stop running even if that scope is torn down.
      */
     fun stopAsync() {
-        scope.launch(NonCancellable + Dispatchers.IO) { stop() }
+        val job = synchronized(pendingStopLock) {
+            pendingStopJob?.takeUnless { it.isCompleted } ?: scope.launch(
+                context = NonCancellable + Dispatchers.IO,
+                start = CoroutineStart.LAZY,
+            ) {
+                stop()
+            }.also { pendingStopJob = it }
+        }
+        job.invokeOnCompletion {
+            synchronized(pendingStopLock) {
+                if (pendingStopJob === job) pendingStopJob = null
+            }
+        }
+        job.start()
+    }
+
+    private suspend fun awaitPendingStop() {
+        val job = synchronized(pendingStopLock) { pendingStopJob } ?: return
+        job.join()
     }
 
     // ---- Internal: progress reporter ----------------------------------------

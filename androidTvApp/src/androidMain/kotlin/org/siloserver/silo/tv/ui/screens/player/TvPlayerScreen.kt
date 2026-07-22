@@ -300,7 +300,6 @@ fun TvPlayerScreen(
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
     val rootFocus = remember { FocusRequester() }
-    val exitScope = rememberCoroutineScope()
     var exitRequested by remember { mutableStateOf(false) }
     var requestedHudTab by remember { mutableStateOf(HudTab.Info) }
     var showQuickSubtitlePicker by remember { mutableStateOf(false) }
@@ -514,10 +513,8 @@ fun TvPlayerScreen(
                 controller.stop()
                 controller.clearMediaItems()
             }
-            exitScope.launch {
-                viewModel.stopSessionForExit()
-                latestOnExit()
-            }
+            viewModel.stopSessionForExitAsync()
+            latestOnExit()
         }
     }
     // A remote "stop"/"terminate" command tears the screen down like a Back press.
