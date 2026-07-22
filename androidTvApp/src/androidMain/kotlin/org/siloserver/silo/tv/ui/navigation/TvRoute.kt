@@ -50,6 +50,14 @@ sealed class TvRoute(val route: String) {
 
     // --- Main (drawer + nested nav: home, libraries, search, settings) ---
     data object Main : TvRoute("main")
+    data object Diagnostics : TvRoute("diagnostics")
+    data class DiagnosticsReport(val reportId: String) :
+        TvRoute("diagnostics/report/${reportId.routeEncode()}") {
+        companion object {
+            const val ROUTE = "diagnostics/report/{reportId}"
+            const val ARG_REPORT_ID = "reportId"
+        }
+    }
 
     // --- Detail & player (no drawer, immersive) ---
     data class ItemDetail(val contentId: String, val seasonNumber: Int? = null) :

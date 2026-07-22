@@ -13,6 +13,9 @@ Start with the root [README](../README.md) for architecture/build instructions a
   apps can open downloaded videos, audiobooks, and ebooks.
 - Android TV has a dedicated audiobook detail/player flow; ebooks remain
   phone-only.
+- Client diagnostics are Android-native and self-hosted: adult profiles can
+  review local reports and choose consent, while child profiles are excluded.
+  No third-party observability SDK is part of the Android implementation.
 
 ## Folders
 
@@ -23,3 +26,9 @@ Start with the root [README](../README.md) for architecture/build instructions a
   README/FEATURES files for what is actually exposed today.
 - `superpowers/reference/` - captured Apple/tvOS visual references used for UI
   parity work.
+
+## Client Diagnostics
+
+- Design: [`superpowers/specs/2026-07-22-android-client-diagnostics-design.md`](superpowers/specs/2026-07-22-android-client-diagnostics-design.md)
+- Implementation plan and verification commands: [`superpowers/plans/2026-07-22-android-client-diagnostics.md`](superpowers/plans/2026-07-22-android-client-diagnostics.md)
+- The compatible server ingest endpoint shipped separately in Silo Server PR 445.

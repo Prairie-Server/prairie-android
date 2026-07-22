@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.ColorInfo
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -169,5 +170,90 @@ class PlayerStatsSnapshotReducerTest {
         val result = reducePlayerStats(initial, PlaybackAnalyticsListener.Event.AudioUnderrun)
 
         assertEquals(3, result.audioUnderruns)
+    }
+
+    @Test
+    fun `playback timing tracks startup first frame and rebuffers`() {
+        var snapshot = PlayerStatsSnapshot()
+        snapshot = reducePlayerStats(
+            snapshot,
+            PlaybackAnalyticsListener.Event.PlaybackStateChanged(
+                state = Player.STATE_BUFFERING,
+                realtimeMs = 100,
+                totalBufferedDurationMs = 0,
+                playWhenReady = true,
+            ),
+        )
+        snapshot = reducePlayerStats(
+            snapshot,
+            PlaybackAnalyticsListener.Event.PlaybackStateChanged(
+                state = Player.STATE_READY,
+                realtimeMs = 350,
+                totalBufferedDurationMs = 4_000,
+                playWhenReady = true,
+            ),
+        )
+        snapshot = reducePlayerStats(snapshot, PlaybackAnalyticsListener.Event.FirstFrameRendered(500))
+        snapshot = reducePlayerStats(
+            snapshot,
+            PlaybackAnalyticsListener.Event.PlaybackStateChanged(
+                state = Player.STATE_BUFFERING,
+                realtimeMs = 1_000,
+                totalBufferedDurationMs = 250,
+                playWhenReady = true,
+            ),
+        )
+        snapshot = reducePlayerStats(
+            snapshot,
+            PlaybackAnalyticsListener.Event.PlaybackStateChanged(
+                state = Player.STATE_READY,
+                realtimeMs = 1_300,
+                totalBufferedDurationMs = 3_500,
+                playWhenReady = true,
+            ),
+        )
+
+        assertEquals(250L, snapshot.startupReadyMs)
+        assertEquals(400L, snapshot.firstFrameMs)
+        assertEquals(3_500L, snapshot.bufferedDurationMs)
+        assertEquals(1, snapshot.rebufferCount)
+        assertEquals(300L, snapshot.rebufferTotalMs)
+        assertEquals(300L, snapshot.rebufferMaxMs)
+    }
+
+    @Test
+    fun `seek timing closes on the next observable ready state`() {
+        var snapshot = reducePlayerStats(
+            PlayerStatsSnapshot(firstFrameMs = 400),
+            PlaybackAnalyticsListener.Event.SeekStarted(realtimeMs = 2_000),
+        )
+
+        snapshot = reducePlayerStats(
+            snapshot,
+            PlaybackAnalyticsListener.Event.PlaybackStateChanged(
+                state = Player.STATE_READY,
+                realtimeMs = 2_275,
+                totalBufferedDurationMs = 5_000,
+                playWhenReady = true,
+            ),
+        )
+
+        assertEquals(1, snapshot.seekCount)
+        assertEquals(275L, snapshot.lastSeekDurationMs)
+        assertEquals(275L, snapshot.seekTotalMs)
+        assertEquals(275L, snapshot.seekMaxMs)
+    }
+
+    @Test
+    fun `terminal state always clears prior session stats but only logs while detailed`() {
+        val previous = PlayerStatsSnapshot(droppedFrames = 9, firstFrameMs = 400)
+
+        val outsideCapture = finishPlayerStats(previous, detailedCapture = false)
+        val duringCapture = finishPlayerStats(previous, detailedCapture = true)
+
+        assertEquals(PlayerStatsSnapshot(), outsideCapture.next)
+        assertEquals(null, outsideCapture.finalSnapshot)
+        assertEquals(PlayerStatsSnapshot(), duringCapture.next)
+        assertEquals(previous, duringCapture.finalSnapshot)
     }
 }

@@ -1,5 +1,6 @@
 package org.siloserver.silo.common.player
 
+import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackSessionRecorder
 import org.siloserver.silo.model.personal.SyncProgressItem
 import org.siloserver.silo.model.playback.ClientCodecCapabilities
 import org.siloserver.silo.model.playback.PlayMethod
@@ -67,7 +68,12 @@ class PlaybackSessionLifecycleTest {
                 return gate.await()
             }
         }
-        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        val recordedSessions = mutableListOf<String>()
+        val lifecycle = newLifecycle(
+            sessionMgr,
+            scope = backgroundScope,
+            playbackSessions = DiagnosticsPlaybackSessionRecorder { recordedSessions += it },
+        )
 
         assertEquals(SessionState.Idle, lifecycle.state.value)
 
@@ -86,6 +92,7 @@ class PlaybackSessionLifecycleTest {
         val terminal = lifecycle.state.value
         assertTrue(terminal is SessionState.Active, "expected Active, got $terminal")
         assertEquals("sess-1", (terminal as SessionState.Active).session.sessionId)
+        assertEquals(listOf("sess-1"), recordedSessions)
 
         lifecycle.stop()
     }
@@ -121,7 +128,12 @@ class PlaybackSessionLifecycleTest {
     @Test
     fun `adoptActiveSession reports progress without starting duplicate session`() = runTest {
         val sessionMgr = FakeSessionManager()
-        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        val recordedSessions = mutableListOf<String>()
+        val lifecycle = newLifecycle(
+            sessionMgr,
+            scope = backgroundScope,
+            playbackSessions = DiagnosticsPlaybackSessionRecorder { recordedSessions += it },
+        )
 
         lifecycle.adoptActiveSession(
             params = defaultStartParams(startPosition = 12.0),
@@ -132,6 +144,7 @@ class PlaybackSessionLifecycleTest {
         val active = lifecycle.state.value
         assertTrue(active is SessionState.Active)
         assertEquals("sess-adopted", (active as SessionState.Active).session.sessionId)
+        assertEquals(listOf("sess-adopted"), recordedSessions)
 
         lifecycle.reportPosition(positionSec = 33.0, durationSec = 100.0, isPaused = false)
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
@@ -556,12 +569,14 @@ class PlaybackSessionLifecycleTest {
         healthApi: FakeHealthApi = FakeHealthApi(),
         personalRepo: PersonalDataRepository = RecordingPersonalDataRepository(),
         scope: CoroutineScope = this.backgroundScope,
+        playbackSessions: DiagnosticsPlaybackSessionRecorder = DiagnosticsPlaybackSessionRecorder.None,
     ): PlaybackSessionLifecycle = PlaybackSessionLifecycle(
         sessionManager = sessionMgr,
         profileRepository = profileRepo,
         healthApi = healthApi,
         personalDataRepository = personalRepo,
         scope = scope,
+        playbackSessions = playbackSessions,
     )
 
     private fun defaultStartParams(startPosition: Double? = null) = StartParams(

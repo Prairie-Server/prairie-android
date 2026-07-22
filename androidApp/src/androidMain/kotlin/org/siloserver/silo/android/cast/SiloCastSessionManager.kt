@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.siloserver.silo.common.player.cast.CastMediaSpec
+import org.siloserver.silo.common.diagnostics.DiagnosticsCastLogger
 
 data class SiloCastState(
     val isConnected: Boolean = false,
@@ -120,11 +121,13 @@ class SiloCastSessionManager(private val context: Context) {
     private val sessionListener = object : SessionManagerListener<CastSession> {
         override fun onSessionStarting(session: CastSession) {}
         override fun onSessionStarted(session: CastSession, sessionId: String) {
+            DiagnosticsCastLogger.event("cast session started")
             attachRemoteListeners(session)
             syncCastState()
             loadPendingMedia(session)
         }
         override fun onSessionStartFailed(session: CastSession, error: Int) {
+            DiagnosticsCastLogger.warning("cast session start failed")
             detachRemoteListeners()
             _castState.value = SiloCastState()
         }
@@ -133,20 +136,24 @@ class SiloCastSessionManager(private val context: Context) {
             captureRemotePosition(session)
         }
         override fun onSessionEnded(session: CastSession, error: Int) {
+            DiagnosticsCastLogger.event("cast session ended")
             captureRemotePosition(session)
             detachRemoteListeners()
             _castState.value = SiloCastState()
         }
         override fun onSessionResuming(session: CastSession, sessionId: String) {}
         override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
+            DiagnosticsCastLogger.event("cast session resumed")
             attachRemoteListeners(session)
             syncCastState()
         }
         override fun onSessionResumeFailed(session: CastSession, error: Int) {
+            DiagnosticsCastLogger.warning("cast session resume failed")
             detachRemoteListeners()
             _castState.value = SiloCastState()
         }
         override fun onSessionSuspended(session: CastSession, reason: Int) {
+            DiagnosticsCastLogger.warning("cast session suspended")
             captureRemotePosition(session)
             detachRemoteListeners()
         }
@@ -192,6 +199,7 @@ class SiloCastSessionManager(private val context: Context) {
 
     /** Fix 3: escalate to active scan while the route picker is visible. */
     fun startDiscovery() {
+        DiagnosticsCastLogger.event("cast discovery started")
         ensureInitialized()
         val router = mediaRouter ?: return
         if (activeScanning) return
@@ -212,6 +220,7 @@ class SiloCastSessionManager(private val context: Context) {
         router.removeCallback(routeCallback)
         router.addCallback(routeSelector, routeCallback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY)
         activeScanning = false
+        DiagnosticsCastLogger.event("cast discovery stopped")
     }
 
     /**
@@ -220,6 +229,7 @@ class SiloCastSessionManager(private val context: Context) {
      * already connected (loads immediately).
      */
     fun prepareMedia(spec: CastMediaSpec) {
+        DiagnosticsCastLogger.event("cast media prepared")
         ensureInitialized()
         pending = spec
         lastPosition = spec.positionSeconds
@@ -337,6 +347,7 @@ class SiloCastSessionManager(private val context: Context) {
     fun isConnected(): Boolean = sessionManager?.currentCastSession?.isConnected == true
 
     fun disconnect() {
+        DiagnosticsCastLogger.event("cast disconnect requested")
         val session = sessionManager?.currentCastSession
         if (session != null) {
             captureRemotePosition(session)

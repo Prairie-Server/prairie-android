@@ -6,6 +6,16 @@ import android.os.Build
 import android.view.Display
 import org.siloserver.silo.model.playback.HdrCapabilities
 
+data class DisplayDiagnosticsSnapshot(
+    val widthPx: Int,
+    val heightPx: Int,
+    val refreshRateHz: Double,
+    val currentMode: String,
+    val supportedModes: List<String>,
+    val wideColorGamut: Boolean?,
+    val hdr: HdrCapabilities,
+)
+
 /**
  * Reports the default display's HDR support. Used to narrow the codec-level
  * HDR claim so we don't advertise HDR direct-play on a panel that would
@@ -17,9 +27,36 @@ import org.siloserver.silo.model.playback.HdrCapabilities
  */
 object DisplayHdrProbe {
 
+    /** Immutable, read-only evidence for diagnostics; never changes display state. */
+    fun diagnosticsSnapshot(context: Context): DisplayDiagnosticsSnapshot? {
+        val display = defaultDisplay(context) ?: return null
+        val mode = display.mode
+        return DisplayDiagnosticsSnapshot(
+            widthPx = mode.physicalWidth,
+            heightPx = mode.physicalHeight,
+            refreshRateHz = mode.refreshRate.toDouble(),
+            currentMode = mode.diagnosticsLabel(),
+            supportedModes = display.supportedModes
+                .map(Display.Mode::diagnosticsLabel)
+                .distinct()
+                .sorted(),
+            wideColorGamut = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                display.isWideColorGamut
+            } else {
+                null
+            },
+            hdr = hdrCapabilities(display),
+        )
+    }
+
     /** Returns the default display's HDR support, restricted to standards we model. */
     fun probe(context: Context): HdrCapabilities {
         val display = defaultDisplay(context) ?: return HdrCapabilities()
+
+        return runCatching { hdrCapabilities(display) }.getOrDefault(HdrCapabilities())
+    }
+
+    private fun hdrCapabilities(display: Display): HdrCapabilities {
 
         // HdrCapabilities is available from API 24+. On older API levels the
         // display effectively has no HDR — return the empty capability.
@@ -30,8 +67,7 @@ object DisplayHdrProbe {
         // is still the right source pre-34 and is still functional, so we
         // suppress the warning rather than branching on API level.
         @Suppress("DEPRECATION")
-        val types = runCatching { display.hdrCapabilities?.supportedHdrTypes }
-            .getOrNull()
+        val types = display.hdrCapabilities?.supportedHdrTypes
             ?.toSet()
             .orEmpty()
 
@@ -78,3 +114,6 @@ object DisplayHdrProbe {
         return dm.getDisplay(Display.DEFAULT_DISPLAY)
     }
 }
+
+private fun Display.Mode.diagnosticsLabel(): String =
+    "${physicalWidth}x${physicalHeight}@${"%.2f".format(java.util.Locale.ROOT, refreshRate)}"

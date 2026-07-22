@@ -20,6 +20,7 @@ import org.siloserver.silo.common.player.AudioTrackManager
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.tv.ui.screens.settings.TvSettingsViewModel
+import org.siloserver.silo.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
 import org.siloserver.silo.common.player.SiloPlayerFactory
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.SubtitleManager
@@ -76,13 +77,13 @@ val androidTvModule = module {
 
     // Multi-server registry. Loaded synchronously in init so MainTvActivity's
     // runBlocking-resolved start destination sees consistent state.
-    single<ServerRegistry> { AndroidServerRegistry(get()) }
+    single<ServerRegistry> { AndroidServerRegistry(get(), get()) }
 
     // Persistent (EncryptedSharedPreferences-backed) replacement for the
     // commonMain in-memory TokenManager. Koin 3.1+ replaces same-key bindings
     // when the redefining module is loaded after the original — sharedModules()
     // is registered first in SiloTvApplication, so this wins.
-    single<TokenManager> { EncryptedTokenManagerImpl(get(), get()) }
+    single<TokenManager> { EncryptedTokenManagerImpl(get(), get(), get()) }
 
     // Offline-first Room store (Track B). Bound after sharedModules() so the
     // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
@@ -475,6 +476,7 @@ val androidTvModule = module {
             tvLibraryScopeStore = getOrNull(),
         )
     }
+    viewModel { TvDiagnosticsViewModel(get()) }
 }
 
 private fun tvDeviceName(): String =

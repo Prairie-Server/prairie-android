@@ -33,9 +33,11 @@ import kotlinx.coroutines.sync.withLock
 class EncryptedTokenManagerImpl(
     private val prefs: SharedPreferences,
     private val registry: ServerRegistry,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) : TokenManager {
 
     private val mutex = Mutex()
+    private val tokenWriteMutex = Mutex()
     private val scope = CoroutineScope(Dispatchers.Default)
 
     private var activeServerId: String? = registry.activeServerId.value
@@ -105,7 +107,24 @@ class EncryptedTokenManagerImpl(
     }
 
     override suspend fun saveTokens(accessToken: String, refreshToken: String, expiresIn: Long) {
+        tokenWriteMutex.withLock {
+            val isInitialSignIn = mutex.withLock {
+                ensureCacheMatchesRegistryLocked()
+                temporaryScope == null && this.accessToken == null && this.refreshToken == null
+            }
+            if (isInitialSignIn) {
+                identityTransitions.changing(IdentityTransitionKind.SIGN_IN) {
+                    saveActiveTokensLocked(accessToken, refreshToken, expiresIn)
+                }
+            } else {
+                saveActiveTokensLocked(accessToken, refreshToken, expiresIn)
+            }
+        }
+    }
+
+    private suspend fun saveActiveTokensLocked(accessToken: String, refreshToken: String, expiresIn: Long) {
         mutex.withLock {
+            ensureCacheMatchesRegistryLocked()
             temporaryScope?.let { scope ->
                 temporaryScope = scope.copy(
                     accessToken = accessToken,
@@ -114,7 +133,7 @@ class EncryptedTokenManagerImpl(
                 )
                 return@withLock
             }
-            val serverId = activeServerId ?: return  // No active server — drop on the floor.
+            val serverId = activeServerId ?: return@withLock
             this.accessToken = accessToken
             this.refreshToken = refreshToken
             val expiryEpochMs = System.currentTimeMillis() + expiresIn * 1000L
@@ -128,23 +147,30 @@ class EncryptedTokenManagerImpl(
     }
 
     override suspend fun clearTokens() {
-        mutex.withLock {
-            if (temporaryScope != null) {
-                temporaryScope = null
-                return@withLock
+        tokenWriteMutex.withLock {
+            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+                mutex.withLock { clearCurrentScopeLocked() }
             }
-            clearPersistentTokensLocked()
         }
     }
 
     override suspend fun invalidateSession() {
-        mutex.withLock {
-            if (temporaryScope != null) {
-                temporaryScope = null
-                return
+        tokenWriteMutex.withLock {
+            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+                mutex.withLock {
+                    val wasTemporary = temporaryScope != null
+                    clearCurrentScopeLocked()
+                    if (!wasTemporary) _sessionExpired.tryEmit(Unit)
+                }
             }
+        }
+    }
+
+    private fun clearCurrentScopeLocked() {
+        if (temporaryScope != null) {
+            temporaryScope = null
+        } else {
             clearPersistentTokensLocked()
-            _sessionExpired.tryEmit(Unit)
         }
     }
 
@@ -234,26 +260,38 @@ class EncryptedTokenManagerImpl(
     }
 
     override suspend fun switchActiveServer(serverId: String?) {
-        mutex.withLock {
-            if (activeServerId == serverId) return
-            activeServerId = serverId
-            reloadCacheUnsynchronized()
+        if (mutex.withLock { activeServerId == serverId }) return
+        identityTransitions.changing(IdentityTransitionKind.SERVER_SWITCH) {
+            mutex.withLock {
+                if (activeServerId == serverId) return@withLock
+                activeServerId = serverId
+                reloadCacheUnsynchronized()
+            }
         }
     }
 
     override suspend fun signOutCurrentServer() {
-        clearTokens()
+        tokenWriteMutex.withLock {
+            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+                mutex.withLock { clearCurrentScopeLocked() }
+            }
+        }
     }
 
     override suspend fun beginTemporaryScope(scope: TemporaryAuthScope) {
-        mutex.withLock { temporaryScope = scope }
+        identityTransitions.changing(IdentityTransitionKind.TEMPORARY_SCOPE_BEGIN) {
+            mutex.withLock { temporaryScope = scope }
+        }
     }
 
-    override suspend fun endTemporaryScope(): Boolean = mutex.withLock {
-        val existed = temporaryScope != null
-        temporaryScope = null
-        existed
-    }
+    override suspend fun endTemporaryScope(): Boolean =
+        identityTransitions.changing(IdentityTransitionKind.TEMPORARY_SCOPE_END) {
+            mutex.withLock {
+                val existed = temporaryScope != null
+                temporaryScope = null
+                existed
+            }
+        }
 
     override suspend fun hasTemporaryScope(): Boolean = mutex.withLock { temporaryScope != null }
 

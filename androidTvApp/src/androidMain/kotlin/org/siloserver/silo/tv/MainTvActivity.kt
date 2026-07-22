@@ -29,6 +29,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.lifecycle.lifecycleScope
+import org.siloserver.silo.common.diagnostics.DiagnosticsLifecycleLogger
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.common.settings.ServerDrivenConfigRefresher
@@ -178,6 +179,7 @@ class MainTvActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        DiagnosticsLifecycleLogger.state("foreground")
         val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.startForeground()
@@ -245,6 +247,7 @@ class MainTvActivity : ComponentActivity() {
      * the debounce window doesn't lose what they just toggled.
      */
     override fun onStop() {
+        DiagnosticsLifecycleLogger.state("background")
         super.onStop()
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.stopForeground()

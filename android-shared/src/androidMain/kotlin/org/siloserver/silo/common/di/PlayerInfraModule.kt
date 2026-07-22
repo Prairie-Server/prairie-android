@@ -5,6 +5,7 @@ import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
 import org.siloserver.silo.common.player.ActivePlayerHolder
 import org.siloserver.silo.common.player.AudiobookSettingsStore
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
+import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackSessionTracker
 import org.siloserver.silo.common.player.SleepTimerController
 import org.siloserver.silo.common.settings.AndroidPlayerSettingsStore
 import org.siloserver.silo.common.settings.DefaultLibraryPlaybackPrefsStore
@@ -150,6 +151,7 @@ val playerInfraModule = module {
             healthApi = get(),
             personalDataRepository = get(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            playbackSessions = get<DiagnosticsPlaybackSessionTracker>(),
         )
     }
 

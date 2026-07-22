@@ -36,6 +36,7 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 | **Networking** | **Ktor** 3.1.2 client · kotlinx.serialization · WebSockets for realtime |
 | **DI** | **Koin** 4.1.0 |
 | **Persistence** | AndroidX DataStore · EncryptedSharedPreferences (tokens) · WorkManager (downloads) |
+| **Diagnostics** | Native bounded capture · local review/consent · self-hosted Silo upload |
 | **Images** | Coil 3 (Ktor-backed) |
 | **SDK** | Android 7.0+ / minSdk 24 · targetSdk 35 · compileSdk 36 · JDK 21 |
 
@@ -97,6 +98,11 @@ Multiple **household profiles** per account (PINs, child profiles, content-ratin
 ### 🌐 Multi-server & accounts (phone + TV)
 Add and switch between multiple Silo servers (encrypted per-server token slots), use username/password or device/QR sign-in, and manage household profiles. Admin screens are not currently exposed in the Android apps.
 
+### Client diagnostics (phone + TV)
+Android-native diagnostics can retain a bounded, redacted local report for crashes, ANRs, playback, networking, focus, cast, downloads, and lifecycle events. A two-segment journal keeps only curated, already-redacted lifecycle breadcrumbs so next-launch ANR/native-crash reports retain pre-exit context; identity transitions rotate it, and Never/sign-out purges it. Adult profiles can review and delete account-scoped reports on-device, choose Ask / Always / Never consent, or run a timed diagnostic capture. Child profiles cannot capture, review, or upload reports. Reports upload only to the originating self-hosted Silo server when that server advertises diagnostics support. Profile transitions close the capture gate and rotate live evidence without discarding retained account reports; sign-out, server removal, and Never consent purge the applicable evidence. One-off manual reports remain available under Never without enabling persistent capture.
+
+This feature does not use Sentry, GlitchTip, Crashlytics, OpenTelemetry, ACRA, or another hosted observability SDK. Crash-time work is local and bounded; exact credential values receive a bounded replacement before the app-private marker is written, structural redaction runs during next-launch report assembly, and archive construction and upload occur after restart.
+
 ---
 
 ## Architecture
@@ -126,7 +132,7 @@ Three library layers under two app shells. Dependencies only point downward.
 
 ### Modules
 - **`shared`** (KMP, `commonMain`) — the cross-platform core: Ktor `HttpClient`, typed API classes, repositories, most ViewModels, domain models, and the `ApiResult` type.
-- **`android-shared`** — Android-only playback infrastructure shared by both apps: the Media3 `SiloPlaybackService`, player/backend factory, capability probes, the stream-auth OkHttp interceptor, public downloads, and DataStore-backed settings.
+- **`android-shared`** — Android-only infrastructure shared by both apps: the Media3 `SiloPlaybackService`, player/backend factory, capability probes, the stream-auth OkHttp interceptor, public downloads, DataStore-backed settings, and native diagnostics capture/storage/upload coordination.
 - **`androidApp`** — the phone app: Compose Material 3 screens, bottom-nav shell, `MainActivity`.
 - **`androidTvApp`** — the TV app: Compose for TV, tvOS-aligned top-menu shell, D-pad focus, `MainTvActivity`, plus TV-only Watch Next integration.
 

@@ -4,6 +4,10 @@ import org.siloserver.silo.model.notifications.NotificationListResponse
 import org.siloserver.silo.model.notifications.NotificationRow
 import org.siloserver.silo.model.notifications.UnreadCountResponse
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransition
+import org.siloserver.silo.network.IdentityTransitionKind
+import org.siloserver.silo.network.IdentityTransitionPhase
 import org.siloserver.silo.network.TokenManagerImpl
 import org.siloserver.silo.network.api.ProfileApi
 import io.ktor.client.HttpClient
@@ -103,4 +107,39 @@ class ProfileRepositoryTest {
             )
             profileRepo.selectProfile("profile-b")  // must not throw
         }
+
+    @Test
+    fun `profile select and clear cross the synchronous identity barrier`() = runTest {
+        val barrier = DefaultIdentityTransitionBarrier()
+        val transitions = mutableListOf<IdentityTransition>()
+        barrier.installObserverForTests(transitions::add)
+        val tokens = TokenManagerImpl(barrier)
+        val profileRepo = ProfileRepository(
+            profileApi = ProfileApi(noOpClient),
+            tokenManager = tokens,
+            identityTransitions = barrier,
+        )
+
+        profileRepo.selectProfile("profile-b")
+        profileRepo.clearProfile()
+
+        assertEquals(
+            listOf(
+                IdentityTransitionKind.PROFILE_SWITCH,
+                IdentityTransitionKind.PROFILE_SWITCH,
+                IdentityTransitionKind.PROFILE_SWITCH,
+                IdentityTransitionKind.PROFILE_SWITCH,
+            ),
+            transitions.map(IdentityTransition::kind),
+        )
+        assertEquals(
+            listOf(
+                IdentityTransitionPhase.WILL_CHANGE,
+                IdentityTransitionPhase.DID_CHANGE,
+                IdentityTransitionPhase.WILL_CHANGE,
+                IdentityTransitionPhase.DID_CHANGE,
+            ),
+            transitions.map(IdentityTransition::phase),
+        )
+    }
 }

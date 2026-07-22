@@ -56,7 +56,7 @@ val repositoryModule = module {
             getOrNull<org.siloserver.silo.repository.port.CatalogCachePort>() ?: org.siloserver.silo.repository.port.NoOpCatalogCachePort,
         )
     }
-    single { ProfileRepository(get(), get(), getOrNull(), get(), get()) }
+    single { ProfileRepository(get(), get(), getOrNull(), get(), get(), get()) }
     single { CollectionRepository(get()) }
     single { SectionRepository(get(), getOrNull<org.siloserver.silo.repository.port.CatalogCachePort>() ?: org.siloserver.silo.repository.port.NoOpCatalogCachePort) }
     single { RecommendationRepository(get()) }

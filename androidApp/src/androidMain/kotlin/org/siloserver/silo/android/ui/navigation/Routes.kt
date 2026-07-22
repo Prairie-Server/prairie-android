@@ -65,6 +65,13 @@ sealed class Route(val route: String) {
     }
     data object Settings : Route("settings")
     data object CardOverlays : Route("settings/card_overlays")
+    data object Diagnostics : Route("settings/diagnostics")
+    data class DiagnosticsReport(val reportId: String) :
+        Route("settings/diagnostics/report/${Uri.encode(reportId)}") {
+        companion object {
+            const val ROUTE = "settings/diagnostics/report/{reportId}"
+        }
+    }
 
     // Canonical tab routes — Home is the start destination and the bottom-nav /
     // popUpTo anchor; Libraries and Recommendations back the other media tabs.

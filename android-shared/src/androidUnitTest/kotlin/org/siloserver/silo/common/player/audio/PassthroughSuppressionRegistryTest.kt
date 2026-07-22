@@ -20,6 +20,10 @@ class PassthroughSuppressionRegistryTest {
         PassthroughSuppressionRegistry.beginAttempt("attempt-a")
         assertTrue(PassthroughSuppressionRegistry.suppressForSinglePcmRetry(MimeTypes.AUDIO_TRUEHD, 8))
         assertTrue(PassthroughSuppressionRegistry.isSuppressed(trueHdEightChannel))
+        val diagnostics = PassthroughSuppressionRegistry.diagnosticsSnapshot()
+        assertEquals(listOf("audio/true-hd:8"), diagnostics.suppressedFormats)
+        assertTrue(diagnostics.retryUsed)
+        assertFalse(diagnostics.toString().contains("attempt-a"))
         assertFalse(PassthroughSuppressionRegistry.suppressForSinglePcmRetry(MimeTypes.AUDIO_TRUEHD, 8))
 
         PassthroughSuppressionRegistry.beginAttempt("attempt-b")

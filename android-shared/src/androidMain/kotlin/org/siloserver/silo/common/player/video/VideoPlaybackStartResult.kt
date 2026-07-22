@@ -55,6 +55,7 @@ sealed interface VideoPlaybackStartResult {
     data class Error(
         val contentId: String,
         val message: String,
+        val diagnosticsCode: PlaybackDiagnosticsCode? = null,
     ) : VideoPlaybackStartResult
 
     /**
@@ -66,4 +67,38 @@ sealed interface VideoPlaybackStartResult {
     data class ServerUnreachable(
         val contentId: String,
     ) : VideoPlaybackStartResult
+}
+
+@JvmInline
+value class PlaybackDiagnosticsCode private constructor(val wireValue: String) {
+    companion object {
+        val CATALOG = PlaybackDiagnosticsCode("catalog_error")
+        val NETWORK = PlaybackDiagnosticsCode("network_error")
+        val NO_VERSIONS = PlaybackDiagnosticsCode("no_versions")
+        val NO_ACTIVE_PROFILE = PlaybackDiagnosticsCode("no_active_profile")
+        val NOT_AUTHENTICATED = PlaybackDiagnosticsCode("not_authenticated")
+        val START_REQUEST = PlaybackDiagnosticsCode("start_request_error")
+        val SERVER_UPGRADE_REQUIRED = PlaybackDiagnosticsCode("server_upgrade_required")
+        val UNEXPECTED = PlaybackDiagnosticsCode("unexpected_error")
+
+        fun serverTerminal(reason: String): PlaybackDiagnosticsCode? =
+            reason.trim().lowercase().takeIf(SAFE_SERVER_TERMINAL_REASONS::contains)?.let(::PlaybackDiagnosticsCode)
+
+        private val SAFE_SERVER_TERMINAL_REASONS = setOf(
+            "adaptation_exhausted",
+            "adaptation_unavailable",
+            "audio_conversion_unsupported",
+            "audio_transcoding_disabled",
+            "client_hls_unsupported",
+            "conversion_tool_unavailable",
+            "hdr_transcode_unsupported",
+            "invalid_playback_plan",
+            "invalid_terminal_response",
+            "no_alternate_version",
+            "replan_loop_detected",
+            "source_metadata_incomplete",
+            "source_unavailable",
+            "transcoding_disabled",
+        )
+    }
 }

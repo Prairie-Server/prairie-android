@@ -34,6 +34,7 @@ import org.siloserver.silo.cast.SiloCastPeerRole
 import org.siloserver.silo.cast.SiloCastPlaybackState
 import org.siloserver.silo.cast.SiloCastProtocol
 import org.siloserver.silo.common.cast.SiloCastFrame
+import org.siloserver.silo.common.diagnostics.DiagnosticsCastLogger
 import org.siloserver.silo.common.cast.SiloCastFrameBuffer
 import org.siloserver.silo.common.cast.SiloCastNsdAdvertiser
 import org.siloserver.silo.common.lan.SiloCastTls
@@ -102,6 +103,7 @@ class TvSiloCastReceiver(
     @Synchronized
     fun start() {
         if (scope != null) return
+        DiagnosticsCastLogger.event("TV cast receiver started")
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = newScope
         newScope.launch {
@@ -141,6 +143,7 @@ class TvSiloCastReceiver(
 
     @Synchronized
     fun stop() {
+        DiagnosticsCastLogger.event("TV cast receiver stopped")
         advertiser.stop()
         val identityGeneration = identityManager.activeIdentity?.generationId
         pendingPlayerIdentityGeneration = null
@@ -174,6 +177,7 @@ class TvSiloCastReceiver(
         adapter: TvSiloCastPlayerAdapter,
         stateProvider: () -> SiloCastPlaybackState,
     ): Closeable {
+        DiagnosticsCastLogger.event("TV cast player registered")
         identityEndJob?.cancel()
         identityEndJob = null
         val identityGeneration = pendingPlayerIdentityGeneration
@@ -190,6 +194,7 @@ class TvSiloCastReceiver(
         return Closeable {
             synchronized(this) {
                 if (activePlayer === player) {
+                    DiagnosticsCastLogger.event("TV cast player unregistered")
                     activePlayer = null
                     advertiser.updatePlaying(false)
                     if (player.identityGeneration != null) {
@@ -208,6 +213,7 @@ class TvSiloCastReceiver(
         // must also be invalidated, else it registers into the new epoch.
         sessionEpoch += 1
         val session = activeSession ?: return
+        DiagnosticsCastLogger.event("TV cast controller disconnected")
         activeSession = null
         _standbyState.value = null
         val owner = scope
@@ -252,6 +258,7 @@ class TvSiloCastReceiver(
             withContext(Dispatchers.IO) { SiloCastTls.accept(client) }
         } catch (t: Throwable) {
             Log.w(TAG, "SiloCast TLS handshake failed", t)
+            DiagnosticsCastLogger.warning("TV cast handshake failed")
             runCatching { client.close() }
             return
         }
@@ -273,6 +280,7 @@ class TvSiloCastReceiver(
             session.close()
             return
         }
+        DiagnosticsCastLogger.event("TV cast controller connected")
         try {
             coroutineScope {
                 session.job = coroutineContext[Job]
@@ -295,6 +303,7 @@ class TvSiloCastReceiver(
                         session.missedHeartbeats += 1
                         if (session.missedHeartbeats > MAX_MISSED_HEARTBEATS) {
                             Log.i(TAG, "SiloCast controller heartbeat timed out")
+                            DiagnosticsCastLogger.warning("TV cast controller timed out")
                             session.close()
                             return@launch
                         }
@@ -305,6 +314,7 @@ class TvSiloCastReceiver(
                     delay(AUTH_GRACE_MS)
                     if (!session.didReceiveHello) {
                         Log.i(TAG, "SiloCast controller never authorized; closing")
+                        DiagnosticsCastLogger.warning("TV cast authorization timed out")
                         session.goodbyeAndClose()
                     }
                 }
@@ -365,6 +375,9 @@ class TvSiloCastReceiver(
                     ?: serverRegistry.activeServerId.value
                 val offered = message.hello.serverId
                 session.isAuthorized = !offered.isNullOrEmpty() && activeServerId != null && offered == activeServerId
+                DiagnosticsCastLogger.event(
+                    if (session.isAuthorized) "TV cast controller authorized" else "TV cast handoff required",
+                )
                 refreshStandbyState()
                 if (session.isAuthorized) {
                     session.send(SiloCastMessage.State(currentState()))
@@ -404,6 +417,7 @@ class TvSiloCastReceiver(
                             return@launch
                         }
                         session.isAuthorized = true
+                        DiagnosticsCastLogger.event("TV cast handoff authorized")
                         session.remoteLaunchReady = true
                         refreshStandbyState()
                         refreshAdvertisement()

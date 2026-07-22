@@ -10,6 +10,7 @@ import org.siloserver.silo.common.player.VideoSessionStartV3
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlaybackStartResult
 import org.siloserver.silo.common.player.video.VideoPlaybackStarter
+import org.siloserver.silo.common.player.video.PlaybackDiagnosticsCode
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.player.video.shouldReachServerForPlayback
 import org.siloserver.silo.common.settings.PlayerSettingsStore
@@ -46,15 +47,24 @@ class MobileVideoPlaybackStarter(
         return try {
             val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
                 is ApiResult.Success -> r.data
-                is ApiResult.Error -> return failure(request.contentId, "Failed to load content: ${r.message}")
+                is ApiResult.Error -> return failure(
+                    request.contentId,
+                    "Failed to load content: ${r.message}",
+                    diagnosticsCode = PlaybackDiagnosticsCode.CATALOG,
+                )
                 is ApiResult.NetworkError -> return failure(
                     request.contentId,
                     "Network error: ${r.exception.message}",
                     r.exception,
+                    PlaybackDiagnosticsCode.NETWORK,
                 )
             }
             if (watchDetail.versions.isEmpty()) {
-                return failure(request.contentId, "No playable versions available")
+                return failure(
+                    request.contentId,
+                    "No playable versions available",
+                    diagnosticsCode = PlaybackDiagnosticsCode.NO_VERSIONS,
+                )
             }
 
             val serverUrl = playbackSessionManager.getServerUrl()
@@ -73,9 +83,17 @@ class MobileVideoPlaybackStarter(
 
             val activeProfile = profileRepository.getActiveProfile()
             val profileId = activeProfile?.id ?: profileRepository.getActiveProfileId()
-                ?: return failure(request.contentId, "No active profile selected")
+                ?: return failure(
+                    request.contentId,
+                    "No active profile selected",
+                    diagnosticsCode = PlaybackDiagnosticsCode.NO_ACTIVE_PROFILE,
+                )
             val accessToken = playbackSessionManager.getAccessToken()
-                ?: return failure(request.contentId, "Not authenticated")
+                ?: return failure(
+                    request.contentId,
+                    "Not authenticated",
+                    diagnosticsCode = PlaybackDiagnosticsCode.NOT_AUTHENTICATED,
+                )
             val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
             val capabilities = capabilityDetector.detect(dolbyVision = dolbyVision)
             val playbackContext = capabilityDetector.detectPlaybackContext(
@@ -119,11 +137,16 @@ class MobileVideoPlaybackStarter(
                 )
             ) {
                 is ApiResult.Success -> r.data
-                is ApiResult.Error -> return failure(request.contentId, "Failed to start playback: ${r.message}")
+                is ApiResult.Error -> return failure(
+                    request.contentId,
+                    "Failed to start playback: ${r.message}",
+                    diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST,
+                )
                 is ApiResult.NetworkError -> return failure(
                     request.contentId,
                     "Network error: ${r.exception.message}",
                     r.exception,
+                    PlaybackDiagnosticsCode.NETWORK,
                 )
             }
             val readyV3 = when (v3Start) {
@@ -131,10 +154,12 @@ class MobileVideoPlaybackStarter(
                 is VideoSessionStartV3.Terminal -> return failure(
                     request.contentId,
                     "Playback unavailable (${v3Start.reason}): ${v3Start.message}",
+                    diagnosticsCode = PlaybackDiagnosticsCode.serverTerminal(v3Start.reason),
                 )
                 VideoSessionStartV3.ServerUpgradeRequired -> return failure(
                     request.contentId,
                     "This Silo server must be updated to support the Media3 playback protocol.",
+                    diagnosticsCode = PlaybackDiagnosticsCode.SERVER_UPGRADE_REQUIRED,
                 )
             }
             val session = readyV3.session
@@ -215,7 +240,7 @@ class MobileVideoPlaybackStarter(
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error loading content", e)
-            failure(request.contentId, "Unexpected error: ${e.message}", e)
+            failure(request.contentId, "Unexpected error: ${e.message}", e, PlaybackDiagnosticsCode.UNEXPECTED)
         }
     }
 
@@ -223,6 +248,7 @@ class MobileVideoPlaybackStarter(
         contentId: String,
         message: String,
         cause: Throwable? = null,
+        diagnosticsCode: PlaybackDiagnosticsCode? = null,
     ): VideoPlaybackStartResult.Error {
         // Log the throwable here instead of stashing it on the (unread) result —
         // the message already carries the human-facing detail.
@@ -230,6 +256,7 @@ class MobileVideoPlaybackStarter(
         return VideoPlaybackStartResult.Error(
             contentId = contentId,
             message = message,
+            diagnosticsCode = diagnosticsCode,
         )
     }
 

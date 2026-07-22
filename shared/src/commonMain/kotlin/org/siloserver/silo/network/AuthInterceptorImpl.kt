@@ -20,6 +20,7 @@ class SiloAuthConfig {
      */
     var tokenManager: TokenManager? = null
     var deviceMetadataProvider: DeviceMetadataProvider? = null
+    var diagnosticsObserver: NetworkDiagnosticsObserver? = null
 }
 
 /**
@@ -41,11 +42,13 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
     val tokenManager = pluginConfig.tokenManager
         ?: error("TokenManager must be provided to SiloAuthPlugin")
     val deviceMetadataProvider = pluginConfig.deviceMetadataProvider
+    val diagnosticsObserver = pluginConfig.diagnosticsObserver
 
     val refreshMutex = Mutex()
 
     onRequest { request, _ ->
         val skipAuth = request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true
+        val diagnosticsScope = request.attributes.getOrNull(DiagnosticsRequestScopeKey)
 
         // Pinned (Track B outbox replay): bind this request to a captured scope
         // regardless of the globally-active server/profile, so a mid-drain switch
@@ -72,9 +75,12 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                 request.header(HttpHeaders.Authorization, "Bearer $token")
             }
             request.headers.remove("X-Profile-Id")
-            pinned.profileId?.let { request.header("X-Profile-Id", it) }
             request.headers.remove("X-Profile-Token")
-            pinned.profileToken?.let { request.header("X-Profile-Token", it) }
+            request.applyProfileHeaders(
+                diagnosticsScope = diagnosticsScope,
+                activeProfileId = pinned.profileId,
+                activeProfileToken = pinned.profileToken,
+            )
             request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
             return@onRequest
         }
@@ -114,15 +120,11 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             request.header(HttpHeaders.Authorization, "Bearer $token")
         }
 
-        if (!request.headers.contains("X-Profile-Id")) {
-            tokenManager.getProfileId()?.let { profileId ->
-                request.header("X-Profile-Id", profileId)
-            }
-        }
-
-        tokenManager.getProfileToken()?.let { profileToken ->
-            request.header("X-Profile-Token", profileToken)
-        }
+        request.applyProfileHeaders(
+            diagnosticsScope = diagnosticsScope,
+            activeProfileId = tokenManager.getProfileId(),
+            activeProfileToken = tokenManager.getProfileToken(),
+        )
 
         request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
     }
@@ -142,6 +144,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             if (originalCall.response.status != HttpStatusCode.Unauthorized) {
                 return@on originalCall
             }
+            diagnosticsObserver.safeAuthRefresh("required")
             val refreshed = refreshMutex.withLock {
                 // Another path may have refreshed this scope while we waited.
                 val current = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
@@ -153,11 +156,13 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                     return@withLock false
                 }
                 try {
+                    diagnosticsObserver.safeAuthRefresh("started")
                     val refreshResponse = client.post("${pinnedScope.serverUrl}/api/v1/auth/refresh") {
                         contentType(ContentType.Application.Json)
                         setBody(RefreshRequest(refreshToken))
                     }
                     if (refreshResponse.status.isSuccess()) {
+                        diagnosticsObserver.safeAuthRefresh("succeeded")
                         val tokens = refreshResponse.body<RefreshResponse>()
                         tokenManager.saveTokensForScope(
                             scope = pinnedScope,
@@ -173,12 +178,14 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                         val after = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
                         after != null && after != sentAuth
                     } else {
+                        diagnosticsObserver.safeAuthRefresh("failed")
                         // Don't invalidate the active session for a background scope.
                         // Re-check in case a concurrent path refreshed it in flight.
                         val after = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
                         after != null && after != sentAuth
                     }
                 } catch (e: Throwable) {
+                    diagnosticsObserver.safeAuthRefresh("failed")
                     false
                 }
             }
@@ -205,6 +212,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
         if (originalCall.response.status != HttpStatusCode.Unauthorized) {
             return@on originalCall
         }
+        diagnosticsObserver.safeAuthRefresh("required")
 
         val requestPath = originalCall.request.url.encodedPath
         if (requestPath.endsWith("/auth/refresh") || requestPath.endsWith("/auth/login")) {
@@ -245,6 +253,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             }
 
             try {
+                diagnosticsObserver.safeAuthRefresh("started")
                 val serverUrl = tokenManager.getServerUrl()
                 if (serverUrl.isBlank()) {
                     return@withLock false
@@ -276,6 +285,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                 }
 
                 if (refreshResponse.status.isSuccess()) {
+                    diagnosticsObserver.safeAuthRefresh("succeeded")
                     val tokens = refreshResponse.body<RefreshResponse>()
                     tokenManager.saveTokens(
                         accessToken = tokens.accessToken,
@@ -284,6 +294,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                     )
                     true
                 } else {
+                    diagnosticsObserver.safeAuthRefresh("failed")
                     // Only auth rejection proves the refresh token is bad.
                     // Gateway/proxy/server failures should keep the session so
                     // a temporary outage does not sign the user out.
@@ -299,6 +310,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
                     false
                 }
             } catch (e: Throwable) {
+                diagnosticsObserver.safeAuthRefresh("failed")
                 false
             }
         }
@@ -322,10 +334,41 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
     }
 }
 
+private fun HttpRequestBuilder.applyProfileHeaders(
+    diagnosticsScope: DiagnosticsRequestScope?,
+    activeProfileId: String?,
+    activeProfileToken: String?,
+) {
+    when (diagnosticsScope?.mode ?: DiagnosticsProfileHeaderMode.ACTIVE) {
+        DiagnosticsProfileHeaderMode.ACTIVE -> {
+            if (!headers.contains("X-Profile-Id")) {
+                activeProfileId?.let { header("X-Profile-Id", it) }
+            }
+            if (!headers.contains("X-Profile-Token")) {
+                activeProfileToken?.let { header("X-Profile-Token", it) }
+            }
+        }
+        DiagnosticsProfileHeaderMode.SUPPRESS -> {
+            headers.remove("X-Profile-Id")
+            headers.remove("X-Profile-Token")
+        }
+        DiagnosticsProfileHeaderMode.EXACT -> {
+            headers.remove("X-Profile-Id")
+            headers.remove("X-Profile-Token")
+            val exactProfileId = checkNotNull(diagnosticsScope?.exactProfileId)
+            header("X-Profile-Id", exactProfileId)
+        }
+    }
+}
+
 private fun HttpStatusCode.shouldInvalidateSessionAfterRefreshFailure(): Boolean =
     this == HttpStatusCode.BadRequest ||
         this == HttpStatusCode.Unauthorized ||
         this == HttpStatusCode.Forbidden
+
+private fun NetworkDiagnosticsObserver?.safeAuthRefresh(state: String) {
+    runCatching { this?.authRefresh(state) }
+}
 
 private suspend fun HttpRequestBuilder.attachSiloDeviceMetadataHeaders(
     deviceMetadataProvider: DeviceMetadataProvider?,

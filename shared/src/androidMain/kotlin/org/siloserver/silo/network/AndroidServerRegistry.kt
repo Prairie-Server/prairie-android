@@ -33,6 +33,7 @@ import kotlinx.serialization.json.Json
  */
 class AndroidServerRegistry(
     private val prefs: SharedPreferences,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) : ServerRegistry {
 
     private val mutex = Mutex()
@@ -115,22 +116,24 @@ class AndroidServerRegistry(
     }
 
     override suspend fun remove(serverId: String) {
-        mutex.withLock {
-            // Wipe all per-server token keys before dropping the entry, otherwise
-            // they'd linger encrypted on disk indefinitely.
-            prefs.edit()
-                .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN))
-                .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN))
-                .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_TOKEN_EXPIRY))
-                .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_PROFILE_ID))
-                .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN))
-                .apply()
+        identityTransitions.changing(IdentityTransitionKind.SERVER_REMOVE) {
+            mutex.withLock {
+                // Wipe all per-server token keys before dropping the entry, otherwise
+                // they'd linger encrypted on disk indefinitely.
+                prefs.edit()
+                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN))
+                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN))
+                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_TOKEN_EXPIRY))
+                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_PROFILE_ID))
+                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN))
+                    .apply()
 
-            val updated = _entries.value.filter { it.id != serverId }
-            val newActive = if (_activeServerId.value == serverId) {
-                updated.maxByOrNull { it.lastUsedAtEpochMs }?.id
-            } else _activeServerId.value
-            persistAndApplyLocked(updated, newActive)
+                val updated = _entries.value.filter { it.id != serverId }
+                val newActive = if (_activeServerId.value == serverId) {
+                    updated.maxByOrNull { it.lastUsedAtEpochMs }?.id
+                } else _activeServerId.value
+                persistAndApplyLocked(updated, newActive)
+            }
         }
     }
 
@@ -144,14 +147,16 @@ class AndroidServerRegistry(
     }
 
     override suspend fun switchTo(serverId: String) {
-        mutex.withLock {
-            if (_entries.value.none { it.id == serverId }) return
-            val updated = _entries.value.map { entry ->
-                if (entry.id == serverId) {
-                    entry.copy(lastUsedAtEpochMs = System.currentTimeMillis())
-                } else entry
+        identityTransitions.changing(IdentityTransitionKind.SERVER_SWITCH) {
+            mutex.withLock {
+                if (_entries.value.none { it.id == serverId }) return@withLock
+                val updated = _entries.value.map { entry ->
+                    if (entry.id == serverId) {
+                        entry.copy(lastUsedAtEpochMs = System.currentTimeMillis())
+                    } else entry
+                }
+                persistAndApplyLocked(updated, serverId)
             }
-            persistAndApplyLocked(updated, serverId)
         }
     }
 

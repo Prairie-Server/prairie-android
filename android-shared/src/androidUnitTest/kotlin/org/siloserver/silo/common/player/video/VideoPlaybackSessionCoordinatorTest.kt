@@ -8,9 +8,18 @@ import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.siloserver.silo.common.diagnostics.SiloLog
+import kotlin.test.AfterTest
 
 class VideoPlaybackSessionCoordinatorTest {
+    @AfterTest
+    fun tearDown() {
+        SiloLog.installSink(null)
+    }
+
     @Test
     fun startPassesRequestToStarter() = runTest {
         val starter = FakePlaybackStarter()
@@ -99,6 +108,27 @@ class VideoPlaybackSessionCoordinatorTest {
         val error = assertIs<VideoPlayerUiState.Error>(state)
         assertEquals("movie-123", error.contentId)
         assertEquals("Failed to start playback", error.message)
+    }
+
+    @Test
+    fun startLogsOnlyTypedFailureCodeAndNeverHumanFacingMessage() = runTest {
+        val lines = mutableListOf<String>()
+        SiloLog.installSink { lines += it }
+        val starter = FakePlaybackStarter(
+            result = VideoPlaybackStartResult.Error(
+                contentId = "private-content-id",
+                message = "Private Movie cannot be played from secret.example",
+                diagnosticsCode = PlaybackDiagnosticsCode.serverTerminal("no_alternate_version"),
+            ),
+        )
+
+        VideoPlaybackSessionCoordinator(starter).start(baseRequest())
+
+        val failure = lines.single { it.contains("video start failed") }
+        assertTrue(failure.contains("no_alternate_version"), failure)
+        assertFalse(failure.contains("Private Movie"), failure)
+        assertFalse(failure.contains("secret.example"), failure)
+        assertFalse(failure.contains("private-content-id"), failure)
     }
 
     @Test

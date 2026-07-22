@@ -21,7 +21,16 @@ import org.siloserver.silo.model.playback.AudioPassthroughEntry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+
+data class AudioDiagnosticsSnapshot(
+    val sinkType: String,
+    val routeHashes: List<String>,
+    val routeGeneration: Long,
+    val capabilities: AudioPassthroughCapabilities,
+)
 
 /**
  * Tracks the current [AudioCapabilities] of the active audio sink (built-in
@@ -172,18 +181,46 @@ class AudioCapabilityManager(
      * conservative category ordered by the routes most relevant to playback.
      */
     fun currentSinkType(): String {
-        val devices = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val attrs = android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
-                    .build()
-                audioManager.getAudioDevicesForAttributes(attrs)
-            } else {
-                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
-            }
-        }.getOrDefault(emptyList())
-        return devices.map(::sinkCategory).minByOrNull(::sinkPriority) ?: "unknown"
+        val devices = runCatching(::currentOutputDevices).getOrDefault(emptyList())
+        return sinkType(devices)
+    }
+
+    /** Privacy-safe immutable route evidence. Raw device names and addresses never leave this class. */
+    fun diagnosticsSnapshot(): AudioDiagnosticsSnapshot {
+        val devices = currentOutputDevices()
+        return AudioDiagnosticsSnapshot(
+            sinkType = sinkType(devices),
+            routeHashes = devices.map(::routeHash).distinct().sorted(),
+            routeGeneration = outputRouteGeneration.value,
+            capabilities = capabilities.value.copy(
+                passthroughCodecs = capabilities.value.passthroughCodecs.toList(),
+                entries = capabilities.value.entries.map { entry ->
+                    entry.copy(channelCounts = entry.channelCounts.toList(), layouts = entry.layouts.toList())
+                },
+            ),
+        )
+    }
+
+    private fun currentOutputDevices(): List<AudioDeviceInfo> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val attrs = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                .build()
+            audioManager.getAudioDevicesForAttributes(attrs)
+        } else {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+        }
+
+    private fun sinkType(devices: List<AudioDeviceInfo>): String =
+        devices.map(::sinkCategory).minByOrNull(::sinkPriority) ?: "unknown"
+
+    private fun routeHash(device: AudioDeviceInfo): String {
+        val raw = "${device.type}|${device.id}|${device.address}"
+        return MessageDigest.getInstance("SHA-256")
+            .digest(raw.encodeToByteArray())
+            .take(ROUTE_HASH_BYTES)
+            .joinToString(separator = "") { byte -> "%02x".format(Locale.ROOT, byte.toInt() and 0xff) }
     }
 
     private fun sinkCategory(device: AudioDeviceInfo): String = when (device.type) {
@@ -296,6 +333,7 @@ class AudioCapabilityManager(
 
     private companion object {
         const val TAG = "AudioCapabilityMgr"
+        const val ROUTE_HASH_BYTES = 16
 
         val encodingSupport = listOf(
             EncodingSupport("ac3", AudioFormat.ENCODING_AC3),

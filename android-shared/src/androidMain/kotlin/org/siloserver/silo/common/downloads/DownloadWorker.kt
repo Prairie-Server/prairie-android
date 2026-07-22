@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
+import org.siloserver.silo.common.diagnostics.DiagnosticsDownloadLogger
 import androidx.core.app.NotificationCompat
 import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
@@ -95,6 +96,7 @@ class DownloadWorker(
         if (fileId < 0) return@withContext Result.failure()
 
         Log.i(TAG, "doWork start id=$downloadId fileId=$fileId title=$displayTitle")
+        DiagnosticsDownloadLogger.event("download started")
         runCatching {
             setForeground(buildForegroundInfo(downloadId, displayTitle, progress = 0, indeterminate = true))
         }.onFailure { Log.w(TAG, "setForeground initial failed", it) }
@@ -169,6 +171,7 @@ class DownloadWorker(
                     total = rangeInfo!!.total ?: -1L
                     written = resumeFrom
                     Log.i(TAG, "doWork resume id=$downloadId from=$resumeFrom total=$total")
+                    DiagnosticsDownloadLogger.event("download resumed")
                     out = append
                 } else {
                     // Fresh (200, or no usable partial): (re)create the target and
@@ -243,6 +246,7 @@ class DownloadWorker(
             val finalBytes = storage.partialSize(finalUri)
             storage.completeWrite(finalUri)
             Log.i(TAG, "doWork success id=$downloadId bytes=$finalBytes")
+            DiagnosticsDownloadLogger.event("download completed")
             repository.refresh()
             // Update the sidecar to status=completed. Enqueuer wrote the
             // initial sidecar with title + poster; we just flip status here
@@ -268,6 +272,7 @@ class DownloadWorker(
             // Failed here is what used to paint cancelled / paused
             // downloads with a red badge and delete-then-fail them.
             Log.i(TAG, "doWork cancelled id=$downloadId")
+            DiagnosticsDownloadLogger.event("download cancelled")
             withContext(NonCancellable) {
                 // Delete by scope+fileId (not just activeUri): a cancel before the
                 // response is classified leaves activeUri null but a prior attempt's
@@ -284,9 +289,11 @@ class DownloadWorker(
             // after this cap finds it `ready` and downloads instantly.
             if (runAttemptCount >= MAX_PREPARE_ATTEMPTS) {
                 Log.w(TAG, "doWork prepare gave up id=$downloadId after $runAttemptCount attempts")
+                DiagnosticsDownloadLogger.error("download preparation failed")
                 failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
             } else {
                 Log.i(TAG, "doWork preparing id=$downloadId attempt=$runAttemptCount → retry (awaiting ready)")
+                DiagnosticsDownloadLogger.event("download waiting for preparation")
                 Result.retry()
             }
         } catch (e: IOException) {
@@ -300,6 +307,7 @@ class DownloadWorker(
                 // persisted localUri/validator so the retry RESUMES via HTTP Range
                 // instead of re-downloading from zero. Sidecar stays "downloading".
                 Log.w(TAG, "doWork IO error id=$downloadId → retry (resume from partial)", e)
+                DiagnosticsDownloadLogger.warning("download retry scheduled")
                 Result.retry()
             }
         } catch (e: Throwable) {
@@ -317,6 +325,7 @@ class DownloadWorker(
         activeUri: String?,
     ): Result {
         Log.e(TAG, "doWork fatal id=$downloadId", e)
+        DiagnosticsDownloadLogger.error("download failed")
         // Delete by scope+fileId so a partial from any attempt is cleaned up
         // even if this attempt failed before activeUri was assigned.
         runCatching { storage.delete(serverId, profileId, fileId) }

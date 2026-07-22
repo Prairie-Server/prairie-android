@@ -11,6 +11,9 @@ import org.siloserver.silo.common.downloads.DownloadStorage
 import org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorFactory
 import org.siloserver.silo.common.downloads.DownloadSubscriptionWorker
 import org.siloserver.silo.common.downloads.DownloadWorker
+import org.siloserver.silo.common.diagnostics.DiagnosticsCoordinator
+import org.siloserver.silo.common.diagnostics.DiagnosticsUploadWorker
+import org.siloserver.silo.common.diagnostics.DiagnosticsUploader
 import org.siloserver.silo.repository.DownloadSubscriptionRepository
 import org.siloserver.silo.repository.DownloadsRepository
 import io.ktor.client.HttpClient
@@ -73,6 +76,15 @@ class AppWorkerFactory : WorkerFactory() {
                     appContext = appContext,
                     params = workerParameters,
                     syncEngine = koin.get<SyncEngine>(),
+                )
+            }
+            DiagnosticsUploadWorker::class.java.name -> {
+                Log.i(TAG, "Building DiagnosticsUploadWorker via Koin")
+                DiagnosticsUploadWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    uploader = koin.get<DiagnosticsUploader>(),
+                    coordinator = koin.get<DiagnosticsCoordinator>(),
                 )
             }
             else -> {

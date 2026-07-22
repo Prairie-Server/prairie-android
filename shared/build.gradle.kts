@@ -43,6 +43,7 @@ kotlin {
 android {
     namespace = "org.siloserver.silo.shared"
     compileSdk = 36
+    sourceSets.getByName("test").resources.srcDir("src/commonTest/resources")
     defaultConfig {
         minSdk = 24
     }

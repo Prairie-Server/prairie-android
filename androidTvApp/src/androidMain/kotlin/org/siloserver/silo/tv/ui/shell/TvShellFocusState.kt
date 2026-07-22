@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import org.siloserver.silo.common.diagnostics.DiagnosticsFocusLogger
 
 /**
  * The mutually-exclusive interaction surface that currently owns TV-shell focus.
@@ -176,6 +177,7 @@ class TvShellFocusState {
 
     /** Route focus to the bar's selected tab (content → bar Up, or panel close). */
     fun requestMenuFocus(target: TvTopMenuPanel? = null) {
+        DiagnosticsFocusLogger.transition(target?.diagnosticsTarget() ?: "menu", "request")
         menuFocusTarget = target
         menuFocusRequest++
     }
@@ -187,6 +189,9 @@ class TvShellFocusState {
      * previously-entered tab while moving along the bar.
      */
     fun updateMenuFocused(focused: Boolean) {
+        if (isMenuFocused != focused) {
+            DiagnosticsFocusLogger.transition("menu", if (focused) "focused" else "blurred")
+        }
         isMenuFocused = focused
         if (focused) {
             panelEntersFocus = false
@@ -198,6 +203,7 @@ class TvShellFocusState {
 
     /** Open the profile dropdown from avatar dwell without toggle semantics. */
     fun previewProfileMenu() {
+        DiagnosticsFocusLogger.transition("profile_menu", "preview")
         openPanel = null
         panelEntersFocus = false
         profileMenuOpen = true
@@ -205,12 +211,14 @@ class TvShellFocusState {
     }
 
     fun enterProfileMenu() {
+        DiagnosticsFocusLogger.transition("profile_menu", "enter")
         profileMenuOpen = true
         profileMenuEntered = true
         profileMenuFocusEntryToken++
     }
 
     fun closeProfilePreview() {
+        DiagnosticsFocusLogger.transition("profile_menu", "close_preview")
         if (!profileMenuEntered) profileMenuOpen = false
     }
 
@@ -220,12 +228,14 @@ class TvShellFocusState {
      * content focus).
      */
     fun closeProfileMenuForContent() {
+        DiagnosticsFocusLogger.transition("content", "focus")
         profileMenuOpen = false
         profileMenuEntered = false
     }
 
     /** Close the dropdown and return focus to the avatar that opened it (Back / dismiss). */
     fun dismissProfileMenu() {
+        DiagnosticsFocusLogger.transition("profile_menu", "dismiss")
         profileMenuOpen = false
         profileMenuEntered = false
         profileFocusRequest++
@@ -240,12 +250,17 @@ class TvShellFocusState {
      */
     fun previewPanel(panel: TvTopMenuPanel?) {
         if (!panelEntersFocus) {
+            DiagnosticsFocusLogger.transition(
+                panel?.diagnosticsTarget() ?: "panel",
+                if (panel == null) "close_preview" else "preview",
+            )
             openPanel = panel
         }
     }
 
     /** Commit to entering [panel]: focus moves into it and the entry effect re-fires. */
     fun enterPanel(panel: TvTopMenuPanel) {
+        DiagnosticsFocusLogger.transition(panel.diagnosticsTarget(), "enter")
         openPanel = panel
         panelEntersFocus = true
         panelFocusEntryToken++
@@ -260,6 +275,7 @@ class TvShellFocusState {
         val closingPanel = openPanel
         openPanel = null
         panelEntersFocus = false
+        DiagnosticsFocusLogger.transition(closingPanel?.diagnosticsTarget() ?: "panel", "close")
         if (returnFocusToBar && closingPanel != null) {
             requestMenuFocus(closingPanel)
         }
@@ -294,3 +310,8 @@ class TvShellFocusState {
 /** Remembers a [TvShellFocusState] for the lifetime of the shell composition. */
 @Composable
 fun rememberTvShellFocusState(): TvShellFocusState = remember { TvShellFocusState() }
+
+private fun TvTopMenuPanel.diagnosticsTarget(): String = when (this) {
+    TvTopMenuPanel.Profile -> "profile_menu"
+    is TvTopMenuPanel.Root -> "root_panel"
+}

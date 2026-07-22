@@ -167,6 +167,7 @@ fun TvMainShell(
     returnToManageServers: Boolean = false,
     onManageServersReturnFocusConsumed: () -> Unit = {},
     onManageServers: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
     onOpenLibraryCollectionDetail: (libraryId: Int, collectionId: String, title: String) -> Unit,
     onOpenCollectionDetail: (collectionId: String, title: String) -> Unit,
@@ -1020,6 +1021,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.AdminDashboard.route)
                         },
                         onManageServers = onManageServers,
+                        onNavigateToDiagnostics = onOpenDiagnostics,
                         initialManageServersFocus = returnToManageServers,
                         onManageServersReturnFocusConsumed = onManageServersReturnFocusConsumed,
                         onSignedOut = onSignedOut,

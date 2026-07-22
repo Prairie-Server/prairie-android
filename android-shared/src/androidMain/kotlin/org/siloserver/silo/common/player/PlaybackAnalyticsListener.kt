@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -12,6 +13,9 @@ import androidx.media3.exoplayer.source.MediaLoadData
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import org.siloserver.silo.common.diagnostics.DiagnosticsCaptureDetailState
+import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackLogger
+import org.siloserver.silo.common.diagnostics.DiagnosticsStatsCadence
 
 /**
  * `AnalyticsListener` that logs the handful of signals we actually triage
@@ -20,8 +24,8 @@ import kotlinx.coroutines.flow.asSharedFlow
  * in-process [SharedFlow] so the debug overlay (or a future server-side
  * telemetry POST) can subscribe without another listener registration.
  *
- * Output is `Log.i` on [TAG] only; no network I/O. Server-side telemetry
- * ingestion is deferred to a follow-up — the flow hook here is the seam.
+ * Output goes through the local, redacting [DiagnosticsPlaybackLogger]; there
+ * is no network I/O. The in-process flow remains available to debug UI.
  */
 @UnstableApi
 class PlaybackAnalyticsListener : AnalyticsListener {
@@ -44,10 +48,55 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         data class PlayerError(val error: PlaybackException) : Event()
         data class BandwidthEstimate(val bitrateBps: Long) : Event()
         data class TrackSnapshot(val description: String) : Event()
+        data class PlaybackStateChanged(
+            val state: Int,
+            val realtimeMs: Long,
+            val totalBufferedDurationMs: Long,
+            val playWhenReady: Boolean,
+        ) : Event()
+        data class FirstFrameRendered(val realtimeMs: Long) : Event()
+        data class SeekStarted(val realtimeMs: Long) : Event()
     }
 
     private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 32)
     val events: SharedFlow<Event> = _events.asSharedFlow()
+    private var diagnosticsStats = PlayerStatsSnapshot()
+    private val diagnosticsCadence = DiagnosticsStatsCadence()
+    private var playWhenReady = true
+
+    override fun onPlayWhenReadyChanged(
+        eventTime: AnalyticsListener.EventTime,
+        playWhenReady: Boolean,
+        reason: Int,
+    ) {
+        this.playWhenReady = playWhenReady
+    }
+
+    override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
+        emit(Event.PlaybackStateChanged(state, eventTime.realtimeMs, eventTime.totalBufferedDurationMs, playWhenReady))
+        if (state == Player.STATE_ENDED || state == Player.STATE_IDLE) {
+            val finished = finishPlayerStats(diagnosticsStats, DiagnosticsCaptureDetailState.isEnabled())
+            finished.finalSnapshot?.let(DiagnosticsPlaybackLogger::finalStats)
+            diagnosticsStats = finished.next
+        }
+    }
+
+    override fun onPositionDiscontinuity(
+        eventTime: AnalyticsListener.EventTime,
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+    ) {
+        if (reason == Player.DISCONTINUITY_REASON_SEEK) emit(Event.SeekStarted(eventTime.realtimeMs))
+    }
+
+    override fun onRenderedFirstFrame(
+        eventTime: AnalyticsListener.EventTime,
+        output: Any,
+        renderTimeMs: Long,
+    ) {
+        emit(Event.FirstFrameRendered(eventTime.realtimeMs))
+    }
 
     override fun onVideoDecoderInitialized(
         eventTime: AnalyticsListener.EventTime,
@@ -55,8 +104,8 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         initializedTimestampMs: Long,
         initializationDurationMs: Long,
     ) {
-        Log.i(TAG, "Video decoder: $decoderName (init ${initializationDurationMs}ms)")
-        _events.tryEmit(Event.VideoDecoderInitialized(decoderName, initializationDurationMs))
+        DiagnosticsPlaybackLogger.videoDecoderInitialized(decoderName)
+        emit(Event.VideoDecoderInitialized(decoderName, initializationDurationMs))
     }
 
     override fun onAudioDecoderInitialized(
@@ -65,8 +114,8 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         initializedTimestampMs: Long,
         initializationDurationMs: Long,
     ) {
-        Log.i(TAG, "Audio decoder: $decoderName (init ${initializationDurationMs}ms)")
-        _events.tryEmit(Event.AudioDecoderInitialized(decoderName))
+        DiagnosticsPlaybackLogger.audioDecoderInitialized(decoderName)
+        emit(Event.AudioDecoderInitialized(decoderName))
     }
 
     override fun onVideoInputFormatChanged(
@@ -74,14 +123,13 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         format: Format,
         decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
     ) {
-        val colorInfo = format.colorInfo
-        Log.i(
-            TAG,
-            "Video format: ${format.sampleMimeType} ${format.width}x${format.height}@${format.frameRate} " +
-                "codecs=${format.codecs} colorSpace=${colorInfo?.colorSpace} " +
-                "colorTransfer=${colorInfo?.colorTransfer} colorRange=${colorInfo?.colorRange}",
+        DiagnosticsPlaybackLogger.videoFormatChanged(
+            format = format.sampleMimeType,
+            width = format.width,
+            height = format.height,
+            hdrMode = null,
         )
-        _events.tryEmit(Event.VideoFormatChanged(format))
+        emit(Event.VideoFormatChanged(format))
     }
 
     override fun onAudioInputFormatChanged(
@@ -89,8 +137,8 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         format: Format,
         decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
     ) {
-        Log.i(TAG, "Audio format: ${format.sampleMimeType} ch=${format.channelCount} sr=${format.sampleRate}")
-        _events.tryEmit(Event.AudioFormatChanged(format))
+        DiagnosticsPlaybackLogger.audioFormatChanged(format.sampleMimeType)
+        emit(Event.AudioFormatChanged(format))
     }
 
     override fun onTracksChanged(
@@ -99,7 +147,8 @@ class PlaybackAnalyticsListener : AnalyticsListener {
     ) {
         val description = tracks.describeForLog()
         Log.i(TAG, "Track snapshot: $description")
-        _events.tryEmit(Event.TrackSnapshot(description))
+        DiagnosticsPlaybackLogger.tracksChanged()
+        emit(Event.TrackSnapshot(description))
     }
 
     override fun onDroppedVideoFrames(
@@ -108,9 +157,9 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         elapsedRealtimeMs: Long,
     ) {
         if (droppedFrames > 0) {
-            Log.w(TAG, "Dropped $droppedFrames video frame(s) in ${elapsedRealtimeMs}ms")
+            DiagnosticsPlaybackLogger.droppedFrames(droppedFrames)
         }
-        _events.tryEmit(Event.DroppedFrames(droppedFrames, elapsedRealtimeMs))
+        emit(Event.DroppedFrames(droppedFrames, elapsedRealtimeMs))
     }
 
     override fun onAudioUnderrun(
@@ -119,8 +168,8 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         bufferSizeMs: Long,
         elapsedSinceLastFeedMs: Long,
     ) {
-        Log.w(TAG, "Audio underrun (buffer=${bufferSizeMs}ms, gap=${elapsedSinceLastFeedMs}ms)")
-        _events.tryEmit(Event.AudioUnderrun)
+        DiagnosticsPlaybackLogger.audioUnderrun()
+        emit(Event.AudioUnderrun)
     }
 
     override fun onPlayerError(
@@ -128,7 +177,8 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         error: PlaybackException,
     ) {
         Log.e(TAG, "Player error ${error.errorCodeName}: ${error.message}", error)
-        _events.tryEmit(Event.PlayerError(error))
+        DiagnosticsPlaybackLogger.playerError()
+        emit(Event.PlayerError(error))
     }
 
     override fun onLoadError(
@@ -138,8 +188,8 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         error: java.io.IOException,
         wasCanceled: Boolean,
     ) {
-        Log.w(TAG, "Load error (${mediaLoadData.dataType}): ${error.message}")
-        _events.tryEmit(Event.LoadError(error))
+        DiagnosticsPlaybackLogger.loadError()
+        emit(Event.LoadError(error))
     }
 
     override fun onBandwidthEstimate(
@@ -148,7 +198,16 @@ class PlaybackAnalyticsListener : AnalyticsListener {
         totalBytesLoaded: Long,
         bitrateEstimate: Long,
     ) {
-        _events.tryEmit(Event.BandwidthEstimate(bitrateEstimate))
+        emit(Event.BandwidthEstimate(bitrateEstimate))
+    }
+
+    @Synchronized
+    private fun emit(event: Event) {
+        _events.tryEmit(event)
+        diagnosticsStats = reducePlayerStats(diagnosticsStats, event)
+        if (diagnosticsCadence.shouldEmit(DiagnosticsCaptureDetailState.isEnabled(), android.os.SystemClock.elapsedRealtime())) {
+            DiagnosticsPlaybackLogger.statsSnapshot(diagnosticsStats)
+        }
     }
 }
 

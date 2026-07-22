@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -51,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.siloserver.silo.android.ui.components.SiloTopBar
 import org.siloserver.silo.android.ui.screens.downloads.DownloadsViewModel
+import org.siloserver.silo.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
+import org.siloserver.silo.android.ui.screens.settings.diagnostics.shouldShowDiagnosticsEntry
 import org.siloserver.silo.android.ui.util.formatBytes
 import org.siloserver.silo.model.download.DownloadQuality
 import org.koin.compose.koinInject
@@ -81,10 +84,12 @@ fun SettingsScreen(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCollections: () -> Unit = {},
     onNavigateToCardOverlays: () -> Unit = {},
+    onNavigateToDiagnostics: () -> Unit = {},
     showTopBar: Boolean = false,
     onBackClick: (() -> Unit)? = null,
     viewModel: SettingsViewModel = koinViewModel(),
     downloadsViewModel: DownloadsViewModel = koinViewModel(),
+    diagnosticsViewModel: DiagnosticsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     var subtitleStyleVisible by remember { mutableStateOf(false) }
@@ -95,6 +100,7 @@ fun SettingsScreen(
         onDismiss = { subtitleStyleVisible = false },
     )
     val downloadsState by downloadsViewModel.uiState.collectAsState()
+    val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     val sessionsSheetState = rememberModalBottomSheetState()
     var showRemoveAllDownloadsConfirm by remember { mutableStateOf(false) }
 
@@ -157,6 +163,27 @@ fun SettingsScreen(
                         onClick = onNavigateToCardOverlays,
                         showChevron = true,
                     )
+                }
+            }
+
+            if (shouldShowDiagnosticsEntry(diagnosticsState)) {
+                item {
+                    SettingsSectionCard {
+                        SettingsRowLabel(
+                            title = "Diagnostics",
+                            icon = Icons.Outlined.Info,
+                            badgeColor = SettingsBadgeOrange,
+                            value = when (diagnosticsState.availability) {
+                                org.siloserver.silo.common.diagnostics.DiagnosticsAvailabilityUi.AVAILABLE -> "Available"
+                                org.siloserver.silo.common.diagnostics.DiagnosticsAvailabilityUi.DISABLED -> "Disabled"
+                                org.siloserver.silo.common.diagnostics.DiagnosticsAvailabilityUi.STORAGE_UNAVAILABLE -> "Unavailable"
+                                org.siloserver.silo.common.diagnostics.DiagnosticsAvailabilityUi.OFFLINE -> "Offline"
+                                org.siloserver.silo.common.diagnostics.DiagnosticsAvailabilityUi.INELIGIBLE -> null
+                            },
+                            onClick = onNavigateToDiagnostics,
+                            showChevron = true,
+                        )
+                    }
                 }
             }
 

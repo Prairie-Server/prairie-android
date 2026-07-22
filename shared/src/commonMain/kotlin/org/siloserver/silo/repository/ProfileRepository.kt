@@ -5,6 +5,9 @@ import org.siloserver.silo.model.profile.Profile
 import org.siloserver.silo.model.profile.UpdateProfileRequest
 import org.siloserver.silo.model.profile.VerifyPinResponse
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionKind
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.api.ProfileApi
@@ -16,6 +19,7 @@ open class ProfileRepository(
     private val serverRegistry: ServerRegistry? = null,
     private val notificationsRepository: NotificationsRepository? = null,
     private val requestsRepository: RequestsRepository? = null,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) {
     /** Lists all profiles for the current user. */
     open suspend fun listProfiles(): ApiResult<List<Profile>> =
@@ -65,14 +69,16 @@ open class ProfileRepository(
      * "last used profile" when the user hops back to this server.
      */
     suspend fun selectProfile(profileId: String) {
-        tokenManager.setProfileId(profileId)
-        val activeServerId = tokenManager.getCurrentServerId()
-        if (activeServerId != null) {
-            serverRegistry?.setProfileId(activeServerId, profileId)
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            tokenManager.setProfileId(profileId)
+            val activeServerId = tokenManager.getCurrentServerId()
+            if (activeServerId != null) {
+                serverRegistry?.setProfileId(activeServerId, profileId)
+            }
+            notificationsRepository?.reset()
+            requestsRepository?.reset()
+            _profileSwitches.tryEmit(Unit)
         }
-        notificationsRepository?.reset()
-        requestsRepository?.reset()
-        _profileSwitches.tryEmit(Unit)
     }
 
     private val _profileSwitches = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -128,11 +134,13 @@ open class ProfileRepository(
 
     /** Clears the active profile selection and its token. */
     suspend fun clearProfile() {
-        val activeServerId = tokenManager.getCurrentServerId()
-        tokenManager.setProfileId(null)
-        tokenManager.setProfileToken(null)
-        if (activeServerId != null) {
-            serverRegistry?.setProfileId(activeServerId, null)
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            val activeServerId = tokenManager.getCurrentServerId()
+            tokenManager.setProfileId(null)
+            tokenManager.setProfileToken(null)
+            if (activeServerId != null) {
+                serverRegistry?.setProfileId(activeServerId, null)
+            }
         }
     }
 }

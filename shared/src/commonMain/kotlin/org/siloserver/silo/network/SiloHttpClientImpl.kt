@@ -4,6 +4,7 @@ import io.ktor.client.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
+import io.ktor.client.plugins.observer.ResponseObserver
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.http.*
@@ -37,6 +38,7 @@ val SiloJson = Json {
 fun createSiloClient(
     tokenManager: TokenManager,
     deviceMetadataProvider: DeviceMetadataProvider? = null,
+    diagnosticsObserver: NetworkDiagnosticsObserver? = null,
 ): HttpClient {
     val platformClient = createPlatformHttpClient()
 
@@ -54,9 +56,26 @@ fun createSiloClient(
             level = LogLevel.NONE
         }
 
+        diagnosticsObserver?.let { observer ->
+            install(ResponseObserver) {
+                onResponse { response ->
+                    runCatching {
+                        observer.completed(
+                            method = response.call.request.method.value,
+                            rawPath = response.call.request.url.encodedPath,
+                            status = response.status.value,
+                            durationMs = (response.responseTime.timestamp - response.requestTime.timestamp)
+                                .coerceAtLeast(0),
+                        )
+                    }
+                }
+            }
+        }
+
         install(SiloAuthPlugin) {
             this.tokenManager = tokenManager
             this.deviceMetadataProvider = deviceMetadataProvider
+            this.diagnosticsObserver = diagnosticsObserver
         }
 
         install(HttpTimeout) {
@@ -75,4 +94,10 @@ fun createSiloClient(
             contentType(ContentType.Application.Json)
         }
     }
+}
+
+fun interface NetworkDiagnosticsObserver {
+    fun completed(method: String, rawPath: String, status: Int, durationMs: Long)
+
+    fun authRefresh(state: String) = Unit
 }

@@ -85,6 +85,7 @@ import org.siloserver.silo.tv.BuildConfig
 import org.siloserver.silo.tv.data.preferences.PlaybackQuality
 import org.siloserver.silo.tv.data.preferences.SubtitleMode
 import org.siloserver.silo.tv.ui.screens.player.TvSubtitleAppearanceOptions
+import org.siloserver.silo.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
 import org.siloserver.silo.tv.ui.theme.Spacing
@@ -106,12 +107,15 @@ fun TvSettingsScreen(
     onSignedOut: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onNavigateHome: () -> Unit = {},
+    onNavigateToDiagnostics: () -> Unit = {},
     onInitialContentFocus: () -> Unit = {},
     initialManageServersFocus: Boolean = false,
     onManageServersReturnFocusConsumed: () -> Unit = {},
     viewModel: TvSettingsViewModel = koinViewModel(),
+    diagnosticsViewModel: TvDiagnosticsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     val metadataAiStore: org.siloserver.silo.model.feature.MetadataAiFeatureStore =
         org.koin.compose.koinInject()
     val metadataAiStatus by metadataAiStore.status.collectAsState()
@@ -176,6 +180,7 @@ fun TvSettingsScreen(
 
     SettingsSplitLayout(
         state = state,
+        diagnosticsState = diagnosticsState,
         selectedCategory = selectedCategory,
         categoryFocusRequesters = categoryFocusRequesters,
         detailFocusRequester = detailFocusRequester,
@@ -187,6 +192,7 @@ fun TvSettingsScreen(
         },
         onSwitchProfile = viewModel::onSwitchProfile,
         onManageServers = onManageServers,
+        onNavigateToDiagnostics = onNavigateToDiagnostics,
         onRequestSignOut = { showSignOutConfirm = true },
         onNavigateToAdmin = onNavigateToAdmin,
         onQualityChanged = viewModel::onPlaybackQualityChanged,
@@ -277,6 +283,7 @@ private val LocalSettingsDetailFocusReporter = staticCompositionLocalOf<(Boolean
 @Composable
 private fun SettingsSplitLayout(
     state: TvSettingsViewModel.UiState,
+    diagnosticsState: org.siloserver.silo.common.diagnostics.DiagnosticsUiState,
     selectedCategory: TvSettingsCategory,
     categoryFocusRequesters: Map<TvSettingsCategory, FocusRequester>,
     detailFocusRequester: FocusRequester,
@@ -286,6 +293,7 @@ private fun SettingsSplitLayout(
     onShowAudiobooksTabChanged: (Boolean) -> Unit,
     onSwitchProfile: () -> Unit,
     onManageServers: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
     onRequestSignOut: () -> Unit,
     onNavigateToAdmin: () -> Unit,
     onQualityChanged: (PlaybackQuality) -> Unit,
@@ -349,11 +357,13 @@ private fun SettingsSplitLayout(
         )
         SettingsDetailPane(
             state = state,
+            diagnosticsState = diagnosticsState,
             selectedCategory = selectedCategory,
             detailFocusRequester = detailFocusRequester,
             onDetailFocusChanged = onDetailFocusChanged,
             onShowAudiobooksTabChanged = onShowAudiobooksTabChanged,
             onManageServers = onManageServers,
+            onNavigateToDiagnostics = onNavigateToDiagnostics,
             onQualityChanged = onQualityChanged,
             onAudioLanguageChanged = onAudioLanguageChanged,
             onAutoPlayNextChanged = onAutoPlayNextChanged,
@@ -616,11 +626,13 @@ private fun SettingsRailActionRow(
 @Composable
 private fun SettingsDetailPane(
     state: TvSettingsViewModel.UiState,
+    diagnosticsState: org.siloserver.silo.common.diagnostics.DiagnosticsUiState,
     selectedCategory: TvSettingsCategory,
     detailFocusRequester: FocusRequester,
     onDetailFocusChanged: (Boolean) -> Unit,
     onShowAudiobooksTabChanged: (Boolean) -> Unit,
     onManageServers: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
     onQualityChanged: (PlaybackQuality) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoPlayNextChanged: (Boolean) -> Unit,
@@ -718,8 +730,10 @@ private fun SettingsDetailPane(
             )
             TvSettingsCategory.Server -> TvServerSettingsPane(
                 state = state,
+                diagnosticsState = diagnosticsState,
                 firstFocusRequester = detailFocusRequester,
                 onManageServers = onManageServers,
+                onNavigateToDiagnostics = onNavigateToDiagnostics,
             )
         }
       }
@@ -1282,8 +1296,10 @@ private fun TvSettingsSubtitlePreview(appearance: SubtitleAppearance) {
 @Composable
 private fun TvServerSettingsPane(
     state: TvSettingsViewModel.UiState,
+    diagnosticsState: org.siloserver.silo.common.diagnostics.DiagnosticsUiState,
     firstFocusRequester: FocusRequester,
     onManageServers: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1304,6 +1320,19 @@ private fun TvServerSettingsPane(
                     onClick = onManageServers,
                     focusRequester = firstFocusRequester,
                 )
+            }
+        }
+        if (diagnosticsState.profileEligible) {
+            item {
+                SettingsGroup(title = "Diagnostics") {
+                    SettingsActionRow(
+                        label = "Diagnostics & Crash Reports",
+                        onClick = onNavigateToDiagnostics,
+                    )
+                    SettingsFooterText(
+                        text = "Review local reports, choose consent, and run a timed diagnostic capture.",
+                    )
+                }
             }
         }
         item {

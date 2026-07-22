@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import org.siloserver.silo.common.diagnostics.DiagnosticsLifecycleLogger
 import org.siloserver.silo.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import org.siloserver.silo.android.downloads.hasLegacyPublicDownloadPermission
 import org.siloserver.silo.android.push.PushNotificationPresenter
@@ -151,6 +152,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        DiagnosticsLifecycleLogger.state("foreground")
         val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.startForeground()
@@ -174,6 +176,7 @@ class MainActivity : ComponentActivity() {
      * the write.
      */
     override fun onStop() {
+        DiagnosticsLifecycleLogger.state("background")
         super.onStop()
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.stopForeground()

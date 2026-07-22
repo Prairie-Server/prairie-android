@@ -36,6 +36,22 @@ object MediaCodecCapabilitiesProbe {
     fun probe(): ProbeResult =
         cached ?: synchronized(this) { cached ?: computeProbe().also { cached = it } }
 
+    /** Returns an immutable copy for diagnostics without reconfiguring or opening any codec. */
+    fun diagnosticsSnapshot(): ProbeResult {
+        val result = probe()
+        return result.copy(
+            videoCodecs = result.videoCodecs.toSet(),
+            videoDecodeCapabilities = result.videoDecodeCapabilities.map { capability ->
+                capability.copy(
+                    profiles = capability.profiles.toList(),
+                    levels = capability.levels.toList(),
+                    bitDepths = capability.bitDepths.toList(),
+                )
+            },
+            hdr = result.hdr.copy(dolbyVisionProfiles = result.hdr.dolbyVisionProfiles.toList()),
+        )
+    }
+
     private fun computeProbe(): ProbeResult {
         val list = MediaCodecList(MediaCodecList.REGULAR_CODECS)
         // Keep per-codec limits. Android devices commonly have asymmetric

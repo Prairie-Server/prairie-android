@@ -1,5 +1,6 @@
 package org.siloserver.silo.common.player
 
+import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackLogger
 import android.os.SystemClock
 import android.util.Log
 import org.siloserver.silo.model.playback.ClientCodecCapabilities
@@ -913,6 +914,7 @@ open class PlaybackSessionManager(
         val reported = active.copy(firstFrameReported = true)
         if (!activeVideoAttempt.compareAndSet(active, reported)) return
         val firstFrameMs = SystemClock.elapsedRealtime() - active.startedAtElapsedRealtimeMs
+        DiagnosticsPlaybackLogger.firstFrame(firstFrameMs)
         emitRouteEvent(
             PlaybackRouteEventV3(
                 playbackAttemptId = active.playbackAttemptId,

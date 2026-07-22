@@ -3,6 +3,11 @@ package org.siloserver.silo.common.player.audio
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioSink
 
+data class PassthroughSuppressionSnapshot(
+    val suppressedFormats: List<String>,
+    val retryUsed: Boolean,
+)
+
 /**
  * Attempt-scoped suppression for a passthrough encoding and channel layout.
  * A failed direct sink configuration gets one same-plan retry through a local
@@ -37,6 +42,13 @@ object PassthroughSuppressionRegistry {
         val channels = format.channelCount.coerceAtLeast(0)
         return blocked.any { it.mime == mime && (it.channels == 0 || channels == 0 || it.channels == channels) }
     }
+
+    /** Excludes the attempt key because it can contain playback-session identifiers. */
+    @Synchronized
+    fun diagnosticsSnapshot(): PassthroughSuppressionSnapshot = PassthroughSuppressionSnapshot(
+        suppressedFormats = blocked.map { "${it.mime}:${it.channels}" }.sorted(),
+        retryUsed = retryUsed,
+    )
 }
 
 class PassthroughSuppressingAudioSink(

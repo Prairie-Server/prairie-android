@@ -1,6 +1,9 @@
 package org.siloserver.silo.common.player
 
 import android.util.Log
+import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackLogger
+import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackSessionRecording
+import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackSessionRecorder
 import org.siloserver.silo.model.personal.SyncProgressItem
 import org.siloserver.silo.model.playback.ClientCodecCapabilities
 import org.siloserver.silo.model.playback.ClientPlaybackContext
@@ -49,6 +52,7 @@ class PlaybackSessionLifecycle(
     private val healthApi: HealthApi,
     private val personalDataRepository: PersonalDataRepository,
     private val scope: CoroutineScope,
+    private val playbackSessions: DiagnosticsPlaybackSessionRecorder = DiagnosticsPlaybackSessionRecorder.None,
 ) {
 
     private val _state = MutableStateFlow<SessionState>(SessionState.Idle)
@@ -76,6 +80,8 @@ class PlaybackSessionLifecycle(
     @Volatile private var flushProgressOnStop: Boolean = true
     @Volatile private var stopActiveSessionOnStop: Boolean = true
     @Volatile private var renewMissingSessionWithLegacyStart: Boolean = true
+    @Volatile private var diagnosticsRecording: DiagnosticsPlaybackSessionRecording =
+        DiagnosticsPlaybackSessionRecording.None
 
     private var reporterJob: Job? = null
     private var recoveryJob: Job? = null
@@ -89,10 +95,13 @@ class PlaybackSessionLifecycle(
      * failure (Error or NetworkError).
      */
     suspend fun start(params: StartParams): SessionState {
+        DiagnosticsPlaybackLogger.sessionEvent("session start requested")
         // New start cancels any in-flight recovery / outage probing, by design:
         // this is the explicit "user/code wants a fresh session now" path.
         cancelRecoveryJobs()
-        return startInternal(params)
+        val recording = playbackSessions.recording()
+        diagnosticsRecording = recording
+        return startInternal(params, recording)
     }
 
     /**
@@ -108,6 +117,7 @@ class PlaybackSessionLifecycle(
         stopSessionOnStop: Boolean = true,
         renewMissingSessionWithLegacyStart: Boolean = true,
     ) {
+        val diagnosticsRecording = playbackSessions.recording()
         mutex.withLock {
             cancelRecoveryJobs()
             reporterJob?.cancel()
@@ -121,6 +131,8 @@ class PlaybackSessionLifecycle(
             flushProgressOnStop = manageProgress
             stopActiveSessionOnStop = stopSessionOnStop
             this.renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart
+            this.diagnosticsRecording = diagnosticsRecording
+            diagnosticsRecording.record(session.sessionId)
             _state.value = SessionState.Active(session)
             if (manageProgress) {
                 startProgressReporter()
@@ -128,7 +140,10 @@ class PlaybackSessionLifecycle(
         }
     }
 
-    private suspend fun startInternal(params: StartParams): SessionState {
+    private suspend fun startInternal(
+        params: StartParams,
+        diagnosticsRecording: DiagnosticsPlaybackSessionRecording,
+    ): SessionState {
         _notice.value = null
         _state.value = SessionState.Loading
         lastStartParams = params
@@ -173,6 +188,8 @@ class PlaybackSessionLifecycle(
         }
         return when (result) {
             is ApiResult.Success -> {
+                DiagnosticsPlaybackLogger.sessionEvent("session active")
+                diagnosticsRecording.record(result.data.sessionId)
                 val active = SessionState.Active(result.data)
                 _state.value = active
                 lastReportedPosition = params.startPosition ?: result.data.position
@@ -182,12 +199,14 @@ class PlaybackSessionLifecycle(
                 active
             }
             is ApiResult.Error -> {
+                DiagnosticsPlaybackLogger.sessionEvent("session start failed")
                 Log.w(TAG, "start session error: ${result.code} ${result.error} ${result.message}")
                 val failed = SessionState.Failed(result.message.ifBlank { "Failed to start playback." })
                 _state.value = failed
                 failed
             }
             is ApiResult.NetworkError -> {
+                DiagnosticsPlaybackLogger.sessionEvent("session start network failure")
                 Log.w(TAG, "start session network error: ${result.exception}")
                 val failed = SessionState.Failed("Network error starting playback.")
                 _state.value = failed
@@ -218,6 +237,7 @@ class PlaybackSessionLifecycle(
      * stops the active session.
      */
     suspend fun stop() {
+        DiagnosticsPlaybackLogger.sessionEvent("session stop requested")
         val current = _state.value
         cancelRecoveryJobs()
         reporterJob?.cancel()
@@ -247,6 +267,7 @@ class PlaybackSessionLifecycle(
         renewMissingSessionWithLegacyStart = true
         _notice.value = null
         _state.value = SessionState.Idle
+        DiagnosticsPlaybackLogger.sessionEvent("session stopped")
     }
 
     /**
@@ -301,6 +322,7 @@ class PlaybackSessionLifecycle(
         val params = lastStartParams ?: return
 
         recoveringFromMissingSession = staleSessionId
+        DiagnosticsPlaybackLogger.sessionEvent("session missing")
         if (!renewMissingSessionWithLegacyStart) {
             _missingSessionEvents.tryEmit(lastReportedPosition ?: params.startPosition ?: 0.0)
             return
@@ -317,7 +339,7 @@ class PlaybackSessionLifecycle(
                 )
                 // Re-invoke the start flow with the latest position without
                 // cancelling this recovery coroutine out from under itself.
-                startInternal(params.copy(startPosition = resumePos))
+                startInternal(params.copy(startPosition = resumePos), diagnosticsRecording)
                 recoveryJob = null
             }
         }
@@ -331,12 +353,14 @@ class PlaybackSessionLifecycle(
 
         val deadline = nowMs() + OUTAGE_TIMEOUT_MS
         _state.value = SessionState.Reconnecting(deadlineEpochMs = deadline, tone = NoticeTone.Warning)
+        DiagnosticsPlaybackLogger.sessionEvent("session reconnecting")
         _notice.value = PlayerNotice(
             message = OUTAGE_RECONNECT_MESSAGE,
             tone = NoticeTone.Warning,
             expiresAtEpochMs = deadline,
         )
 
+        val diagnosticsRecording = this.diagnosticsRecording
         outageJob = scope.launch {
             // Track elapsed via accumulating delay sums. We can't rely on
             // System.currentTimeMillis() here because tests run with a virtual
@@ -355,6 +379,8 @@ class PlaybackSessionLifecycle(
                     // proxies/tunnels can still produce HTTP errors, or even
                     // an HTML 200 page, while the Silo origin is down.
                     Log.i(TAG, "Health probe succeeded; resuming playback session")
+                    DiagnosticsPlaybackLogger.sessionEvent("session reconnected")
+                    diagnosticsRecording.record(currentSession.sessionId)
                     _state.value = SessionState.Active(currentSession)
                     _notice.value = null
                     return@launch
@@ -364,6 +390,7 @@ class PlaybackSessionLifecycle(
             }
             // Timed out before the server came back.
             Log.w(TAG, "Outage recovery exhausted for playback session")
+            DiagnosticsPlaybackLogger.sessionEvent("session reconnect failed")
             _state.value = SessionState.Failed(OUTAGE_TIMEOUT_MESSAGE)
             _notice.value = PlayerNotice(
                 message = OUTAGE_TIMEOUT_MESSAGE,
