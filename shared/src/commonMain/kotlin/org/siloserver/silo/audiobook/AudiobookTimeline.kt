@@ -212,19 +212,22 @@ internal fun audioParts(versions: List<FileVersion>, preferredFileId: Int? = nul
         val byPart = indexed
             .groupBy { it.presentationPartIndex }
             .toSortedMap(compareBy(nullsLast()) { it })
-        val selectedKey = preferredKey ?: candidates
+        val candidateKeys = candidates
             .map { it.presentationVariantKey() }
             .distinct()
-            .firstOrNull { key ->
-                byPart.values.all { partVersions ->
-                    partVersions.any { it.presentationVariantKey() == key }
-                }
-            }
+        fun isCompleteVariant(key: String): Boolean = byPart.values.all { partVersions ->
+            partVersions.any { it.presentationVariantKey() == key }
+        }
+        val selectedKey = preferredKey
+            ?.takeIf(::isCompleteVariant)
+            ?: candidateKeys.firstOrNull(::isCompleteVariant)
+
         byPart.values.mapNotNull { partVersions ->
-                partVersions.firstOrNull { it.fileId == preferredFileId }
-                    ?: selectedKey?.let { key -> partVersions.firstOrNull { it.presentationVariantKey() == key } }
-                    ?: partVersions.firstOrNull()
-            }
+            selectedKey?.let { key ->
+                partVersions.firstOrNull { it.presentationVariantKey() == key }
+            } ?: partVersions.firstOrNull { it.fileId == preferredFileId }
+                ?: partVersions.firstOrNull()
+        }
     } else {
         listOf(
             preferred

@@ -172,6 +172,26 @@ class AudiobookTimelineTest {
     }
 
     @Test
+    fun `incomplete preferred variant falls back to a complete variant`() {
+        val versions = listOf(
+            part(fileId = 401, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "lossless"),
+            part(fileId = 402, duration = 100.0, partIndex = 0)
+                .copy(presentationGroupKey = "compressed"),
+            part(fileId = 403, duration = 200.0, partIndex = 1)
+                .copy(presentationGroupKey = "compressed"),
+        )
+
+        val timeline = buildAudiobookTimeline(
+            versions = versions,
+            serverTotalSeconds = null,
+            preferredFileId = 401,
+        )!!
+
+        assertEquals(listOf(402, 403), timeline.tracks.map { it.fileId })
+    }
+
+    @Test
     fun `chapter indexes follow globally sorted chapter order`() {
         val versions = listOf(
             part(
