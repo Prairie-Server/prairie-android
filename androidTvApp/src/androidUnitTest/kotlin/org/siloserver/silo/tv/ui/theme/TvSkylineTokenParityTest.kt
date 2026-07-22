@@ -255,6 +255,12 @@ class TvSkylineTokenParityTest {
     }
 
     @Test
+    fun skylineContentUsesTheChromeSafeAreaInset() {
+        assertTrue(skylineSectionFeed.contains("startPadding = TvSkyline.safeAreaX"))
+        assertFalse(skylineSectionFeed.contains("startPadding = Spacing.safeArea"))
+    }
+
+    @Test
     fun homeSeedsPassiveMarqueeBeforeAnyRowFocus() {
         assertTrue(skylineSectionFeed.contains("val initialMarqueeSeed = remember(rows)"))
         assertTrue(skylineSectionFeed.contains("marquee.seedInitialPreview(seed.item, seed.rowTitle)"))

@@ -1,6 +1,8 @@
 package org.siloserver.silo.tv.ui.screens.audiobook
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -39,6 +41,7 @@ import androidx.tv.material3.Text
  * chapters / speed / sleep audiobook panels (spec §4.9 — focusable overlays,
  * not phone bottom sheets). Back is handled by the host screen.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun TvAudiobookOverlayScaffold(
     title: String,
@@ -56,6 +59,12 @@ internal fun TvAudiobookOverlayScaffold(
                 .fillMaxHeight()
                 .width(320.dp)
                 .background(Color(0xFF101010))
+                // Focus trap: the panel is an in-window overlay, so without
+                // containment D-pad Left/Up escapes to the transport pills
+                // behind the scrim and Select activates them while the panel
+                // stays open. Same recipe as the player HUD picker.
+                .focusGroup()
+                .focusProperties { exit = { FocusRequester.Cancel } }
                 .padding(horizontal = 18.dp, vertical = 22.dp),
         ) {
             Text(text = title, style = MaterialTheme.typography.titleLarge, color = Color.White)

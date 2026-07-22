@@ -9,6 +9,9 @@ class TvSkylineSectionFeedSourceTest {
     private val sourceFile = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt",
     )
+    private val marqueeSourceFile = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarquee.kt",
+    )
 
     @Test
     fun sharedSkylineFeedOwnsClippedViewAlignedRowBandAndMarquee() {
@@ -35,5 +38,14 @@ class TvSkylineSectionFeedSourceTest {
         assertTrue(source.contains("TvRootHeroBackdrop("))
         assertTrue(source.contains("TvFocusMarquee("))
         assertTrue(source.contains("fun ResolvedSection.isTvProgressRow()"))
+    }
+
+    @Test
+    fun marqueeKeepsTextTitleUntilLogoLoadsSuccessfully() {
+        val source = marqueeSourceFile.readText()
+        assertTrue(source.contains("var logoLoaded by remember(content.logoUrl)"))
+        assertTrue(source.contains("onSuccess = { logoLoaded = true }"))
+        assertTrue(source.contains("text = content.title"))
+        assertTrue(source.contains("if (!logoLoaded"))
     }
 }

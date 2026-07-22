@@ -22,7 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +56,9 @@ import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.catalog.CastMember
 import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
 import org.siloserver.silo.tv.ui.theme.siloCardDefaults
+
+internal fun restoredRailIndex(lastFocusedIndex: Int, itemCount: Int): Int? =
+    if (itemCount <= 0) null else lastFocusedIndex.coerceIn(0, itemCount - 1)
 
 /**
  * Horizontal rail of circular cast portraits, matching the tvOS
@@ -92,6 +98,9 @@ fun TvCastCrewSection(
 ) {
     if (cast.isEmpty()) return
     val photoSize = 100.dp
+    var lastFocusedIndex by rememberSaveable { mutableIntStateOf(-1) }
+    val rememberedEntryRequester = remember { FocusRequester() }
+    val rememberedEntryIndex = restoredRailIndex(lastFocusedIndex, cast.take(24).size)
 
     Column(
         modifier = modifier,
@@ -111,7 +120,9 @@ fun TvCastCrewSection(
                     // the launch card — the enter redirect otherwise sends
                     // every entry to card 0 and silently rolls back direct
                     // requests to other cards.
-                    val enterTarget = restoreFocusRequester ?: firstItemFocusRequester
+                    val enterTarget = restoreFocusRequester
+                        ?: rememberedEntryRequester.takeIf { rememberedEntryIndex != null }
+                        ?: firstItemFocusRequester
                     if (enterTarget != null) {
                         enter = { enterTarget }
                     }
@@ -151,16 +162,27 @@ fun TvCastCrewSection(
                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                     cardModifier = (if (index == 0) firstItemCardModifier else Modifier)
                         .then(
-                            if (restoreFocusRequester != null && index == restoreFocusIndex) {
-                                Modifier
-                                    .focusRequester(restoreFocusRequester)
-                                    .onFocusChanged { state ->
-                                        if (state.isFocused) onRestoreCardFocused?.invoke()
-                                    }
+                            if (index == rememberedEntryIndex) {
+                                Modifier.focusRequester(rememberedEntryRequester)
                             } else {
                                 Modifier
                             },
-                        ),
+                        )
+                        .then(
+                            if (restoreFocusRequester != null && index == restoreFocusIndex) {
+                                Modifier.focusRequester(restoreFocusRequester)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                lastFocusedIndex = index
+                                if (restoreFocusRequester != null && index == restoreFocusIndex) {
+                                    onRestoreCardFocused?.invoke()
+                                }
+                            }
+                        },
                     onClick = { onCastMemberClick(index, member) },
                 )
             }

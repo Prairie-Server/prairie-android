@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -31,6 +33,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,8 +71,17 @@ fun TvOptionDialog(
     val firstRowFocus = remember { FocusRequester() }
     val focusedKey = options.firstOrNull { it.selected && it.enabled }?.key
         ?: options.firstOrNull { it.enabled }?.key
+    val focusedIndex = options.indexOfFirst { it.key == focusedKey }
+    val listState: LazyListState = rememberLazyListState()
 
+    // Re-target focus when the dialog is reused for a new menu (title) or the
+    // selected option changes; the shared helper below covers the initial grab.
+    // Scroll the target row into view first — a selection beyond the list
+    // viewport isn't composed yet, so requesting focus on it would fail.
     LaunchedEffect(title, focusedKey) {
+        if (focusedIndex >= 0) {
+            runCatching { listState.scrollToItem(focusedIndex) }
+        }
         runCatching { firstRowFocus.requestFocus() }
     }
 
@@ -97,7 +110,8 @@ fun TvOptionDialog(
                         shape = panelShape,
                     )
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .then(rememberTvDialogInitialFocus(firstRowFocus)),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
@@ -113,6 +127,7 @@ fun TvOptionDialog(
                 )
 
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 240.dp),
@@ -196,6 +211,7 @@ private fun TvOptionDialogRow(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 40.dp)
+            .semantics { this.selected = selected }
             .then(
                 if (isFocused) {
                     Modifier.border(1.5.dp, Color.White.copy(alpha = 0.98f), shape)

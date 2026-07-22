@@ -28,21 +28,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
 
 /**
  * The hero's overview as an expand-in-place control. Mirrors tvOS
  * `TVExpandableSynopsis` 1:1.
  *
- * The overview is clamped to 3 lines at tvOS÷2 sizing (26pt regular → 13sp).
- * Pressing OK/Select toggles [expanded]: when expanded the line clamp is
- * removed AND the [tagline] is shown above the overview (only when non-blank).
+ * The overview defaults to a 3-line clamp at tvOS÷2 sizing (26pt regular →
+ * 13sp); constrained hero layouts can supply a smaller [collapsedMaxLines].
+ * Pressing OK/Select toggles [expanded]: when expanded the line clamp is removed
+ * AND the [tagline] is shown above the overview (only when non-blank).
  *
  * This is a **focusable leaf** — the hero's only text focus stop, reachable by
  * pressing Up from the action row, and actionable so it never feels "stuck".
- * It owns its own focus visuals: no chrome at rest, on focus a faint
- * `onSurface@0.55` fill (`RoundedRectangle(8.dp)`, no border). The system halo
+ * It owns its own focus visuals: no chrome at rest, on focus a faint dark
+ * `DarkSurfaceElevated@0.55` fill (`RoundedRectangle(8.dp)`, no border) so the
+ * white text stays readable. The system halo
  * is suppressed (`indication = null`), matching the squared-control idiom.
  *
  * `animateContentSize` (≈120ms easeOut) animates the expand/collapse; the
@@ -54,7 +56,10 @@ internal fun TvExpandableSynopsis(
     overview: String,
     tagline: String?,
     modifier: Modifier = Modifier,
+    collapsedMaxLines: Int = 3,
 ) {
+    require(collapsedMaxLines > 0) { "collapsedMaxLines must be positive" }
+
     var expanded by remember(overview) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -83,7 +88,7 @@ internal fun TvExpandableSynopsis(
             .then(
                 if (isFocused) {
                     Modifier.background(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        color = DarkSurfaceElevated.copy(alpha = 0.55f),
                         shape = shape,
                     )
                 } else {
@@ -123,7 +128,7 @@ internal fun TvExpandableSynopsis(
             lineHeight = 19.sp,
             color = Color.White.copy(alpha = 0.82f),
             textAlign = TextAlign.Start,
-            maxLines = if (expanded) Int.MAX_VALUE else 3,
+            maxLines = if (expanded) Int.MAX_VALUE else collapsedMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
     }

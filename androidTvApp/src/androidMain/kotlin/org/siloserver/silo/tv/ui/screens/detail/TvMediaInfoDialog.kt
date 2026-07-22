@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -43,6 +42,7 @@ import androidx.tv.material3.Text
 import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import java.util.Locale
 import kotlinx.coroutines.launch
 
@@ -97,10 +97,6 @@ fun TvMediaInfoDialog(
     val scrollScope = rememberCoroutineScope()
     val canScrollBackward = scrollState.value > 0
     val canScrollForward = scrollState.value < scrollState.maxValue
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(50)
-        runCatching { focus.requestFocus() }
-    }
     // Window-level Popup so it overlays the whole screen (not the hero action
     // slot it's called from) and Back is intercepted via dismissOnBackPress
     // before the detail screen's parent BackHandler.
@@ -136,7 +132,8 @@ fun TvMediaInfoDialog(
                     }
                     else -> false
                 }
-            },
+            }
+            .then(rememberTvDialogInitialFocus(focus)),
     ) {
         Column(
             modifier = Modifier

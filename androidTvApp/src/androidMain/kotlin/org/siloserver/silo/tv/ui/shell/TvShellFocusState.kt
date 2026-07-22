@@ -282,13 +282,7 @@ class TvShellFocusState {
         )
         when (action) {
             TvShellBackAction.ClosePanel -> closePanel(returnFocusToBar = true)
-            TvShellBackAction.CloseProfileMenu -> {
-                // Keep the menu visible until Home actually accepts focus. This
-                // applies both to an avatar hover preview and focus inside a menu
-                // row, avoiding an intermediate hidden-menu/avatar-focus frame.
-                profileMenuEntered = false
-                requestMenuFocus(TvTopMenuPanel.Root(TvRootDestination.Home))
-            }
+            TvShellBackAction.CloseProfileMenu -> dismissProfileMenu()
             TvShellBackAction.MoveFocusToMenu -> requestMenuFocus()
             TvShellBackAction.MenuBack,
             TvShellBackAction.DelegateToNav -> Unit

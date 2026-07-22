@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -49,6 +50,8 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.util.visibleOnTv
 import org.siloserver.silo.viewmodel.RecommendationsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+
+private val RecommendationsFilterBandHeight = 52.dp
 
 /**
  * "For You" tab. Reuses the shared [RecommendationsViewModel] that drives
@@ -113,11 +116,15 @@ fun TvRecommendationsScreen(
         when {
             savedListSelection == SavedListSelection.Watchlist -> TvWatchlistInline(
                 onItemClick = onItemClick,
-                modifier = Modifier.padding(top = TvTopMenuLayout.contentTopInset + 60.dp),
+                modifier = Modifier.padding(
+                    top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
+                ),
             )
             savedListSelection == SavedListSelection.Favorites -> TvFavoritesInline(
                 onItemClick = onItemClick,
-                modifier = Modifier.padding(top = TvTopMenuLayout.contentTopInset + 60.dp),
+                modifier = Modifier.padding(
+                    top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
+                ),
             )
             state.isLoading && state.sections.isEmpty() -> TvLoadingScreen(
                 modifier = Modifier.background(MaterialTheme.colorScheme.background),
@@ -172,7 +179,7 @@ fun TvRecommendationsScreen(
                         .background(MaterialTheme.colorScheme.background),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                     contentPadding = PaddingValues(
-                        top = Spacing.heroTopSafe + 58.dp,
+                        top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
                         bottom = 24.dp,
                     ),
                 ) {
@@ -209,11 +216,14 @@ fun TvRecommendationsScreen(
         }
 
         Row(
-            modifier = Modifier.padding(
-                start = Spacing.safeArea,
-                top = TvTopMenuLayout.contentTopInset,
-            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = TvTopMenuLayout.contentTopInset)
+                .height(RecommendationsFilterBandHeight)
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = Spacing.safeArea),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             TvHeroActionPill(
                 label = "For You",

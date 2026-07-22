@@ -26,11 +26,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon as M3Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +69,12 @@ import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
+internal fun shouldFocusSearchField(
+    hasEnteredSearch: Boolean,
+    hasResults: Boolean,
+    explicitFieldRequest: Boolean,
+): Boolean = explicitFieldRequest || (!hasEnteredSearch && !hasResults)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvSearchScreen(
@@ -92,6 +100,7 @@ fun TvSearchScreen(
     val activeSearchFieldFocusRequester = searchFieldFocusRequester ?: internalSearchFieldFocusRequester
     val keyboardController = LocalSoftwareKeyboardController.current
     var pendingSearchFocus by remember { mutableStateOf(false) }
+    var hasEnteredSearch by rememberSaveable { mutableStateOf(false) }
     val requestMediaType = state.mediaType.toRequestMediaType()
     val visibleRequestResults = requestState.results
         .filterTvRequestResults()
@@ -127,7 +136,18 @@ fun TvSearchScreen(
     }
 
     LaunchedEffect(activeSearchFieldFocusRequester) {
-        runCatching { activeSearchFieldFocusRequester.requestFocus() }
+        val hasResults = state.items.isNotEmpty() || visibleRequestResults.isNotEmpty()
+        if (shouldFocusSearchField(hasEnteredSearch, hasResults, explicitFieldRequest = false)) {
+            runCatching { activeSearchFieldFocusRequester.requestFocus() }
+        }
+        hasEnteredSearch = true
+    }
+    // The search field auto-shows the soft keyboard on focus, but nothing hid
+    // it when leaving Search — on Android TV the system IME then floats over
+    // the next screen (e.g. starting playback from a search result left the
+    // keyboard on top of the video). Dismiss it when Search leaves composition.
+    DisposableEffect(Unit) {
+        onDispose { runCatching { keyboardController?.hide() } }
     }
     LaunchedEffect(backToSearchFieldRequest) {
         if (backToSearchFieldRequest <= 0) return@LaunchedEffect
@@ -480,20 +500,14 @@ private fun SearchStage(
             }
         }
 
-        // A fixed-height slot keeps the header completely stable while the
-        // query moves between typing, loading, results, and error states.
-        Box(
-            modifier = Modifier.height(18.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            if (resultStatus != null) {
-                Text(
-                    text = resultStatus,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.62f),
-                )
-            }
-        }
+        // An empty minimum line keeps the header stable while allowing the
+        // actual typography to grow at accessibility text scales.
+        Text(
+            text = resultStatus.orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.62f),
+            minLines = 1,
+        )
     }
 }
 

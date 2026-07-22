@@ -37,6 +37,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,7 +87,7 @@ fun TvLibraryDetailScreen(
     libraryTitle: String,
     libraryType: String,
     onItemClick: (contentId: String) -> Unit,
-    onCollectionClick: (collectionId: String, title: String) -> Unit,
+    onCollectionClick: (collectionId: String, title: String, isUserCollection: Boolean) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     // When the screen is opened from the Skyline cascade with a committed
     // section pill, this drives the initial tab (Recommended / Library /
@@ -284,6 +285,15 @@ private fun RecommendedTab(
 /** Which browse overlay panel is open over the grid (tvOS `TVBrowsePanel`). */
 private enum class TvBrowsePanel { Sort, Filter }
 
+internal fun restoredLibraryFocusIndex(savedIndex: Int, itemCount: Int): Int? =
+    if (itemCount <= 0) null else savedIndex.coerceIn(0, itemCount - 1)
+
+internal fun restoredLibraryLazyGridIndex(
+    savedIndex: Int,
+    itemCount: Int,
+    headerCount: Int,
+): Int? = restoredLibraryFocusIndex(savedIndex, itemCount)?.plus(headerCount.coerceAtLeast(0))
+
 @Composable
 private fun LibraryTab(
     state: TvLibraryDetailViewModel.UiState,
@@ -302,14 +312,28 @@ private fun LibraryTab(
     onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
     onClearAudiobookGroup: (() -> Unit)? = null,
 ) {
-    val firstGridItemFocusRequester = remember { FocusRequester() }
+    val restoredGridItemFocusRequester = remember { FocusRequester() }
+    val gridState = rememberLazyGridState()
+    var lastFocusedItemIndex by rememberSaveable(state.selectedTab) { mutableStateOf(0) }
     var initialFocusRequested by remember { mutableStateOf(false) }
     var openPanel by remember { mutableStateOf<TvBrowsePanel?>(null) }
+    val gridHeaderCount = listOf(
+        showBrowseControls,
+        showGenreChips,
+        state.selectedAudiobookGroup != null && onClearAudiobookGroup != null,
+    ).count { it }
 
-    LaunchedEffect(state.browseItems.isNotEmpty()) {
+    LaunchedEffect(state.selectedTab, state.browseItems.isNotEmpty(), gridHeaderCount) {
         if (initialFocusRequested || state.browseItems.isEmpty()) return@LaunchedEffect
         kotlinx.coroutines.delay(120)
-        runCatching { firstGridItemFocusRequester.requestFocus() }
+        val restoreIndex = restoredLibraryFocusIndex(lastFocusedItemIndex, state.browseItems.size) ?: 0
+        val lazyGridIndex = restoredLibraryLazyGridIndex(
+            savedIndex = restoreIndex,
+            itemCount = state.browseItems.size,
+            headerCount = gridHeaderCount,
+        ) ?: 0
+        gridState.scrollToItem(lazyGridIndex)
+        runCatching { restoredGridItemFocusRequester.requestFocus() }
         onInitialContentFocus()
         initialFocusRequested = true
     }
@@ -335,7 +359,10 @@ private fun LibraryTab(
                 state = state,
                 onItemClick = onItemClick,
                 onLoadMore = onLoadMore,
-                firstItemFocusRequester = firstGridItemFocusRequester,
+                gridState = gridState,
+                restoredItemFocusRequester = restoredGridItemFocusRequester,
+                restoredItemIndex = restoredLibraryFocusIndex(lastFocusedItemIndex, state.browseItems.size),
+                onItemFocused = { lastFocusedItemIndex = it },
                 showGenreChips = showGenreChips,
                 onGenreChanged = onGenreChanged,
                 onClearAudiobookGroup = onClearAudiobookGroup,
@@ -386,7 +413,10 @@ private fun LibraryGrid(
     state: TvLibraryDetailViewModel.UiState,
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
-    firstItemFocusRequester: FocusRequester,
+    gridState: LazyGridState,
+    restoredItemFocusRequester: FocusRequester,
+    restoredItemIndex: Int?,
+    onItemFocused: (Int) -> Unit,
     showGenreChips: Boolean,
     onGenreChanged: (String?) -> Unit,
     onClearAudiobookGroup: (() -> Unit)?,
@@ -395,8 +425,6 @@ private fun LibraryGrid(
     onOpenFilterPanel: () -> Unit = {},
     onClearFilters: () -> Unit = {},
 ) {
-    val gridState: LazyGridState = rememberLazyGridState()
-
     val nearEnd by remember(
         gridState,
         state.browseHasMore,
@@ -524,8 +552,10 @@ private fun LibraryGrid(
                         width = TvCardWidth,
                         fillWidth = true,
                         onClick = { onItemClick(item.contentId) },
-                        focusRequester = firstItemFocusRequester.takeIf { index == 0 },
-                        modifier = Modifier.fillMaxWidth(),
+                        focusRequester = restoredItemFocusRequester.takeIf { index == restoredItemIndex },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { if (it.hasFocus) onItemFocused(index) },
                         overlay = org.siloserver.silo.overlays.OverlayDataExtractor.fromBrowseItem(item),
                         actions = actions,
                     )
@@ -795,7 +825,7 @@ private fun GenreChipCloud(
 @Composable
 private fun CollectionsTab(
     state: TvLibraryDetailViewModel.UiState,
-    onCollectionClick: (String, String) -> Unit,
+    onCollectionClick: (String, String, Boolean) -> Unit,
     onRetry: () -> Unit,
     onInitialContentFocus: () -> Unit,
 ) {
@@ -865,7 +895,13 @@ private fun CollectionsTab(
                     ) { _, collection ->
                         TvCollectionCard(
                             collection = collection,
-                            onClick = { onCollectionClick(collection.id, collection.name) },
+                            onClick = {
+                                onCollectionClick(
+                                    collection.id,
+                                    collection.name,
+                                    section.kind == "user_collections",
+                                )
+                            },
                             focusRequester = firstCollectionFocusRequester
                                 .takeIf { collection.id == firstCollectionId },
                         )

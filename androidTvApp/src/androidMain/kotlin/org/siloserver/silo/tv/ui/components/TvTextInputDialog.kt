@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +75,12 @@ fun TvTextInputDialog(
         delay(120)
         runCatching { fieldFocusRequester.requestFocus() }
         keyboardController?.show()
+    }
+    // Dismiss the IME when the dialog leaves composition so the system keyboard
+    // doesn't float over whatever screen follows (Android TV leaves it up
+    // otherwise). Mirrors the fix in TvSearchScreen.
+    DisposableEffect(Unit) {
+        onDispose { runCatching { keyboardController?.hide() } }
     }
 
     Dialog(onDismissRequest = onDismiss) {

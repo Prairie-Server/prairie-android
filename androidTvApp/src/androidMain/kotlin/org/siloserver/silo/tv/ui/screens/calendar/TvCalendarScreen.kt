@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -124,6 +125,7 @@ fun TvCalendarScreen(
     onOpenItemDetail: (contentId: String) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
+    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
     viewModel: CalendarViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -247,6 +249,7 @@ fun TvCalendarScreen(
             // week strip are the first list item, so focusing a poster shelf
             // naturally pushes both controls upward instead of pinning them.
             CalendarList(
+                onContentUpFallbackChanged = onContentUpFallbackChanged,
                 state = state,
                 listState = listState,
                 controls = controls,
@@ -663,11 +666,20 @@ private fun monthYearLabel(weekDates: List<String>): String {
     return anchor.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
 }
 
+internal fun shouldReturnCalendarFocusToControls(
+    focusedShelfIndex: Int?,
+    firstFocusableShelfIndex: Int,
+    isReturningToControls: Boolean,
+): Boolean = focusedShelfIndex != null &&
+    focusedShelfIndex == firstFocusableShelfIndex &&
+    !isReturningToControls
+
 // MARK: - Day list
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 private fun CalendarList(
+    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
     state: org.siloserver.silo.viewmodel.CalendarUiState,
     listState: LazyListState,
     controls: @Composable () -> Unit,
@@ -681,6 +693,7 @@ private fun CalendarList(
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val snapScope = rememberCoroutineScope()
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var isReturningToControls by remember { mutableStateOf(false) }
     val firstFocusableDayIndex = state.weekDates.indexOfFirst { state.itemsFor(it).isNotEmpty() }
     val onShelfFocused: (Int) -> Unit = { index ->
@@ -711,6 +724,33 @@ private fun CalendarList(
             }
         }
     }
+    // Shell Up-fallback: the shell's content Box consumes DirectionUp in its
+    // preview pass (ancestors tunnel first), so this list's own key handlers
+    // can never see Up. Registering here routes Up from a focused day shelf
+    // into the week-strip choreography instead of skipping to the menu bar;
+    // when focus is already in the controls item, mirror the shell's default
+    // (moveFocus within content; false -> shell hands off to the menu bar).
+    var focusedShelfIndex by remember { mutableStateOf<Int?>(null) }
+    val calendarUpFallback = remember(firstFocusableDayIndex) {
+        {
+            if (shouldReturnCalendarFocusToControls(
+                    focusedShelfIndex = focusedShelfIndex,
+                    firstFocusableShelfIndex = firstFocusableDayIndex,
+                    isReturningToControls = isReturningToControls,
+                )
+            ) {
+                onMoveUpToControls()
+                true
+            } else {
+                focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+            }
+        }
+    }
+    DisposableEffect(onContentUpFallbackChanged) {
+        onContentUpFallbackChanged?.invoke(calendarUpFallback)
+        onDispose { onContentUpFallbackChanged?.invoke(calendarUpFallback) }
+    }
+
     // The day-snap is the ONLY vertical scroller: with the default spec the
     // focused card's own bring-into-view fought the snap (it re-scrolled to
     // give itself a gutter, dragging the previous day's caption tail back
@@ -779,7 +819,13 @@ private fun CalendarList(
                 // focused CARD, stranding the previous day's caption strip
                 // above and clipping the focused row at the fold).
                 onShelfFocused = { onShelfFocused(index) },
-                onMoveUp = if (index == firstFocusableDayIndex) onMoveUpToControls else null,
+                onShelfFocusChanged = { focused ->
+                    if (focused) {
+                        focusedShelfIndex = index
+                    } else if (focusedShelfIndex == index) {
+                        focusedShelfIndex = null
+                    }
+                },
                 onOpenItemDetail = onOpenItemDetail,
             )
         }
@@ -799,7 +845,7 @@ private fun DayShelf(
     onFocusApplied: () -> Unit = {},
     onItemFocused: (CalendarItem) -> Unit,
     onShelfFocused: () -> Unit = {},
-    onMoveUp: (() -> Unit)? = null,
+    onShelfFocusChanged: (Boolean) -> Unit = {},
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val firstCardFocusRequester = remember { FocusRequester() }
@@ -825,17 +871,14 @@ private fun DayShelf(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .onPreviewKeyEvent { event ->
-                if (onMoveUp != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
-                    onMoveUp()
-                    true
-                } else {
-                    false
-                }
-            }
+            // NOTE: DirectionUp is handled by the shell's content Up-fallback
+            // (registered in CalendarList) — an ancestor's onPreviewKeyEvent
+            // tunnels before any handler here could fire, so a local preview
+            // handler for Up is dead code (see TvAlphabetRail's protocol note).
             .onFocusChanged { focusState ->
                 val nowFocused = focusState.hasFocus
                 if (nowFocused && !shelfHasFocus) onShelfFocused()
+                if (nowFocused != shelfHasFocus) onShelfFocusChanged(nowFocused)
                 shelfHasFocus = nowFocused
             },
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -864,7 +907,6 @@ private fun DayShelf(
                         // First card holds the focus requester so a week-strip
                         // day selection can hand focus down to this shelf.
                         focusRequester = if (item == items.first()) firstCardFocusRequester else null,
-                        onMoveUp = onMoveUp,
                         onFocused = { onItemFocused(item) },
                         onClick = { onOpenItemDetail(item.detailContentId) },
                     )
@@ -934,7 +976,6 @@ private val posterShape = RoundedCornerShape(10.dp)
 private fun CalendarEventCard(
     item: CalendarItem,
     focusRequester: FocusRequester?,
-    onMoveUp: (() -> Unit)?,
     onFocused: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -963,14 +1004,6 @@ private fun CalendarEventCard(
             ),
             colors = CardDefaults.colors(containerColor = Color.White.copy(alpha = 0.06f)),
             modifier = Modifier
-                .onPreviewKeyEvent { event ->
-                    if (onMoveUp != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
-                        onMoveUp()
-                        true
-                    } else {
-                        false
-                    }
-                }
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .size(posterWidth, posterHeight),
         ) {

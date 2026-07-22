@@ -48,7 +48,6 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import kotlinx.coroutines.delay
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.common.ui.components.isImageAvatar
 import org.siloserver.silo.common.ui.components.profileAvatarDisplayText
@@ -72,6 +71,7 @@ fun TvPinEntryDialog(
     isVerifying: Boolean = false,
 ) {
     var pin by remember { mutableStateOf("") }
+    val fiveFocusRequester = remember { FocusRequester() }
     val latestError = remember(errorMessage) { errorMessage }
     LaunchedEffect(isVerifying, latestError) {
         if (!isVerifying && latestError != null && pin.length == PIN_LENGTH) {
@@ -109,7 +109,12 @@ fun TvPinEntryDialog(
                     .clip(panelShape)
                     .background(Color(0xFF15171C))
                     .border(0.5.dp, Color.White.copy(alpha = 0.16f), panelShape)
-                    .padding(horizontal = 28.dp, vertical = 22.dp),
+                    .padding(horizontal = 28.dp, vertical = 22.dp)
+                    // Retry-until-focused initial grab targeting the "5" key
+                    // (issue #64's fix, now shared). Exits as soon as ANYTHING
+                    // in the dialog holds focus, so a user who reaches Cancel
+                    // before the first grab lands is never yanked back.
+                    .then(rememberTvDialogInitialFocus(fiveFocusRequester)),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 ProfilePinAvatar(profileName = profileName, profileAvatar = profileAvatar)
@@ -139,6 +144,7 @@ fun TvPinEntryDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
                 PinKeypad(
+                    fiveFocusRequester = fiveFocusRequester,
                     enabled = !isVerifying,
                     onDigitPressed = { digit ->
                         if (pin.length < PIN_LENGTH && !isVerifying) {
@@ -235,17 +241,14 @@ private fun PinDots(pinLength: Int, error: Boolean) {
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PinKeypad(
+    fiveFocusRequester: FocusRequester,
     enabled: Boolean,
     onDigitPressed: (Char) -> Unit,
     onBackspacePressed: () -> Unit,
 ) {
-    val fiveFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        delay(60)
-        runCatching { fiveFocusRequester.requestFocus() }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         listOf("123", "456", "789").forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { digit ->

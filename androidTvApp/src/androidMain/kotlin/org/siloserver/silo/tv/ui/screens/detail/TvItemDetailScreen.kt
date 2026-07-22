@@ -310,6 +310,7 @@ private fun TvDetailContent(
     } else {
         state.selectedFileId
     }
+    val heroArtwork = resolveTvDetailHeroArtwork(detail, state.nextUpEpisode)
     var chaptersDialogOpen by remember(detail.contentId) { mutableStateOf(false) }
 
     // The first focusable body rail (episode rail, else cast). An Up press from
@@ -424,8 +425,8 @@ private fun TvDetailContent(
                             title = detail.title,
                             seriesTitle = if (detail.type == "episode") detail.seriesTitle else null,
                             logoUrl = detail.logoUrl,
-                            backdropUrl = detail.backdropUrl,
-                            backdropThumbhash = detail.backdropThumbhash,
+                            backdropUrl = heroArtwork.url,
+                            backdropThumbhash = heroArtwork.thumbhash,
                             sourceTokens = TvDetailMetadata.sourceTokens(detail),
                             ratingChip = TvDetailMetadata.ratingChip(detail),
                             overview = detail.overview,
@@ -594,21 +595,12 @@ private fun TvDetailContent(
                                         onItemDetailReplace(season.contentId)
                                     }
                                 },
-                                // OK plays/resumes the episode immediately. The
-                                // episode's own detail page is pushed first so it
-                                // sits underneath the player in the back stack —
-                                // exiting playback lands on that episode's detail
-                                // rather than back on this page.
+                                // Match tvOS browse semantics: OK opens the
+                                // episode detail. Playback remains an explicit
+                                // Play/Resume action so its version and track
+                                // selectors are honored.
                                 onEpisodeSelected = { episode ->
                                     onItemDetail(episode.contentId)
-                                    onPlay(
-                                        episode.contentId,
-                                        null,
-                                        null,
-                                        null,
-                                        "episode",
-                                        episode.userData?.resumePositionSeconds(),
-                                    )
                                 },
                                 onSetEpisodeWatched = viewModel::onSetEpisodeWatched,
                                 onSetEpisodeFavorite = viewModel::onSetEpisodeFavorite,
@@ -846,14 +838,7 @@ private fun HeroActionRow(
                     // otherwise pick whichever toggle sits closest.
                     enter = { playFocus }
                 }
-                .focusGroup()
-                .then(
-                    if (showsSelectorRow) {
-                        Modifier.focusProperties { down = selectorFocus }
-                    } else {
-                        Modifier
-                    },
-            ),
+                .focusGroup(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
@@ -1634,6 +1619,34 @@ internal val TvDetailSectionGap = 28.dp
  * the [TvDetailSectionGap] handoff math — keep them in sync.
  */
 internal val TvDetailHeroBottomInset = 16.dp
+
+internal data class TvDetailHeroArtwork(
+    val url: String?,
+    val thumbhash: String?,
+)
+
+/**
+ * Item detail responses can legitimately omit series/season artwork even
+ * though their loaded episode rows carry landscape stills. Prefer the real
+ * backdrop, then an episodic landscape still; never stretch a portrait poster
+ * across a movie/series hero.
+ */
+internal fun resolveTvDetailHeroArtwork(
+    detail: ItemDetail,
+    nextUpEpisode: EpisodeListItem?,
+): TvDetailHeroArtwork {
+    if (!detail.backdropUrl.isNullOrBlank() || !detail.backdropThumbhash.isNullOrBlank()) {
+        return TvDetailHeroArtwork(detail.backdropUrl, detail.backdropThumbhash)
+    }
+    return when (detail.type.lowercase()) {
+        "series", "season" -> TvDetailHeroArtwork(
+            nextUpEpisode?.stillUrl,
+            nextUpEpisode?.stillThumbhash,
+        )
+        "episode" -> TvDetailHeroArtwork(detail.posterUrl, detail.posterThumbhash)
+        else -> TvDetailHeroArtwork(null, null)
+    }
+}
 
 /**
  * Pacing for the hero ↔ episodes anchor scrolls — tvOS's detail focus

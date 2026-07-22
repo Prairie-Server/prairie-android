@@ -207,44 +207,27 @@ class TvShellFocusStateTest {
     }
 
     @Test
-    fun backFromProfileHoverPreviewReturnsFocusToHome() {
+    fun backFromProfileHoverPreviewReturnsFocusToAvatar() {
         val s = TvShellFocusState()
         s.previewProfileMenu()
-        val before = s.menuFocusRequest
+        val before = s.profileFocusRequest
 
         assertEquals(TvShellBackAction.CloseProfileMenu, s.onBack(onTabRoot = true))
-        assertTrue(s.profileMenuOpen)
-        assertEquals(before + 1, s.menuFocusRequest)
-        assertEquals(
-            TvTopMenuPanel.Root(TvRootDestination.Home),
-            s.menuFocusTarget,
-        )
-        assertEquals(0, s.profileFocusRequest)
-
-        // The bar focus callback closes the preview only after Home has
-        // accepted focus.
-        s.updateMenuFocused(true)
         assertFalse(s.profileMenuOpen)
+        assertEquals(before + 1, s.profileFocusRequest)
     }
 
     @Test
-    fun backFromInsideProfileMenuAlsoReturnsFocusToHome() {
+    fun backFromInsideProfileMenuAlsoReturnsFocusToAvatar() {
         val s = TvShellFocusState()
         s.previewProfileMenu()
         s.enterProfileMenu()
-        val before = s.menuFocusRequest
+        val before = s.profileFocusRequest
 
         assertEquals(TvShellBackAction.CloseProfileMenu, s.onBack(onTabRoot = true))
-        assertTrue(s.profileMenuOpen)
-        assertFalse(s.profileMenuEntered)
-        assertEquals(before + 1, s.menuFocusRequest)
-        assertEquals(
-            TvTopMenuPanel.Root(TvRootDestination.Home),
-            s.menuFocusTarget,
-        )
-
-        s.updateMenuFocused(true)
         assertFalse(s.profileMenuOpen)
+        assertFalse(s.profileMenuEntered)
+        assertEquals(before + 1, s.profileFocusRequest)
     }
 
     @Test
@@ -259,16 +242,13 @@ class TvShellFocusStateTest {
         assertEquals(menuBefore + 1, s.menuFocusRequest)
         assertEquals(moviesPanel, s.menuFocusTarget)
 
-        // Profile open → CloseProfileMenu, with Home focus requested before the
-        // dropdown closes.
+        // Profile open → CloseProfileMenu, dropdown closed and avatar nudged.
         s.previewProfileMenu()
         s.enterProfileMenu()
-        val menuBeforeProfile = s.menuFocusRequest
+        val profileBefore = s.profileFocusRequest
         assertEquals(TvShellBackAction.CloseProfileMenu, s.onBack(onTabRoot = true))
-        assertTrue(s.profileMenuOpen)
-        assertEquals(menuBeforeProfile + 1, s.menuFocusRequest)
-        s.updateMenuFocused(true)
         assertFalse(s.profileMenuOpen)
+        assertEquals(profileBefore + 1, s.profileFocusRequest)
 
         // Bar focused → MenuBack; the holder leaves home-vs-exit to the caller.
         s.updateMenuFocused(true)

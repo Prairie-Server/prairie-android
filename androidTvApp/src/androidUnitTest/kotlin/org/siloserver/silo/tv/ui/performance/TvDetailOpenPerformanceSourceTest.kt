@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.performance
 
 import java.io.File
+import kotlin.test.assertFalse
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -61,5 +62,14 @@ class TvDetailOpenPerformanceSourceTest {
                 viewModel.contains("delay(300)"),
             "TV detail should let primary detail, seasons, and episodes settle before fetching the related shelf.",
         )
+    }
+
+    @Test
+    fun episodeSelectionBrowsesDetailWithoutImplicitPlayback() {
+        val start = screen.indexOf("onEpisodeSelected = { episode ->")
+        val end = screen.indexOf("onSetEpisodeWatched", start)
+        val callback = screen.substring(start, end)
+        assertTrue(callback.contains("onItemDetail(episode.contentId)"))
+        assertFalse(callback.contains("onPlay("))
     }
 }

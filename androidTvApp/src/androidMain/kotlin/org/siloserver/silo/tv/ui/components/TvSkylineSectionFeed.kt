@@ -52,6 +52,7 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.tv.ui.theme.RowDimens
 import org.siloserver.silo.tv.ui.theme.Spacing
+import org.siloserver.silo.tv.ui.theme.TvSkyline
 import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -629,7 +630,11 @@ fun TvSkylineSectionFeed(
             TvFocusMarquee(
                 content = marquee.content,
                 detailLine = marquee.enrichment?.detailLine,
-                startPadding = Spacing.safeArea,
+                startPadding = TvSkyline.safeAreaX,
+                // Keep the marquee out of the top-menu-bar zone: the block is
+                // bottom-anchored and grows upward, and the raised typography
+                // floors made it tall enough to collide with the bar.
+                topPadding = TvSkyline.barTopInset + TvSkyline.barHeight,
                 bottomPadding = bandHeight + TvSkylineMarqueeBottomGap,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -672,7 +677,7 @@ fun TvSkylineSectionFeed(
                             onSeeAllClick = onSeeAllClickForSection(section),
                             showProgress = showProgress,
                             style = styleForSection(section),
-                            startPadding = Spacing.safeArea,
+                            startPadding = TvSkyline.safeAreaX,
                             endPadding = Spacing.safeArea,
                             itemSpacing = TvSkylineItemSpacing,
                             rowTopPadding = TvSkylineRowCardVerticalPadding,
@@ -740,7 +745,7 @@ private val TvSkylineRowBandBottomInset = 10.dp
 private const val TvSkylineRowBandHeightFraction = 0.50f
 
 /** Gap between the marquee block and the top of the row band. */
-private val TvSkylineMarqueeBottomGap = 12.dp
+private val TvSkylineMarqueeBottomGap = 4.dp
 
 // Row-band relocation requests are close to row-sized; horizontal card rails
 // have much wider viewports and must still use the smooth scroll distance.

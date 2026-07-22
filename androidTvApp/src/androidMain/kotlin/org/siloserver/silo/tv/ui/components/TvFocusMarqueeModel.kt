@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.section.SectionItem
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -315,23 +316,25 @@ class TvFocusMarqueeState internal constructor() {
     internal fun isEnrichmentRequestInFlight(contentId: String): Boolean =
         contentId in enrichmentRequests
 
-    /** Cache freshly-fetched enrichment. It is intentionally not published into
-     *  an already-rendered hero: the next coordinated commit consumes it so an
-     *  aired/cast row never appears as a late second-stage UI update. */
-    internal fun applyEnrichment(contentId: String, enrichment: TvMarqueeEnrichment) {
-        enrichmentCache[contentId] = enrichment
+    /** Cache freshly-fetched enrichment and publish it only if the matching
+     *  card still owns the hero. A stale response warms its cache without
+     *  mutating the active card. */
+    internal fun applyEnrichment(contentId: String, value: TvMarqueeEnrichment) {
+        enrichmentCache[contentId] = value
+        if (content?.contentId == contentId) enrichment = value
     }
 }
 
 /** Tuned Skyline timing: 0.5 s with the tvOS `.easeInOut` curve. */
 const val TvMarqueeCrossfadeMs = 500
+const val TvMarqueeFocusRestMillis = 150L
 val TvMarqueeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
 /**
  * @param fetchDetail item-detail fetcher for the §9 marquee enrichment (air
  *  date, cast, series backdrop). Cached detail joins the first rendered frame;
- *  uncached detail loads only for a future visit and never postpones or mutates
- *  the active fade. `null` disables enrichment.
+ *  uncached detail never postpones the active fade and publishes only while
+ *  the fetched content still owns the hero. `null` disables enrichment.
  */
 @Composable
 fun rememberTvFocusMarqueeState(
@@ -340,11 +343,14 @@ fun rememberTvFocusMarqueeState(
     val state = remember { TvFocusMarqueeState() }
     LaunchedEffect(state.candidate?.id) {
         val candidate = state.candidate ?: return@LaunchedEffect
-        state.commit(candidate)
+        // Page-entry seed stays immediate so the hero never opens blank. Only
+        // subsequent D-pad focus moves wait for the focus-rest interval.
+        if (state.content != null) delay(TvMarqueeFocusRestMillis)
+        if (state.candidate?.id == candidate.id) state.commit(candidate)
     }
 
-    // Populate cache for the next visit without changing the currently visible
-    // hero. Near-viewport proactive prefetch usually wins this request; the
+    // Populate the cache and enrich the active hero when identity still
+    // matches. Near-viewport proactive prefetch usually wins this request; the
     // shared claim prevents duplicates when it is already in flight.
     LaunchedEffect(state.content?.contentId, fetchDetail) {
         val fetch = fetchDetail ?: return@LaunchedEffect

@@ -1,15 +1,27 @@
 package org.siloserver.silo.tv.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
 import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
@@ -18,6 +30,12 @@ import org.siloserver.silo.tv.ui.components.TvSkylineSectionFeed
 import org.siloserver.silo.tv.ui.components.isTvProgressRow
 import org.siloserver.silo.viewmodel.HomeViewModel
 import org.koin.compose.viewmodel.koinViewModel
+
+internal fun shouldShowHomeEmptyState(
+    isLoading: Boolean,
+    error: String?,
+    visibleSectionCount: Int,
+): Boolean = !isLoading && error == null && visibleSectionCount == 0
 
 /**
  * Android TV Home screen: the Skyline landing, matching tvOS Home by rendering
@@ -67,6 +85,13 @@ fun TvHomeScreen(
             onRetry = viewModel::loadSections,
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
         )
+        shouldShowHomeEmptyState(state.isLoading, state.error, visibleSections.size) ->
+            TvHomeEmptyState(
+                onRefresh = viewModel::loadSections,
+                focusRequester = firstRowFocusRequester,
+                focusRequest = focusRequest,
+                onInitialContentFocus = onInitialContentFocus,
+            )
         else -> TvHomeContent(
             sections = visibleSections,
             onItemClick = onItemClick,
@@ -85,6 +110,50 @@ fun TvHomeScreen(
             onDismissContinueWatching = viewModel::dismissContinueWatching,
             onDismissNextUp = viewModel::dismissNextUp,
         )
+    }
+}
+
+@Composable
+private fun TvHomeEmptyState(
+    onRefresh: () -> Unit,
+    focusRequester: FocusRequester?,
+    focusRequest: Int,
+    onInitialContentFocus: () -> Unit,
+) {
+    val refreshFocusRequester = focusRequester ?: remember { FocusRequester() }
+    LaunchedEffect(focusRequest) {
+        runCatching { refreshFocusRequester.requestFocus() }
+        onInitialContentFocus()
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = "Nothing to show yet",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = "Refresh Home after adding or watching something.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = onRefresh,
+                modifier = Modifier.focusRequester(refreshFocusRequester),
+                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+            ) {
+                Text("Refresh", style = MaterialTheme.typography.labelLarge)
+            }
+        }
     }
 }
 

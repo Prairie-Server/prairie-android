@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +23,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import org.siloserver.silo.tv.ui.screens.player.TvDialogActionRow
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 
@@ -42,7 +42,6 @@ fun TvWatchTogetherEntryDialog(
     onDismiss: () -> Unit,
 ) {
     val hostFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { hostFocus.requestFocus() } }
 
     Popup(
         alignment = Alignment.Center,
@@ -66,7 +65,8 @@ fun TvWatchTogetherEntryDialog(
                     .width(340.dp)
                     .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 14.dp)
+                    .then(rememberTvDialogInitialFocus(hostFocus)),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(

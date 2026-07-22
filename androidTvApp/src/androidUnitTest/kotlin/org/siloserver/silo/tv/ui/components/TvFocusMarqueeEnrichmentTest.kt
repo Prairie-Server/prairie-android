@@ -14,6 +14,11 @@ import org.junit.Test
  */
 class TvFocusMarqueeEnrichmentTest {
 
+    @Test
+    fun `focus rest delay matches tvOS`() {
+        assertEquals(150L, TvMarqueeFocusRestMillis)
+    }
+
     private fun detail(
         contentId: String = "c1",
         type: String = "movie",
@@ -159,5 +164,30 @@ class TvFocusMarqueeEnrichmentTest {
 
         assertEquals("First Movie", state.content?.title)
         assertEquals("https://art/first.jpg", state.content?.heroBackdropUrl)
+    }
+
+    @Test
+    fun `active enrichment publishes immediately`() {
+        val state = TvFocusMarqueeState()
+        state.commit(episodeContent())
+
+        state.applyEnrichment(
+            "c1",
+            TvMarqueeEnrichment("Aired today", "https://art/series.jpg", "seriesHash"),
+        )
+
+        assertEquals("Aired today", state.backdropContent?.detailLine)
+        assertEquals("https://art/series.jpg", state.backdropContent?.heroBackdropUrl)
+    }
+
+    @Test
+    fun `stale enrichment only warms cache`() {
+        val state = TvFocusMarqueeState()
+        state.commit(episodeContent())
+
+        state.applyEnrichment("old", TvMarqueeEnrichment("Old", null, null))
+
+        assertNull(state.backdropContent?.detailLine)
+        assertEquals("Old", state.cachedEnrichment("old")?.detailLine)
     }
 }

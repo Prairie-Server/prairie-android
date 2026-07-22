@@ -1500,8 +1500,10 @@ private fun TvSettingsConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     BackHandler(onBack = onDismiss)
-    val confirmFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { confirmFocus.requestFocus() } }
+    // Default focus lands on Cancel so a stray OK press never triggers the
+    // destructive action.
+    val cancelFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1537,12 +1539,12 @@ private fun TvSettingsConfirmDialog(
                     DialogButton(
                         label = "Cancel",
                         onClick = onDismiss,
+                        focusRequester = cancelFocus,
                     )
                     DialogButton(
                         label = confirmLabel,
                         onClick = onConfirm,
                         destructive = true,
-                        focusRequester = confirmFocus,
                     )
                 }
             }
