@@ -534,7 +534,15 @@ Expected: FAIL for `0.5.sp` or `13.5.sp`.
 
 - [ ] **Step 3: Replace the matcher and use it for both scans**
 
-Set `tinyFontPattern` to the complete regex shown in Step 1. Replace the five theme `source.contains` assertions with:
+Replace the integer-only matcher with the complete below-14sp matcher:
+
+```kotlin
+private val tinyFontPattern = Regex(
+    """fontSize\s*=\s*(?:[0-9]|1[0-3])(?:\.\d+)?\.sp""",
+)
+```
+
+Then replace the five theme `source.contains` assertions with:
 
 ```kotlin
 assertFalse(
