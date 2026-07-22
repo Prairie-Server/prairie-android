@@ -5,12 +5,10 @@ import org.siloserver.silo.player.trackLanguageDisplayName
 import java.util.Locale
 
 /**
- * Human labels for mounted subtitle rows ("Danish SRT", "Danish PGS
- * (External)"). Server row labels are identity strings — for external
- * sidecars they are the literal release filename — so pickers must build
- * display labels from language + format + provenance instead of echoing
- * them. A meaningful custom title (chapter-style names like "Signs", or
- * "SDH") still rides along; codec junk ("SUBRIP") and filenames do not.
+ * Human labels for mounted subtitle rows, using the same identity hierarchy
+ * as the detail-page selector. Release filenames and runtime-only labels such
+ * as "Server subtitle" stay available for identity/matching, but are never
+ * presented to the user.
  */
 internal fun subtitleChoiceLabel(row: PlayerSubtitleInfo, position: Int): String {
     // trackLanguageDisplayName handles ISO 639-2/B codes ("ger","fre","dut")
@@ -21,22 +19,19 @@ internal fun subtitleChoiceLabel(row: PlayerSubtitleInfo, position: Int): String
         row.codec?.trim()?.takeIf { it.isNotBlank() }
             ?: row.url.substringBefore('?').substringBefore('#').substringAfterLast('.', ""),
     )
-    val base = when {
-        language != null && format != null -> "$language $format"
-        language != null -> language
-        format != null -> format
-        else -> "Track ${position + 1}"
-    }
     val title = meaningfulSubtitleRowTitle(row, language, format)
-    val qualifiers = buildList {
-        if (title != null) add(title)
+    val base = language ?: title ?: "Track ${position + 1}"
+    val detail = buildList {
+        if (title != null && title != base) add(title)
+        if (format != null) add(format)
         if (row.forced == true) add("Forced")
-        when (row.source) {
+        if (row.isDefault == true) add("Default")
+        when (row.catalogSource ?: row.source) {
             "external" -> add("External")
             "downloaded" -> add("Downloaded")
         }
     }
-    return if (qualifiers.isEmpty()) base else "$base (${qualifiers.joinToString(", ")})"
+    return if (detail.isEmpty()) base else "$base — ${detail.joinToString(" · ")}"
 }
 
 /** ffmpeg codec ids / file extensions → the short format names users know. */
@@ -56,18 +51,19 @@ internal fun subtitleFormatShortName(codec: String?): String? =
     }
 
 /**
- * A row label worth showing next to language+format: not blank, not codec
- * junk ("SUBRIP"), not redundant with the language, and never a filename.
+ * A row label worth showing next to language+format: not blank, not a generic
+ * runtime artifact label, not codec junk, not redundant with language, and
+ * never a release/show filename.
  */
 private fun meaningfulSubtitleRowTitle(
     row: PlayerSubtitleInfo,
     language: String?,
     format: String?,
 ): String? {
-    val label = row.label?.trim()?.takeIf { it.isNotBlank() } ?: return null
-    if (label.length > 28) return null
+    val label = (row.catalogLabel ?: row.label)?.trim()?.takeIf { it.isNotBlank() } ?: return null
     val lowered = label.lowercase(Locale.US)
-    if (lowered.contains('[') || FILENAME_SUFFIXES.any { lowered.endsWith(it) }) return null
+    if (label.length > 28 || '[' in label || SUBTITLE_FILENAME_SUFFIXES.any(lowered::endsWith)) return null
+    if (lowered in GENERIC_SUBTITLE_LABELS) return null
     if (language != null && lowered == language.lowercase(Locale.US)) return null
     if (row.language != null && lowered == row.language!!.lowercase(Locale.US)) return null
     if (format != null && lowered == format.lowercase(Locale.US)) return null
@@ -75,7 +71,10 @@ private fun meaningfulSubtitleRowTitle(
     return label
 }
 
-private val FILENAME_SUFFIXES = listOf(".srt", ".ass", ".ssa", ".vtt", ".sub", ".sup", ".idx")
+private val GENERIC_SUBTITLE_LABELS = setOf("server subtitle", "subtitle", "subtitles")
+private val SUBTITLE_FILENAME_SUFFIXES = listOf(
+    ".srt", ".ass", ".ssa", ".vtt", ".sub", ".sup", ".idx",
+)
 
 /**
  * Human labels for audio track rows ("English DTS 5.1", "Japanese AAC

@@ -120,7 +120,8 @@ object TvSubtitleAppearanceOptions {
     }
 
     fun previewDecoration(appearance: SubtitleAppearance): PreviewDecoration = PreviewDecoration(
-        outline = appearance.textOutline || appearance.backgroundStyle == SubtitleBackgroundStylePreset.Outline,
+        outline = appearance.backgroundStyle != SubtitleBackgroundStylePreset.Shadow &&
+            (appearance.textOutline || appearance.backgroundStyle == SubtitleBackgroundStylePreset.Outline),
         shadow = appearance.backgroundStyle == SubtitleBackgroundStylePreset.Shadow,
     )
 }

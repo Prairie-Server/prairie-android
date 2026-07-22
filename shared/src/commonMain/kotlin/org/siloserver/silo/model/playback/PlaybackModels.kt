@@ -55,7 +55,13 @@ data class PlayerSubtitleInfo(
     val label: String? = null,
     val source: String? = null,
     val forced: Boolean? = null,
-    val url: String
+    val url: String,
+    /** Catalog-facing identity retained when a mounted artifact has a generic runtime label. */
+    @SerialName("catalog_label") val catalogLabel: String? = null,
+    /** Catalog provenance retained separately from the runtime artifact source. */
+    @SerialName("catalog_source") val catalogSource: String? = null,
+    /** Catalog default marker; playback-session artifact rows do not carry it themselves. */
+    @SerialName("default") val isDefault: Boolean? = null,
 )
 
 /**

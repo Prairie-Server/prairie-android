@@ -117,9 +117,12 @@ class TvListPerformanceSourceTest {
     @Test
     fun secondaryHotTvListsExposeContentTypes() {
         assertTrue(
-            optionDialog.contains("contentType = { \"dialog-option\" }") &&
+                optionDialog.contains("contentType = { \"dialog-option\" }") &&
                 playerHud.contains("contentType = { _, _ -> \"hud-chapter\" }") &&
-                playerHud.contains("contentType = { _, _ -> \"hud-picker-option\" }") &&
+                // The small picker deliberately fully composes its options so
+                // every below-fold D-pad target remains in the focus graph;
+                // contentType applies only to lazy list items.
+                playerHud.contains("options.forEachIndexed") &&
                 searchScreen.contains("contentType = { _, _ -> \"media-type-chip\" }") &&
                 heroCarousel.contains("contentType = { _, _ -> \"hero-card\" }") &&
                 requestsScreen.contains("contentType = \"request-notice\"") &&

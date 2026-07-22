@@ -1705,7 +1705,6 @@ private fun StyleColorSwatch(
             .clip(CircleShape)
             .background(swatchColor)
             .border(width = if (isFocused || selected) 2.dp else 1.dp, color = ring, shape = CircleShape)
-            .focusable(enabled = enabled, interactionSource = interactionSource)
             .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() }
             .semantics {
                 contentDescription = if (selected) "$label, selected" else label
@@ -2091,12 +2090,11 @@ internal fun HudPickerDialog(
     val options = presentation.options
     val selectedIndex = options.indexOfFirst { it.id.equals(presentation.selectedId, ignoreCase = true) }
         .coerceAtLeast(0)
-    val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
 
-    // Auto-focus the selected option and scroll it into view on appear.
+    // Auto-focus the selected option on appear. Because every option is in the
+    // focus graph, Compose's scroll container brings that focused row onscreen.
     LaunchedEffect(presentation.title) {
-        runCatching { listState.scrollToItem(selectedIndex) }
         runCatching { focusRequester.requestFocus() }
     }
 
@@ -2107,10 +2105,6 @@ internal fun HudPickerDialog(
             .clip(RoundedCornerShape(14.dp))
             .background(DarkSurfaceElevated.copy(alpha = 0.98f))
             .border(0.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
-            // Focus trap: contain D-pad navigation inside the modal so focus
-            // can't leak to the player root at the list edges. Cancelling exit
-            // keeps focus on the boundary option until the user picks (Select)
-            // or backs out (Back).
             .focusGroup()
             .focusProperties { exit = { FocusRequester.Cancel } }
             .padding(horizontal = 18.dp, vertical = 14.dp),
@@ -2125,20 +2119,16 @@ internal fun HudPickerDialog(
                     fontWeight = FontWeight.SemiBold,
                 ),
             )
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.heightIn(max = 160.dp),
+            // Fully compose this small modal list so every D-pad destination is
+            // present in the focus graph. LazyColumn made below-fold rows look
+            // like the end of the modal and either trapped or leaked focus.
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 160.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                itemsIndexed(
-                    options,
-                    // Position-suffixed: option ids come from server data and
-                    // must never be trusted to be unique (a duplicate key is a
-                    // fatal Compose crash). The modal list never reorders, so
-                    // positional keys are stable.
-                    key = { i, o -> "${o.id}#$i" },
-                    contentType = { _, _ -> "hud-picker-option" },
-                ) { index, option ->
+                options.forEachIndexed { index, option ->
                     HudPickerOptionRow(
                         option = option,
                         isSelected = index == selectedIndex,

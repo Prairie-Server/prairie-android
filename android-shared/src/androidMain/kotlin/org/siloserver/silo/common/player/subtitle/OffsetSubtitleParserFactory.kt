@@ -12,13 +12,13 @@ import androidx.media3.extractor.text.SubtitleParser.OutputOptions
 
 /**
  * Wraps [DefaultSubtitleParserFactory] so every emitted [CuesWithTiming]
- * gets [SubtitleOffsetHolder.getOffsetUs] added to its `startTimeUs`.
+ * gets the current offset added to its `startTimeUs`.
  * Reads the live offset on each emission — no need to recreate the parser
  * when the offset changes.
  */
 @UnstableApi
 class OffsetSubtitleParserFactory(
-    private val holder: SubtitleOffsetHolder,
+    private val offsetUsProvider: () -> Long,
     private val delegate: SubtitleParser.Factory = DefaultSubtitleParserFactory(),
 ) : SubtitleParser.Factory {
 
@@ -28,13 +28,13 @@ class OffsetSubtitleParserFactory(
         delegate.getCueReplacementBehavior(format)
 
     override fun create(format: Format): SubtitleParser =
-        OffsetSubtitleParser(delegate.create(format), holder, format.sampleMimeType)
+        OffsetSubtitleParser(delegate.create(format), offsetUsProvider, format.sampleMimeType)
 }
 
 @UnstableApi
 private class OffsetSubtitleParser(
     private val delegate: SubtitleParser,
-    private val holder: SubtitleOffsetHolder,
+    private val offsetUsProvider: () -> Long,
     private val sampleMimeType: String?,
 ) : SubtitleParser {
 
@@ -47,7 +47,7 @@ private class OffsetSubtitleParser(
         outputOptions: OutputOptions,
         output: Consumer<CuesWithTiming>,
     ) {
-        val offsetUs = holder.getOffsetUs()
+        val offsetUs = offsetUsProvider()
         val normalizedSubrip = if (sampleMimeType == MimeTypes.APPLICATION_SUBRIP) {
             normalizeSubripPayloadIfNeeded(data, offset, length)
         } else {

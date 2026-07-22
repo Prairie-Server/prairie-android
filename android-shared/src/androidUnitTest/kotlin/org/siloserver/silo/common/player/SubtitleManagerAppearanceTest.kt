@@ -17,7 +17,18 @@ import kotlin.test.assertEquals
 class SubtitleManagerAppearanceTest {
 
     @Test
-    fun subtitleTextFractionsAreCalibratedOneStepSmaller() {
+    fun defaultSubtitleStyleIsWhiteOutlinedTextWithoutABox() {
+        val style = captionStyleFor(SubtitleAppearance.DEFAULT)
+
+        assertEquals(0xFFFFFFFF.toInt(), style.foregroundColor)
+        assertEquals(0x00000000, style.backgroundColor)
+        assertEquals(0x00000000, style.windowColor)
+        assertEquals(CaptionStyleCompat.EDGE_TYPE_OUTLINE, style.edgeType)
+        assertEquals(0xFF000000.toInt(), style.edgeColor)
+    }
+
+    @Test
+    fun subtitleTextFractionsUseTheStandardScale() {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "fractionalSizeFor",
             SubtitleFontSizePreset::class.java,
@@ -32,12 +43,30 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
+    fun bottomSubtitlesUseTheReferenceSafeMargin() {
+        val method = SubtitleManager::class.java.getDeclaredMethod(
+            "bottomPaddingFor",
+            org.siloserver.silo.model.settings.SubtitlePositionPreset::class.java,
+        )
+        method.isAccessible = true
+
+        assertEquals(
+            0.09f,
+            method.invoke(
+                SubtitleManager(),
+                org.siloserver.silo.model.settings.SubtitlePositionPreset.Bottom,
+            ) as Float,
+        )
+    }
+
+    @Test
     fun boxBackgroundStyleAppliesConfiguredBackgroundAlpha() {
         val style = captionStyleFor(
             SubtitleAppearance.DEFAULT.copy(
                 backgroundStyle = SubtitleBackgroundStylePreset.Box,
                 backgroundColor = "#000000",
                 backgroundOpacity = 75,
+                textOutline = false,
             )
         )
 

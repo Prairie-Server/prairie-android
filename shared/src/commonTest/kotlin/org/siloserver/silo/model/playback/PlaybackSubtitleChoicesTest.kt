@@ -33,6 +33,36 @@ class PlaybackSubtitleChoicesTest {
     }
 
     @Test
+    fun catalogIdentityAndDefaultFlagReplaceGenericArtifactMetadata() {
+        val choices = buildPlaybackSubtitleChoices(
+            catalogTracks = listOf(
+                SubtitleTrack(
+                    index = 4,
+                    codec = "subrip",
+                    language = "en",
+                    title = "English",
+                    isDefault = true,
+                ),
+            ),
+            plannedTracks = listOf(
+                PlayerSubtitleInfo(
+                    index = 0,
+                    codec = "srt",
+                    label = "Server subtitle",
+                    source = "server_artifact",
+                    url = "/planned/english.vtt",
+                ),
+            ),
+        )
+
+        assertEquals("Server subtitle", choices.single().label)
+        assertEquals("English", choices.single().catalogLabel)
+        assertEquals("embedded", choices.single().catalogSource)
+        assertEquals(true, choices.single().isDefault)
+        assertEquals("/planned/english.vtt", choices.single().url)
+    }
+
+    @Test
     fun embeddedBitmapChoiceUsesTheMediaContainerInsteadOfASidecarUrl() {
         val choices = buildPlaybackSubtitleChoices(
             catalogTracks = listOf(

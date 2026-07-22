@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class SubtitleAppearanceTest {
 
     @Test
-    fun subtitleFontSizePresetsAreCalibratedOneStepSmaller() {
+    fun subtitleFontSizePresetsUseTheStandardScale() {
         assertEquals(36.0, SubtitleFontSizePreset.Small.pointSize)
         assertEquals(44.0, SubtitleFontSizePreset.Medium.pointSize)
         assertEquals(56.0, SubtitleFontSizePreset.Large.pointSize)
@@ -15,18 +15,23 @@ class SubtitleAppearanceTest {
     }
 
     @Test
-    fun defaultSubtitleAppearanceKeepsLargePresetAtSaferRenderedSize() {
+    fun defaultSubtitleAppearanceKeepsTheStandardLargePreset() {
         assertEquals(SubtitleFontSizePreset.Large, SubtitleAppearance.DEFAULT.fontSize)
         assertEquals(56.0, SubtitleAppearance.DEFAULT.fontSize.pointSize)
     }
 
     @Test
-    fun defaultSubtitleAppearanceUsesBoxBackground() {
-        assertEquals(SubtitleBackgroundStylePreset.Box, SubtitleAppearance.DEFAULT.backgroundStyle)
+    fun defaultSubtitleAppearanceMatchesTheTvReferenceStyle() {
+        assertEquals("#ffffff", SubtitleAppearance.DEFAULT.fontColor)
+        assertEquals(SubtitleAppearance.SANS_SERIF, SubtitleAppearance.DEFAULT.fontFamily)
+        assertEquals(SubtitleBackgroundStylePreset.None, SubtitleAppearance.DEFAULT.backgroundStyle)
+        assertEquals(true, SubtitleAppearance.DEFAULT.textOutline)
+        assertEquals("#000000", SubtitleAppearance.DEFAULT.textOutlineColor)
+        assertEquals(SubtitlePositionPreset.Bottom, SubtitleAppearance.DEFAULT.position)
     }
 
     @Test
-    fun decodingMissingBackgroundStyleUsesBoxDefault() {
+    fun decodingMissingBackgroundStyleUsesNoBackgroundDefault() {
         val decoded = SubtitleAppearance.decode(
             """
             {
@@ -42,6 +47,6 @@ class SubtitleAppearanceTest {
             """.trimIndent(),
         )
 
-        assertEquals(SubtitleBackgroundStylePreset.Box, decoded.backgroundStyle)
+        assertEquals(SubtitleBackgroundStylePreset.None, decoded.backgroundStyle)
     }
 }

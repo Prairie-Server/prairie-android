@@ -35,6 +35,10 @@ class PlayerScreenStartPositionTest {
             source.contains("durationSeconds = uiState.duration"),
             "mobile player media specs must carry known duration into system media metadata",
         )
+        assertTrue(
+            source.countOccurrences("timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0") >= 2,
+            "mobile initial mounts and subtitle refreshes must keep subtitle cues on the server-reanchored timeline",
+        )
     }
 
     @Test
@@ -177,4 +181,8 @@ class PlayerScreenStartPositionTest {
         assertTrue(source.contains("startupStallDetector.sample("))
         assertTrue(source.contains("viewModel.onUnsupportedPlayback(reason)"))
     }
+
+
+    private fun String.countOccurrences(value: String): Int =
+        windowed(value.length, 1).count { it == value }
 }
