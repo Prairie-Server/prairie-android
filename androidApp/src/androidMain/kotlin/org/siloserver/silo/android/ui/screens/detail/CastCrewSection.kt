@@ -114,8 +114,8 @@ private fun CastTile(
             if (!role.isNullOrBlank()) {
                 Text(
                     text = role,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Normal,
                     color = SiloSecondaryText,
                     maxLines = 1,

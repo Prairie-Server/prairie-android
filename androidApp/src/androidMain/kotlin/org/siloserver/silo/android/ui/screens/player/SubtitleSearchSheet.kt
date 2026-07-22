@@ -300,7 +300,7 @@ private fun SubtitleBadgeText(text: String, color: Color) {
     Text(
         text = text,
         color = color,
-        fontSize = 11.sp,
+        fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier
             .background(color.copy(alpha = 0.15f), RoundedCornerShape(4.dp))

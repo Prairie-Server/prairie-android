@@ -103,24 +103,25 @@ fun TvAnchoredSelectorMenu(
                 )
                 Spacer(Modifier.width(7.dp))
                 // tvOS `TVSelectorButton`: label 18pt bold tracking 1.0 @0.6,
-                // value 22pt semibold — half scale +1 per design review.
+                // value 22pt semibold — floored at 14sp for 10-ft legibility
+                // (audit 2026-07-20).
                 Text(
                     text = label.uppercase(),
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp,
                     ),
-                    color = fg.copy(alpha = 0.6f),
+                    color = fg.copy(alpha = 0.75f),
                     maxLines = 1,
                 )
                 Spacer(Modifier.width(7.dp))
                 Text(
                     text = value,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 12.sp,
-                        lineHeight = 15.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                     ),
                     color = fg,
@@ -136,6 +137,12 @@ fun TvAnchoredSelectorMenu(
             }
         }
 
+        // Known limitation: this is the phone Material3 DropdownMenu rather
+        // than a TV-native popup. Its items are focusable clickables, so d-pad
+        // up/down + OK work inside the popup, but it lacks the TV focus
+        // grammar (scale/border) of the rest of the module. A TV-styled
+        // anchored popup would need a bespoke Popup — deliberate deferral,
+        // audit 2026-07-20.
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = {

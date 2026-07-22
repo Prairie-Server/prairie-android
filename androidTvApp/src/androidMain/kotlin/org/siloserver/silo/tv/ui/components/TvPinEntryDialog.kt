@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -131,7 +132,7 @@ fun TvPinEntryDialog(
                     Spacer(modifier = Modifier.height(7.dp))
                     Text(
                         text = latestError ?: "Verifying...",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                         color = if (latestError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -151,6 +152,7 @@ fun TvPinEntryDialog(
                 Spacer(modifier = Modifier.height(10.dp))
                 Surface(
                     onClick = onDismiss,
+                    modifier = Modifier.heightIn(min = 48.dp),
                     shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = Color.Transparent,
@@ -171,7 +173,7 @@ fun TvPinEntryDialog(
                     Text(
                         text = "Cancel",
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                     )
                 }
             }

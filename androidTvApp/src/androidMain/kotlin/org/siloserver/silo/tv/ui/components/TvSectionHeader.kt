@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,6 +24,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.tv.ui.theme.sectionEyebrow
+import org.siloserver.silo.tv.ui.theme.siloFocus
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -46,7 +49,7 @@ fun TvSectionHeader(
                 Text(
                     text = eyebrow.uppercase(),
                     style = sectionEyebrow,
-                    color = Color.White.copy(alpha = 0.46f),
+                    color = Color.White.copy(alpha = 0.7f),
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -71,20 +74,28 @@ fun TvSectionHeader(
             }
         }
         if (onSeeAllClick != null) {
+            val interactionSource = remember { MutableInteractionSource() }
             Row(
-                modifier = Modifier.clickable(onClick = onSeeAllClick),
+                modifier = Modifier
+                    .siloFocus(interactionSource)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = onSeeAllClick,
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = "See all",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.52f),
+                    color = Color.White.copy(alpha = 0.75f),
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
                     imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.52f),
+                    tint = Color.White.copy(alpha = 0.75f),
                     modifier = Modifier.size(16.dp),
                 )
             }

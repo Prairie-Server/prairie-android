@@ -20,6 +20,11 @@ object Spacing {
     /** Horizontal content inset — matches tvOS overscan safe-area padding. */
     val safeArea = 40.dp
 
+    /** Vertical overscan inset for screen top/bottom edges (~5%% guidance is 27dp;
+     *  24dp balances that against the floating chrome). Screens must not pad
+     *  their outer edges below this — audit 2026-07-20. */
+    val safeAreaVertical = 24.dp
+
     /** Top safe area for hero surfaces. */
     val heroTopSafe = 60.dp
 

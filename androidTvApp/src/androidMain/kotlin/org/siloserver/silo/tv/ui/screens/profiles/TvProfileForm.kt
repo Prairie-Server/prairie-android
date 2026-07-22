@@ -668,8 +668,8 @@ private fun TvAvatarStyleChip(
     ) {
         Text(
             text = style.label,
-            fontSize = 13.5.sp,
-            lineHeight = 16.sp,
+            fontSize = 14.sp,
+            lineHeight = 18.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
         )

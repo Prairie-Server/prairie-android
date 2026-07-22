@@ -76,7 +76,14 @@ fun TvAdminHubScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = Spacing.safeArea, vertical = 8.dp),
+            // Top 8dp is the gap under the header; the bottom edge is real
+            // screen overscan and takes the safe-area token.
+            contentPadding = PaddingValues(
+                start = Spacing.safeArea,
+                end = Spacing.safeArea,
+                top = 8.dp,
+                bottom = Spacing.safeAreaVertical,
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -120,7 +127,6 @@ fun TvAdminHubScreen(
                     onClick = onOpenLogs,
                 )
             }
-            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }

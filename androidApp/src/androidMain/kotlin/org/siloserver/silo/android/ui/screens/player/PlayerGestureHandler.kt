@@ -288,7 +288,7 @@ private fun SkipFlashBadge(forward: Boolean) {
         Text(
             text = if (forward) "+10s" else "−10s",
             color = Color.White,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
         )
     }

@@ -108,14 +108,14 @@ fun TvBrowseControlRow(
             )
             Text(
                 text = "Sort · $sortLabel",
-                style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 18.sp),
                 color = foreground,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
             )
             Text(
                 text = sortDirection,
-                style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 18.sp),
                 color = if (foreground == Color.Black) {
                     Color.Black.copy(alpha = 0.55f)
                 } else {
@@ -139,7 +139,7 @@ fun TvBrowseControlRow(
             )
             Text(
                 text = "Filter",
-                style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 18.sp),
                 color = foreground,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -154,8 +154,8 @@ fun TvBrowseControlRow(
                         text = filterCount.toString(),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        lineHeight = 13.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                         color = foreground,
                     )
                 }
@@ -177,7 +177,7 @@ fun TvBrowseControlRow(
                 )
                 Text(
                     text = "Clear filters",
-                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 18.sp),
                     color = foreground,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -294,7 +294,7 @@ fun TvBrowseSortPanel(
                     if (isCurrent) {
                         Text(
                             text = option.directionLabel(order),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                             color = if (foreground == Color.Black) {
                                 Color.Black.copy(alpha = 0.55f)
                             } else {
@@ -457,7 +457,7 @@ private fun FilterListScreen(
             Spacer(modifier = Modifier.weight(1f))
             Text(
                 text = facetSummary(facet, draft, facetOptions),
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                 color = foreground.copy(alpha = 0.68f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -664,8 +664,8 @@ private fun BrowsePanelMonoHeader(text: String, modifier: Modifier = Modifier) {
         text = text,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 11.sp,
-        lineHeight = 13.sp,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
         letterSpacing = 2.sp,
         color = BrowseSecondaryText,
         modifier = modifier,

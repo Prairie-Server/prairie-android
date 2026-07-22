@@ -788,7 +788,7 @@ private fun TvTopMenuAvatar(
                     color = SiloOnSurface,
                     fontWeight = FontWeight.Bold,
                     style = navRailLabel,
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                 )
             }
         }

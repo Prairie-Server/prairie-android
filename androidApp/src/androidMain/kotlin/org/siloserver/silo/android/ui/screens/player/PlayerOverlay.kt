@@ -299,7 +299,7 @@ fun PlayerOverlay(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Code ${roomSnapshot.code}",
-                            color = Color.White.copy(alpha = 0.8f),
+                            color = Color.White,
                             fontSize = 12.sp,
                         )
                     }

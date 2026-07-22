@@ -384,8 +384,8 @@ private fun SourceRow(tokens: List<String>, ratingChip: String?) {
                 Text(
                     text = "·",
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp,
-                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.7f),
                 )
             }
             Text(
@@ -415,15 +415,15 @@ private fun FactsRow(tokens: List<TvHeroFactToken>) {
                 Text(
                     text = "·",
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.7f),
                 )
             }
             when (token) {
                 is TvHeroFactToken.TextToken -> Text(
                     text = token.value,
                     fontWeight = FontWeight.Medium,
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     color = Color.White.copy(alpha = 0.88f),
                     maxLines = 1,
                 )
@@ -435,12 +435,12 @@ private fun FactsRow(tokens: List<TvHeroFactToken>) {
                         imageVector = Icons.Filled.CheckCircle,
                         contentDescription = null,
                         tint = SuccessGreen.copy(alpha = 0.9f),
-                        modifier = Modifier.height(9.dp),
+                        modifier = Modifier.height(12.dp),
                     )
                     Text(
                         text = token.value,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         color = Color.White.copy(alpha = 0.88f),
                         maxLines = 1,
                     )
@@ -460,13 +460,13 @@ private fun RatingChip(text: String) {
                 color = Color.White.copy(alpha = 0.7f),
                 shape = RoundedCornerShape(2.5.dp),
             )
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
-        // tvOS: 20pt heavy, tracking 1.0 → 10sp / 0.5sp, +1 per design review.
+        // 14sp floor for 10-ft legibility (tvOS 20pt heavy, tracking 1.0) — audit 2026-07-20.
         Text(
             text = text,
             fontWeight = FontWeight.Black,
-            fontSize = 11.sp,
+            fontSize = 14.sp,
             letterSpacing = 0.5.sp,
             color = Color.White,
             maxLines = 1,
@@ -483,13 +483,13 @@ private fun QualityChip(text: String) {
                 color = Color.White.copy(alpha = 0.65f),
                 shape = RoundedCornerShape(2.dp),
             )
-            .padding(horizontal = 4.5.dp, vertical = 2.dp),
+            .padding(horizontal = 7.dp, vertical = 3.dp),
     ) {
-        // tvOS: 16pt heavy, tracking 1.0 → 8sp / 0.5sp, +1 per design review.
+        // 14sp floor for 10-ft legibility (tvOS 16pt heavy, tracking 1.0) — audit 2026-07-20.
         Text(
             text = text,
             fontWeight = FontWeight.Black,
-            fontSize = 9.sp,
+            fontSize = 14.sp,
             letterSpacing = 0.5.sp,
             color = Color.White,
             maxLines = 1,

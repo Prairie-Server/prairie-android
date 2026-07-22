@@ -227,8 +227,9 @@ fun AudiobookPlayerScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
         ) {
-            // Top bar mirrors iOS: chevron-down to minimize (left), 44dp hit
-            // targets, secondary tint, and the bookmark action on the trailing side.
+            // Top bar mirrors iOS: chevron-down to minimize (left), 48dp hit
+            // targets (Android minimum), secondary tint, and the bookmark action
+            // on the trailing side.
             var showBookmarksSheet by remember { mutableStateOf(false) }
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -242,7 +243,7 @@ fun AudiobookPlayerScreen(
                         viewModel.stopPlaybackSession()
                         onBackClick()
                     },
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         Icons.Filled.KeyboardArrowDown,
@@ -253,7 +254,7 @@ fun AudiobookPlayerScreen(
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(
                     onClick = { showBookmarksSheet = true },
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         Icons.Filled.Bookmark,

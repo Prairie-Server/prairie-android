@@ -324,7 +324,7 @@ private fun LibraryCollectionCard(
 
             Text(
                 text = countLabel,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = Color.White,
                 modifier = Modifier
                     .padding(8.dp)
@@ -344,7 +344,7 @@ private fun LibraryCollectionCard(
 
         Text(
             text = typeLabel,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

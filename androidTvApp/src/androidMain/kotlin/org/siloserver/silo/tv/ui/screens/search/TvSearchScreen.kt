@@ -473,8 +473,8 @@ private fun SearchStage(
                     modifier = chipModifier,
                     contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
                     textStyle = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
                 )
             }

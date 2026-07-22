@@ -100,7 +100,7 @@ internal object OverlayPresetStyles {
 
     private val minimal = OverlayPresetStyle(
         id = PresetId.Minimal,
-        fontSize = 9.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
         uppercase = true,
         letterSpacing = 1.2.sp,
@@ -119,7 +119,7 @@ internal object OverlayPresetStyles {
 
     private val classic = OverlayPresetStyle(
         id = PresetId.Classic,
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
         uppercase = true,
         letterSpacing = 0.6.sp,
@@ -141,7 +141,7 @@ internal object OverlayPresetStyles {
 
     private val vibrant = OverlayPresetStyle(
         id = PresetId.Vibrant,
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         uppercase = true,
         letterSpacing = 0.6.sp,
@@ -160,7 +160,7 @@ internal object OverlayPresetStyles {
 
     private val pill = OverlayPresetStyle(
         id = PresetId.Pill,
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
         uppercase = true,
         letterSpacing = 0.6.sp,
@@ -182,7 +182,7 @@ internal object OverlayPresetStyles {
 
     private val square = OverlayPresetStyle(
         id = PresetId.Square,
-        fontSize = 9.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         uppercase = true,
         letterSpacing = 1.2.sp,

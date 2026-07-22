@@ -13,8 +13,8 @@ import androidx.tv.material3.Text
 
 /**
  * Editorial section header used below the detail hero. Mirrors the tvOS
- * `TVSectionHeader` at tvOS÷2 sizing (eyebrow 20pt bold tracking 3.0 → 10sp /
- * 1.5sp; title 42pt semibold → 21sp).
+ * `TVSectionHeader` (eyebrow 20pt bold tracking 3.0, floored at 14sp for
+ * 10-ft legibility; title 42pt semibold → 21sp).
  *
  * Sizes are scoped locally (rather than via the shared `sectionEyebrow` /
  * `displaySmall` tokens) so the detail-page treatment doesn't shift the
@@ -41,11 +41,11 @@ internal fun TvDetailSectionHeader(
                 text = eyebrow.uppercase(),
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp,
-                    lineHeight = 12.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     letterSpacing = 1.5.sp,
                 ),
-                color = Color.White.copy(alpha = 0.55f),
+                color = Color.White.copy(alpha = 0.7f),
             )
         }
         Text(

@@ -218,8 +218,8 @@ fun TvMediaCard(
             Text(
                 text = year.toString(),
                 style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.5.sp,
-                    lineHeight = 15.5.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                 ),
                 color = Color.White.copy(alpha = 0.70f),
                 textAlign = TextAlign.Start,

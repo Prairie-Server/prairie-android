@@ -453,7 +453,7 @@ private fun DayButton(
     ) {
         Text(
             text = localDate.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())),
-            fontSize = 10.sp, // iOS weekdayFont = 10 semibold
+            fontSize = 12.sp, // iOS weekdayFont = 10 semibold; 12sp phone readability floor
             fontWeight = FontWeight.SemiBold,
             color = secondaryColor,
         )
@@ -612,7 +612,7 @@ private fun CalendarEventCard(
                 ) {
                     Text(
                         text = time,
-                        fontSize = 10.sp, // iOS timeFontSize = 10 semibold
+                        fontSize = 12.sp, // iOS timeFontSize = 10 semibold; 12sp phone readability floor
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White,
                     )
@@ -649,11 +649,11 @@ private fun BadgePill(label: String) {
         modifier = Modifier
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f))
-            .padding(horizontal = 6.dp, vertical = 2.dp), // iOS badge pill padding (phone)
+            .padding(horizontal = 7.dp, vertical = 3.dp), // iOS badge pill padding (phone), grown for 11sp text
     ) {
         Text(
             text = label,
-            fontSize = 8.sp, // iOS badge fontSize = 8 bold
+            fontSize = 11.sp, // iOS badge fontSize = 8 bold; 11sp phone badge floor
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.8.sp, // iOS tracking 0.8
             maxLines = 1,

@@ -136,7 +136,7 @@ private fun TvMarqueeBlock(
                 color = Color.White,
                 fontWeight = FontWeight.Black,
                 fontSize = MarqueeTitleSize,
-                lineHeight = MarqueeTitleSize,
+                lineHeight = MarqueeTitleSize * 1.15f,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -193,7 +193,7 @@ private fun TvMarqueeBlock(
                 if (line != null) {
                     Text(
                         text = line,
-                        color = SiloOnSurface.copy(alpha = 0.5f),
+                        color = SiloOnSurface.copy(alpha = 0.7f),
                         fontSize = MarqueeDetailSize,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -216,27 +216,29 @@ private fun MarqueeBadge(label: String) {
             .clip(shape)
             .background(Color.White.copy(alpha = 0.14f))
             .border(1.dp, Color.White.copy(alpha = 0.24f), shape)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
         Text(
             text = label,
             color = Color.White.copy(alpha = 0.92f),
             fontSize = MarqueeBadgeSize,
-            lineHeight = MarqueeBadgeSize,
+            lineHeight = MarqueeBadgeSize * 1.25f,
             letterSpacing = MarqueeBadgeSize * 0.08f,
             fontWeight = FontWeight.SemiBold,
         )
     }
 }
 
-// Skyline marquee metrics, scaled ~0.5x from the tvOS 1920×1080 tokens.
+// Skyline marquee metrics. Geometry stays ~0.5x of the tvOS 1920×1080 tokens;
+// text sizes are floored at 14sp (16sp for the synopsis body) for 10-ft
+// legibility — audit 2026-07-20.
 private val MarqueeContentWidth = 440.dp
 private val MarqueeSynopsisMaxWidth = 390.dp
 private val MarqueeLogoMaxWidth = 440.dp
 private val MarqueeLogoMaxHeight = 95.dp
-private val MarqueeDetailLineHeight = 14.dp
+private val MarqueeDetailLineHeight = 20.dp
 private val MarqueeTitleSize = 44.sp
-private val MarqueeMetaSize = 12.5.sp
-private val MarqueeDetailSize = 12.sp
-private val MarqueeSynopsisSize = 13.sp
-private val MarqueeBadgeSize = 8.5.sp
+private val MarqueeMetaSize = 14.sp
+private val MarqueeDetailSize = 14.sp
+private val MarqueeSynopsisSize = 16.sp
+private val MarqueeBadgeSize = 14.sp

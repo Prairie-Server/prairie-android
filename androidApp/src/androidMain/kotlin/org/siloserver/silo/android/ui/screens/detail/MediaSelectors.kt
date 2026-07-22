@@ -343,7 +343,7 @@ private fun PickerItem(
 private fun BadgePill(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier

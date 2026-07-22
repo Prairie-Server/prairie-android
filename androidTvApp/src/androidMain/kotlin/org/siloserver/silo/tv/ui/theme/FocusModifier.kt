@@ -37,7 +37,7 @@ import androidx.tv.material3.CardScale
 fun Modifier.siloFocus(
     interactionSource: MutableInteractionSource,
     shape: Shape = RoundedCornerShape(6.dp),
-    focusedScale: Float = 1.03f,
+    focusedScale: Float = 1.06f,
     borderColor: Color = AccentLavender,
     borderWidth: androidx.compose.ui.unit.Dp = 2.dp,
 ): Modifier = composed {
@@ -104,7 +104,7 @@ data class SiloCardFocus(
 @Composable
 fun siloCardDefaults(
     shape: Shape,
-    focusedScale: Float = 1.08f,
+    focusedScale: Float = 1.10f,
 ): SiloCardFocus = SiloCardFocus(
     scale = CardDefaults.scale(focusedScale = focusedScale),
     border = CardDefaults.border(

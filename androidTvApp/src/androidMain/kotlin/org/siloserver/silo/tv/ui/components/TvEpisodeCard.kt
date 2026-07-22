@@ -163,7 +163,7 @@ fun TvEpisodeCard(
                 if (episodeBadge != null) {
                     Text(
                         text = episodeBadge,
-                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp),
                         color = Color.White,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
@@ -201,10 +201,10 @@ fun TvEpisodeCard(
                 Text(
                     text = secondaryLine,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 12.5.sp,
-                        lineHeight = 15.5.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
-                    color = Color.White.copy(alpha = 0.60f),
+                    color = Color.White.copy(alpha = 0.75f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Start,

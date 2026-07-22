@@ -2,11 +2,14 @@ package org.siloserver.silo.android.ui.screens.audiobook
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FastForward
@@ -29,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import org.siloserver.silo.android.ui.layout.resolveAudiobookTransportLayout
 
 /**
  * Five-control audiobook transport: prev-chapter · skip-back · play/pause ·
@@ -53,82 +57,100 @@ fun AudiobookTransport(
     // iOS AudioTransportControls: HStack spacing 28, onSurface-tinted glyphs;
     // outer chapter buttons ~24dp (.title3), skip buttons ~32dp (.title), and
     // an 82dp accent play circle with a 32dp heavy glyph.
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (hasChapters) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val layout = resolveAudiobookTransportLayout(
+            availableWidthDp = maxWidth.value,
+            hasChapters = hasChapters,
+        )
+        val scrollState = rememberScrollState()
+        val rowModifier = if (layout.requiresHorizontalScroll) {
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scrollState)
+        } else {
+            Modifier.fillMaxWidth()
+        }
+
+        Row(
+            modifier = rowModifier,
+            horizontalArrangement = Arrangement.spacedBy(
+                layout.spacingDp.dp,
+                Alignment.CenterHorizontally,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (hasChapters) {
+                IconButton(
+                    onClick = onPrevChapter,
+                    enabled = enabled,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.SkipPrevious,
+                        contentDescription = "Previous Chapter",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
             IconButton(
-                onClick = onPrevChapter,
+                onClick = onSkipBack,
                 enabled = enabled,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(50.dp),
             ) {
                 Icon(
-                    Icons.Filled.SkipPrevious,
-                    contentDescription = "Previous Chapter",
+                    imageVector = skipBackIcon(skipBackSeconds),
+                    contentDescription = "Back $skipBackSeconds seconds",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(32.dp),
                 )
             }
-        }
-        IconButton(
-            onClick = onSkipBack,
-            enabled = enabled,
-            modifier = Modifier.size(50.dp),
-        ) {
-            Icon(
-                imageVector = skipBackIcon(skipBackSeconds),
-                contentDescription = "Back $skipBackSeconds seconds",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(32.dp),
-            )
-        }
-        Box(
-            modifier = Modifier
-                .size(82.dp)
-                .shadow(
-                    elevation = 16.dp,
-                    shape = CircleShape,
-                    ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                )
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-                .clickable(enabled = enabled, onClick = onTogglePlay),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(32.dp),
-            )
-        }
-        IconButton(
-            onClick = onSkipForward,
-            enabled = enabled,
-            modifier = Modifier.size(50.dp),
-        ) {
-            Icon(
-                imageVector = skipForwardIcon(skipForwardSeconds),
-                contentDescription = "Forward $skipForwardSeconds seconds",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(32.dp),
-            )
-        }
-        if (hasChapters) {
-            IconButton(
-                onClick = onNextChapter,
-                enabled = enabled,
-                modifier = Modifier.size(44.dp),
+            Box(
+                modifier = Modifier
+                    .size(82.dp)
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = CircleShape,
+                        ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                    )
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable(enabled = enabled, onClick = onTogglePlay),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Filled.SkipNext,
-                    contentDescription = "Next Chapter",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(24.dp),
+                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(32.dp),
                 )
+            }
+            IconButton(
+                onClick = onSkipForward,
+                enabled = enabled,
+                modifier = Modifier.size(50.dp),
+            ) {
+                Icon(
+                    imageVector = skipForwardIcon(skipForwardSeconds),
+                    contentDescription = "Forward $skipForwardSeconds seconds",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+            if (hasChapters) {
+                IconButton(
+                    onClick = onNextChapter,
+                    enabled = enabled,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.SkipNext,
+                        contentDescription = "Next Chapter",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
             }
         }
     }

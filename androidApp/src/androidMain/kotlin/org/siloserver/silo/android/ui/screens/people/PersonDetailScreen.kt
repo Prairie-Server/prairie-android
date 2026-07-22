@@ -295,7 +295,7 @@ private fun PersonHeader(person: Person, isRefreshingMetadata: Boolean = false) 
                                 )
                                 Text(
                                     text = "Loading metadata",
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     color = SiloOnSurface,
                                 )
                             }
@@ -308,7 +308,7 @@ private fun PersonHeader(person: Person, isRefreshingMetadata: Boolean = false) 
                         ) {
                             Text(
                                 text = badge,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Normal,
                                 color = SiloOnSurface,
                                 modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
@@ -449,11 +449,11 @@ private fun ExternalProfileSection(person: Person) {
         rows.forEach { (label, value) ->
             Surface(
                 shape = PillShape,
-                color = SiloSurfaceElevated.copy(alpha = 0.55f),
+                color = SiloSurfaceElevated.copy(alpha = 0.7f),
             ) {
                 Text(
                     text = "$label: $value",
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = SiloSecondaryText,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

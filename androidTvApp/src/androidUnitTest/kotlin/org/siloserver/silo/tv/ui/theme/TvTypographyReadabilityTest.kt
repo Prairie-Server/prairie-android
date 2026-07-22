@@ -6,19 +6,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TvTypographyReadabilityTest {
+    private val tinyFontPattern = Regex(
+        """fontSize\s*=\s*(?:[0-9]|1[0-3])(?:\.\d+)?\.sp""",
+    )
     private val source = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/theme/Type.kt",
     ).readText()
 
     @Test
     fun sharedTvTypographyAvoidsTinyTenFootText() {
-        assertFalse(source.contains("fontSize = 9.sp"))
-        assertFalse(source.contains("fontSize = 10.sp"))
-        assertFalse(source.contains("fontSize = 11.sp"))
-        assertFalse(source.contains("fontSize = 12.sp"))
-        assertFalse(source.contains("fontSize = 13.sp"))
-        assertFalse(source.contains("fontSize = 14.sp"))
-        assertFalse(source.contains("fontSize = 15.sp"))
+        // Readable floor: the shared theme keeps every ten-foot token at >=14sp.
+        // Anything 9-13sp is a regression; 14sp (the metadata floor) and up are
+        // allowed. Current Type.kt keeps its smallest styles at 16sp.
+        assertFalse(tinyFontPattern.containsMatchIn(source))
         assertTrue(source.contains("titleSmall = TextStyle("))
         assertTrue(source.contains("fontSize = 18.sp"))
         assertTrue(source.contains("bodySmall = TextStyle("))
@@ -33,43 +33,32 @@ class TvTypographyReadabilityTest {
     }
 
     @Test
+    fun tinyFontPatternCatchesEveryValueBelowTheFourteenSpFloor() {
+        listOf("0.5", "8", "9", "13", "13.5").forEach { size ->
+            assertTrue(
+                tinyFontPattern.containsMatchIn("fontSize = $size.sp"),
+                "Expected $size.sp to be rejected",
+            )
+        }
+        listOf("14", "14.5", "18").forEach { size ->
+            assertFalse(
+                tinyFontPattern.containsMatchIn("fontSize = $size.sp"),
+                "Expected $size.sp to be allowed",
+            )
+        }
+    }
+
+    @Test
     fun tvScreensAvoidHardcodedTinyTextOutsideTheTheme() {
-        val tinyFontPattern = Regex("""fontSize\s*=\s*(9|10|11|12|13|14|15)\.sp""")
-        val tvOsMappedSmallTextFiles = setOf(
-            "org/siloserver/silo/tv/ui/components/TvAnchoredSelectorMenu.kt",
-            "org/siloserver/silo/tv/ui/components/TvAlphabetRail.kt",
-            "org/siloserver/silo/tv/ui/components/TvEpisodeCard.kt",
-            "org/siloserver/silo/tv/ui/components/TvFullScreenPicker.kt",
-            "org/siloserver/silo/tv/ui/components/TvMediaCardActions.kt",
-            "org/siloserver/silo/tv/ui/components/TvOptionDialog.kt",
-            "org/siloserver/silo/tv/ui/components/TvPinEntryDialog.kt",
-            "org/siloserver/silo/tv/ui/components/TvTextInputDialog.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvCastCrewSection.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvDetailEpisodeRail.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvDetailFactsTable.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvExpandableSynopsis.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvItemDetailScreen.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvMediaInfoDialog.kt",
-            "org/siloserver/silo/tv/ui/screens/detail/TvDetailSectionHeader.kt",
-            "org/siloserver/silo/tv/ui/screens/people/TvPersonDetailScreen.kt",
-            "org/siloserver/silo/tv/ui/screens/calendar/TvCalendarScreen.kt",
-            "org/siloserver/silo/tv/ui/screens/library/TvLibraryBrowseControls.kt",
-            "org/siloserver/silo/tv/ui/screens/player/TvHoldSeekIndicator.kt",
-            "org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt",
-            "org/siloserver/silo/tv/ui/screens/profiles/TvProfileForm.kt",
-            "org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt",
-            "org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt",
-            "org/siloserver/silo/tv/ui/screens/settings/TvSettingsScreen.kt",
-            "org/siloserver/silo/tv/ui/shell/TvTopMenuBar.kt",
-        )
+        // Post readability-remediation the whole TV surface honours a 14sp
+        // metadata floor, so anything 9-13sp is a real ten-foot-readability
+        // regression. 14sp is now the allowed floor, so the old
+        // "tvOsMappedSmallTextFiles" allowlist is retired — every screen must
+        // comply without exception.
         val offenders = File("src/androidMain/kotlin/org/siloserver/silo/tv")
             .walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .filterNot { it.invariantSeparatorsPath.endsWith("/ui/theme/Type.kt") }
-            .filterNot { file ->
-                file.relativeTo(File("src/androidMain/kotlin")).invariantSeparatorsPath in tvOsMappedSmallTextFiles
-            }
             .flatMap { file ->
                 file.readLines().mapIndexedNotNull { index, line ->
                     if (tinyFontPattern.containsMatchIn(line)) {

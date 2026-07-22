@@ -93,7 +93,7 @@ fun CatalogGrid(
             contentPadding = PaddingValues(
                 start = 16.dp,
                 top = 8.dp,
-                end = if (onNamePrefixSelected != null) 40.dp else 16.dp,
+                end = if (onNamePrefixSelected != null) 56.dp else 16.dp,
                 bottom = 8.dp,
             ),
             horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
@@ -156,10 +156,12 @@ private fun CatalogLetterRail(
     onNamePrefixSelected: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The alphabet is intentionally scrollable so every entry can retain the
+    // 48dp minimum touch target on short phone screens.
     LazyColumn(
         modifier = modifier
-            .width(36.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .width(48.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f))
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -168,8 +170,8 @@ private fun CatalogLetterRail(
             val selected = selectedNamePrefix == prefix
             Box(
                 modifier = Modifier
-                    .size(width = 28.dp, height = 20.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
                     .background(
                         if (selected) {
                             MaterialTheme.colorScheme.primary
@@ -187,9 +189,9 @@ private fun CatalogLetterRail(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    fontSize = if (prefix == null) 9.sp else 11.sp,
+                    fontSize = 11.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    lineHeight = 12.sp,
+                    lineHeight = 13.sp,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                 )
