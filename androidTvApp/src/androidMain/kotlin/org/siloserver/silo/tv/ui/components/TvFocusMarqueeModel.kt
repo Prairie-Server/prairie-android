@@ -128,18 +128,43 @@ data class TvMarqueeContent(
          * to the Skyline badge style, from the section payload's overlay summary.
          * Mirrors tvOS `TVFocusMarquee.badges(from:)`.
          */
-        private fun qualityBadges(summary: org.siloserver.silo.model.catalog.OverlaySummary?): List<String> {
+        internal fun qualityBadges(summary: org.siloserver.silo.model.catalog.OverlaySummary?): List<String> {
             if (summary == null) return emptyList()
             val badges = mutableListOf<String>()
             prettyResolution(summary.resolution)?.let(badges::add)
             summary.hdr?.takeIf { it.isNotBlank() }?.let { hdr ->
-                val lower = hdr.lowercase()
-                badges.add(if (lower.contains("dv") || lower.contains("dolby")) "HDR" else hdr.uppercase())
+                badges.add(dynamicRangeBadge(hdr))
             }
             summary.audio?.takeIf { it.isNotBlank() }?.let { audio ->
-                badges.add(audio.replace("atmos", "", ignoreCase = true).trim().ifBlank { "AUDIO" }.uppercase())
+                badges.add(audioBadge(audio))
             }
-            return badges
+            return badges.distinct()
+        }
+
+        private fun dynamicRangeBadge(value: String): String {
+            val normalized = value.trim().lowercase(Locale.US)
+            return when {
+                normalized.contains("dolby vision") ||
+                    normalized.contains("dovi") ||
+                    Regex("(^|[^a-z])dv([^a-z]|$)").containsMatchIn(normalized) -> "DOLBY VISION"
+                normalized.contains("hdr10+") || normalized.contains("hdr10 plus") -> "HDR10+"
+                normalized.contains("hdr10") -> "HDR10"
+                normalized.contains("hlg") -> "HLG"
+                else -> value.trim().uppercase(Locale.US)
+            }
+        }
+
+        private fun audioBadge(value: String): String {
+            val normalized = value.trim().lowercase(Locale.US)
+            return when {
+                normalized.contains("atmos") ||
+                    Regex("(^|[^a-z])joc([^a-z]|$)").containsMatchIn(normalized) -> "ATMOS"
+                normalized.contains("dts-hd") || normalized.contains("dts hd") -> "DTS-HD"
+                normalized.contains("truehd") || normalized.contains("true hd") -> "TRUEHD"
+                normalized.contains("e-ac-3") || normalized.contains("eac3") -> "EAC3"
+                normalized.contains("ac-3") || normalized == "ac3" -> "AC3"
+                else -> value.trim().uppercase(Locale.US)
+            }
         }
 
         private fun prettyResolution(value: String?): String? {

@@ -171,6 +171,13 @@ private fun languageCodeFor(language: String?): String? {
     return iso3ToIso2[lower] ?: lower
 }
 
+/**
+ * Public accessor for track pickers: ISO 639-1 or 639-2/T/B code → English
+ * display name ("ger"/"deu"/"de" → "German"), null when unresolvable so the
+ * caller can fall back to its own treatment of the raw code.
+ */
+fun trackLanguageDisplayName(language: String?): String? = languageDisplayName(language)
+
 private fun languageDisplayName(language: String?): String? {
     val code = languageCodeFor(language) ?: return null
     val locale = Locale.forLanguageTag(code)

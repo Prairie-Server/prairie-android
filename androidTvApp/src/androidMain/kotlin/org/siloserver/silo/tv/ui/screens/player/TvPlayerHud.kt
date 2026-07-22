@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,13 +51,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,6 +74,7 @@ import org.siloserver.silo.common.player.PlayerStatsSnapshot
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.playback.PlaybackExecutionPlan
+import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
@@ -138,12 +145,14 @@ fun TvPlayerHud(
     selectedFileId: Int? = null,
     onSelectFileVersion: (Int) -> Unit = {},
     subtitleTracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
     videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
     onSelectVideoQuality: (String) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
+    onSelectServerSubtitle: (Int) -> Unit = {},
     onVideoFillModeChanged: (VideoFillMode) -> Unit,
     playbackSpeed: Double,
     onPlaybackSpeedChanged: (Double) -> Unit,
@@ -314,6 +323,7 @@ fun TvPlayerHud(
                             stats = stats,
                             playbackPlan = playbackPlan,
                             subtitleTracks = subtitleTracks,
+                            subtitleUrls = subtitleUrls,
                             chapters = chapters,
                         )
                     }
@@ -353,7 +363,9 @@ fun TvPlayerHud(
                     )
                     HudTab.Subtitles -> HudSubtitlesPane(
                         subtitleTracks = subtitleTracks,
+                        subtitleUrls = subtitleUrls,
                         onSelectSubtitle = onSelectSubtitle,
+                        onSelectServerSubtitle = onSelectServerSubtitle,
                         subtitleDelayMs = subtitleDelayMs,
                         onSubtitleDelayChanged = onSubtitleDelayChanged,
                         appearance = subtitleAppearance,
@@ -525,6 +537,7 @@ private fun HudInfoPane(
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan?,
     subtitleTracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
     chapters: List<VersionChapter>,
     modifier: Modifier = Modifier,
 ) {
@@ -546,7 +559,15 @@ private fun HudInfoPane(
         stats.videoCodec?.let { add("Video" to it.uppercase()) }
         stats.audioCodec?.let { add("Audio" to it.uppercase()) }
         val sub = subtitleTracks.firstOrNull { it.isSelected }
-        add("Subtitles" to (sub?.displayLabel?.ifBlank { "On" } ?: "Off"))
+        // Built label ("Danish SRT (External)") via the mounted row — the raw
+        // Media3 displayLabel echoes sidecar filenames.
+        val subLabel = sub?.let { sel ->
+            subtitleUrls.withIndex()
+                .firstOrNull { (_, row) -> sel.matchesMountedSubtitle(row) }
+                ?.let { (i, row) -> subtitleChoiceLabel(row, i) }
+                ?: sel.displayLabel.ifBlank { "On" }
+        } ?: "Off"
+        add("Subtitles" to subLabel)
         currentChapterTitle(chapters, positionSec)?.let { add("Chapter" to it) }
     }
     val badges = buildList {
@@ -1120,7 +1141,9 @@ private fun HudAudioPane(
                 val selectedTrack = audioTracks.firstOrNull { it.isSelected }
                 HudFocusedSettingRow(
                     label = "Audio track",
-                    value = selectedTrack?.displayLabel?.ifBlank { "Track ${selectedTrack.index + 1}" }
+                    // Built labels ("English DTS 5.1") — raw Media3 labels echo
+                    // server identity strings or bare ISO codes.
+                    value = selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
                         ?: "Default",
                     enabled = enabled && audioTracks.size > 1,
                     onActivate = {
@@ -1130,7 +1153,7 @@ private fun HudAudioPane(
                                 options = audioTracks.mapIndexed { idx, track ->
                                     HudPickerOption(
                                         id = track.index.toString(),
-                                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                                        label = audioChoiceLabel(track, idx),
                                     )
                                 },
                                 selectedId = (selectedTrack?.index ?: 0).toString(),
@@ -1171,7 +1194,9 @@ private fun HudAudioPane(
 @Composable
 private fun HudSubtitlesPane(
     subtitleTracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
     onSelectSubtitle: (Int) -> Unit,
+    onSelectServerSubtitle: (Int) -> Unit = {},
     subtitleDelayMs: Int,
     onSubtitleDelayChanged: (Int) -> Unit,
     appearance: SubtitleAppearance,
@@ -1205,30 +1230,91 @@ private fun HudSubtitlesPane(
                 val selectedSub = subtitleTracks.firstOrNull { it.isSelected }
                 HudFocusedSettingRow(
                     label = "Subtitles",
-                    value = selectedSub?.displayLabel?.ifBlank { "On" } ?: "Off",
+                    // Prefer the mounted row's built label ("Danish SRT") —
+                    // Media3 labels echo server identity strings (sidecar
+                    // filenames) verbatim.
+                    value = selectedSub?.let { sel ->
+                        subtitleUrls.withIndex()
+                            .firstOrNull { (_, row) -> sel.matchesMountedSubtitle(row) }
+                            ?.let { (i, row) -> subtitleChoiceLabel(row, i) }
+                            ?: sel.displayLabel.ifBlank { "On" }
+                    } ?: "Off",
                     enabled = enabled,
                     focusRequester = subtitleTrackFocus,
                     rightFocusRequester = subtitleTextColorFocus,
                     onActivate = {
-                        val options = buildList {
-                            add(HudPickerOption(id = "-1", label = "Off"))
-                            subtitleTracks.forEachIndexed { idx, track ->
-                                add(
-                                    HudPickerOption(
-                                        id = track.index.toString(),
-                                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
-                                    ),
-                                )
+                        // The server catalog (subtitleUrls) is the menu source:
+                        // catalog-only/external rows have no mounted Media3
+                        // track until the V3 planner materializes the chosen
+                        // one, so keying this menu off live player tracks
+                        // showed "no subtitles" for titles with plenty. Falls
+                        // back to Media3 tracks only when the server list is
+                        // empty (e.g. embedded-only discoveries).
+                        if (subtitleUrls.isNotEmpty()) {
+                            // Embedded tracks the player discovered but the
+                            // server catalog does not enumerate (e.g. in-stream
+                            // CEA-608) — keep them selectable alongside the
+                            // catalog, tagged "media:" so onSelect routes them
+                            // to the Media3-index path instead of a replan.
+                            val embeddedOnly = subtitleTracks.filter { t ->
+                                subtitleUrls.none { t.matchesMountedSubtitle(it) }
                             }
+                            val options = buildList {
+                                add(HudPickerOption(id = "-1", label = "Off"))
+                                subtitleUrls.forEachIndexed { idx, row ->
+                                    add(
+                                        HudPickerOption(
+                                            id = row.index.toString(),
+                                            label = subtitleChoiceLabel(row, idx),
+                                        ),
+                                    )
+                                }
+                                embeddedOnly.forEach { track ->
+                                    add(
+                                        HudPickerOption(
+                                            id = "media:${track.index}",
+                                            label = track.displayLabel.ifBlank { "Embedded" },
+                                        ),
+                                    )
+                                }
+                            }
+                            val selectedId = selectedSub?.let { sel ->
+                                subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index?.toString()
+                                    ?: "media:${sel.index}"
+                            } ?: "-1"
+                            onPresentPicker(
+                                HudPickerPresentation(
+                                    title = "Subtitle Track",
+                                    options = options,
+                                    selectedId = selectedId,
+                                    onSelect = { id ->
+                                        val media = id.removePrefix("media:")
+                                        if (media != id) onSelectSubtitle(media.toIntOrNull() ?: -1)
+                                        else onSelectServerSubtitle(id.toIntOrNull() ?: -1)
+                                    },
+                                ),
+                            )
+                        } else {
+                            val options = buildList {
+                                add(HudPickerOption(id = "-1", label = "Off"))
+                                subtitleTracks.forEachIndexed { idx, track ->
+                                    add(
+                                        HudPickerOption(
+                                            id = track.index.toString(),
+                                            label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                                        ),
+                                    )
+                                }
+                            }
+                            onPresentPicker(
+                                HudPickerPresentation(
+                                    title = "Subtitle Track",
+                                    options = options,
+                                    selectedId = (selectedSub?.index ?: -1).toString(),
+                                    onSelect = { id -> onSelectSubtitle(id.toIntOrNull() ?: -1) },
+                                ),
+                            )
                         }
-                        onPresentPicker(
-                            HudPickerPresentation(
-                                title = "Subtitle Track",
-                                options = options,
-                                selectedId = (selectedSub?.index ?: -1).toString(),
-                                onSelect = { id -> onSelectSubtitle(id.toIntOrNull() ?: -1) },
-                            ),
-                        )
                     },
                 )
 
@@ -1413,6 +1499,7 @@ private fun HudSubtitlesPane(
                 TEXT_COLOR_SWATCHES.forEachIndexed { index, hex ->
                     StyleColorSwatch(
                         hex = hex,
+                        label = TvSubtitleAppearanceOptions.fontColorLabel(hex),
                         selected = appearance.fontColor.equals(hex, ignoreCase = true),
                         enabled = enabled,
                         focusRequester = if (index == 0) subtitleTextColorFocus else null,
@@ -1426,6 +1513,7 @@ private fun HudSubtitlesPane(
                 BACKGROUND_COLOR_SWATCHES.forEachIndexed { index, hex ->
                     StyleColorSwatch(
                         hex = hex,
+                        label = TvSubtitleAppearanceOptions.backgroundColorLabel(hex),
                         selected = appearance.backgroundColor.equals(hex, ignoreCase = true),
                         enabled = enabled,
                         focusRequester = if (index == 0) subtitleBackgroundColorFocus else null,
@@ -1440,6 +1528,7 @@ private fun HudSubtitlesPane(
                     OUTLINE_COLOR_SWATCHES.forEachIndexed { index, hex ->
                         StyleColorSwatch(
                             hex = hex,
+                            label = TvSubtitleAppearanceOptions.outlineColorLabel(hex),
                             selected = appearance.textOutlineColor.equals(hex, ignoreCase = true),
                             enabled = enabled,
                             focusRequester = if (index == 0) subtitleOutlineColorFocus else null,
@@ -1484,18 +1573,35 @@ private fun HudSubtitlePreview(
     appearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
 ) {
+    val safe = appearance.sanitized()
     val shape = RoundedCornerShape(6.dp)
-    val backgroundAlpha = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.None) {
-        0f
-    } else {
-        appearance.backgroundOpacity.coerceIn(0, 100) / 100f
-    }
-    val backgroundColor = hexToColor(appearance.backgroundColor).copy(alpha = backgroundAlpha)
-    val borderColor = when {
-        appearance.textOutline || appearance.backgroundStyle == SubtitleBackgroundStylePreset.Outline ->
-            hexToColor(appearance.textOutlineColor).copy(alpha = 0.7f)
-        else -> Color.Transparent
-    }
+    val decoration = TvSubtitleAppearanceOptions.previewDecoration(safe)
+    val fontSize = TvSubtitleAppearanceOptions.previewFontSizeSp(safe.fontSize).sp
+    val fontFamily = TvSubtitleAppearanceOptions.previewFontFamily(safe.fontFamily)
+    val foreground = hexToColor(safe.fontColor)
+    val outline = hexToColor(safe.textOutlineColor)
+    val backgroundColor = hexToColor(safe.backgroundColor).copy(
+        alpha = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) {
+            safe.backgroundOpacity.coerceIn(0, 100) / 100f
+        } else {
+            0f
+        },
+    )
+    val textStyle = MaterialTheme.typography.bodyLarge.copy(
+        fontSize = fontSize,
+        lineHeight = fontSize * 1.18f,
+        fontFamily = fontFamily,
+        fontWeight = FontWeight.SemiBold,
+        shadow = if (decoration.shadow) {
+            Shadow(
+                color = outline.copy(alpha = 0.9f),
+                offset = Offset(1f, 2f),
+                blurRadius = 5f,
+            )
+        } else {
+            null
+        },
+    )
 
     Column(
         modifier = modifier
@@ -1511,23 +1617,41 @@ private fun HudSubtitlePreview(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(76.dp)
                 .clip(shape)
-                .background(backgroundColor)
-                .border(0.5.dp, borderColor, shape)
+                .background(DarkSurfaceElevated.copy(alpha = 0.72f))
                 .padding(horizontal = 10.dp, vertical = 7.dp),
-            contentAlignment = Alignment.Center,
+            contentAlignment = TvSubtitleAppearanceOptions.previewAlignment(safe.position),
         ) {
-            Text(
-                text = "Subtitle example",
-                color = hexToColor(appearance.fontColor),
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = HudBodyTextSize,
-                    lineHeight = HudBodyLineHeight,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(backgroundColor)
+                    .padding(
+                        horizontal = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) 7.dp else 0.dp,
+                        vertical = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) 2.dp else 0.dp,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (decoration.outline) {
+                    listOf(-1 to -1, -1 to 1, 1 to -1, 1 to 1).forEach { (x, y) ->
+                        Text(
+                            text = "Subtitle example",
+                            color = outline,
+                            style = textStyle.copy(shadow = null),
+                            maxLines = 1,
+                            modifier = Modifier.offset(x.dp, y.dp),
+                        )
+                    }
+                }
+                Text(
+                    text = "Subtitle example",
+                    color = foreground,
+                    style = textStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -1552,6 +1676,7 @@ private fun StyleSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun StyleColorSwatch(
     hex: String,
+    label: String,
     selected: Boolean,
     enabled: Boolean,
     focusRequester: FocusRequester? = null,
@@ -1581,7 +1706,11 @@ private fun StyleColorSwatch(
             .background(swatchColor)
             .border(width = if (isFocused || selected) 2.dp else 1.dp, color = ring, shape = CircleShape)
             .focusable(enabled = enabled, interactionSource = interactionSource)
-            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() },
+            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() }
+            .semantics {
+                contentDescription = if (selected) "$label, selected" else label
+                this.selected = selected
+            },
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {
@@ -2003,7 +2132,11 @@ internal fun HudPickerDialog(
             ) {
                 itemsIndexed(
                     options,
-                    key = { _, o -> o.id },
+                    // Position-suffixed: option ids come from server data and
+                    // must never be trusted to be unique (a duplicate key is a
+                    // fatal Compose crash). The modal list never reorders, so
+                    // positional keys are stable.
+                    key = { i, o -> "${o.id}#$i" },
                     contentType = { _, _ -> "hud-picker-option" },
                 ) { index, option ->
                     HudPickerOptionRow(
@@ -2031,8 +2164,16 @@ private fun HudPickerOptionRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val bg = if (isFocused || isSelected) Color.White else Color.Transparent
-    val fg = if (isFocused || isSelected) Color.Black else Color.White
+    val bg = when {
+        isFocused -> Color.White
+        isSelected -> Color.White.copy(alpha = 0.14f)
+        else -> Color.Transparent
+    }
+    val fg = when {
+        isFocused -> Color.Black
+        isSelected -> Color.White
+        else -> Color.White
+    }
 
     Row(
         modifier = Modifier
@@ -2041,6 +2182,7 @@ private fun HudPickerOptionRow(
             .background(bg)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(interactionSource = interactionSource, indication = null) { onSelect() }
+            .semantics { this.selected = isSelected }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),

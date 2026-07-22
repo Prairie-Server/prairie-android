@@ -23,7 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,8 +35,8 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import kotlinx.coroutines.delay
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
-import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 
 /** Which capture mode the dialog is in — availability comes from AiStatus. */
@@ -83,7 +86,20 @@ fun TvAiTranslateDialog(
     val firstRowFocus = remember { FocusRequester() }
     val initialNonce = remember { aiState.completedNonce }
 
-    LaunchedEffect(Unit) { runCatching { firstRowFocus.requestFocus() } }
+    // Retry-until-focused, re-keyed on the phase: a one-shot grab is not enough
+    // here. After a failed submit the form rows leave composition during
+    // Submitting (which renders zero focusables), so focus must be re-acquired
+    // when the Failed/Idle form (or the Running Cancel row) comes back —
+    // otherwise the dialog is dead to the d-pad. Submitting itself has nothing
+    // to focus, so it is skipped.
+    var overlayHasFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(aiState.phase) {
+        if (aiState.phase is AiJobPhase.Submitting) return@LaunchedEffect
+        while (!overlayHasFocus) {
+            runCatching { firstRowFocus.requestFocus() }
+            delay(60)
+        }
+    }
     LaunchedEffect(aiState.completedNonce) {
         if (aiState.completedNonce != initialNonce) onDismiss()
     }
@@ -110,7 +126,8 @@ fun TvAiTranslateDialog(
                     .width(340.dp)
                     .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 14.dp)
+                    .onFocusChanged { overlayHasFocus = it.hasFocus },
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
@@ -172,7 +189,9 @@ fun TvAiTranslateDialog(
                                             TvAiTranslateMode.Subtitles
                                         }
                                     },
-                                    modifier = Modifier.focusRequester(firstRowFocus),
+                                    modifier = Modifier
+                                        .focusRequester(firstRowFocus)
+                                        .semantics { contentDescription = "Mode, ${mode.label}" },
                                 )
                             }
 
@@ -184,9 +203,10 @@ fun TvAiTranslateDialog(
                                 }
                             if (mode == TvAiTranslateMode.Subtitles) {
                                 val pos = subtitleSourcePos.coerceIn(0, subtitleSources.lastIndex)
+                                val sourceLabel = subtitleSourceLabel(subtitleSources[pos], pos)
                                 TvDialogCyclerRow(
                                     title = "Source subtitle",
-                                    value = subtitleSourceLabel(subtitleSources[pos]),
+                                    value = sourceLabel,
                                     onPrevious = {
                                         subtitleSourcePos =
                                             (pos - 1 + subtitleSources.size) % subtitleSources.size
@@ -194,32 +214,41 @@ fun TvAiTranslateDialog(
                                     onNext = {
                                         subtitleSourcePos = (pos + 1) % subtitleSources.size
                                     },
-                                    modifier = sourceFocusModifier,
+                                    modifier = sourceFocusModifier.semantics {
+                                        contentDescription = "Source subtitle, $sourceLabel"
+                                    },
                                 )
                             } else {
                                 val pos = audioSourcePos.coerceIn(0, audioSources.lastIndex)
+                                val sourceLabel = audioChoiceLabel(audioSources[pos], pos)
                                 TvDialogCyclerRow(
                                     title = "Source audio",
-                                    value = audioSources[pos].displayLabel
-                                        .ifBlank { "Track ${audioSources[pos].index + 1}" },
+                                    value = sourceLabel,
                                     onPrevious = {
                                         audioSourcePos =
                                             (pos - 1 + audioSources.size) % audioSources.size
                                     },
                                     onNext = { audioSourcePos = (pos + 1) % audioSources.size },
-                                    modifier = sourceFocusModifier,
+                                    modifier = sourceFocusModifier.semantics {
+                                        contentDescription = "Source audio, $sourceLabel"
+                                    },
                                 )
                             }
 
+                            val targetLanguageLabel =
+                                tvLanguageDisplayName(TvSubtitleLanguageOptions[targetPos])
                             TvDialogCyclerRow(
                                 title = "Target language",
-                                value = tvLanguageDisplayName(TvSubtitleLanguageOptions[targetPos]),
+                                value = targetLanguageLabel,
                                 onPrevious = {
                                     targetPos = (targetPos - 1 + TvSubtitleLanguageOptions.size) %
                                         TvSubtitleLanguageOptions.size
                                 },
                                 onNext = {
                                     targetPos = (targetPos + 1) % TvSubtitleLanguageOptions.size
+                                },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Target language, $targetLanguageLabel"
                                 },
                             )
 
@@ -309,8 +338,6 @@ private fun TvAiJobProgress(
 ) {
     val fraction = progress.coerceIn(0.0, 1.0).toFloat()
 
-    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
-
     Column(
         modifier = Modifier.padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -355,14 +382,11 @@ private fun TvAiJobProgress(
     }
 }
 
-private fun subtitleSourceLabel(info: PlayerSubtitleInfo): String =
-    formatSubtitleTrackDisplayLabel(
-        rawLabel = info.label,
-        language = info.language,
-        codecOrMime = info.codec,
-        isForced = info.forced == true,
-        index = info.index,
-    )
+// Same label builder as the HUD/quick pickers ("Danish SRT (External)") so
+// the translate dialog names tracks consistently; position is the list
+// position, not the server combined index (which numbered fallbacks wrongly).
+private fun subtitleSourceLabel(info: PlayerSubtitleInfo, position: Int): String =
+    subtitleChoiceLabel(info, position)
 
 private fun quotaPeriodText(period: String): String = when (period.lowercase()) {
     "day" -> "today"

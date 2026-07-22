@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -21,7 +22,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -75,6 +79,7 @@ fun TvAnchoredSelectorMenu(
     options: List<TvSelectorOption>,
     modifier: Modifier = Modifier,
     triggerFocusRequester: FocusRequester? = null,
+    interactive: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
     // Use the caller's requester when provided (Task 4 directs selector-row
@@ -87,14 +92,17 @@ fun TvAnchoredSelectorMenu(
     Box(modifier = modifier) {
         SquaredPillSurface(
             kind = PillKind.Secondary,
-            onClick = { expanded = true },
+            onClick = { if (interactive) expanded = true },
             modifier = Modifier,
             focusRequester = triggerFr,
             // Secondary .compact pill body padding, tvOS 40×22pt → 20×11dp,
             // +2/+1 per design review.
             contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp),
         ) { fg ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
@@ -125,15 +133,19 @@ fun TvAnchoredSelectorMenu(
                         fontWeight = FontWeight.SemiBold,
                     ),
                     color = fg,
+                    modifier = Modifier.weight(1f),
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.width(7.dp))
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = fg.copy(alpha = 0.6f),
-                    modifier = Modifier.size(9.5.dp),
-                )
+                if (interactive) {
+                    Spacer(Modifier.width(7.dp))
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = fg.copy(alpha = 0.6f),
+                        modifier = Modifier.size(9.5.dp),
+                    )
+                }
             }
         }
 
@@ -144,7 +156,7 @@ fun TvAnchoredSelectorMenu(
         // anchored popup would need a bespoke Popup — deliberate deferral,
         // audit 2026-07-20.
         DropdownMenu(
-            expanded = expanded,
+            expanded = interactive && expanded,
             onDismissRequest = {
                 expanded = false
                 // Guard: the trigger may have left composition (selector row
@@ -162,6 +174,7 @@ fun TvAnchoredSelectorMenu(
                     "${option.title} — ${option.detail}"
                 }
                 DropdownMenuItem(
+                    modifier = Modifier.semantics { this.selected = option.selected },
                     enabled = option.enabled,
                     text = {
                         androidx.compose.material3.Text(
@@ -171,6 +184,8 @@ fun TvAnchoredSelectorMenu(
                                 lineHeight = 18.sp,
                                 fontWeight = FontWeight.Medium,
                             ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     },
                     leadingIcon = if (option.selected) {

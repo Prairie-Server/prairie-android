@@ -33,11 +33,68 @@ class TvPlayerControlsUsabilityTest {
     private val searchSource = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt",
     ).readText()
+    private val playbackSelectorSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt",
+    ).readText()
+    private val playbackFormattingSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt",
+    ).readText()
+    private val fullScreenPickerFile = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFullScreenPicker.kt",
+    )
+    private val anchoredSelectorSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvAnchoredSelectorMenu.kt",
+    ).readText()
+    private val optionDialogSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvOptionDialog.kt",
+    ).readText()
+    private val settingsSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/TvSettingsScreen.kt",
+    ).readText()
+    private val aiTranslateSource = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvAiTranslateDialog.kt",
+    ).readText()
 
     @Test
     fun searchStatusUsesTextDrivenHeight() {
         assertTrue(searchSource.contains("minLines = 1"))
         assertFalse(searchSource.contains("Modifier.height(18.dp)"))
+    }
+
+    @Test
+    fun playbackSelectorsConstrainLongLabels() {
+        assertTrue(playbackSelectorSource.contains("Modifier.weight(1f)"))
+        assertTrue(anchoredSelectorSource.contains("TextOverflow.Ellipsis"))
+        assertTrue(anchoredSelectorSource.contains("maxLines = 1"))
+        assertTrue(anchoredSelectorSource.contains("Modifier.weight(1f)"))
+    }
+
+    @Test
+    fun obsoletePickerIsRemovedAndSubtitleIndexDocsMatchTheContract() {
+        assertFalse(fullScreenPickerFile.exists())
+        assertTrue(playbackFormattingSource.contains("combined subtitle selection index"))
+        assertTrue(playbackSelectorSource.contains("combined subtitle selection index"))
+    }
+
+    @Test
+    fun hudPickerDistinguishesSelectedFromFocusedRows() {
+        val row = hudSource
+            .substringAfter("private fun HudPickerOptionRow")
+            .substringBefore("private fun formatTime")
+        assertTrue(row.contains("isFocused -> Color.White"))
+        assertTrue(row.contains("isSelected -> Color.White.copy(alpha = 0.14f)"))
+        assertTrue(row.contains("isFocused -> Color.Black"))
+        assertTrue(row.contains("isSelected -> Color.White"))
+    }
+
+    @Test
+    fun selectableRowsAndColorSwatchesExposeSemantics() {
+        assertTrue(optionDialogSource.contains(".semantics { this.selected = selected }"))
+        assertTrue(settingsSource.contains(".semantics { this.selected = selected }"))
+        assertTrue(hudSource.contains(".semantics { this.selected = isSelected }"))
+        assertTrue(anchoredSelectorSource.contains(".semantics { this.selected = option.selected }"))
+        assertTrue(hudSource.contains("contentDescription = if (selected) \"\$label, selected\" else label"))
+        assertTrue(aiTranslateSource.contains("contentDescription = \"Mode, \${mode.label}\""))
     }
 
     @Test
@@ -163,8 +220,8 @@ class TvPlayerControlsUsabilityTest {
             "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScrubber.kt",
         ).readText()
 
-        assertTrue(scrubberSource.contains("formatScrubberTime(positionSec)"))
-        assertTrue(scrubberSource.contains("formatRemainingTime(durationSec - positionSec)"))
+        assertTrue(scrubberSource.contains("formatScrubberTime(labelPositionSec)"))
+        assertTrue(scrubberSource.contains("formatRemainingTime(durationSec - labelPositionSec)"))
         assertTrue(scrubberSource.contains("Chapter marker"))
         assertTrue(scrubberSource.contains("alpha = 0.45f"))
     }
@@ -188,8 +245,10 @@ class TvPlayerControlsUsabilityTest {
         assertTrue(quickPickerBlock.contains("HudPickerDialog("))
         assertTrue(quickPickerBlock.contains("HudPickerPresentation("))
         assertTrue(quickPickerBlock.contains("selectedId ="))
-        assertTrue(quickPickerBlock.contains("Dialog("))
-        assertTrue(quickPickerBlock.contains("DialogProperties(usePlatformDefaultWidth = false)"))
+        // Keep the picker in the player's window so opening CC does not force
+        // the Shield's video SurfaceView out of its hardware-overlay path.
+        assertTrue(quickPickerBlock.contains("BackHandler("))
+        assertFalse(quickPickerBlock.contains("DialogProperties("))
         assertFalse(quickPickerBlock.contains(".verticalScroll(rememberScrollState())"))
         assertFalse(quickPickerBlock.contains("TvDialogActionRow("))
     }
@@ -563,7 +622,8 @@ class TvPlayerControlsUsabilityTest {
         // the lifecycle Reconnecting state only.
         assertTrue(screenSource.contains("text = \"Buffering\""))
         assertTrue(screenSource.contains("Icons.Filled.Bedtime"))
-        assertTrue(screenSource.contains("sessionState is SessionState.Reconnecting && !state.showNextUp"))
+        assertTrue(screenSource.contains("shouldShowReconnectSpinner("))
+        assertTrue(screenSource.contains("isInPictureInPictureMode = isInPictureInPictureMode"))
         assertFalse(screenSource.contains("val showSpinner = state.isBuffering"))
     }
 

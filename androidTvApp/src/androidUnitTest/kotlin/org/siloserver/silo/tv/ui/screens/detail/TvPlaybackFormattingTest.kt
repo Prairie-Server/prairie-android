@@ -11,6 +11,28 @@ import kotlin.test.assertTrue
 
 class TvPlaybackFormattingTest {
 
+    @Test fun autoModeChecksOnlyAutoRow() {
+        assertTrue(isAudioSelectorOptionSelected(null, null))
+        assertFalse(isAudioSelectorOptionSelected(1, null))
+    }
+
+    @Test fun explicitModeChecksOnlyPhysicalTrack() {
+        assertFalse(isAudioSelectorOptionSelected(null, 1))
+        assertTrue(isAudioSelectorOptionSelected(1, 1))
+        assertFalse(isAudioSelectorOptionSelected(0, 1))
+    }
+
+    @Test fun singleChoiceSelectorIsStatic() {
+        assertFalse(selectorIsInteractive(0))
+        assertFalse(selectorIsInteractive(1))
+        assertTrue(selectorIsInteractive(2))
+    }
+
+    @Test fun automaticNoTrackCopyMatchesTvOs() {
+        assertEquals("Auto - None", automaticTrackLabel(null))
+        assertEquals("Auto - English", automaticTrackLabel("English"))
+    }
+
     // --- versionShortLabel ---
 
     @Test fun versionShortLabel_4kHdr() {
@@ -132,7 +154,7 @@ class TvPlaybackFormattingTest {
         assertTrue(opts[1].isSelected)
     }
 
-    @Test fun audioOptions_defaultSelectedWhenNoSelection() {
+    @Test fun audioOptions_noPhysicalTrackSelectedWhenAuto() {
         val v = fileVersion(
             audio = listOf(
                 audioTrack(codec = "aac", lang = "eng"),
@@ -141,7 +163,7 @@ class TvPlaybackFormattingTest {
         )
         val opts = TvPlaybackFormatting.audioOptions(v, selectedAudioTrackIndex = null)
         assertFalse(opts[0].isSelected)
-        assertTrue(opts[1].isSelected)
+        assertFalse(opts[1].isSelected)
     }
 
     @Test fun audioValueLabel_effectiveIndexBeatsDefaultWhenAuto() {
@@ -170,7 +192,7 @@ class TvPlaybackFormattingTest {
         assertEquals("Auto: French · EAC3 · 5.1", TvPlaybackFormatting.audioValueLabel(v, selectedAudioTrackIndex = null))
     }
 
-    @Test fun audioOptions_effectiveIndexSelectedWhenNoSelection() {
+    @Test fun audioOptions_effectiveIndexDoesNotDuplicateAutoSelection() {
         val v = fileVersion(
             audio = listOf(
                 audioTrack(codec = "aac", lang = "eng", default = true),
@@ -180,7 +202,7 @@ class TvPlaybackFormattingTest {
         )
         val opts = TvPlaybackFormatting.audioOptions(v, selectedAudioTrackIndex = null)
         assertFalse(opts[0].isSelected)
-        assertTrue(opts[1].isSelected)
+        assertFalse(opts[1].isSelected)
     }
 
     // --- subtitleValueLabel / subtitleOptions ---
@@ -217,7 +239,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto: French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenAudioMatchesPreferred() {
@@ -228,7 +250,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoForcedWhenAudioMatchesAndShowForced() {
@@ -246,27 +268,27 @@ class TvPlaybackFormattingTest {
             showForced = true,
             audioLanguage = "eng",
         )
-        assertEquals("Auto: English (Forced)", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - English (Forced)", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenModeOff() {
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "en", mode = "off")
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenPreferenceIsNoSubs() {
         // Empty (not null) preferred language means "no subs" at this level.
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = "", mode = "auto")
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoNoneWhenNoPreferenceAndModeAuto() {
         // No language preference + plain auto → resolver leaves subs off.
         val v = fileVersion(subtitles = listOf(subtitleTrack(lang = "eng")))
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "auto")
-        assertEquals("Auto: Off", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - None", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoAlwaysPicksFullDialogueWithNoPreference() {
@@ -279,7 +301,7 @@ class TvPlaybackFormattingTest {
             ),
         )
         val ctx = TvPlaybackFormatting.SubtitleAutoContext(preferredLanguage = null, mode = "always")
-        assertEquals("Auto: French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - French", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoPrefersFullDialogueOverSdh() {
@@ -295,7 +317,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "jpn",
         )
-        assertEquals("Auto: English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - English", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoSkipsDvbBitmapForTextTrack() {
@@ -314,7 +336,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "eng",
         )
-        assertEquals("Auto: French · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - French · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun subtitleValueLabel_autoSkipsVobsubBitmapForTextTrack() {
@@ -330,7 +352,7 @@ class TvPlaybackFormattingTest {
             mode = "auto",
             audioLanguage = "jpn",
         )
-        assertEquals("Auto: English · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
+        assertEquals("Auto - English · SRT", TvPlaybackFormatting.subtitleValueLabel(v, null, ctx))
     }
 
     @Test fun resolvedAudioLanguage_returnsAutoTrackLanguage() {
@@ -362,10 +384,11 @@ class TvPlaybackFormattingTest {
         assertEquals("English (SDH)", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
     }
 
-    @Test fun subtitleOptions_useFlatOrdinalNotStreamIndex() {
+    @Test fun subtitleOptions_useCombinedSpaceNotStreamIndex() {
         // Stream indexes are non-ordinal and collide (external tracks decode 0).
-        // selectionIndex must be the 0-based ordinal, with distinct stable ids,
-        // and selection matches by ordinal.
+        // selectionIndex must be the COMBINED index the server resolves
+        // (externals first, embedded after), with distinct stable ids, and
+        // selection matches in the same space.
         val v = fileVersion(
             subtitles = listOf(
                 subtitleTrack(index = 0, lang = "eng", external = true),
@@ -381,6 +404,30 @@ class TvPlaybackFormattingTest {
         assertFalse(opts[2].isSelected)
     }
 
+    @Test fun subtitleOptions_embeddedFirstCatalogStillEmitsCombinedIndexes() {
+        // Catalog order is embedded-first (the server lists embedded tracks
+        // before external sidecars), but the selection space is externals-first.
+        // A Bluray with embedded da/en plus da/sv sidecars: picking the
+        // embedded English row must target combined index 3, not position 1 —
+        // position 1 is the Swedish sidecar and selecting it used to start
+        // playback with the wrong track entirely.
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(index = 2, lang = "dan"),
+                subtitleTrack(index = 3, lang = "eng"),
+                subtitleTrack(index = 0, lang = "dan", external = true),
+                subtitleTrack(index = 0, lang = "swe", external = true),
+            ),
+        )
+        val opts = TvPlaybackFormatting.subtitleOptions(v, selectedSubtitleTrackIndex = 3)
+        assertEquals(listOf(2, 0, 3, 1), opts.map { it.selectionIndex })
+        assertTrue(opts[2].isSelected) // embedded English row carries combined 3
+        assertEquals(
+            "English",
+            TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 3),
+        )
+    }
+
     @Test fun subtitleOptions_carryForcedAndDefaultDetail() {
         val v = fileVersion(
             subtitles = listOf(
@@ -393,6 +440,51 @@ class TvPlaybackFormattingTest {
         assertTrue(opts[0].isSelected)
         assertTrue(opts[0].detail.contains("Forced"))
         assertTrue(opts[0].detail.contains("Default"))
+    }
+
+    @Test fun subtitleOptions_orderSemanticallyWithoutRenumberingCombinedIndexes() {
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(index = 10, lang = "jpn", codec = "srt"),
+                subtitleTrack(index = 11, lang = "eng", codec = "srt", forced = true),
+                subtitleTrack(index = 0, lang = "fre", codec = "srt", external = true),
+                subtitleTrack(index = 12, lang = "eng", codec = "pgs"),
+                subtitleTrack(index = 13, lang = "eng", codec = "srt", title = "English SDH"),
+                subtitleTrack(index = 14, lang = "eng", codec = "ass"),
+                subtitleTrack(index = 15, lang = "eng", codec = "srt"),
+            ),
+        )
+
+        val opts = TvPlaybackFormatting.subtitleOptions(
+            v,
+            selectedSubtitleTrackIndex = 6,
+            preferredLanguage = "en",
+        )
+
+        assertEquals(listOf(6, 2, 4, 5, 3, 0, 1), opts.map { it.selectionIndex })
+        assertTrue(opts.first().isSelected)
+        assertEquals("French", opts[5].title)
+        assertEquals("Japanese", opts[6].title)
+    }
+
+    @Test fun subtitleOptions_matchTvOsFormatBeforeVariantPrecedence() {
+        val v = fileVersion(
+            subtitles = listOf(
+                subtitleTrack(index = 10, lang = "eng", codec = "ass"),
+                subtitleTrack(index = 11, lang = "eng", codec = "srt", forced = true),
+                subtitleTrack(index = 12, lang = "eng", codec = "pgs"),
+            ),
+        )
+
+        val opts = TvPlaybackFormatting.subtitleOptions(
+            v,
+            selectedSubtitleTrackIndex = null,
+            preferredLanguage = "en",
+        )
+
+        // Canonical SubtitleDisplayOrder.swift ranks SRT before ASS before PGS,
+        // then applies full/forced/SDH only inside a format rank.
+        assertEquals(listOf(1, 0, 2), opts.map { it.selectionIndex })
     }
 
     // --- editions (Android model has no edition data → single group) ---

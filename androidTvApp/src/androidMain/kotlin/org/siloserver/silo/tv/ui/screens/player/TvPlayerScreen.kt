@@ -15,6 +15,8 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -194,6 +196,12 @@ internal fun advanceCleanPlaybackSeekPreview(
         next
     }
 }
+
+internal fun shouldShowReconnectSpinner(
+    isReconnecting: Boolean,
+    showNextUp: Boolean,
+    isInPictureInPictureMode: Boolean,
+): Boolean = isReconnecting && !showNextUp && !isInPictureInPictureMode
 
 /**
  * Full-screen TV player. The ExoPlayer itself lives in [SiloPlaybackService];
@@ -556,6 +564,22 @@ fun TvPlayerScreen(
             viewModel.persistSubtitleSelection(idx)
         } else {
             Log.w(TAG, "Subtitle selection deferred or failed for index=$idx")
+        }
+    }
+    // Server-catalog subtitle selection (HUD/quick-picker menus list the
+    // server's rows, not Media3 tracks): already-mounted rows resolve to a
+    // Media3 index and go through the normal path; catalog-only rows kick off
+    // a materializing replan inside the ViewModel and auto-select on arrival.
+    val applyTvServerSubtitleSelection: (Int) -> Unit = { serverIdx ->
+        if (serverIdx == -1) {
+            // Cancel any in-flight materialization so a pending pick can't
+            // re-enable itself after the user chose Off.
+            viewModel.cancelPendingCatalogSubtitle()
+            applyTvSubtitleSelection(-1, false)
+        } else {
+            viewModel.onSelectCatalogSubtitle(serverIdx)?.let { mediaIdx ->
+                applyTvSubtitleSelection(mediaIdx, false)
+            }
         }
     }
 
@@ -991,6 +1015,10 @@ fun TvPlayerScreen(
             if (event.action == KeyEvent.ACTION_DOWN &&
                 event.repeatCount == 0 &&
                 latestIntroSkipState is IntroAutoSkipState.ShowingButton &&
+                // Only while the transport overlay is hidden: with controls up
+                // a focused button owns Select — hijacking it here made every
+                // OK press skip the intro for the whole intro window.
+                !playerState.showControls &&
                 event.keyCode in setOf(
                     KeyEvent.KEYCODE_DPAD_CENTER,
                     KeyEvent.KEYCODE_ENTER,
@@ -1843,6 +1871,7 @@ fun TvPlayerScreen(
                             selectedFileId = state.selectedFileId ?: state.mediaFileId,
                             onSelectFileVersion = viewModel::onSelectFileVersion,
                             subtitleTracks = state.subtitleTracks,
+                            subtitleUrls = state.subtitleUrls,
                             stats = state.stats,
                             playbackPlan = state.playbackPlan,
                             videoFillMode = state.videoFillMode,
@@ -1861,6 +1890,9 @@ fun TvPlayerScreen(
                                 viewModel.switchQuality(id)
                             },
                             onSelectSubtitle = { idx -> applyTvSubtitleSelection(idx, false) },
+                            onSelectServerSubtitle = { serverIdx ->
+                                applyTvServerSubtitleSelection(serverIdx)
+                            },
                             onVideoFillModeChanged = viewModel::onVideoFillModeChanged,
                             playbackSpeed = playbackSpeed,
                             onPlaybackSpeedChanged = viewModel::onSetPlaybackSpeed,
@@ -1970,8 +2002,14 @@ fun TvPlayerScreen(
                 if (!isInPictureInPictureMode && showQuickSubtitlePicker) {
                     TvQuickSubtitlePicker(
                         tracks = state.subtitleTracks,
+                        subtitleUrls = state.subtitleUrls,
                         onSelect = { idx ->
                             applyTvSubtitleSelection(idx, false)
+                            showQuickSubtitlePicker = false
+                            viewModel.setControlsVisible(true)
+                        },
+                        onSelectServer = { serverIdx ->
+                            applyTvServerSubtitleSelection(serverIdx)
                             showQuickSubtitlePicker = false
                             viewModel.setControlsVisible(true)
                         },
@@ -2137,7 +2175,11 @@ fun TvPlayerScreen(
         // the player itself can't observe) — and only when the idle overlay
         // isn't already showing the chip. The Up-Next overlay owns its own
         // loading state, so no spinner there either.
-        val showSpinner = sessionState is SessionState.Reconnecting && !state.showNextUp
+        val showSpinner = shouldShowReconnectSpinner(
+            isReconnecting = sessionState is SessionState.Reconnecting,
+            showNextUp = state.showNextUp,
+            isInPictureInPictureMode = isInPictureInPictureMode,
+        )
         if (showSpinner) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -2430,42 +2472,94 @@ private fun formatSleepCountdown(seconds: Int): String {
 @Composable
 private fun TvQuickSubtitlePicker(
     tracks: List<PlayerTrackEntry>,
+    subtitleUrls: List<org.siloserver.silo.model.playback.PlayerSubtitleInfo> = emptyList(),
     onSelect: (Int) -> Unit,
+    onSelectServer: (Int) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
+    // Server catalog is the menu source (see HudSubtitlesPane): catalog-only
+    // rows have no Media3 track until chosen, so a tracks-keyed menu shows
+    // "no subtitles" for titles with plenty. Media3 tracks are the fallback
+    // for embedded-only discoveries.
     val selectedTrack = tracks.firstOrNull { it.isSelected }
+    val useServerList = subtitleUrls.isNotEmpty()
+    // Embedded player-discovered tracks not in the server catalog (e.g. in-stream
+    // CEA-608) stay selectable, tagged "media:" for the Media3-index path.
+    val embeddedOnly = if (useServerList) {
+        tracks.filter { t -> subtitleUrls.none { t.matchesMountedSubtitle(it) } }
+    } else {
+        emptyList()
+    }
     val options = buildList {
         add(HudPickerOption(id = "-1", label = "Off"))
-        tracks.forEachIndexed { idx, track ->
-            add(
-                HudPickerOption(
-                    id = track.index.toString(),
-                    label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
-                ),
-            )
+        if (useServerList) {
+            subtitleUrls.forEachIndexed { idx, row ->
+                add(
+                    HudPickerOption(
+                        id = row.index.toString(),
+                        label = subtitleChoiceLabel(row, idx),
+                    ),
+                )
+            }
+            embeddedOnly.forEach { track ->
+                add(
+                    HudPickerOption(
+                        id = "media:${track.index}",
+                        label = track.displayLabel.ifBlank { "Embedded" },
+                    ),
+                )
+            }
+        } else {
+            tracks.forEachIndexed { idx, track ->
+                add(
+                    HudPickerOption(
+                        id = track.index.toString(),
+                        label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
+                    ),
+                )
+            }
         }
     }
+    val selectedId = if (useServerList) {
+        selectedTrack?.let { sel ->
+            subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index?.toString()
+                ?: "media:${sel.index}"
+        } ?: "-1"
+    } else {
+        (selectedTrack?.index ?: -1).toString()
+    }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    // Rendered as an in-window overlay, NOT a Dialog. A Dialog is a separate
+    // window; laying a translucent window over the video SurfaceView forces
+    // SurfaceFlinger off the hardware overlay onto GPU composition, which
+    // stutters playback for a frame or two as the picker appears (visible on
+    // Shield). Drawing in the player's own window leaves the video overlay
+    // undisturbed. HudPickerDialog self-focuses and traps D-pad internally;
+    // Back-to-dismiss is provided here since there's no Dialog to own it.
+    BackHandler(enabled = true, onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.42f)),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            HudPickerDialog(
-                presentation = HudPickerPresentation(
-                    title = "Subtitles",
-                    options = options,
-                    selectedId = (selectedTrack?.index ?: -1).toString(),
-                    onSelect = { id -> onSelect(id.toIntOrNull() ?: -1) },
-                ),
-                onClose = onDismiss,
-            )
-        }
+        HudPickerDialog(
+            presentation = HudPickerPresentation(
+                title = "Subtitles",
+                options = options,
+                selectedId = selectedId,
+                onSelect = { id ->
+                    val media = id.removePrefix("media:")
+                    if (media != id) {
+                        onSelect(media.toIntOrNull() ?: -1)
+                    } else {
+                        val ordinal = id.toIntOrNull() ?: -1
+                        if (useServerList) onSelectServer(ordinal) else onSelect(ordinal)
+                    }
+                },
+            ),
+            onClose = onDismiss,
+        )
     }
 }
 
@@ -2647,13 +2741,20 @@ private fun TvPlayerNextUpOverlay(
                         onClick = onBack,
                         modifier = Modifier.width(160.dp),
                     )
+                    // Interactive toggle (was a dead focusable): OK flips
+                    // auto-play; focus inverts the pill so the D-pad stop is
+                    // visible.
+                    var autoPlayToggleFocused by remember { mutableStateOf(false) }
                     androidx.tv.material3.Text(
                         text = "Auto-play is ${if (autoPlayEnabled) "On" else "Off"}",
-                        color = Color.White.copy(alpha = 0.54f),
+                        color = if (autoPlayToggleFocused) Color.Black else Color.White.copy(alpha = 0.54f),
                         style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
                         modifier = Modifier
-                            .focusable()
-                            .clip(RoundedCornerShape(percent = 50)),
+                            .onFocusChanged { autoPlayToggleFocused = it.isFocused }
+                            .clip(RoundedCornerShape(percent = 50))
+                            .background(if (autoPlayToggleFocused) Color.White else Color.Transparent)
+                            .clickable { onToggleAutoPlay() }
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                 } else {
                     // Finished / no-next-episode state.

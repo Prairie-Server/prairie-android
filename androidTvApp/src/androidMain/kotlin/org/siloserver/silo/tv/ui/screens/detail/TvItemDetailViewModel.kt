@@ -9,6 +9,7 @@ import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.LeafItemUserData
+import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.catalog.sortedForDisplay
@@ -22,6 +23,7 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
+import org.siloserver.silo.repository.port.LocalTrackSelection
 import org.siloserver.silo.repository.port.NoOpUserItemStatePort
 import org.siloserver.silo.repository.port.UserItemStatePort
 import org.siloserver.silo.tv.ui.util.isTvHiddenMediaType
@@ -96,6 +98,92 @@ data class TvItemDetailUiState(
     val subtitleMode: String? = null,
     val showForcedSubtitles: Boolean = true,
 )
+
+internal data class TvTrackSelectionPersistence(
+    val contentId: String,
+    val fileId: Int,
+    val audioFingerprint: String?,
+    val subtitleFingerprint: String?,
+)
+
+internal fun buildTrackSelectionPersistence(
+    targetContentId: String,
+    version: FileVersion,
+    selectedAudioIndex: Int?,
+    selectedSubtitleIndex: Int?,
+): TvTrackSelectionPersistence {
+    val tracks = version.subtitleTracks.orEmpty()
+    val subtitleFingerprint = when (selectedSubtitleIndex) {
+        null -> null
+        -1 -> SUBTITLE_OFF_FINGERPRINT
+        else -> tracks
+            .getOrNull(combinedSubtitleSelectionIndexes(tracks).indexOf(selectedSubtitleIndex))
+            ?.let(::subtitleTrackFingerprint)
+    }
+    val audioFingerprint = selectedAudioIndex
+        ?.let(version.audioTracks.orEmpty()::getOrNull)
+        ?.let(::audioTrackFingerprint)
+    return TvTrackSelectionPersistence(
+        contentId = targetContentId,
+        fileId = version.fileId,
+        audioFingerprint = audioFingerprint,
+        subtitleFingerprint = subtitleFingerprint,
+    )
+}
+
+internal suspend fun recordTrackSelection(
+    port: UserItemStatePort,
+    selection: TvTrackSelectionPersistence,
+) {
+    port.recordSubtitleTrackSelection(
+        selection.contentId,
+        selection.fileId,
+        selection.subtitleFingerprint,
+    )
+    port.recordAudioTrackSelection(
+        selection.contentId,
+        selection.fileId,
+        selection.audioFingerprint,
+    )
+}
+
+internal data class TvRestoredTrackSelection(
+    val audioIndex: Int?,
+    val subtitleIndex: Int?,
+)
+
+internal fun restoreTrackSelection(
+    version: FileVersion,
+    saved: LocalTrackSelection,
+): TvRestoredTrackSelection {
+    val tracks = version.subtitleTracks.orEmpty()
+    val subtitleIndex = resolveSubtitleTrackOrdinal(tracks, saved.subtitleFingerprint)
+        ?.let { catalogOrdinal ->
+            if (catalogOrdinal == -1) -1
+            else combinedSubtitleSelectionIndexes(tracks).getOrNull(catalogOrdinal)
+        }
+    return TvRestoredTrackSelection(
+        audioIndex = resolveAudioTrackOrdinal(version.audioTracks.orEmpty(), saved.audioFingerprint),
+        subtitleIndex = subtitleIndex,
+    )
+}
+
+internal fun mergeTrackSelection(
+    currentAudioIndex: Int?,
+    currentSubtitleIndex: Int?,
+    durable: TvRestoredTrackSelection,
+): TvRestoredTrackSelection = TvRestoredTrackSelection(
+    audioIndex = currentAudioIndex ?: durable.audioIndex,
+    subtitleIndex = currentSubtitleIndex ?: durable.subtitleIndex,
+)
+
+internal fun shouldApplyNextUpTrackRestore(
+    currentContentId: String?,
+    requestedContentId: String,
+    currentSelectedFileId: Int?,
+    requestedSelectedFileId: Int?,
+): Boolean = currentContentId == requestedContentId &&
+    currentSelectedFileId == requestedSelectedFileId
 
 /**
  * Drives the enhanced TV item detail screen. Loads the full [ItemDetail] plus
@@ -488,19 +576,34 @@ class TvItemDetailViewModel(
     private fun persistTrackSelection() {
         val state = _uiState.value
         val detail = state.detail ?: return
-        val version = selectedVersionFor(state, detail) ?: return
-        val subtitleFingerprint = when (val idx = state.selectedSubtitleIndex) {
-            null -> null
-            -1 -> SUBTITLE_OFF_FINGERPRINT
-            else -> version.subtitleTracks.orEmpty().getOrNull(idx)?.let(::subtitleTrackFingerprint)
-        }
-        val audioFingerprint = when (val idx = state.selectedAudioIndex) {
-            null -> null
-            else -> version.audioTracks.orEmpty().getOrNull(idx)?.let(::audioTrackFingerprint)
-        }
+        persistTrackSelectionFor(
+            targetContentId = contentId,
+            detail = detail,
+            selectedFileId = state.selectedFileId,
+            selectedAudioIndex = state.selectedAudioIndex,
+            selectedSubtitleIndex = state.selectedSubtitleIndex,
+        )
+    }
+
+    private fun persistTrackSelectionFor(
+        targetContentId: String,
+        detail: ItemDetail,
+        selectedFileId: Int?,
+        selectedAudioIndex: Int?,
+        selectedSubtitleIndex: Int?,
+    ) {
+        val version = selectedFileId
+            ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
+            ?: detail.versions.firstOrNull()
+            ?: return
+        val selection = buildTrackSelectionPersistence(
+            targetContentId = targetContentId,
+            version = version,
+            selectedAudioIndex = selectedAudioIndex,
+            selectedSubtitleIndex = selectedSubtitleIndex,
+        )
         viewModelScope.launch {
-            userItemState.recordSubtitleTrackSelection(contentId, version.fileId, subtitleFingerprint)
-            userItemState.recordAudioTrackSelection(contentId, version.fileId, audioFingerprint)
+            recordTrackSelection(userItemState, selection)
         }
     }
 
@@ -516,8 +619,9 @@ class TvItemDetailViewModel(
         val version = selectedVersionFor(state, detail) ?: return
         viewModelScope.launch {
             val saved = userItemState.localTrackSelection(contentId, version.fileId) ?: return@launch
-            val subOrdinal = resolveSubtitleTrackOrdinal(version.subtitleTracks.orEmpty(), saved.subtitleFingerprint)
-            val audOrdinal = resolveAudioTrackOrdinal(version.audioTracks.orEmpty(), saved.audioFingerprint)
+            val restored = restoreTrackSelection(version, saved)
+            val subOrdinal = restored.subtitleIndex
+            val audOrdinal = restored.audioIndex
             if (subOrdinal == null && audOrdinal == null) return@launch
             _uiState.update {
                 // The ordinals were resolved against `version`; if the user
@@ -819,12 +923,16 @@ class TvItemDetailViewModel(
             // Ignore a late result if the next-up target moved on.
             if (_uiState.value.nextUpEpisode?.contentId != episodeContentId) return@launch
             when (result) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(
-                        nextUpPlaybackDetail = withLocalProgress(result.data),
-                        isLoadingNextUpPlaybackDetail = false,
-                        didLoadNextUpPlaybackDetail = true,
-                    )
+                is ApiResult.Success -> {
+                    val playbackDetail = withLocalProgress(result.data)
+                    _uiState.update {
+                        it.copy(
+                            nextUpPlaybackDetail = playbackDetail,
+                            isLoadingNextUpPlaybackDetail = false,
+                            didLoadNextUpPlaybackDetail = true,
+                        )
+                    }
+                    restoreNextUpTrackSelection(episodeContentId, playbackDetail)
                 }
                 else -> _uiState.update {
                     it.copy(
@@ -875,14 +983,101 @@ class TvItemDetailViewModel(
                 selectedNextUpSubtitleIndex = null,
             )
         }
+        rememberNextUpTrackSelection()
+        seedPersistedNextUpTrackSelection()
     }
 
     fun onNextUpAudioTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedNextUpAudioIndex = index) }
+        rememberNextUpTrackSelection()
+        persistNextUpTrackSelection()
     }
 
     fun onNextUpSubtitleTrackSelected(index: Int?) {
         _uiState.update { it.copy(selectedNextUpSubtitleIndex = index) }
+        rememberNextUpTrackSelection()
+        persistNextUpTrackSelection()
+    }
+
+    private fun rememberNextUpTrackSelection() {
+        val state = _uiState.value
+        val nextUpContentId = state.nextUpEpisode?.contentId ?: return
+        TvDetailTrackSelectionSession.remember(
+            nextUpContentId,
+            state.selectedNextUpFileId,
+            state.selectedNextUpAudioIndex,
+            state.selectedNextUpSubtitleIndex,
+        )
+    }
+
+    private fun persistNextUpTrackSelection() {
+        val state = _uiState.value
+        val nextUpContentId = state.nextUpEpisode?.contentId ?: return
+        val detail = state.nextUpPlaybackDetail ?: return
+        persistTrackSelectionFor(
+            targetContentId = nextUpContentId,
+            detail = detail,
+            selectedFileId = state.selectedNextUpFileId,
+            selectedAudioIndex = state.selectedNextUpAudioIndex,
+            selectedSubtitleIndex = state.selectedNextUpSubtitleIndex,
+        )
+    }
+
+    private fun restoreNextUpTrackSelection(episodeContentId: String, detail: ItemDetail) {
+        val session = TvDetailTrackSelectionSession.recall(episodeContentId)
+        if (session != null) {
+            _uiState.update {
+                if (it.nextUpEpisode?.contentId != episodeContentId) it else it.copy(
+                    selectedNextUpFileId = session.fileId,
+                    selectedNextUpAudioIndex = session.audio,
+                    selectedNextUpSubtitleIndex = session.subtitle,
+                )
+            }
+        }
+        // A session can intentionally select a file before its durable track
+        // fingerprints have loaded (file B / null / null). Always merge the
+        // selected file's durable dimensions after applying session state;
+        // the guarded update below preserves any non-null session choices.
+        seedPersistedNextUpTrackSelection(episodeContentId, detail)
+    }
+
+    private fun seedPersistedNextUpTrackSelection(
+        episodeContentId: String? = _uiState.value.nextUpEpisode?.contentId,
+        detail: ItemDetail? = _uiState.value.nextUpPlaybackDetail,
+    ) {
+        val targetContentId = episodeContentId ?: return
+        val playbackDetail = detail ?: return
+        val selectedFileId = _uiState.value.selectedNextUpFileId
+        val version = selectedFileId
+            ?.let { fileId -> playbackDetail.versions.firstOrNull { it.fileId == fileId } }
+            ?: playbackDetail.versions.firstOrNull()
+            ?: return
+        viewModelScope.launch {
+            val saved = userItemState.localTrackSelection(targetContentId, version.fileId) ?: return@launch
+            val restored = restoreTrackSelection(version, saved)
+            _uiState.update {
+                if (!shouldApplyNextUpTrackRestore(
+                        currentContentId = it.nextUpEpisode?.contentId,
+                        requestedContentId = targetContentId,
+                        currentSelectedFileId = it.selectedNextUpFileId,
+                        requestedSelectedFileId = selectedFileId,
+                    )
+                ) {
+                    it
+                } else {
+                    val merged = mergeTrackSelection(
+                        currentAudioIndex = it.selectedNextUpAudioIndex,
+                        currentSubtitleIndex = it.selectedNextUpSubtitleIndex,
+                        durable = restored,
+                    )
+                    it.copy(
+                        selectedNextUpSubtitleIndex = merged.subtitleIndex,
+                        selectedNextUpAudioIndex = merged.audioIndex,
+                    )
+                }
+            }
+            rememberNextUpTrackSelection()
+        }
     }
 
     private fun loadMoreLikeThis(detail: ItemDetail) {

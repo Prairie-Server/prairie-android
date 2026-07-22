@@ -1,9 +1,12 @@
 package org.siloserver.silo.tv.ui.screens.player
 
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontFamily
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
+import org.siloserver.silo.model.settings.pointSize
 
 /**
  * Canonical subtitle-appearance option sets + labels shared by the player HUD
@@ -14,6 +17,7 @@ import org.siloserver.silo.model.settings.SubtitlePositionPreset
  * `SubtitleAppearance.fontColors` / `backgroundColors` / `outlineColors`.
  */
 object TvSubtitleAppearanceOptions {
+    data class PreviewDecoration(val outline: Boolean, val shadow: Boolean)
     val FONT_SIZES: List<Pair<SubtitleFontSizePreset, String>> = listOf(
         SubtitleFontSizePreset.Small to "Small",
         SubtitleFontSizePreset.Medium to "Medium",
@@ -99,4 +103,24 @@ object TvSubtitleAppearanceOptions {
 
     fun outlineColorLabel(hex: String): String =
         OUTLINE_COLORS.firstOrNull { it.first.equals(hex, ignoreCase = true) }?.second ?: hex
+
+    fun previewFontSizeSp(value: SubtitleFontSizePreset): Float =
+        (value.pointSize * 0.36).toFloat()
+
+    fun previewFontFamily(value: String): FontFamily = when (value.lowercase()) {
+        SubtitleAppearance.SERIF -> FontFamily.Serif
+        SubtitleAppearance.MONOSPACE -> FontFamily.Monospace
+        else -> FontFamily.SansSerif
+    }
+
+    fun previewAlignment(value: SubtitlePositionPreset): Alignment = when (value) {
+        SubtitlePositionPreset.Top -> Alignment.TopCenter
+        SubtitlePositionPreset.LowerThird -> Alignment.Center
+        SubtitlePositionPreset.Bottom -> Alignment.BottomCenter
+    }
+
+    fun previewDecoration(appearance: SubtitleAppearance): PreviewDecoration = PreviewDecoration(
+        outline = appearance.textOutline || appearance.backgroundStyle == SubtitleBackgroundStylePreset.Outline,
+        shadow = appearance.backgroundStyle == SubtitleBackgroundStylePreset.Shadow,
+    )
 }

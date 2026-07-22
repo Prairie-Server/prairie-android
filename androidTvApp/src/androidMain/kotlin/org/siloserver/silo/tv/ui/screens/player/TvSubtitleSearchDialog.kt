@@ -49,6 +49,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.subtitles.SubtitleResult
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
@@ -131,8 +132,6 @@ fun TvSubtitleSearchDialog(
         if (state.downloadingResultId == null) downloadingKey = null
     }
 
-    LaunchedEffect(Unit) { runCatching { languageRowFocus.requestFocus() } }
-
     // Download finished → track merged + auto-selected by the VM → close.
     LaunchedEffect(state.completedNonce) {
         if (state.completedNonce != initialNonce) onDismiss()
@@ -160,7 +159,8 @@ fun TvSubtitleSearchDialog(
                     .width(340.dp)
                     .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 14.dp)
+                    .then(rememberTvDialogInitialFocus(languageRowFocus)),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(

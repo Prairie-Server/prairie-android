@@ -3,8 +3,12 @@ package org.siloserver.silo.tv.ui.screens.detail
 import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.player.DolbyVisionDetection
 import java.util.Locale
+
+internal fun automaticTrackLabel(resolvedLabel: String?): String =
+    "Auto - ${resolvedLabel ?: "None"}"
 
 /**
  * Pure formatting helpers for the TV detail playback selector row (Version /
@@ -17,10 +21,9 @@ import java.util.Locale
  * - audio `selectedAudioTrackIndex`: `null` = Auto/default, else the
  *   zero-based ordinal into [FileVersion.audioTracks].
  * - subtitle `selectedSubtitleTrackIndex`: `null` = Auto, `-1` = Off, else the
- *   zero-based ORDINAL into [FileVersion.subtitleTracks]. (TV playback selects
- *   subtitles by flat text-track ordinal — `PlayerTrackEntry.index` — NOT the
- *   raw [SubtitleTrack.index] stream index, which is non-ordinal and collides
- *   at 0 for external/unindexed tracks.)
+ *   combined subtitle selection index shared with the player. This identity is
+ *   derived from catalog order plus external-track placement; it is not the raw
+ *   [SubtitleTrack.index] stream index and is not the visible sorted-row ordinal.
  *
  * NOTE on editions: unlike Apple's `FileVersion` (which carries
  * `edition_key` / `edition_raw` / `edition`), the Android [FileVersion] model
@@ -39,8 +42,7 @@ object TvPlaybackFormatting {
     )
 
     data class TvSubtitleOption(
-        /** Zero-based ordinal among subtitle tracks — the value to pass to
-         *  `onSelectSubtitleTrack` (matches the player's flat text-track index). */
+        /** Combined subtitle selection index passed to `onSelectSubtitleTrack`. */
         val selectionIndex: Int,
         val title: String,
         val detail: String,
@@ -151,13 +153,12 @@ object TvPlaybackFormatting {
 
     fun audioOptions(version: FileVersion?, selectedAudioTrackIndex: Int?): List<TvAudioOption> {
         if (version == null) return emptyList()
-        val selectedOrdinal = resolvedAudioOrdinal(version, selectedAudioTrackIndex)
         return (version.audioTracks ?: emptyList()).mapIndexed { ordinal, track ->
             TvAudioOption(
                 ordinal = ordinal,
                 title = audioTitle(track, ordinal),
                 detail = audioDetail(track, ordinal, version),
-                isSelected = selectedOrdinal == ordinal,
+                isSelected = isAudioSelectorOptionSelected(ordinal, selectedAudioTrackIndex),
             )
         }
     }
@@ -236,17 +237,100 @@ object TvPlaybackFormatting {
 
     // --- Subtitles -------------------------------------------------------
 
-    fun subtitleOptions(version: FileVersion?, selectedSubtitleTrackIndex: Int?): List<TvSubtitleOption> {
+    fun subtitleOptions(
+        version: FileVersion?,
+        selectedSubtitleTrackIndex: Int?,
+        preferredLanguage: String? = null,
+    ): List<TvSubtitleOption> {
         val tracks = version?.subtitleTracks ?: return emptyList()
-        return tracks.mapIndexed { ordinal, track ->
+        // Selection travels in the server's COMBINED space (externals first,
+        // embedded after — the identity subtitle_track_index resolves and
+        // mounted subtitle_urls carry). Catalog positions and raw catalog
+        // `index` values are different spaces; sending either selects the
+        // wrong track on files with external subtitles.
+        val combined = combinedSubtitleSelectionIndexes(tracks)
+        return orderedSubtitleCatalogOrdinals(tracks, preferredLanguage).map { ordinal ->
+            val track = tracks[ordinal]
             TvSubtitleOption(
-                selectionIndex = ordinal,
+                selectionIndex = combined[ordinal],
                 title = subtitleTitle(track, ordinal),
                 detail = subtitleDetail(track),
-                isSelected = selectedSubtitleTrackIndex == ordinal,
+                isSelected = selectedSubtitleTrackIndex == combined[ordinal],
                 stableId = "sub-$ordinal",
             )
         }
+    }
+
+    /**
+     * Display-only ordering shared with tvOS: preferred language first, then
+     * language groups alphabetically; within a language prefer text formats,
+     * then full-dialogue, forced, and SDH variants. Original catalog ordinals
+     * travel with every row so combined-space selection identity is unchanged.
+     */
+    internal fun orderedSubtitleCatalogOrdinals(
+        tracks: List<SubtitleTrack>,
+        preferredLanguage: String?,
+    ): List<Int> {
+        if (tracks.size < 2) return tracks.indices.toList()
+        val preferredKey = canonicalSubtitleLanguageKey(preferredLanguage)
+        val namedKeys = tracks
+            .mapNotNull { canonicalSubtitleLanguageKey(it.language) }
+            .distinct()
+            .sortedWith(Comparator<String> { a, b ->
+                when {
+                    a == preferredKey && b != preferredKey -> -1
+                    b == preferredKey && a != preferredKey -> 1
+                    else -> {
+                        val byName = languageDisplayName(a).orEmpty().compareTo(
+                            languageDisplayName(b).orEmpty(),
+                            ignoreCase = true,
+                        )
+                        if (byName != 0) byName else a.compareTo(b)
+                    }
+                }
+            })
+        val groupRanks = namedKeys.withIndex().associate { it.value to it.index }
+        val unknownGroupRank = namedKeys.size
+        return tracks.indices.sortedWith(
+            compareBy<Int> {
+                canonicalSubtitleLanguageKey(tracks[it].language)
+                    ?.let(groupRanks::get) ?: unknownGroupRank
+            }.thenBy { subtitleFormatRank(tracks[it].codec) }
+                .thenBy {
+                    when {
+                        isHearingImpairedSubtitle(tracks[it]) -> 2
+                        tracks[it].forced -> 1
+                        else -> 0
+                    }
+                }
+                .thenBy { if (tracks[it].isDefault) 0 else 1 }
+                .thenBy { it },
+        )
+    }
+
+    private fun subtitleFormatRank(codec: String?): Int {
+        val value = codec?.lowercase(Locale.US)?.takeIf { it.isNotBlank() } ?: return 7
+        return when {
+            value == "srt" || value.contains("subrip") -> 0
+            value.contains("ass") -> 1
+            value.contains("ssa") -> 2
+            value == "vtt" || value.contains("webvtt") -> 3
+            value.contains("mov_text") || value.contains("movtext") || value.contains("tx3g") -> 4
+            value.contains("pgs") || value.contains("hdmv") -> 5
+            value.contains("dvd") || value.contains("vobsub") || value.contains("dvb") -> 6
+            else -> 7
+        }
+    }
+
+    private fun canonicalSubtitleLanguageKey(value: String?): String? {
+        val primary = value
+            ?.trim()
+            ?.lowercase(Locale.US)
+            ?.replace('_', '-')
+            ?.substringBefore('-')
+            ?.takeIf { it.isNotBlank() && it != "und" }
+            ?: return null
+        return languageCodeAliases[primary] ?: primary
     }
 
     /**
@@ -294,9 +378,9 @@ object TvPlaybackFormatting {
             if (autoContext != null) {
                 val resolved = autoResolvedSubtitle(version, autoContext)
                 return if (resolved != null) {
-                    "Auto: ${subtitlePillSummary(resolved.first, resolved.second)}"
+                    automaticTrackLabel(subtitlePillSummary(resolved.first, resolved.second))
                 } else {
-                    "Auto: Off"
+                    automaticTrackLabel(null)
                 }
             }
             if (tracks != null && tracks.size == 1) return subtitlePillSummary(tracks[0], 0)
@@ -306,8 +390,11 @@ object TvPlaybackFormatting {
         // An explicit positive selection that doesn't resolve in this version's
         // track list: a subtitle IS requested, so "On" (not "Auto"/"Off").
         if (tracks == null) return "On"
-        val track = tracks.getOrNull(selectedSubtitleTrackIndex) ?: return "On"
-        return subtitlePillSummary(track, selectedSubtitleTrackIndex)
+        // The selection is a combined-space index (see subtitleOptions); map it
+        // back to the catalog position for display.
+        val ordinal = combinedSubtitleSelectionIndexes(tracks).indexOf(selectedSubtitleTrackIndex)
+        val track = tracks.getOrNull(ordinal) ?: return "On"
+        return subtitlePillSummary(track, ordinal)
     }
 
     /**

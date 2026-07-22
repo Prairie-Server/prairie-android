@@ -32,9 +32,16 @@ import org.siloserver.silo.tv.ui.components.TvSelectorOption
 // Selection semantics (preserved from the existing VM contract):
 // - Version: fileId; Auto = null.
 // - Audio: zero-based ordinal into the version's audio tracks; Auto = null.
-// - Subtitles: zero-based ordinal into the version's subtitle tracks; Auto =
-//   null; Off = -1.
+// - Subtitles: combined subtitle selection index shared with playback; Auto =
+//   null; Off = -1. Visible sorting does not change that selection identity.
 // ---------------------------------------------------------------------------
+
+internal fun isAudioSelectorOptionSelected(
+    optionIndex: Int?,
+    selectedAudioTrackIndex: Int?,
+): Boolean = optionIndex == selectedAudioTrackIndex
+
+internal fun selectorIsInteractive(optionCount: Int): Boolean = optionCount > 1
 
 @Composable
 fun TvPlaybackSelectorRow(
@@ -81,6 +88,7 @@ fun TvPlaybackSelectorRow(
     ) {
         if (editions.size > 1) {
             TvAnchoredSelectorMenu(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Filled.Layers,
                 label = "Edition",
                 value = currentEdition?.label ?: "Standard",
@@ -96,14 +104,16 @@ fun TvPlaybackSelectorRow(
                         },
                     )
                 },
+                interactive = selectorIsInteractive(editions.size),
             )
         }
 
         // Version — tvOS uses the `tv` display glyph, not an HQ badge.
         TvAnchoredSelectorMenu(
+            modifier = Modifier.weight(1f),
             icon = Icons.Filled.Tv,
             label = "Version",
-            value = TvPlaybackFormatting.versionValueLabel(currentVersion, selectedVersionFileId),
+            value = TvPlaybackFormatting.versionShortLabel(currentVersion),
             options = buildList {
                 add(
                     TvSelectorOption(
@@ -124,10 +134,12 @@ fun TvPlaybackSelectorRow(
                     )
                 }
             },
+            interactive = selectorIsInteractive(scopedVersions.size),
         )
 
         // Audio
         TvAnchoredSelectorMenu(
+            modifier = Modifier.weight(1f),
             icon = Icons.AutoMirrored.Filled.VolumeUp,
             label = "Audio",
             value = TvPlaybackFormatting.audioValueLabel(currentVersion, selectedAudioTrackIndex),
@@ -136,7 +148,7 @@ fun TvPlaybackSelectorRow(
                     TvSelectorOption(
                         title = "Auto",
                         detail = "Use the file default track",
-                        selected = selectedAudioTrackIndex == null,
+                        selected = isAudioSelectorOptionSelected(null, selectedAudioTrackIndex),
                         onSelect = { onSelectAudioTrack(null) },
                     ),
                 )
@@ -165,12 +177,14 @@ fun TvPlaybackSelectorRow(
                     }
                 }
             },
+            interactive = selectorIsInteractive(currentVersion.audioTracks.orEmpty().size),
         )
 
         // Subtitles — tvOS uses `captions.bubble`; Chat (bubble with text
         // lines) is the closest Material glyph, and reads as subtitles rather
         // than the narrower CC (closed captions).
         TvAnchoredSelectorMenu(
+            modifier = Modifier.weight(1f),
             icon = Icons.AutoMirrored.Filled.Chat,
             label = "Subtitles",
             value = TvPlaybackFormatting.subtitleValueLabel(
@@ -204,7 +218,11 @@ fun TvPlaybackSelectorRow(
                     ),
                 )
                 TvPlaybackFormatting
-                    .subtitleOptions(currentVersion, selectedSubtitleTrackIndex)
+                    .subtitleOptions(
+                        currentVersion,
+                        selectedSubtitleTrackIndex,
+                        preferredLanguage = preferredSubtitleLanguage,
+                    )
                     .forEach { option ->
                         add(
                             TvSelectorOption(
@@ -216,6 +234,7 @@ fun TvPlaybackSelectorRow(
                         )
                     }
             },
+            interactive = selectorIsInteractive(currentVersion.subtitleTracks.orEmpty().size),
         )
     }
 }

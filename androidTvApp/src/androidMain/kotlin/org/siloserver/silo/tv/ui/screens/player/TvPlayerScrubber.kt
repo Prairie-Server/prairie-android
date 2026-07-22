@@ -87,6 +87,12 @@ data class ChapterInfo(
     val title: String? = null,
 )
 
+internal fun playerScrubberLabelPosition(
+    positionSec: Double,
+    scrubPreviewSec: Double,
+    isScrubbing: Boolean,
+): Double = if (isScrubbing) scrubPreviewSec else positionSec
+
 @Composable
 fun TvPlayerScrubber(
     positionSec: Double,
@@ -217,6 +223,7 @@ fun TvPlayerScrubber(
         ((if (isScrubbing) scrubPreviewSec else positionSec) / durationSec)
             .toFloat().coerceIn(0f, 1f)
     } else 0f
+    val labelPositionSec = playerScrubberLabelPosition(positionSec, scrubPreviewSec, isScrubbing)
     val bufferedFrac = if (durationSec > 0) {
         ((positionSec + bufferedAheadSec) / durationSec).toFloat().coerceIn(0f, 1f)
     } else 0f
@@ -246,12 +253,12 @@ fun TvPlayerScrubber(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = formatScrubberTime(positionSec),
+                text = formatScrubberTime(labelPositionSec),
                 color = Color.White.copy(alpha = 0.82f),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
             )
             Text(
-                text = formatRemainingTime(durationSec - positionSec),
+                text = formatRemainingTime(durationSec - labelPositionSec),
                 color = Color.White.copy(alpha = 0.70f),
                 style = MaterialTheme.typography.labelLarge,
             )
