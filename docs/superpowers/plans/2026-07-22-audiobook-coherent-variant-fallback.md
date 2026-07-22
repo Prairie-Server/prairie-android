@@ -225,12 +225,12 @@ git status --short --branch
 
 Expected: no whitespace errors; only the approved design, plan, two production files, and two test files differ from the prior PR head; working tree is clean.
 
-- [ ] **Step 3: Update the PR head without running CI**
+- [ ] **Step 3: Offer the verified PR update for maintainer approval**
 
-Push the commits, whose messages all contain `[skip ci]`, to PR #75's existing head branch:
+After verifying the repository's workflow triggers, ask the maintainer to approve updating PR #75's existing head branch. If approved, push the verified commits:
 
 ```bash
 git push <pr-head-remote> HEAD:fix/audiobook-chapters-pr
 ```
 
-Expected: PR #75 updates to the verified head; GitHub Actions records no new workflow run for that SHA.
+Expected: PR #75 updates to the verified head. Check every configured CI provider after the push and report any workflow that starts; do not assume `[skip ci]` suppresses non-GitHub providers.

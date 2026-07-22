@@ -111,7 +111,7 @@ class AudiobookTimelineTest {
     }
 
     @Test
-    fun `one version per ordered part is stitched when parts have alternate files`() {
+    fun oneVersionPerOrderedPartIsStitchedWhenPartsHaveAlternateFiles() {
         val versions = listOf(
             part(
                 fileId = 201,
@@ -152,7 +152,7 @@ class AudiobookTimelineTest {
     }
 
     @Test
-    fun `fallback keeps one presentation variant across all parts`() {
+    fun fallbackKeepsOnePresentationVariantAcrossAllParts() {
         val versions = listOf(
             part(fileId = 301, duration = 100.0, partIndex = 0)
                 .copy(presentationGroupKey = "lossless"),
@@ -172,7 +172,7 @@ class AudiobookTimelineTest {
     }
 
     @Test
-    fun `incomplete preferred variant falls back to a complete variant`() {
+    fun incompletePreferredVariantFallsBackToACompleteVariant() {
         val versions = listOf(
             part(fileId = 401, duration = 100.0, partIndex = 0)
                 .copy(presentationGroupKey = "lossless"),
@@ -192,7 +192,7 @@ class AudiobookTimelineTest {
     }
 
     @Test
-    fun `chapter indexes follow globally sorted chapter order`() {
+    fun chapterIndexesFollowGloballySortedChapterOrder() {
         val versions = listOf(
             part(
                 fileId = 310,
@@ -333,8 +333,9 @@ class AudiobookTimelineTest {
     }
 
     @Test
-    fun `parts sort by presentation index then file id`() {
-        // Provided out of order; missing index sorts last, tie-broken by fileId.
+    fun indexedPartsExcludeUnindexedFallbackCandidates() {
+        // Once indexed logical parts exist, unindexed candidates are excluded;
+        // indexed parts remain ordered by presentation index then file ID.
         val versions = listOf(
             part(fileId = 73, duration = 10.0, partIndex = null),
             part(fileId = 71, duration = 10.0, partIndex = 1),
