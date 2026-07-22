@@ -111,7 +111,6 @@ fun TvAdminUsersScreen(
                 items(state.users, key = { it.id }) { user ->
                     UserRow(user = user, onClick = { actionsTarget = user })
                 }
-                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }

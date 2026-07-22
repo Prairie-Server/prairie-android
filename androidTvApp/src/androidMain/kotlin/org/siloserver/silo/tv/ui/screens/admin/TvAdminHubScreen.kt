@@ -127,7 +127,6 @@ fun TvAdminHubScreen(
                     onClick = onOpenLogs,
                 )
             }
-            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
