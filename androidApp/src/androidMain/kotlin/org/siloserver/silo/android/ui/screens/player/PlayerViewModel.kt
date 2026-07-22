@@ -127,6 +127,29 @@ internal fun selectedServerSubtitleTrackIndex(
     else -> subtitleTracks.getOrNull(selectedOrdinal)?.index
 }
 
+data class PlaybackClock(
+    val position: Double,
+    val duration: Double,
+    val bufferedPosition: Double,
+)
+
+internal fun PlayerViewModel.PlayerUiState.withoutPlaybackClock(): PlayerViewModel.PlayerUiState =
+    copy(position = 0.0, duration = 0.0, bufferedPosition = 0.0)
+
+internal fun PlayerViewModel.PlayerUiState.toPlaybackClock(): PlaybackClock =
+    PlaybackClock(
+        position = position,
+        duration = duration,
+        bufferedPosition = bufferedPosition,
+    )
+
+internal fun PlayerViewModel.PlayerUiState.withPlaybackClock(clock: PlaybackClock): PlayerViewModel.PlayerUiState =
+    copy(
+        position = clock.position,
+        duration = clock.duration,
+        bufferedPosition = clock.bufferedPosition,
+    )
+
 internal fun selectedServerAudioTrackIndex(
     selectedOrdinal: Int,
     audioTracks: List<AudioTrack>,
@@ -339,6 +362,22 @@ class PlayerViewModel(
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+    val presentationState: StateFlow<PlayerUiState> = uiState
+        .map(PlayerUiState::withoutPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.withoutPlaybackClock(),
+        )
+    val playbackClock: StateFlow<PlaybackClock> = uiState
+        .map(PlayerUiState::toPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.toPlaybackClock(),
+        )
 
     /**
      * Explicit user/app seek commands. PlayerScreen collects this flow and
