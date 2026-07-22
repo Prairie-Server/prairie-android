@@ -759,6 +759,7 @@ class AudiobookPlayerViewModel(
             buildAudiobookTimeline(
                 versions = cached.versions,
                 serverTotalSeconds = cached.audiobook?.totalDurationSeconds?.toDouble(),
+                preferredFileId = media.fileId,
             )
         }?.takeIf { !it.isSingle }
         val offlinePart = cachedTimeline?.tracks?.firstOrNull { it.fileId == media.fileId }
