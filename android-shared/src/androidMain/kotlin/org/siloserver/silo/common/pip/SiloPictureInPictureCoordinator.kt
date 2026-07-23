@@ -5,13 +5,13 @@ import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.util.Rational
 import org.siloserver.silo.common.R
+import org.siloserver.silo.common.player.PipActionCapability
 import org.siloserver.silo.common.player.SiloPlaybackService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -207,7 +207,7 @@ class SiloPictureInPictureCoordinator {
         PendingIntent.getService(
             context,
             action.hashCode(),
-            Intent(context, SiloPlaybackService::class.java).setAction(action),
+            PipActionCapability.intent(context, action),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 

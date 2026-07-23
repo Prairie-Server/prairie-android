@@ -60,6 +60,31 @@ class SiloPlaybackService : MediaSessionService() {
             ACTION_PIP_SKIP_BACK,
             ACTION_PIP_SKIP_FORWARD,
         )
+
+        internal fun dispatchPictureInPictureAction(intent: Intent?, player: Player?): Boolean {
+            val action = intent?.action
+            if (intent == null || action !in PIP_ACTIONS) return false
+            if (!PipActionCapability.isAuthorized(intent)) return true
+            if (player == null) return true
+
+            when (action) {
+                ACTION_PIP_PLAY -> {
+                    player.playWhenReady = true
+                    player.play()
+                }
+                ACTION_PIP_PAUSE -> player.pause()
+                ACTION_PIP_SKIP_BACK -> player.seekTo(
+                    (player.currentPosition - PIP_SKIP_BACK_MS).coerceAtLeast(0L),
+                )
+                ACTION_PIP_SKIP_FORWARD -> {
+                    val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+                    player.seekTo(
+                        (player.currentPosition + PIP_SKIP_FORWARD_MS).coerceAtMost(duration),
+                    )
+                }
+            }
+            return true
+        }
     }
 
     private val playerFactory: SiloPlayerFactory by inject()
@@ -191,30 +216,10 @@ class SiloPlaybackService : MediaSessionService() {
         mediaSession
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (handlePictureInPictureAction(intent?.action)) {
+        if (dispatchPictureInPictureAction(intent, activePlayer ?: mediaSession?.player)) {
             return START_STICKY
         }
         return super.onStartCommand(intent, flags, startId)
-    }
-
-    private fun handlePictureInPictureAction(action: String?): Boolean {
-        val player = activePlayer ?: mediaSession?.player ?: return action in PIP_ACTIONS
-        when (action) {
-            ACTION_PIP_PLAY -> {
-                player.playWhenReady = true
-                player.play()
-            }
-            ACTION_PIP_PAUSE -> player.pause()
-            ACTION_PIP_SKIP_BACK -> player.seekTo(
-                (player.currentPosition - PIP_SKIP_BACK_MS).coerceAtLeast(0L),
-            )
-            ACTION_PIP_SKIP_FORWARD -> {
-                val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-                player.seekTo((player.currentPosition + PIP_SKIP_FORWARD_MS).coerceAtMost(duration))
-            }
-            else -> return false
-        }
-        return true
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
