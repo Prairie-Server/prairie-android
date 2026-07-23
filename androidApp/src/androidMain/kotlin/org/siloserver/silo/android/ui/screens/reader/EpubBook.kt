@@ -276,6 +276,16 @@ internal class EpubBook private constructor(
 }
 
 internal fun readerDirectoryBaseUrl(directory: File): String {
-    val path = directory.absoluteFile.path.trimEnd(File.separatorChar) + File.separator
-    return URI("file", "", path, null).toASCIIString()
+    val canonicalDirectory = directory.canonicalFile
+    val epubRoot = generateSequence(canonicalDirectory) { it.parentFile }
+        .firstOrNull { EPUB_CACHE_DIRECTORY.matches(it.name) }
+        ?: return ""
+    val readersRoot = epubRoot.parentFile?.canonicalFile ?: return ""
+    val relativePath = readersRoot.toPath()
+        .relativize(canonicalDirectory.toPath())
+        .joinToString("/") { it.toString() }
+    val encodedPath = URI(null, null, "/$relativePath/", null).rawPath.removePrefix("/")
+    return "https://appassets.androidplatform.net/epub/$encodedPath"
 }
+
+private val EPUB_CACHE_DIRECTORY = Regex("""epub-[0-9a-f]{40}""")

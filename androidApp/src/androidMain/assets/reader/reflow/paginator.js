@@ -2,6 +2,7 @@
   var root = document.getElementById('reflow-root');
   var styleEl = document.getElementById('reflow-style');
   var page = 0, pageCount = 1;
+  var privateOrigin = 'https://appassets.androidplatform.net';
   // Viewport in CSS px, pushed from the Android side (Compose-measured size).
   // Android WebView resolves `vh`/`vw` to 0 when the page loads before the view
   // is laid out, so we never rely on viewport units for the page box.
@@ -46,15 +47,49 @@
       img.addEventListener('load', onLoad);
     });
   }
+  function rewriteResourceUrls(html, baseUrl){
+    var template = document.createElement('template');
+    template.innerHTML = html;
+    if (!baseUrl) return template.innerHTML;
+
+    var base;
+    try {
+      base = new URL(baseUrl, privateOrigin);
+      if (base.origin !== privateOrigin || base.pathname.indexOf('/epub/') !== 0) {
+        return template.innerHTML;
+      }
+    } catch (e) {
+      return template.innerHTML;
+    }
+
+    var attributes = ['href', 'src', 'xlink:href'];
+    Array.prototype.forEach.call(template.content.querySelectorAll('*'), function(element){
+      attributes.forEach(function(attribute){
+        if (!element.hasAttribute(attribute)) return;
+        var value = element.getAttribute(attribute);
+        if (!value || value.charAt(0) === '#') return;
+        try {
+          var resolved = new URL(value, base);
+          if (resolved.origin === privateOrigin && resolved.pathname.indexOf('/epub/') === 0) {
+            element.setAttribute(attribute, resolved.href);
+          } else {
+            element.removeAttribute(attribute);
+          }
+        } catch (e) {
+          element.removeAttribute(attribute);
+        }
+      });
+    });
+    return template.innerHTML;
+  }
   window.ReflowApi = {
     setViewport: function(w, h){
       vpW = w; vpH = h; applyViewport();
       requestAnimationFrame(remeasureKeepingProgress);
     },
     load: function(html, baseUrl){
-      var b = document.querySelector('base'); if(!b){ b=document.createElement('base'); document.head.appendChild(b);}
-      if(baseUrl) b.href = baseUrl;
-      root.innerHTML = html; remeasureAfterPendingImages(); page = 0; applyViewport(); apply();
+      root.innerHTML = rewriteResourceUrls(html, baseUrl);
+      remeasureAfterPendingImages(); page = 0; applyViewport(); apply();
       requestAnimationFrame(function(){ requestAnimationFrame(function(){ measure(); apply(); relocate(); }); });
     },
     goToPage: function(n){ page = Math.min(Math.max(0, n), pageCount-1); apply(); relocate(); },

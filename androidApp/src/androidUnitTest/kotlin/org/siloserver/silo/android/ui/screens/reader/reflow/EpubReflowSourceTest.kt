@@ -49,8 +49,12 @@ class EpubReflowSourceTest {
             val source = EpubReflowSource(book)
 
             assertTrue(
-                source.baseUrl(0).endsWith("/OEBPS/xhtml/"),
-                "Relative EPUB resources should resolve from the current chapter directory.",
+                source.baseUrl(0).matches(
+                    Regex(
+                        """https://appassets\.androidplatform\.net/epub/epub-[0-9a-f]{40}/OEBPS/xhtml/""",
+                    ),
+                ),
+                "Relative EPUB resources should resolve from the current chapter directory on the private origin.",
             )
         } finally {
             tempDir.deleteRecursively()
