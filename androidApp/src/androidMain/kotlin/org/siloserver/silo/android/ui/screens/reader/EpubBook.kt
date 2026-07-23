@@ -281,9 +281,11 @@ internal fun readerDirectoryBaseUrl(directory: File): String {
         .firstOrNull { EPUB_CACHE_DIRECTORY.matches(it.name) }
         ?: return ""
     val readersRoot = epubRoot.parentFile?.canonicalFile ?: return ""
-    val relativePath = readersRoot.toPath()
-        .relativize(canonicalDirectory.toPath())
-        .joinToString("/") { it.toString() }
+    val rootPrefix = readersRoot.path + File.separator
+    if (!canonicalDirectory.path.startsWith(rootPrefix)) return ""
+    val relativePath = canonicalDirectory.path
+        .removePrefix(rootPrefix)
+        .replace(File.separatorChar, '/')
     val encodedPath = URI(null, null, "/$relativePath/", null).rawPath.removePrefix("/")
     return "https://appassets.androidplatform.net/epub/$encodedPath"
 }

@@ -7,7 +7,6 @@ import java.io.File
 import java.io.FileInputStream
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 
 /**
  * Serves passive resources from extracted, content-addressed EPUB directories.
@@ -19,7 +18,7 @@ import java.nio.file.Files
  */
 internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.PathHandler {
     private val root = readersRoot.canonicalFile
-    private val rootPath = root.toPath()
+    private val rootPrefix = root.path + File.separator
 
     override fun handle(path: String): WebResourceResponse =
         try {
@@ -41,13 +40,14 @@ internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.P
             return emptyNotFoundResponse()
         }
 
-        val normalizedPath = rootPath.resolve(decoded).normalize()
-        if (!normalizedPath.startsWith(rootPath)) return emptyNotFoundResponse()
-        if (containsSymbolicLink(normalizedPath.toFile())) return emptyNotFoundResponse()
-
-        val file = runCatching { normalizedPath.toFile().canonicalFile }.getOrNull()
+        val requestedFile = File(root, decoded).absoluteFile
+        if (!requestedFile.path.startsWith(rootPrefix)) return emptyNotFoundResponse()
+        val file = runCatching { requestedFile.canonicalFile }.getOrNull()
             ?: return emptyNotFoundResponse()
-        if (file.toPath() != normalizedPath || !file.isFile) return emptyNotFoundResponse()
+        // A differing canonical path means at least one path component is a
+        // symlink. File canonicalization is available on every supported
+        // Android release, unlike java.nio.file (API 26+).
+        if (file.path != requestedFile.path || !file.isFile) return emptyNotFoundResponse()
 
         return WebResourceResponse(
             mimeTypeFor(file),
@@ -60,15 +60,6 @@ internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.P
             ),
             FileInputStream(file),
         )
-    }
-
-    private fun containsSymbolicLink(file: File): Boolean {
-        var current = file
-        while (current.toPath() != rootPath) {
-            if (Files.isSymbolicLink(current.toPath())) return true
-            current = current.parentFile ?: return true
-        }
-        return false
     }
 
     private fun decodePath(path: String): String? {
