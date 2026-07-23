@@ -1,8 +1,10 @@
 package org.siloserver.silo.android.ui.screens.reader.reflow
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.jsoup.Jsoup
 
 class EpubHtmlSanitizerTest {
     @Test
@@ -47,7 +49,8 @@ class EpubHtmlSanitizerTest {
         assertFalse(sanitized.contains("java&#x0A;script", ignoreCase = true))
         assertFalse(sanitized.contains("&#x68;ttps", ignoreCase = true))
         assertFalse(sanitized.contains("&sol;&sol;example.invalid", ignoreCase = true))
-        assertTrue(sanitized.contains("chapter&#x2d;1.xhtml"))
+        val sanitizedDocument = Jsoup.parseBodyFragment(sanitized)
+        assertEquals("chapter-1.xhtml", sanitizedDocument.selectFirst("a[href]")?.attr("href"))
     }
 
     @Test
@@ -69,5 +72,143 @@ class EpubHtmlSanitizerTest {
         assertFalse(sanitized.contains("content://media", ignoreCase = true))
         assertFalse(sanitized.contains("ftp://example.invalid", ignoreCase = true))
         assertTrue(sanitized.contains("images/local-cover.jpg"))
+    }
+
+    @Test
+    fun sanitizerCleansMalformedSvgAndMathMlMutationPayloads() {
+        val html = """
+            <svg>
+              <desc>
+                <math><mtext><table><mglyph><style><!--</style>
+                <img title="--><img src=x onerror=alert('math-owned')>">
+              </desc>
+              <g><style><script>alert('svg-owned')</script></style></g>
+            </svg>
+        """.trimIndent()
+
+        val sanitized = sanitizeEpubChapterHtml(html)
+        val sanitizedDocument = Jsoup.parseBodyFragment(sanitized)
+
+        assertTrue(sanitizedDocument.select("style, script").isEmpty())
+        assertTrue(sanitizedDocument.select("[onerror]").isEmpty())
+        assertFalse(sanitized.contains("svg-owned", ignoreCase = true))
+    }
+
+    @Test
+    fun sanitizerRemovesActiveDocumentsAndExternalStyleResources() {
+        val html = """
+            <base href="https://example.invalid/" />
+            <link rel="stylesheet" href="../styles/book.css" />
+            <style>@import url("https://example.invalid/tracker.css");</style>
+            <script src="../scripts/chapter.js">alert("owned")</script>
+            <form action="../submit"><input name="secret" /><button>Send</button></form>
+            <iframe src="../frames/chapter.xhtml" srcdoc="<script>alert(1)</script>"></iframe>
+            <frame src="../frames/navigation.xhtml" />
+            <frameset><frame src="../frames/content.xhtml" /></frameset>
+            <object data="../objects/widget.svg"></object>
+            <embed src="../objects/widget.svg" />
+            <p onanimationstart="alert(1)" style="color: red">Readable text</p>
+        """.trimIndent()
+
+        val sanitized = sanitizeEpubChapterHtml(html)
+
+        listOf(
+            "base",
+            "link",
+            "style",
+            "script",
+            "form",
+            "input",
+            "button",
+            "iframe",
+            "frame",
+            "frameset",
+            "object",
+            "embed",
+        ).forEach { tag ->
+            assertFalse(sanitized.contains("<$tag", ignoreCase = true), "kept <$tag>")
+        }
+        assertFalse(sanitized.contains("srcdoc", ignoreCase = true))
+        assertFalse(sanitized.contains("onanimationstart", ignoreCase = true))
+        assertFalse(sanitized.contains("style=", ignoreCase = true))
+        assertFalse(sanitized.contains("tracker.css", ignoreCase = true))
+        assertFalse(sanitized.contains("chapter.js", ignoreCase = true))
+        assertTrue(sanitized.contains("Readable text"))
+    }
+
+    @Test
+    fun sanitizerRejectsEncodedAndNonRelativeResourceUrls() {
+        val html = """
+            <a href="java%73cript:alert(1)">percent encoded script</a>
+            <a href="%256a%2561vascript%253aalert(1)">double encoded script</a>
+            <img src="%2f%2fexample.invalid/tracker.png" />
+            <img src="%5c%5cexample.invalid/tracker.png" />
+            <img src="/absolute/on-device/path.png" />
+            <img src="\example.invalid\tracker.png" />
+            <a href="java&#x09;script&colon;alert(1)">entity encoded script</a>
+            <a href="mailto:reader@example.invalid">email</a>
+        """.trimIndent()
+
+        val sanitized = sanitizeEpubChapterHtml(html)
+        val sanitizedDocument = Jsoup.parseBodyFragment(sanitized)
+
+        assertTrue(sanitizedDocument.select("[href], [src], [xlink:href]").isEmpty())
+    }
+
+    @Test
+    fun sanitizerPreservesRichEpubMarkupAndRelativeResources() {
+        val html = """
+            <article id="chapter-one" epub:type="chapter">
+              <h1>Chapter <ruby>一<rp>(</rp><rt>one</rt><rp>)</rp></ruby></h1>
+              <h2>Diagram</h2>
+              <svg viewBox="0 0 100 100" role="img">
+                <title>Safe diagram</title>
+                <defs><path id="shape" d="M0 0 L10 10" /></defs>
+                <circle cx="50" cy="50" r="25" fill="#336699" />
+                <use xlink:href="../images/shapes.svg#shape" />
+              </svg>
+              <math display="block">
+                <mrow><mi>x</mi><mo>=</mo><mfrac><mn>1</mn><mn>2</mn></mfrac></mrow>
+              </math>
+              <table>
+                <caption>Values</caption>
+                <thead><tr><th scope="col">Name</th></tr></thead>
+                <tbody><tr><td>Example</td></tr></tbody>
+              </table>
+              <a href="../text/chapter-2.xhtml#start">Next chapter</a>
+              <a href="#chapter-one">Chapter start</a>
+              <img src="../images/cover.jpg" alt="Cover" width="600" height="900" />
+            </article>
+        """.trimIndent()
+
+        val sanitized = sanitizeEpubChapterHtml(html)
+
+        listOf(
+            "<article",
+            "<h1",
+            "<h2",
+            "<ruby",
+            "<rp>",
+            "<rt>",
+            "<svg",
+            "<path",
+            "<circle",
+            "<use",
+            "<math",
+            "<mrow",
+            "<mfrac",
+            "<table",
+            "<caption",
+            "<thead",
+            "<tbody",
+            "<th",
+            "<td",
+        ).forEach { element ->
+            assertTrue(sanitized.contains(element, ignoreCase = true), "removed $element")
+        }
+        assertTrue(sanitized.contains("../images/shapes.svg#shape"))
+        assertTrue(sanitized.contains("../text/chapter-2.xhtml#start"))
+        assertTrue(sanitized.contains("href=\"#chapter-one\""))
+        assertTrue(sanitized.contains("../images/cover.jpg"))
     }
 }
