@@ -198,7 +198,7 @@ fun ReflowableReader(
     Box(
         modifier = Modifier.fillMaxSize(),
     ) {
-        key(webViewResetKey) {
+        key(source, webViewResetKey) {
             ReflowWebView(
                 modifier = Modifier.fillMaxSize(),
                 onTap = { xFraction ->

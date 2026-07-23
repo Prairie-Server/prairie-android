@@ -21,7 +21,14 @@ internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.P
     private val root = readersRoot.canonicalFile
     private val rootPath = root.toPath()
 
-    override fun handle(path: String): WebResourceResponse {
+    override fun handle(path: String): WebResourceResponse =
+        try {
+            handleResolvedPath(path)
+        } catch (_: Exception) {
+            emptyNotFoundResponse()
+        }
+
+    private fun handleResolvedPath(path: String): WebResourceResponse {
         val decoded = decodePath(path) ?: return emptyNotFoundResponse()
         if (decoded.startsWith("/") || decoded.contains('\\')) return emptyNotFoundResponse()
 
@@ -67,6 +74,7 @@ internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.P
     private fun decodePath(path: String): String? {
         var decoded = path
         repeat(MAX_DECODE_PASSES) {
+            if (ENCODED_PATH_SEPARATOR.containsMatchIn(decoded)) return null
             val next = runCatching {
                 URLDecoder.decode(decoded.replace("+", "%2B"), StandardCharsets.UTF_8.name())
             }.getOrNull() ?: return null
@@ -102,6 +110,7 @@ internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.P
 
     companion object {
         private val EPUB_DIRECTORY = Regex("""epub-[0-9a-f]{40}""")
+        private val ENCODED_PATH_SEPARATOR = Regex("""%(?:2f|5c)""", RegexOption.IGNORE_CASE)
         private const val MAX_DECODE_PASSES = 8
     }
 }
