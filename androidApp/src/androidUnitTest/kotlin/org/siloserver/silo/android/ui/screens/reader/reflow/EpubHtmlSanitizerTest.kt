@@ -211,4 +211,66 @@ class EpubHtmlSanitizerTest {
         assertTrue(sanitized.contains("href=\"#chapter-one\""))
         assertTrue(sanitized.contains("../images/cover.jpg"))
     }
+
+    @Test
+    fun sanitizerRejectsNonLocalSvgPaintUrls() {
+        val html = """
+            <svg>
+              <path id="external"
+                    fill="url(https://attacker.invalid/fill.svg#paint)"
+                    stroke="url(javascript:alert(1))" />
+              <circle id="data"
+                      fill="url(data:image/svg+xml,owned)"
+                      stroke="url(%68%74%74%70%73%3A%2F%2Fattacker.invalid/stroke.svg)" />
+              <rect id="network"
+                    fill="url(//attacker.invalid/fill.svg)"
+                    stroke="url(\\attacker.invalid\stroke.svg)" />
+              <ellipse id="absolute"
+                       fill="url(/absolute/fill.svg#paint)"
+                       stroke="url(file:/absolute/stroke.svg#paint)" />
+              <text id="obfuscated"
+                    fill="u&#x72;l(java&#x09;script:alert(1))"
+                    stroke="url(&#x2f;&#x2f;attacker.invalid/stroke.svg)">text</text>
+            </svg>
+        """.trimIndent()
+
+        val sanitizedDocument = Jsoup.parseBodyFragment(sanitizeEpubChapterHtml(html))
+
+        assertTrue(sanitizedDocument.select("[fill], [stroke]").isEmpty())
+    }
+
+    @Test
+    fun sanitizerPreservesSafeSvgPaintValues() {
+        val html = """
+            <svg>
+              <defs>
+                <linearGradient id="gradient">
+                  <stop offset="0%" stop-color="#336699" />
+                </linearGradient>
+              </defs>
+              <path id="local-paint" fill="url(#gradient)" stroke="url('#outline')" />
+              <circle id="colors" fill="#336699" stroke="currentColor" />
+              <rect id="keywords" fill="red" stroke="none" />
+              <text id="functional-colors" fill="rgb(10 20 30 / 50%)"
+                    stroke="hsl(120 100% 50%)">text</text>
+            </svg>
+        """.trimIndent()
+
+        val sanitizedDocument = Jsoup.parseBodyFragment(sanitizeEpubChapterHtml(html))
+
+        assertEquals("url(#gradient)", sanitizedDocument.getElementById("local-paint")?.attr("fill"))
+        assertEquals("url('#outline')", sanitizedDocument.getElementById("local-paint")?.attr("stroke"))
+        assertEquals("#336699", sanitizedDocument.getElementById("colors")?.attr("fill"))
+        assertEquals("currentColor", sanitizedDocument.getElementById("colors")?.attr("stroke"))
+        assertEquals("red", sanitizedDocument.getElementById("keywords")?.attr("fill"))
+        assertEquals("none", sanitizedDocument.getElementById("keywords")?.attr("stroke"))
+        assertEquals(
+            "rgb(10 20 30 / 50%)",
+            sanitizedDocument.getElementById("functional-colors")?.attr("fill"),
+        )
+        assertEquals(
+            "hsl(120 100% 50%)",
+            sanitizedDocument.getElementById("functional-colors")?.attr("stroke"),
+        )
+    }
 }

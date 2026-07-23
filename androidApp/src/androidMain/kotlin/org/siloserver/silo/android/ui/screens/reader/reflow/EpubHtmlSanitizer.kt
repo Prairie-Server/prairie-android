@@ -10,13 +10,24 @@ internal fun sanitizeEpubChapterHtml(html: String): String {
     parsed.outputSettings().prettyPrint(false)
 
     val cleaned = EPUB_HTML_CLEANER.clean(parsed)
-    cleaned.body().getAllElements().forEach(Element::removeUnsafeResourceAttributes)
+    cleaned.body().getAllElements().forEach { element ->
+        element.removeUnsafeResourceAttributes()
+        element.removeUnsafeSvgPaintAttributes()
+    }
     return cleaned.body().html()
 }
 
 private fun Element.removeUnsafeResourceAttributes() {
     RESOURCE_ATTRIBUTES.forEach { attribute ->
         if (hasAttr(attribute) && !isSafeRelativeEpubResourceUrl(attr(attribute))) {
+            removeAttr(attribute)
+        }
+    }
+}
+
+private fun Element.removeUnsafeSvgPaintAttributes() {
+    SVG_PAINT_ATTRIBUTES.forEach { attribute ->
+        if (hasAttr(attribute) && !isSafeSvgPaintValue(attr(attribute))) {
             removeAttr(attribute)
         }
     }
@@ -35,6 +46,17 @@ private fun isSafeRelativeEpubResourceUrl(value: String): Boolean {
                 !normalized.contains('\\') &&
                 !ABSOLUTE_URL_SCHEME_REGEX.containsMatchIn(normalized)
             )
+}
+
+private fun isSafeSvgPaintValue(value: String): Boolean {
+    val decoded = value.decodePercentEncodedAsciiRecursively() ?: return false
+    if (decoded.any(Char::isUnsafeSvgPaintCharacter)) return false
+
+    val normalized = decoded.trim()
+    return SAFE_SVG_PAINT_KEYWORD_REGEX.matches(normalized) ||
+        SAFE_SVG_HEX_COLOR_REGEX.matches(normalized) ||
+        SAFE_SVG_COLOR_FUNCTION_REGEX.matches(normalized) ||
+        SAFE_LOCAL_SVG_PAINT_URL_REGEX.matches(normalized)
 }
 
 private fun String.decodePercentEncodedAsciiRecursively(): String? {
@@ -70,14 +92,29 @@ private fun String.decodePercentEncodedAscii(): String {
 private fun Char.isIgnoredUrlPolicyCharacter(): Boolean =
     code <= 0x20 || code == 0x7F || isWhitespace()
 
+private fun Char.isUnsafeSvgPaintCharacter(): Boolean =
+    this == '\\' || code < 0x20 || code == 0x7F || (isWhitespace() && this != ' ')
+
 private val ABSOLUTE_URL_SCHEME_REGEX = Regex(
     pattern = """^[a-z][a-z0-9+.-]*:""",
+    option = RegexOption.IGNORE_CASE,
+)
+
+private val SAFE_SVG_PAINT_KEYWORD_REGEX = Regex("""^[a-z]+(?:-[a-z]+)*$""", RegexOption.IGNORE_CASE)
+private val SAFE_SVG_HEX_COLOR_REGEX = Regex("""^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$""", RegexOption.IGNORE_CASE)
+private val SAFE_SVG_COLOR_FUNCTION_REGEX = Regex(
+    pattern = """^(?:rgb|rgba|hsl|hsla)\([0-9+\-.,%/ ]*(?:(?:deg|grad|rad|turn)[0-9+\-.,%/ ]*)?\)$""",
+    option = RegexOption.IGNORE_CASE,
+)
+private val SAFE_LOCAL_SVG_PAINT_URL_REGEX = Regex(
+    pattern = """^url\(\s*(["']?)#[a-z0-9_.:-]+\1\s*\)$""",
     option = RegexOption.IGNORE_CASE,
 )
 
 private const val MAX_PERCENT_DECODING_PASSES = 64
 
 private val RESOURCE_ATTRIBUTES = arrayOf("href", "src", "xlink:href")
+private val SVG_PAINT_ATTRIBUTES = arrayOf("fill", "stroke")
 
 private val EPUB_HTML_CLEANER = Cleaner(
     Safelist.none()
