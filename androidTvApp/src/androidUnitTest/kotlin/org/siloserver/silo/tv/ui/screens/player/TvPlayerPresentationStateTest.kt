@@ -19,9 +19,7 @@ class TvPlayerPresentationStateTest {
 
     @Test
     fun screenCollectsStructuralStateAtRootAndClockOnlyInsideWrapper() {
-        val source = File(
-            "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt",
-        ).readText()
+        val source = playerScreenSource()
 
         assertTrue(source.contains("viewModel.presentationState.collectAsState()"))
         assertFalse(source.contains("val state by viewModel.uiState.collectAsState()"))
@@ -29,4 +27,19 @@ class TvPlayerPresentationStateTest {
         assertTrue(source.contains("viewModel.uiState.value.toSiloCastPlaybackState("))
         assertFalse(source.contains("latestPlayerState"))
     }
+
+    @Test
+    fun structuralStateIsNeverUsedForPlaybackDuration() {
+        val source = playerScreenSource()
+        listOf(
+            "durationSeconds = state.duration",
+            "durationSec = state.duration",
+        ).forEach { forbidden ->
+            assertFalse(source.contains(forbidden), "forbidden: $forbidden")
+        }
+    }
+
+    private fun playerScreenSource(): String = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt",
+    ).readText()
 }

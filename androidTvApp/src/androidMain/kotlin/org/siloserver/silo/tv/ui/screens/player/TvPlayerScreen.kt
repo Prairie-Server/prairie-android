@@ -1442,7 +1442,11 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
             timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
-            durationSeconds = state.duration,
+            durationSeconds = viewModel.uiState.value.duration.takeIf { it > 0.0 }
+                ?: mediaController?.duration
+                    ?.takeIf { it > 0L }
+                    ?.div(1000.0)
+                ?: 0.0,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = state.requestHeaders,
             expectedDynamicRange = plan?.source?.hdrFormat,
@@ -1492,7 +1496,11 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
             timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
-            durationSeconds = state.duration,
+            durationSeconds = viewModel.uiState.value.duration.takeIf { it > 0.0 }
+                ?: mediaController?.duration
+                    ?.takeIf { it > 0L }
+                    ?.div(1000.0)
+                ?: 0.0,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = state.requestHeaders,
             expectedDynamicRange = plan?.source?.hdrFormat,
@@ -1976,12 +1984,14 @@ fun TvPlayerScreen(
                             .padding(top = 80.dp),
                         contentAlignment = Alignment.TopCenter,
                     ) {
-                        TvHoldSeekIndicator(
-                            isVisible = true,
-                            rate = cleanSeekRate,
-                            previewTimeSec = cleanSeekPreviewSec,
-                            durationSec = state.duration,
-                        )
+                        TvPlayerClockScope(viewModel) { clock ->
+                            TvHoldSeekIndicator(
+                                isVisible = true,
+                                rate = cleanSeekRate,
+                                previewTimeSec = cleanSeekPreviewSec,
+                                durationSec = clock.duration,
+                            )
+                        }
                     }
                 }
 
