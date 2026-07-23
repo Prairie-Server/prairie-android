@@ -10,6 +10,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.FileDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
+import org.siloserver.silo.common.io.checkedLimitedByteCount
 import org.siloserver.silo.common.player.subtitle.normalizeSubripPayloadIfNeeded
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -355,6 +356,7 @@ internal fun resolveRoutedDataSourceUrl(serverUrl: String, rawUri: String): Stri
 @UnstableApi
 internal class SubripNormalizingDataSource(
     private val upstream: DataSource,
+    private val maxBytes: Long = MAX_SUBTITLE_BYTES,
 ) : DataSource {
     private var normalizedData: ByteArray? = null
     private var normalizedPosition: Int = 0
@@ -373,14 +375,28 @@ internal class SubripNormalizingDataSource(
             return upstream.open(dataSpec)
         }
 
-        upstream.open(dataSpec)
+        val declaredLength = upstream.open(dataSpec)
         uri = upstream.uri ?: dataSpec.uri
         val raw = try {
+            if (declaredLength >= 0) {
+                checkedLimitedByteCount(
+                    currentBytes = 0,
+                    additionalBytes = declaredLength,
+                    maxBytes = maxBytes,
+                    limitName = "subtitle",
+                )
+            }
             readAllFromUpstream()
         } finally {
             upstream.close()
         }
         val normalized = normalizeSubripDataIfNeeded(raw)
+        checkedLimitedByteCount(
+            currentBytes = 0,
+            additionalBytes = normalized.size.toLong(),
+            maxBytes = maxBytes,
+            limitName = "normalized subtitle",
+        )
         normalizedData = normalized
         return normalized.size.toLong()
     }
@@ -409,10 +425,19 @@ internal class SubripNormalizingDataSource(
     private fun readAllFromUpstream(): ByteArray {
         val out = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_SUBRIP_READ_BUFFER_SIZE)
+        var total = 0L
         while (true) {
             val read = upstream.read(buffer, 0, buffer.size)
             if (read == C.RESULT_END_OF_INPUT) break
-            if (read > 0) out.write(buffer, 0, read)
+            if (read > 0) {
+                total = checkedLimitedByteCount(
+                    currentBytes = total,
+                    additionalBytes = read.toLong(),
+                    maxBytes = maxBytes,
+                    limitName = "subtitle",
+                )
+                out.write(buffer, 0, read)
+            }
         }
         return out.toByteArray()
     }
@@ -427,4 +452,5 @@ internal fun shouldNormalizeSubripPath(path: String?, position: Long): Boolean =
 internal fun normalizeSubripDataIfNeeded(raw: ByteArray): ByteArray =
     normalizeSubripPayloadIfNeeded(raw, 0, raw.size) ?: raw
 
+internal const val MAX_SUBTITLE_BYTES = 32L * 1024 * 1024
 private const val DEFAULT_SUBRIP_READ_BUFFER_SIZE = 16 * 1024
