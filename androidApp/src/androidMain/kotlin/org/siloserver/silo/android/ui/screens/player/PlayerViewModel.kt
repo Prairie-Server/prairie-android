@@ -81,6 +81,7 @@ import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.SubtitlesRepository
+import org.siloserver.silo.repository.port.PlaybackWriteScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -624,6 +625,7 @@ class PlayerViewModel(
     private var lifecycleObserverJob: Job? = null
     private var resolveNextEpisodeJob: Job? = null
     private val exitPrepared = AtomicBoolean(false)
+    private var finalPositionScope: PlaybackWriteScope? = null
     private val initialPlayerLoadGate = InitialPlayerLoadGate()
 
     fun claimInitialRouteLoad(): Boolean = initialPlayerLoadGate.claim()
@@ -791,7 +793,9 @@ class PlayerViewModel(
             )
         }
 
+        finalPositionScope = null
         viewModelScope.launch {
+            finalPositionScope = finalPlaybackPositionWriter.captureScope()
             try {
                 // Offline-first fast path: if we have a completed download for
                 // this contentId AND its bytes are still on disk, hand the
@@ -3141,9 +3145,11 @@ class PlayerViewModel(
         val state = _uiState.value
         val cid = state.contentId.takeIf { it.isNotBlank() }
         val fid = currentFileId()
-        if (cid != null && fid != null) {
+        val scope = finalPositionScope
+        if (scope != null && cid != null && fid != null) {
             finalPlaybackPositionWriter.submit(
                 FinalPlaybackPosition(
+                    scope = scope,
                     contentId = cid,
                     fileId = fid,
                     positionSeconds = state.position,

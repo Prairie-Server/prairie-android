@@ -2,6 +2,13 @@ package org.siloserver.silo.repository.port
 
 import org.siloserver.silo.network.AuthScopeSnapshot
 
+data class PlaybackWriteScope(
+    val serverId: String,
+    val profileId: String,
+    val credentialGenerationId: String?,
+    val identityGeneration: Long,
+)
+
 /**
  * Local-first side-channel for **content-level** user-state mutations
  * (watched / favorite / rating). The strangler entry point for Track B:
@@ -43,6 +50,18 @@ interface UserItemStatePort {
         durationSeconds: Double?,
     ) {
     }
+
+    /**
+     * Records a final playback position only while the captured playback
+     * identity is still current. Returns true only when the write was accepted.
+     */
+    suspend fun recordPosition(
+        scope: PlaybackWriteScope,
+        contentId: String,
+        fileId: Int,
+        positionSeconds: Double,
+        durationSeconds: Double?,
+    ): Boolean = false
 
     /**
      * The locally-recorded resume position for an item, or null if none. Lets the

@@ -71,6 +71,7 @@ import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
 import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.playback.trackSelectionFingerprint
 import org.siloserver.silo.repository.SubtitlesRepository
+import org.siloserver.silo.repository.port.PlaybackWriteScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -558,6 +559,7 @@ class TvPlayerViewModel(
 
     private var lastRecordedKey: String? = null
     private var lastRecordedPositionSec: Double = -1.0
+    private var finalPositionScope: PlaybackWriteScope? = null
 
     /** [force] bypasses the time-throttle (used on pause/stop to capture the exact spot). */
     private fun maybeRecordPosition(positionSec: Double, durationSec: Double, force: Boolean = false) {
@@ -1154,7 +1156,9 @@ class TvPlayerViewModel(
         _uiState.update { it.copy(isBuffering = false) }
 
         _uiState.update { it.copy(isLoading = true, error = null, serverUnreachable = false) }
+        finalPositionScope = null
         viewModelScope.launch {
+            finalPositionScope = finalPlaybackPositionWriter.captureScope()
             try {
                 runCatching { playerSettingsStore.refreshFromServer() }
                 val result = videoPlaybackCoordinator.start(
@@ -3214,9 +3218,11 @@ class TvPlayerViewModel(
         transportMountGate.reset()
         val state = _uiState.value
         val fileId = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId
-        if (contentId.isNotBlank() && fileId != null) {
+        val scope = finalPositionScope
+        if (scope != null && contentId.isNotBlank() && fileId != null) {
             finalPlaybackPositionWriter.submit(
                 FinalPlaybackPosition(
+                    scope = scope,
                     contentId = contentId,
                     fileId = fileId,
                     positionSeconds = state.position,
@@ -3496,9 +3502,11 @@ class TvPlayerViewModel(
         // preserves the final local resume point without blocking main.
         val cid = contentId.takeIf { it.isNotBlank() }
         val fid = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId
-        if (cid != null && fid != null) {
+        val scope = finalPositionScope
+        if (scope != null && cid != null && fid != null) {
             finalPlaybackPositionWriter.submit(
                 FinalPlaybackPosition(
+                    scope = scope,
                     contentId = cid,
                     fileId = fid,
                     positionSeconds = _uiState.value.position,

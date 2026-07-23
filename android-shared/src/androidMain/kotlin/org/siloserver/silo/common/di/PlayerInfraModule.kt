@@ -52,14 +52,16 @@ val playerInfraModule = module {
         val syncScheduler = get<org.siloserver.silo.common.data.sync.OutboxSyncScheduler>()
         FinalPlaybackPositionWriter(
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            scopeProvider = { get<TokenManager>().snapshotCurrentScope() },
         ) { snapshot ->
-            userItemState.recordPosition(
+            val written = userItemState.recordPosition(
+                snapshot.scope,
                 snapshot.contentId,
                 snapshot.fileId,
                 snapshot.positionSeconds,
                 snapshot.durationSeconds,
             )
-            syncScheduler.requestSync()
+            if (written) syncScheduler.requestSync()
         }
     }
 

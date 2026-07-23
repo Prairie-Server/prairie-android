@@ -7,6 +7,7 @@ import org.siloserver.silo.common.data.sync.OutboxOperation
 import org.siloserver.silo.common.data.sync.OutboxSyncScheduler
 import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.repository.port.OutboxHandle
+import org.siloserver.silo.repository.port.PlaybackWriteScope
 import org.siloserver.silo.repository.port.WriteOutcome
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
@@ -14,6 +15,7 @@ import org.robolectric.RobolectricTestRunner
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -27,9 +29,11 @@ class RoomUserItemStateRepositoryTest {
     ).allowMainThreadQueries().build()
 
     private var nextId = 0
+    private var currentSnapshot: AuthScopeSnapshot? =
+        AuthScopeSnapshot("s1", "p1", "https://s1.example", "pt")
     private val repo = RoomUserItemStateRepository(
         db = db,
-        snapshotProvider = { AuthScopeSnapshot("s1", "p1", "https://s1.example", "pt") },
+        snapshotProvider = { currentSnapshot },
         now = { 1000L },
         idGenerator = { "id-${nextId++}" },
     )
@@ -268,6 +272,28 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun scopedPositionRejectsProfileThatIsNoLongerCurrent() = runTest {
+        val captured = PlaybackWriteScope("server", "profile-a", null, 4L)
+        currentSnapshot = authScope("server", "profile-b", generation = 5L)
+
+        assertFalse(repo.recordPosition(captured, "movie", 7, 42.0, 100.0))
+        assertNull(db.userItemStateDao().get("server", "profile-a", "movie", 7))
+        assertNull(db.userItemStateDao().get("server", "profile-b", "movie", 7))
+    }
+
+    @Test
+    fun scopedPositionWritesOnlyToMatchingCapturedIdentity() = runTest {
+        val captured = PlaybackWriteScope("server", "profile-a", null, 4L)
+        currentSnapshot = authScope("server", "profile-a", generation = 4L)
+
+        assertTrue(repo.recordPosition(captured, "movie", 7, 42.0, 100.0))
+        assertEquals(
+            42.0,
+            db.userItemStateDao().get("server", "profile-a", "movie", 7)?.positionSeconds,
+        )
+    }
+
+    @Test
     fun recordPositionCoalescesToLatestPerContent() = runTest {
         repo.recordPosition("c1", fileId = 7, positionSeconds = 10.0, durationSeconds = 3600.0)
         repo.recordPosition("c1", fileId = 7, positionSeconds = 99.0, durationSeconds = 3600.0)
@@ -362,4 +388,16 @@ class RoomUserItemStateRepositoryTest {
         assertEquals("p1", handle.scope?.profileId)
         assertEquals("https://s1.example", handle.scope?.serverUrl)
     }
+
+    private fun authScope(
+        serverId: String,
+        profileId: String?,
+        generation: Long,
+    ) = AuthScopeSnapshot(
+        serverId = serverId,
+        profileId = profileId,
+        serverUrl = "https://$serverId.example",
+        profileToken = "pt",
+        identityGeneration = generation,
+    )
 }
