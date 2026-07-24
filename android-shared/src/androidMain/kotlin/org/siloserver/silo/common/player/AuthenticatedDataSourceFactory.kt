@@ -12,6 +12,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import org.siloserver.silo.common.player.subtitle.normalizeSubripPayloadIfNeeded
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -32,10 +33,15 @@ class AuthenticatedDataSourceFactory(
     private val authSession: MediaAuthSession,
     private val serverUrlProvider: () -> String,
     private val requestHeadersProvider: (Uri) -> Map<String, String> = { emptyMap() },
+    private val isResumableDirectPlayUri: (Uri) -> Boolean = { false },
 ) : DataSource.Factory {
 
     override fun createDataSource(): DataSource {
-        val http = RefreshingHttpDataSource(httpDataSourceFactory, authSession)
+        val http = RefreshingHttpDataSource(
+            factory = httpDataSourceFactory,
+            authSession = authSession,
+            isResumableDirectPlayUri = isResumableDirectPlayUri,
+        )
         val file = FileDataSource()
         val content = ContentDataSource(context)
         return RoutedDataSource(
@@ -58,10 +64,13 @@ class AuthenticatedDataSourceFactory(
 internal class RefreshingHttpDataSource(
     private val factory: HttpDataSource.Factory,
     private val authSession: MediaAuthSession,
+    private val isResumableDirectPlayUri: (Uri) -> Boolean = { false },
 ) : HttpDataSource {
     private val transferListeners = mutableListOf<TransferListener>()
     private val requestProperties = linkedMapOf<String, String>()
     private var active: HttpDataSource? = null
+    private var entityUri: Uri? = null
+    private var entityEtag: String? = null
 
     override fun addTransferListener(transferListener: TransferListener) {
         transferListeners += transferListener
@@ -69,11 +78,15 @@ internal class RefreshingHttpDataSource(
     }
 
     override fun open(dataSpec: DataSpec): Long {
+        val guardEnabled = isResumableDirectPlayUri(dataSpec.uri)
+        if (guardEnabled) {
+            prepareEntityGuard(dataSpec.uri)
+        }
         val failedSnapshot = runBlocking { authSession.snapshot() }
         val first = newDataSource()
         active = first
         return try {
-            first.open(dataSpec.withAuthHeaders(failedSnapshot))
+            first.openWithGuards(dataSpec, failedSnapshot, guardEnabled)
         } catch (error: HttpDataSource.InvalidResponseCodeException) {
             if (error.responseCode != 401 || !runBlocking { authSession.refreshIfStale(failedSnapshot) }) {
                 throw error
@@ -81,7 +94,7 @@ internal class RefreshingHttpDataSource(
             first.close()
             val retry = newDataSource()
             active = retry
-            retry.open(dataSpec.withAuthHeaders(runBlocking { authSession.snapshot() }))
+            retry.openWithGuards(dataSpec, runBlocking { authSession.snapshot() }, guardEnabled)
         }
     }
 
@@ -120,6 +133,56 @@ internal class RefreshingHttpDataSource(
         transferListeners.forEach(dataSource::addTransferListener)
     }
 
+    private fun prepareEntityGuard(openedUri: Uri) {
+        if (openedUri != entityUri) {
+            entityUri = openedUri
+            entityEtag = null
+        }
+    }
+
+    private fun HttpDataSource.openWithGuards(
+        dataSpec: DataSpec,
+        snapshot: MediaAuthSnapshot,
+        guardEnabled: Boolean,
+    ): Long {
+        if (!guardEnabled) {
+            return open(dataSpec.withAuthHeaders(snapshot))
+        }
+
+        val previousEtag = entityEtag
+        val guardedDataSpec = dataSpec
+            .withIfRangeHeader()
+            .withAuthHeaders(snapshot)
+        val length = open(guardedDataSpec)
+        val responseEtag = responseHeaders.headerValue("ETag")
+        if (previousEtag != null && dataSpec.position > 0L) {
+            if (responseEtag != null && responseEtag != previousEtag) {
+                failEntityChanged()
+            }
+            if (responseCode == 200 && responseEtag != previousEtag) {
+                failEntityChanged()
+            }
+        }
+        if (responseEtag != null) {
+            entityEtag = responseEtag
+        }
+        return length
+    }
+
+    private fun DataSpec.withIfRangeHeader(): DataSpec {
+        val etag = entityEtag
+        if (position <= 0L || etag == null || !etag.isStrongEtagValidator()) return this
+        return buildUpon()
+            .setHttpRequestHeaders(httpRequestHeaders.withHeader("If-Range", etag))
+            .build()
+    }
+
+    private fun HttpDataSource.failEntityChanged(): Nothing {
+        runCatching(::close)
+        active = null
+        throw EntityChangedException()
+    }
+
     private fun DataSpec.withAuthHeaders(snapshot: MediaAuthSnapshot): DataSpec = buildUpon()
         // A V3 plan may carry a stream-scoped credential (for example, a
         // signed CDN Authorization value). Treat those explicit DataSpec
@@ -130,6 +193,26 @@ internal class RefreshingHttpDataSource(
         )
         .build()
 }
+
+internal class EntityChangedException :
+    IOException("HTTP entity changed during ranged resume")
+
+private fun Map<String, List<String>>.headerValue(name: String): String? =
+    entries.firstOrNull { (key, _) -> key.equals(name, ignoreCase = true) }
+        ?.value
+        ?.firstOrNull()
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+
+private fun String.isStrongEtagValidator(): Boolean =
+    !startsWith("W/", ignoreCase = true)
+
+private fun Map<String, String>.withHeader(name: String, value: String): Map<String, String> =
+    buildMap {
+        putAll(this@withHeader)
+        keys.firstOrNull { it.equals(name, ignoreCase = true) }?.let(::remove)
+        put(name, value)
+    }
 
 internal fun mergeSessionAuthHeaders(
     sessionHeaders: Map<String, String>,
