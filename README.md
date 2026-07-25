@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="docs/brand/readme-banner.png" alt="Prairie" width="480" />
+</p>
+
+<p align="center"><strong>prairie-android</strong><br/>Android phone and TV clients for Prairie</p>
+
+---
+
 # Prairie Android
 
 Android **phone** and **Android TV** clients for the [Prairie](https://github.com/Prairie-Server/prairie-server) self-hosted media server — stream and download your movies, shows, music, audiobooks, and ebooks, with quality-aware playback and multi-server/multi-profile support.
