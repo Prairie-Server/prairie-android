@@ -6,7 +6,7 @@ endpoints, and library-specific fixture ids never leave your machine.
 
 ## Environment
 
-Dev server: `https://silo.example.com`. Note here how to reach the server's
+Dev server: `https://prairie.example.com`. Note here how to reach the server's
 logs and database (SSH host, container names, psql credentials) if you have
 access — fixture hunting and route-decision checks use them.
 

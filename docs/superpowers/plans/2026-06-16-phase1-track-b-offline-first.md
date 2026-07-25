@@ -21,7 +21,7 @@
 
 ## File structure
 
-- `android-shared/.../data/db/SiloDatabase.kt` — Room database (Android-only).
+- `android-shared/.../data/db/PrairieDatabase.kt` — Room database (Android-only).
 - `android-shared/.../data/db/entity/` — `UserItemStateEntity`, `DirtyOperationEntity`, `LegacyImportEntity`, `DownloadEntity`.
 - `android-shared/.../data/db/dao/` — `UserItemStateDao`, `DirtyOperationDao`, `DownloadDao`, `LegacyImportDao`.
 - `android-shared/.../data/sync/OutboxOperation.kt` — pure typed op model + coalescing.
@@ -39,9 +39,9 @@
 **Files:**
 - Create: `android-shared/.../data/db/entity/UserItemStateEntity.kt`, `DirtyOperationEntity.kt`, `LegacyImportEntity.kt`, `DownloadEntity.kt`
 - Create: `android-shared/.../data/db/dao/UserItemStateDao.kt`, `DirtyOperationDao.kt`, `DownloadDao.kt`, `LegacyImportDao.kt`
-- Create: `android-shared/.../data/db/SiloDatabase.kt`
+- Create: `android-shared/.../data/db/PrairieDatabase.kt`
 - Modify: `android-shared/build.gradle.kts` (Room + KSP)
-- Test: `android-shared/src/androidUnitTest/.../data/db/SiloDatabaseDaoTest.kt`
+- Test: `android-shared/src/androidUnitTest/.../data/db/PrairieDatabaseDaoTest.kt`
 
 - [ ] **Step 1: Add Room + KSP to `android-shared/build.gradle.kts`** (per Codex review — KMP-specific):
   - Add KSP + Room aliases to `gradle/libs.versions.toml` (none exist today).
@@ -65,10 +65,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 @RunWith(RobolectricTestRunner::class)
-class SiloDatabaseDaoTest {
+class PrairieDatabaseDaoTest {
     private val db = Room.inMemoryDatabaseBuilder(
         ApplicationProvider.getApplicationContext(),
-        SiloDatabase::class.java,
+        PrairieDatabase::class.java,
     ).allowMainThreadQueries().build()
 
     @AfterTest fun tearDown() = db.close()
@@ -91,7 +91,7 @@ class SiloDatabaseDaoTest {
 
 - [ ] **Step 3: Run to verify it fails**
 
-Run: `./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.data.db.SiloDatabaseDaoTest"`
+Run: `./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.data.db.PrairieDatabaseDaoTest"`
 Expected: FAIL — entities/DAO/database do not exist.
 
 - [ ] **Step 4: Implement the entities** (per Codex's schema)
@@ -232,7 +232,7 @@ interface DirtyOperationDao {
 
 Add `DownloadDao` (upsert + `getAll(serverId, profileId)`) and `LegacyImportDao` (upsert + `get(sourcePath)`) following the same shape.
 
-- [ ] **Step 6: Implement `SiloDatabase`**
+- [ ] **Step 6: Implement `PrairieDatabase`**
 
 ```kotlin
 package com.continuum.app.common.data.db
@@ -247,7 +247,7 @@ import com.continuum.app.common.data.db.entity.*
     version = 1,
     exportSchema = true,
 )
-abstract class SiloDatabase : RoomDatabase() {
+abstract class PrairieDatabase : RoomDatabase() {
     abstract fun userItemStateDao(): UserItemStateDao
     abstract fun dirtyOperationDao(): DirtyOperationDao
     abstract fun downloadDao(): DownloadDao
@@ -257,13 +257,13 @@ abstract class SiloDatabase : RoomDatabase() {
 
 - [ ] **Step 7: Run to verify the DAO test passes; commit**
 
-Run: `./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.data.db.SiloDatabaseDaoTest"`
+Run: `./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.data.db.PrairieDatabaseDaoTest"`
 Expected: PASS.
 ```bash
 git add android-shared/src/androidMain/kotlin/com/continuum/app/common/data/db/ \
-        android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/data/db/SiloDatabaseDaoTest.kt \
+        android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/data/db/PrairieDatabaseDaoTest.kt \
         android-shared/build.gradle.kts gradle/libs.versions.toml android-shared/schemas
-git commit -m "Room foundation: SiloDatabase + user-state/outbox/downloads/legacy entities + DAOs"
+git commit -m "Room foundation: PrairieDatabase + user-state/outbox/downloads/legacy entities + DAOs"
 ```
 
 ---

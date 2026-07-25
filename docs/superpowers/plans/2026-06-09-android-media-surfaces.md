@@ -4,7 +4,7 @@
 
 **Goal:** Add server-contract-aligned audiobook support to Android mobile and Android TV, add server-synced ebook reading to Android mobile, and hide ebooks from Android TV.
 
-**Architecture:** Start with shared Kotlin models and API wrappers that match the deployed `silo-server` contract. Then adapt existing mobile audiobook/reader screens to use `versions` and reader APIs, and add defensive Android TV ebook filtering plus audiobook-aware labels/playback. Each task leaves the repo in a compilable, testable state.
+**Architecture:** Start with shared Kotlin models and API wrappers that match the deployed `prairie-server` contract. Then adapt existing mobile audiobook/reader screens to use `versions` and reader APIs, and add defensive Android TV ebook filtering plus audiobook-aware labels/playback. Each task leaves the repo in a compilable, testable state.
 
 **Tech Stack:** Kotlin Multiplatform shared module, kotlinx.serialization, Ktor client, Koin, Jetpack Compose mobile, Compose for TV, Media3 playback session infrastructure, Gradle JVM/unit tests.
 
@@ -97,10 +97,10 @@ class MediaSurfaceContractSerializationTest {
                 "narrators": [
                   { "person_id": "p2", "name": "Nia Narrator" }
                 ],
-                "publisher": "Silo Press",
+                "publisher": "Prairie Press",
                 "total_duration_seconds": 3600,
                 "series": {
-                  "name": "Silo Stories",
+                  "name": "Prairie Stories",
                   "entries": [
                     { "content_id": "aud-1", "title": "The Long Listen", "year": 2026, "poster_url": "/p.jpg", "series_index": 1.0 }
                   ]
@@ -126,7 +126,7 @@ class MediaSurfaceContractSerializationTest {
         assertEquals("Ada Author", detail.audiobook?.authorNames)
         assertEquals("Nia Narrator", detail.audiobook?.narratorNames)
         assertEquals(3600, detail.audiobook?.totalDurationSeconds)
-        assertEquals("Silo Stories", detail.audiobook?.series?.name)
+        assertEquals("Prairie Stories", detail.audiobook?.series?.name)
         assertEquals(11, detail.versions.single().fileId)
     }
 
@@ -145,7 +145,7 @@ class MediaSurfaceContractSerializationTest {
                 "authors": [
                   { "person_id": "p7", "name": "Eve Writer" }
                 ],
-                "publisher": "Silo Press",
+                "publisher": "Prairie Press",
                 "series": {
                   "name": "Readable Set",
                   "entries": [
@@ -167,7 +167,7 @@ class MediaSurfaceContractSerializationTest {
         assertNotNull(detail.ebook)
         assertNull(detail.book)
         assertEquals("Eve Writer", detail.ebook?.authorNames)
-        assertEquals("Silo Press", detail.ebook?.publisher)
+        assertEquals("Prairie Press", detail.ebook?.publisher)
         assertEquals(44, detail.versions.single().fileId)
     }
 }
@@ -1563,7 +1563,7 @@ Expected: branch `feature/android-parity-and-media-surfaces` with a clean worktr
 
 - [ ] **Step 5: Manual smoke test against `root@silo-new` server**
 
-Use a debug build pointed at the Silo server that matches `root@silo-new:/opt/silo-server`.
+Use a debug build pointed at the Prairie server that matches `root@silo-new:/opt/prairie-server`.
 
 Verify:
 

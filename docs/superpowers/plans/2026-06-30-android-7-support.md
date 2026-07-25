@@ -23,12 +23,12 @@
 
 ## File Structure
 
-- `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/backend/MpvDeviceFloor.kt` owns the pure API/ABI capability decision for whether MPV can be used on this device.
-- `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/backend/VideoPlaybackBackendSelector.kt` owns the backend decision for a playback request. It must honor the device floor before user or automatic MPV preference.
-- `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/backend/MpvDeviceFloorTest.kt` pins API 24/25 as unsupported and modern 64-bit devices as supported.
-- `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/backend/VideoPlaybackBackendSelectorTest.kt` pins the selector fallback behavior when MPV is unsupported.
-- `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/AndroidManifestPolicyTest.kt` pins mobile build/manifest policy for Android 7 support and the MPV manifest override.
-- `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/TvAndroidManifestPolicyTest.kt` pins TV build/manifest policy for Android 7 support and the MPV manifest override.
+- `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/backend/MpvDeviceFloor.kt` owns the pure API/ABI capability decision for whether MPV can be used on this device.
+- `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/backend/VideoPlaybackBackendSelector.kt` owns the backend decision for a playback request. It must honor the device floor before user or automatic MPV preference.
+- `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/backend/MpvDeviceFloorTest.kt` pins API 24/25 as unsupported and modern 64-bit devices as supported.
+- `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/backend/VideoPlaybackBackendSelectorTest.kt` pins the selector fallback behavior when MPV is unsupported.
+- `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/AndroidManifestPolicyTest.kt` pins mobile build/manifest policy for Android 7 support and the MPV manifest override.
+- `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/TvAndroidManifestPolicyTest.kt` pins TV build/manifest policy for Android 7 support and the MPV manifest override.
 - `README.md` documents that Android 7 is supported and MPV is API 26+ only.
 
 ---
@@ -36,8 +36,8 @@
 ### Task 1: Pin The Android 7 MPV Device Floor
 
 **Files:**
-- Modify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/backend/MpvDeviceFloorTest.kt`
-- Verify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/backend/MpvDeviceFloor.kt`
+- Modify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/backend/MpvDeviceFloorTest.kt`
+- Verify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/backend/MpvDeviceFloor.kt`
 
 **Interfaces:**
 - Consumes: `MpvDeviceFloor.isMpvSupported(sdkInt: Int, supportedAbis: List<String>): Boolean`
@@ -46,7 +46,7 @@
 - [ ] **Step 1: Replace `MpvDeviceFloorTest.kt` with explicit Android 7 coverage**
 
 ```kotlin
-package org.siloserver.silo.common.player.backend
+package org.prairieserver.prairie.common.player.backend
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -97,7 +97,7 @@ class MpvDeviceFloorTest {
 Run:
 
 ```bash
-./gradlew :android-shared:testDebugUnitTest --tests "org.siloserver.silo.common.player.backend.MpvDeviceFloorTest"
+./gradlew :android-shared:testDebugUnitTest --tests "org.prairieserver.prairie.common.player.backend.MpvDeviceFloorTest"
 ```
 
 Expected: PASS. This is a regression pin for behavior that should already be true in `MpvDeviceFloor`.
@@ -105,7 +105,7 @@ Expected: PASS. This is a regression pin for behavior that should already be tru
 - [ ] **Step 3: Commit the regression pin**
 
 ```bash
-git add android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/backend/MpvDeviceFloorTest.kt
+git add android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/backend/MpvDeviceFloorTest.kt
 git commit -m "test: pin Android 7 MPV device floor"
 ```
 
@@ -114,8 +114,8 @@ git commit -m "test: pin Android 7 MPV device floor"
 ### Task 2: Force Media3 When MPV Is Unsupported
 
 **Files:**
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/backend/VideoPlaybackBackendSelector.kt`
-- Modify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/backend/VideoPlaybackBackendSelectorTest.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/backend/VideoPlaybackBackendSelector.kt`
+- Modify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/backend/VideoPlaybackBackendSelectorTest.kt`
 
 **Interfaces:**
 - Consumes: `VideoPlaybackBackendRequest.mpvSupportedOnDevice: Boolean`
@@ -156,7 +156,7 @@ Add these tests to `VideoPlaybackBackendSelectorTest` after `explicitMpvPreferen
 Run:
 
 ```bash
-./gradlew :android-shared:testDebugUnitTest --tests "org.siloserver.silo.common.player.backend.VideoPlaybackBackendSelectorTest"
+./gradlew :android-shared:testDebugUnitTest --tests "org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendSelectorTest"
 ```
 
 Expected: FAIL on `explicitMpvPreferenceFallsBackToMedia3WhenDeviceUnsupported` because the current selector lets explicit MPV preference win before the device floor.
@@ -166,11 +166,11 @@ Expected: FAIL on `explicitMpvPreferenceFallsBackToMedia3WhenDeviceUnsupported` 
 Replace the body of `VideoPlaybackBackendSelector.kt` with:
 
 ```kotlin
-package org.siloserver.silo.common.player.backend
+package org.prairieserver.prairie.common.player.backend
 
-import org.siloserver.silo.model.playback.PlayMethod
-import org.siloserver.silo.model.playback.PlaybackDelivery
-import org.siloserver.silo.model.playback.PlaybackEngineKind
+import org.prairieserver.prairie.model.playback.PlayMethod
+import org.prairieserver.prairie.model.playback.PlaybackDelivery
+import org.prairieserver.prairie.model.playback.PlaybackEngineKind
 
 object VideoPlaybackBackendSelector {
     fun select(request: VideoPlaybackBackendRequest): VideoPlaybackBackendKind =
@@ -207,7 +207,7 @@ object VideoPlaybackBackendSelector {
 Run:
 
 ```bash
-./gradlew :android-shared:testDebugUnitTest --tests "org.siloserver.silo.common.player.backend.VideoPlaybackBackendSelectorTest"
+./gradlew :android-shared:testDebugUnitTest --tests "org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendSelectorTest"
 ```
 
 Expected: PASS.
@@ -215,8 +215,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit the selector behavior**
 
 ```bash
-git add android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/backend/VideoPlaybackBackendSelector.kt \
-        android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/backend/VideoPlaybackBackendSelectorTest.kt
+git add android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/backend/VideoPlaybackBackendSelector.kt \
+        android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/backend/VideoPlaybackBackendSelectorTest.kt
 git commit -m "fix: force Media3 below MPV device floor"
 ```
 
@@ -225,8 +225,8 @@ git commit -m "fix: force Media3 below MPV device floor"
 ### Task 3: Pin Mobile And TV Android 7 Build Policy
 
 **Files:**
-- Modify: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/AndroidManifestPolicyTest.kt`
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/TvAndroidManifestPolicyTest.kt`
+- Modify: `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/AndroidManifestPolicyTest.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/TvAndroidManifestPolicyTest.kt`
 
 **Interfaces:**
 - Consumes: app `build.gradle.kts` and `src/androidMain/AndroidManifest.xml` source text.
@@ -234,10 +234,10 @@ git commit -m "fix: force Media3 below MPV device floor"
 
 - [ ] **Step 1: Replace the mobile manifest policy test**
 
-Use this complete file for `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/AndroidManifestPolicyTest.kt`:
+Use this complete file for `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/AndroidManifestPolicyTest.kt`:
 
 ```kotlin
-package org.siloserver.silo.android
+package org.prairieserver.prairie.android
 
 import java.io.File
 import kotlin.test.Test
@@ -272,10 +272,10 @@ class AndroidManifestPolicyTest {
 
 - [ ] **Step 2: Replace the TV manifest policy test**
 
-Use this complete file for `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/TvAndroidManifestPolicyTest.kt`:
+Use this complete file for `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/TvAndroidManifestPolicyTest.kt`:
 
 ```kotlin
-package org.siloserver.silo.tv
+package org.prairieserver.prairie.tv
 
 import java.io.File
 import kotlin.test.Test
@@ -313,8 +313,8 @@ class TvAndroidManifestPolicyTest {
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests "org.siloserver.silo.android.AndroidManifestPolicyTest" \
-          :androidTvApp:testDebugUnitTest --tests "org.siloserver.silo.tv.TvAndroidManifestPolicyTest"
+./gradlew :androidApp:testDebugUnitTest --tests "org.prairieserver.prairie.android.AndroidManifestPolicyTest" \
+          :androidTvApp:testDebugUnitTest --tests "org.prairieserver.prairie.tv.TvAndroidManifestPolicyTest"
 ```
 
 Expected: PASS.
@@ -322,8 +322,8 @@ Expected: PASS.
 - [ ] **Step 4: Commit the build policy tests**
 
 ```bash
-git add androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/AndroidManifestPolicyTest.kt \
-        androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/TvAndroidManifestPolicyTest.kt
+git add androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/AndroidManifestPolicyTest.kt \
+        androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/TvAndroidManifestPolicyTest.kt
 git commit -m "test: pin Android 7 app build policy"
 ```
 
@@ -357,7 +357,7 @@ With:
 After:
 
 ```markdown
-The clients talk to a Silo server over its `/api/v1/*` REST + WebSocket API. The server owns the library, scanning, metadata, transcoding decisions, and auth; the clients render it and drive playback.
+The clients talk to a Prairie server over its `/api/v1/*` REST + WebSocket API. The server owns the library, scanning, metadata, transcoding decisions, and auth; the clients render it and drive playback.
 ```
 
 Add:

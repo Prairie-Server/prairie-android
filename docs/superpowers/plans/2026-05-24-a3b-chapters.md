@@ -5,8 +5,8 @@
 **Goal:** Surface per-version chapters in the HUD Chapters pane (currently a placeholder empty-state) and as tick marks on `TvPlayerScrubber`. Source the data from the existing server API — no Media3 chapter extraction, no HLS marker parsing, no local file probing.
 
 **Source-of-truth investigation result (2026-05-24, cross-repo survey):**
-- Server already returns `chapters: []VersionChapter` on `FileVersion` under the `/items/{id}` ItemDetail response. Server file: `/opt/silo-server/internal/catalog/detail.go:231` (field) + `:258-266` (struct shape). Populated during ingest via FFprobe `-show_chapters` (`/opt/silo-server/internal/scanner/probe.go:118,235`), persisted to `MediaFile.Chapters` (JSONB), normalized for overlaps and out-of-order entries.
-- Apple consumes this same field at `/opt/silo-apple/iosApp/iosApp/Networking/Models.swift:537-545` (`VersionChapter`) and renders into the tvOS HUD + scrubber via `ApplePlaybackRoutePlanner.chapterInfoList(from: FileVersion)` (`/opt/silo-apple/iosApp/iosApp/Screens/Player/ApplePlaybackRoutePlanner.swift:904`).
+- Server already returns `chapters: []VersionChapter` on `FileVersion` under the `/items/{id}` ItemDetail response. Server file: `/opt/prairie-server/internal/catalog/detail.go:231` (field) + `:258-266` (struct shape). Populated during ingest via FFprobe `-show_chapters` (`/opt/prairie-server/internal/scanner/probe.go:118,235`), persisted to `MediaFile.Chapters` (JSONB), normalized for overlaps and out-of-order entries.
+- Apple consumes this same field at `/opt/prairie-apple/iosApp/iosApp/Networking/Models.swift:537-545` (`VersionChapter`) and renders into the tvOS HUD + scrubber via `ApplePlaybackRoutePlanner.chapterInfoList(from: FileVersion)` (`/opt/prairie-apple/iosApp/iosApp/Screens/Player/ApplePlaybackRoutePlanner.swift:904`).
 - Android side has the scaffolding ready: `TvPlayerScrubber.ChapterInfo(timeSec, title?)` at `androidTvApp/.../TvPlayerScrubber.kt:79-82`; the scrubber accepts `chapters: List<ChapterInfo>` at `:86`; call site at `TvPlayerScreen.kt:625` passes `emptyList()`. HUD placeholder at `TvPlayerHud.kt:182`. **No `chapters` field on the Android `FileVersion` data class** (`shared/.../CatalogModels.kt:158-175`) — that's the missing link.
 - Media3 1.10.0 has **no first-class chapter API** on `MediaItem.MediaMetadata` (the earlier spec hint was wrong). Server data is the only viable path, and conveniently it's also what Apple uses — exact API parity.
 
@@ -20,9 +20,9 @@
 **Tech stack:** Kotlin, Media3 1.10.0, existing per-profile DataStore. No new dependencies.
 
 **Reference:**
-- Spec A.3b row at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`.
-- Server model: `/opt/silo-server/internal/catalog/detail.go:258-266`.
-- Apple consumer: `/opt/silo-apple/iosApp/iosApp/Networking/Models.swift:537-545`, `/opt/silo-apple/iosApp/iosApp/Screens/Player/ApplePlaybackRoutePlanner.swift:904`.
+- Spec A.3b row at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`.
+- Server model: `/opt/prairie-server/internal/catalog/detail.go:258-266`.
+- Apple consumer: `/opt/prairie-apple/iosApp/iosApp/Networking/Models.swift:537-545`, `/opt/prairie-apple/iosApp/iosApp/Screens/Player/ApplePlaybackRoutePlanner.swift:904`.
 - Existing Android scaffolding: `TvPlayerScrubber.kt:79-86`, `TvPlayerHud.kt:182`.
 
 **Testing posture:** Pure-Kotlin VersionChapter JSON deserialization gets a unit test (round-trip + snake_case mapping). HUD pane + scrubber ticks verified manually on a chapter-bearing file (MP4/MKV with embedded chapters — any normal Blu-ray rip).
@@ -32,8 +32,8 @@
 ### Task 1: Shared model — `VersionChapter` + `FileVersion.chapters` + test
 
 **Files:**
-- Modify: `/opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/catalog/CatalogModels.kt`
-- Create: `/opt/silo-android/shared/src/commonTest/kotlin/com/continuum/app/model/catalog/VersionChapterSerializationTest.kt`
+- Modify: `/opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/catalog/CatalogModels.kt`
+- Create: `/opt/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/model/catalog/VersionChapterSerializationTest.kt`
 
 **Why:** The Android `FileVersion` is missing the field entirely; the server has been sending it. Adding the field is what flips the data path on — Apple already proves the API contract works.
 
@@ -50,7 +50,7 @@ Place adjacent to `VideoTrack` / `AudioTrack` / `SubtitleTrack` (around line 196
  * the client renders whatever it receives.
  *
  * Shape mirrors the server's `VersionChapter` struct at
- * `silo-server/internal/catalog/detail.go:258-266` and Apple's
+ * `prairie-server/internal/catalog/detail.go:258-266` and Apple's
  * `VersionChapter` at `iosApp/Networking/Models.swift:537-545` exactly.
  */
 @Serializable
@@ -152,8 +152,8 @@ class VersionChapterSerializationTest {
 - [ ] **Step 4: Build + test**
 
 ```bash
-cd /opt/silo-android && ./gradlew :shared:compileDebugKotlinAndroid
-cd /opt/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.catalog.VersionChapterSerializationTest"
+cd /opt/prairie-android && ./gradlew :shared:compileDebugKotlinAndroid
+cd /opt/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.catalog.VersionChapterSerializationTest"
 ```
 
 (Confirm the test runs against the Android test variant of `:shared`. If the project uses `:shared:test` for commonTest, adjust the target — the file lives in `commonTest` so it's reachable from whichever target Android tests run under.)
@@ -161,13 +161,13 @@ cd /opt/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continu
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C /opt/silo-android add \
+git -C /opt/prairie-android add \
   shared/src/commonMain/kotlin/com/continuum/app/model/catalog/CatalogModels.kt \
   shared/src/commonTest/kotlin/com/continuum/app/model/catalog/VersionChapterSerializationTest.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(shared-catalog): VersionChapter + FileVersion.chapters field (A.3b)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(shared-catalog): VersionChapter + FileVersion.chapters field (A.3b)
 
-Mirrors silo-server's VersionChapter struct (catalog/detail.go:258-266)
+Mirrors prairie-server's VersionChapter struct (catalog/detail.go:258-266)
 and Apple's equivalent verbatim — snake_case @SerialName for
 start_seconds / end_seconds / thumbnail_url / thumbnail_thumbhash.
 Source field carries 'embedded' for chapters read from MP4/MKV by
@@ -186,8 +186,8 @@ next two commits."
 ### Task 2: ViewModel + screen wiring (chapters → UiState → scrubber + HUD pass-through)
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 **Why:** Get the data from the selected version into the screen, so the scrubber and the HUD both have a list to render. Tap-to-seek for chapter rows lives here too — the screen owns the `MediaController`.
 
@@ -263,7 +263,7 @@ The `TvPlayerHud` signature change happens in T3; this commit will not compile i
 - [ ] **Step 6: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Scrubber should now show chapter tick marks on files with embedded chapters. HUD pane still placeholder (until T3).
@@ -271,11 +271,11 @@ Scrubber should now show chapter tick marks on files with embedded chapters. HUD
 - [ ] **Step 7: Commit**
 
 ```bash
-git -C /opt/silo-android add \
+git -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): plumb FileVersion.chapters into UiState + scrubber ticks (A.3b)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): plumb FileVersion.chapters into UiState + scrubber ticks (A.3b)
 
 TvPlayerViewModel.UiState gains a chapters list, populated from the
 selected version (per-file — different versions of a title can
@@ -294,8 +294,8 @@ HUD Chapters pane wiring lands in T3."
 ### Task 3: HUD Chapters pane
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt` (HUD call site — params added in T2 Step 5 land here)
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt` (HUD call site — params added in T2 Step 5 land here)
 
 **Why:** UI counterpart. Replaces the `"No chapters in this title"` placeholder with a real list when the data is present; placeholder stays as the empty-state fallback.
 
@@ -408,17 +408,17 @@ onSelectChapter = { idx ->
 - [ ] **Step 5: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C /opt/silo-android add \
+git -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): HUD Chapters pane renders server-supplied chapters (A.3b)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): HUD Chapters pane renders server-supplied chapters (A.3b)
 
 Replaces the 'No chapters in this title' placeholder with a real
 picker when the active FileVersion has chapters. Each row shows

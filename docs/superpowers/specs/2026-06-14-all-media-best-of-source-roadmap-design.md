@@ -7,7 +7,7 @@
 
 ## Decision
 
-Silo should become a unified media client that feels specialized in each media class. We will borrow the best product behavior and engineering patterns from the source apps in `/Users/jimcole/source`, but keep one Silo-native app shell, one server model, one public-download philosophy, and one capability-driven navigation model.
+Prairie should become a unified media client that feels specialized in each media class. We will borrow the best product behavior and engineering patterns from the source apps in `/Users/jimcole/source`, but keep one Prairie-native app shell, one server model, one public-download philosophy, and one capability-driven navigation model.
 
 The implementation order is:
 
@@ -22,13 +22,13 @@ Android 7 support remains a hard compatibility constraint. Any borrowed dependen
 
 ## Current Reality
 
-Silo already has important foundations:
+Prairie already has important foundations:
 
 - Capability-driven mobile tabs: Video, Audio, Reading, hidden when the server/profile lacks those libraries.
 - TV excludes Reading surfaces.
 - Public, original-format downloads with private sidecars.
 - Mobile ebook/detail/download routing.
-- A Silo-native reader dispatcher:
+- A Prairie-native reader dispatcher:
   - EPUB, FB2/FBZ, TXT, Markdown through the new WebView-based reflow engine.
   - PDF through Android `PdfRenderer`.
   - CBZ through ZIP image paging.
@@ -37,7 +37,7 @@ Silo already has important foundations:
 - Requests on mobile and TV, with TV filtering ebooks.
 - A shared video playback backend boundary with Media3 now and MPV-capable architecture later.
 
-This is not yet enough to claim "best of every source." The current reader is Silo-native, not Book Story, Readest, Kotatsu, Komikku, or Seeneva. Music is recognized as an Audio-class future surface, but not yet a Finamp-grade music client.
+This is not yet enough to claim "best of every source." The current reader is Prairie-native, not Book Story, Readest, Kotatsu, Komikku, or Seeneva. Music is recognized as an Audio-class future surface, but not yet a Finamp-grade music client.
 
 ## Borrowing Policy
 
@@ -45,7 +45,7 @@ We will borrow deliberately:
 
 - Borrow product expectations, interaction patterns, edge cases, and tested architecture ideas.
 - Keep code provenance explicit when source code is reused.
-- Prefer Silo-native interfaces around borrowed ideas so the app does not become a patchwork of embedded apps.
+- Prefer Prairie-native interfaces around borrowed ideas so the app does not become a patchwork of embedded apps.
 - Do not fork the app shell around any single source project.
 - Do not add broad rewrites unless they directly serve the current phase.
 
@@ -73,9 +73,9 @@ Features to absorb:
 - Per-book display settings with sensible global defaults.
 - Graceful external open for formats better handled by dedicated readers.
 
-Silo direction:
+Prairie direction:
 
-- Keep the Silo-native `ReaderScreen`/`ReaderViewModel` ownership.
+- Keep the Prairie-native `ReaderScreen`/`ReaderViewModel` ownership.
 - Build a premium reader shell that all reading engines use.
 - Keep reflowable formats under one WebView/pagination engine.
 - Treat PDF as a fixed-document engine, not a text-reflow engine.
@@ -102,7 +102,7 @@ Features to absorb:
 - Gesture zones tuned for one-handed reading.
 - Future smart features from Seeneva: panel/balloon zoom, OCR, and TTS.
 
-Silo direction:
+Prairie direction:
 
 - Comics and manga live under mobile Reading.
 - Do not expose them on TV.
@@ -130,7 +130,7 @@ Features to absorb:
 - Background playback and notification polish.
 - Cross-device progress sync.
 
-Silo direction:
+Prairie direction:
 
 - Keep audiobooks under Audio.
 - Mobile gets the richer management/player surface.
@@ -155,7 +155,7 @@ Features to absorb:
 - Background playback and media notification/session polish.
 - Android Auto later.
 
-Silo direction:
+Prairie direction:
 
 - Music lives under Audio beside Audiobooks.
 - Mobile gets the full music client.
@@ -180,7 +180,7 @@ Features to preserve or absorb:
 - Professional TV controls and remote ergonomics.
 - External playback for downloaded originals.
 
-Silo direction:
+Prairie direction:
 
 - Do not destabilize video during Reading phase.
 - Continue backend-boundary work in targeted slices only.
@@ -196,7 +196,7 @@ Features to preserve or absorb:
 - Search results should make media type obvious.
 - Request state should be visible and cancelable where server support exists.
 
-Silo direction:
+Prairie direction:
 
 - Requests stay shared-model, device-specific UI.
 - Reading-first work should not regress request filters.
@@ -241,7 +241,7 @@ Reading is the first implementation phase. It should be split into five bounded 
 5. `ExternalReadingTarget`
    - MOBI, AZW, AZW3, CBR until native archive support exists, plus recognized original formats that lack an in-app engine.
    - Opens the public original with Android intents.
-   - Never traps the user inside Silo when another app can read the file better.
+   - Never traps the user inside Prairie when another app can read the file better.
 
 ### Audio Phase Architecture
 
@@ -257,7 +257,7 @@ They may share a playback service, media session, notification primitives, strea
 ### Reading Start
 
 1. User opens an ebook, comic, or manga from detail, search, downloads, or continue reading.
-2. Silo resolves the source through one reader file resolver: public download, `file://`, `content://`, server-relative API path, or authenticated absolute URL.
+2. Prairie resolves the source through one reader file resolver: public download, `file://`, `content://`, server-relative API path, or authenticated absolute URL.
 3. `ReaderShell` asks the engine selector for the correct reading engine.
 4. The engine emits location/progress events.
 5. Local state saves immediately.
@@ -267,7 +267,7 @@ They may share a playback service, media session, notification primitives, strea
 ### Audiobook Start
 
 1. User opens an audiobook from Audio, detail, search, requests, downloads, or continue listening.
-2. Silo resolves book timeline, file/chapter mapping, and local/offline availability.
+2. Prairie resolves book timeline, file/chapter mapping, and local/offline availability.
 3. Playback starts from the requested or resumed book position.
 4. Controls operate in audiobook terms: chapter, speed, skip, bookmark, sleep timer.
 5. Progress saves locally and syncs when possible.
@@ -275,7 +275,7 @@ They may share a playback service, media session, notification primitives, strea
 ### Music Start
 
 1. User opens song, album, artist, playlist, or queue.
-2. Silo builds a stable queue.
+2. Prairie builds a stable queue.
 3. Playback starts through the shared audio playback infrastructure.
 4. Controls operate in music terms: previous/next, queue, shuffle, repeat, lyrics, seek.
 5. Progress/reporting and downloads use music-specific rules, not audiobook rules.
@@ -358,7 +358,7 @@ Audiobook and request QA remain required before claiming full production complet
 
 ### Phase 6: Integrated QA
 
-- Run all-media flows against a real Silo server:
+- Run all-media flows against a real Prairie server:
   - Continue Watching, Continue Listening, Continue Reading.
   - Search across Video, Audio, and Reading.
   - Requests for the allowed media types per device.

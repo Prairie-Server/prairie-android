@@ -20,8 +20,8 @@
 ### Task 1: Publish active marquee enrichment safely
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModel.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModelTest.kt`
 
 **Interfaces:**
 - `TvFocusMarqueeState.applyEnrichment(contentId, enrichment)` always caches and also sets `enrichment` when `content?.contentId == contentId`.
@@ -68,16 +68,16 @@ Expected: all marquee state tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModel.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModelTest.kt
 git commit -m "fix(tv): publish active marquee enrichment"
 ```
 
 ### Task 2: Add the 150 ms marquee focus-rest debounce
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeed.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModel.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModelTest.kt`
 
 **Interfaces:**
 - Produces: `internal const val TvMarqueeFocusRestMillis = 150L`.
@@ -124,15 +124,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeedSourceTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeed.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModel.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModelTest.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeedSourceTest.kt
 git commit -m "fix(tv): debounce marquee focus previews"
 ```
 
 ### Task 3: Scrubber labels follow preview position
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScrubber.kt`
-- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScrubberTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScrubber.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScrubberTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun playerScrubberLabelPosition(positionSec: Double, scrubPreviewSec: Double?, isScrubbing: Boolean): Double`.
@@ -140,7 +140,7 @@ git commit -m "fix(tv): debounce marquee focus previews"
 - [ ] **Step 1: Add failing source-selection tests**
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.player
+package org.prairieserver.prairie.tv.ui.screens.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -184,15 +184,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScrubber.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScrubberTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScrubber.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScrubberTest.kt
 git commit -m "fix(tv): show scrub preview time labels"
 ```
 
 ### Task 4: Persist next-up selector choices
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailViewModel.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailViewModelTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailViewModel.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailViewModelTest.kt`
 
 **Interfaces:**
 - `onNextUpVersionSelected`, `onNextUpAudioTrackSelected`, and `onNextUpSubtitleTrackSelected` update UI state and call the same selection persistence abstraction as ordinary selections using the next-up content/file identity.
@@ -238,15 +238,15 @@ Expected: all detail selection and persistence tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailViewModel.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailViewModelTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailViewModel.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailViewModelTest.kt
 git commit -m "fix(tv): persist next-up track selections"
 ```
 
 ### Task 5: PiP reconnect visibility
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScreen.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun shouldShowReconnectSpinner(isReconnecting: Boolean, showNextUp: Boolean, isInPip: Boolean): Boolean`.
@@ -288,7 +288,7 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
 git commit -m "fix(tv): hide reconnect spinner in pip"
 ```
 

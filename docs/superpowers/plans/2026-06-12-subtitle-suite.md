@@ -20,7 +20,7 @@
 - Create: `shared/src/commonMain/kotlin/com/continuum/app/model/subtitles/SubtitleModels.kt`
 - Test: `shared/src/commonTest/kotlin/com/continuum/app/model/subtitles/SubtitleModelsSerializationTest.kt`
 
-Wire shapes verified against silo-server `main`: `internal/subtitles/types.go` (SubtitleResult `id` is a **string**, `score` float64, `upload_date` time.Time `omitempty`; DownloadedSubtitle `id` is **int**), `internal/subtitles/ai/job.go` (Job `id` is **int64**, `result_subtitle_id *int`, `error_message omitempty`), `internal/subtitles/ai/quota.go` (QuotaStatus zero-value `{"limited":false,...,"period":""}` for exempt callers), and `internal/api/handlers/subtitle_search.go` / `subtitle_ai.go` envelopes (`{"subtitle":…}`, `{"subtitles":…}`, `{"job":…}`, `{"jobs":…}`; search and quota responses are **unenveloped**). Request models live in the same models file, matching `model/playback/PlaybackModels.kt` (`StartPlaybackRequest` lives beside response models).
+Wire shapes verified against prairie-server `main`: `internal/subtitles/types.go` (SubtitleResult `id` is a **string**, `score` float64, `upload_date` time.Time `omitempty`; DownloadedSubtitle `id` is **int**), `internal/subtitles/ai/job.go` (Job `id` is **int64**, `result_subtitle_id *int`, `error_message omitempty`), `internal/subtitles/ai/quota.go` (QuotaStatus zero-value `{"limited":false,...,"period":""}` for exempt callers), and `internal/api/handlers/subtitle_search.go` / `subtitle_ai.go` envelopes (`{"subtitle":…}`, `{"subtitles":…}`, `{"job":…}`, `{"jobs":…}`; search and quota responses are **unenveloped**). Request models live in the same models file, matching `model/playback/PlaybackModels.kt` (`StartPlaybackRequest` lives beside response models).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1429,7 +1429,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Create: `shared/src/commonMain/kotlin/com/continuum/app/model/playback/SubtitleTrackMerge.kt`
 - Test: `shared/src/commonTest/kotlin/com/continuum/app/model/playback/SubtitleTrackMergeTest.kt`
 
-**Web reference (pinned).** `silo-server/web/src/player/hooks/usePlaybackSession.ts`, `refreshSubtitles` (lines 473–514):
+**Web reference (pinned).** `prairie-server/web/src/player/hooks/usePlaybackSession.ts`, `refreshSubtitles` (lines 473–514):
 
 ```ts
 setState((prev) => {
@@ -1457,7 +1457,7 @@ setState((prev) => {
 });
 ```
 
-URL absolutization, `silo-server/web/src/player/stream-url.ts` `buildPlayerStreamUrl` (lines 32–55) — non-absolute paths are prefixed with `apiBaseUrl`, and the token rides as a query param (browsers can't set headers on track fetches); `playMethod` is `"direct"` and `initialPosition` is `0`, so no `seek` param is ever added:
+URL absolutization, `prairie-server/web/src/player/stream-url.ts` `buildPlayerStreamUrl` (lines 32–55) — non-absolute paths are prefixed with `apiBaseUrl`, and the token rides as a query param (browsers can't set headers on track fetches); `playMethod` is `"direct"` and `initialPosition` is `0`, so no `seek` param is ever added:
 
 ```ts
 const params = new URLSearchParams();
@@ -1471,13 +1471,13 @@ const base =
 return `${base}${query ? `?${query}` : ""}`;
 ```
 
-with `apiBaseUrl: "/api/v1"` (`silo-server/web/src/playback/WatchPlaybackChrome.tsx:443`). So the web's final URL is `/api/v1/stream/{sessionId}/subtitles/{index}?token=…`, site-relative.
+with `apiBaseUrl: "/api/v1"` (`prairie-server/web/src/playback/WatchPlaybackChrome.tsx:443`). So the web's final URL is `/api/v1/stream/{sessionId}/subtitles/{index}?token=…`, site-relative.
 
 **Android mapping decisions (each pinned to read code):**
-- **Path:** identical — `/stream/{sessionId}/subtitles/{index}` under `/api/v1` (route confirmed at `silo-server/internal/api/router.go:1990` inside the `r.Route("/api/v1", …)` block at line 1346). The session id is required for the path, and `PlayerSubtitleInfo` does not carry one, so the function takes a `sessionId` parameter (the web closes over `sessionIdRef.current` the same way).
+- **Path:** identical — `/stream/{sessionId}/subtitles/{index}` under `/api/v1` (route confirmed at `prairie-server/internal/api/router.go:1990` inside the `r.Route("/api/v1", …)` block at line 1346). The session id is required for the path, and `PlayerSubtitleInfo` does not carry one, so the function takes a `sessionId` parameter (the web closes over `sessionIdRef.current` the same way).
 - **Made absolute against `serverUrl`:** the web is same-origin so `/api/v1/...` suffices; Android prefixes the server origin (`TokenManagerImpl.getServerUrl()` returns a trimmed origin). Emitting an absolute `http(s)` URL is safe through the existing pipeline because `SubtitleManager.resolveUrl` (`android-shared/.../player/SubtitleManager.kt:211-217`) passes absolute URLs through untouched.
 - **No `?token=`:** Android subtitle fetches go through `AuthenticatedDataSourceFactory` → shared OkHttp client whose `MediaAuthInterceptor` injects `Authorization: Bearer` + profile headers and handles 401-refresh (`android-shared/.../player/MediaAuthInterceptor.kt`). A token query param would be redundant, would leak into logs/caches, and would break the function's purity. This is the same divergence the rest of the Android player already makes for `stream_url` itself.
-- **Dedupe:** `PlayerSubtitleInfo` (`shared/.../model/playback/PlaybackModels.kt:37-46`) carries `index/language/codec/label/source/forced/url` — **no downloaded-subtitle id** — so identity-based dedupe is impossible and also not what the web does: the web strips every `source === "downloaded"` track and rebuilds them all from the fresh `GET /subtitles/{media_file_id}` list. We mirror that filter-and-replace exactly (it is also what the server itself emits for session-start track lists: `Source: "downloaded"`, `Label: dl.ReleaseName + " (" + dl.Provider + ")"` — `silo-server/internal/api/handlers/playback.go:1501-1512`).
+- **Dedupe:** `PlayerSubtitleInfo` (`shared/.../model/playback/PlaybackModels.kt:37-46`) carries `index/language/codec/label/source/forced/url` — **no downloaded-subtitle id** — so identity-based dedupe is impossible and also not what the web does: the web strips every `source === "downloaded"` track and rebuilds them all from the fresh `GET /subtitles/{media_file_id}` list. We mirror that filter-and-replace exactly (it is also what the server itself emits for session-start track lists: `Source: "downloaded"`, `Label: dl.ReleaseName + " (" + dl.Provider + ")"` — `prairie-server/internal/api/handlers/playback.go:1501-1512`).
 - **Indices:** continue from `max(existing.index) + 1` (not list size — server-side burn-in skipping can leave gaps, see `playback.go:1484-1486`), exactly like the web's `Math.max(...)+1`. Index drives both the stream path the server resolves and selection: `SubtitleManager.selectSubtitle` walks TEXT track groups in order and sidecar configurations are appended in list order by `buildSubtitleConfigurations`, so appending new tracks at the end leaves existing selections stable. Auto-select after download: the track for `DownloadedSubtitle.id == X` sits at merged position `base.size + downloaded.indexOfFirst { it.id == X }` (callers in the mobile/TV viewmodel tasks rely on this documented ordering).
 
 - [ ] **Step 1: Write the failing test**
@@ -3664,9 +3664,9 @@ TV-side facts these tasks build on (verified against current code): `TvPlayerVie
 ### Task T1: TvPlayerViewModel — aiStatus probe, refreshSubtitles merge + Media3 rebuild, search/download/translate orchestration
 
 **Files:**
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4173,9 +4173,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task T2: TvSubtitleSearchDialog + HUD "Search subtitles" action row
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvSubtitleSearchDialog.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvSubtitleSearchDialog.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4915,8 +4915,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task T3: TvAiTranslateDialog + HUD "Translate with AI" row (AI-status gated)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvAiTranslateDialog.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvAiTranslateDialog.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 - [ ] **Step 1: Write the failing test**
 

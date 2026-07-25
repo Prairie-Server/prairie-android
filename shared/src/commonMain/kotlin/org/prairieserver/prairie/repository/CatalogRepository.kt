@@ -1,0 +1,192 @@
+package org.prairieserver.prairie.repository
+
+import org.prairieserver.prairie.model.catalog.CatalogFiltersResponse
+import org.prairieserver.prairie.model.catalog.CatalogQueryGroup
+import org.prairieserver.prairie.model.catalog.CatalogResponse
+import org.prairieserver.prairie.model.catalog.AudiobookGroupsResponse
+import org.prairieserver.prairie.model.catalog.EpisodesResponse
+import org.prairieserver.prairie.model.catalog.FileVersion
+import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.catalog.Person
+import org.prairieserver.prairie.model.catalog.SeasonsResponse
+import org.prairieserver.prairie.model.catalog.WatchDetail
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.api.CatalogApi
+import org.prairieserver.prairie.repository.port.CatalogCachePort
+import org.prairieserver.prairie.repository.port.NoOpCatalogCachePort
+import org.prairieserver.prairie.repository.port.canServeCache
+
+class CatalogRepository(
+    private val catalogApi: CatalogApi,
+    /** Offline read cache for a library's default first page (Track B). No-op by default. */
+    private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
+) {
+    /** Browse the catalog with optional filters, sorting, and pagination. */
+    suspend fun browse(
+        source: String? = null,
+        query: String? = null,
+        mediaType: String? = null,
+        libraryId: Int? = null,
+        genre: String? = null,
+        contentRating: String? = null,
+        sort: String? = null,
+        order: String? = null,
+        offset: Int? = null,
+        limit: Int? = null,
+        namePrefix: String? = null,
+        yearMin: Int? = null,
+        yearMax: Int? = null,
+        snapshotAt: String? = null,
+        queryGroups: List<CatalogQueryGroup> = emptyList(),
+        match: String? = null,
+    ): ApiResult<CatalogResponse> {
+        val result = catalogApi.getCatalog(
+            source = source,
+            query = query,
+            mediaType = mediaType,
+            libraryId = libraryId,
+            genre = genre,
+            contentRating = contentRating,
+            sort = sort,
+            order = order,
+            offset = offset,
+            limit = limit,
+            namePrefix = namePrefix,
+            yearMin = yearMin,
+            yearMax = yearMax,
+            snapshotAt = snapshotAt,
+            queryGroups = queryGroups,
+            match = match,
+        )
+
+        // Only the unfiltered, first-page default browse of a single library is
+        // cached for offline (every request-shaping param must be at its default).
+        val cacheableLibraryId = libraryId?.takeIf {
+            (offset == null || offset == 0) &&
+                query == null && genre == null && contentRating == null &&
+                namePrefix == null && yearMin == null && yearMax == null &&
+                source == null && mediaType == null && snapshotAt == null &&
+                queryGroups.isEmpty() && match == null &&
+                (sort == null || sort == "added_at") && (order == null || order == "desc")
+        } ?: return result
+
+        if (result is ApiResult.Success) {
+            catalogCache.cacheDefaultLibraryPage(cacheableLibraryId, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedDefaultLibraryPage(cacheableLibraryId)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
+
+    /** Returns available filter options (genres, studios, etc.) for the catalog. */
+    suspend fun getFilters(
+        libraryId: Int? = null,
+        includeTechnical: Boolean = false,
+    ): ApiResult<CatalogFiltersResponse> =
+        catalogApi.getFilters(libraryId, includeTechnical)
+
+    /** Groups audiobook libraries by author, narrator, or series for book-native browsing. */
+    suspend fun getAudiobookGroups(
+        libraryId: Int,
+        groupBy: String,
+        sort: String = "name",
+        offset: Int? = null,
+        limit: Int? = null,
+        query: String? = null,
+        includeTotal: Boolean? = null,
+    ): ApiResult<AudiobookGroupsResponse> =
+        catalogApi.getAudiobookGroups(
+            libraryId = libraryId,
+            groupBy = groupBy,
+            sort = sort,
+            offset = offset,
+            limit = limit,
+            query = query,
+            includeTotal = includeTotal,
+        )
+
+    /** Fetches full metadata for a single catalog item (offline: last cached detail). */
+    suspend fun getItemDetail(contentId: String): ApiResult<ItemDetail> {
+        val result = catalogApi.getItemDetail(contentId)
+        if (result is ApiResult.Success) {
+            catalogCache.cacheItemDetail(contentId, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedItemDetail(contentId)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
+
+    /** Returns the last cached item detail without touching the network. */
+    suspend fun getCachedItemDetail(contentId: String): ItemDetail? =
+        catalogCache.getCachedItemDetail(contentId)
+
+    /** Fetches playback-oriented detail (versions, user progress, intro/credits markers). */
+    suspend fun getWatchDetail(contentId: String): ApiResult<WatchDetail> =
+        catalogApi.getWatchDetail(contentId)
+
+    /** Lists seasons for a series (offline: last cached seasons). */
+    suspend fun getSeasons(seriesId: String): ApiResult<SeasonsResponse> {
+        val result = catalogApi.getSeasons(seriesId)
+        if (result is ApiResult.Success) {
+            catalogCache.cacheSeasons(seriesId, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedSeasons(seriesId)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
+
+    /** Lists episodes for a specific season of a series (offline: last cached episodes). */
+    suspend fun getEpisodes(seriesId: String, seasonNumber: Int): ApiResult<EpisodesResponse> {
+        val result = catalogApi.getEpisodes(seriesId, seasonNumber)
+        if (result is ApiResult.Success) {
+            catalogCache.cacheEpisodes(seriesId, seasonNumber, result.data)
+            return result
+        }
+        if (result.canServeCache()) {
+            catalogCache.getCachedEpisodes(seriesId, seasonNumber)?.let { return ApiResult.Success(it) }
+        }
+        return result
+    }
+
+    /** Lists all episodes directly attached to an item (e.g. a season content ID). */
+    suspend fun getItemEpisodes(contentId: String): ApiResult<EpisodesResponse> =
+        catalogApi.getItemEpisodes(contentId)
+
+    /** Lists all available file versions for an item. */
+    suspend fun getItemVersions(contentId: String): ApiResult<List<FileVersion>> =
+        catalogApi.getItemVersions(contentId)
+
+    /** Searches for people (cast/crew) by name. */
+    suspend fun searchPeople(query: String): ApiResult<List<Person>> =
+        catalogApi.searchPeople(query)
+
+    /** Queues a server-side metadata refresh for a person. */
+    suspend fun refreshPerson(id: Long): ApiResult<Unit> =
+        catalogApi.refreshPerson(id)
+
+    /** Fetches details for a specific person. */
+    suspend fun getPerson(id: Long): ApiResult<Person> =
+        catalogApi.getPerson(id)
+
+    /** Filmography for a person — movies and series they appear in. */
+    suspend fun getPersonItems(
+        personId: Long,
+        mediaType: String? = null,
+        offset: Int? = null,
+        limit: Int? = null,
+        snapshotAt: String? = null,
+    ): ApiResult<CatalogResponse> =
+        catalogApi.getPersonItems(
+            personId = personId,
+            mediaType = mediaType,
+            offset = offset,
+            limit = limit,
+            snapshotAt = snapshotAt,
+        )
+}

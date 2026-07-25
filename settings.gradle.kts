@@ -13,7 +13,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SiloAndroid"
+rootProject.name = "PrairieAndroid"
 include(":shared")
 include(":libass-bridge")
 include(":android-shared")

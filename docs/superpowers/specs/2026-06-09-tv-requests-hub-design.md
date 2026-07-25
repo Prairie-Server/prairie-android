@@ -2,7 +2,7 @@
 
 ## Context
 
-Silo server currently exposes user-facing request endpoints for movie and series requests through `/api/v1/requests/*`. The current request contract is TMDB-shaped: `media_type` is `movie`, `series`, or `all`, and request detail/create flows are keyed by `tmdb_id`. Android shared already has request models, API, repository, and view models for this contract.
+Prairie server currently exposes user-facing request endpoints for movie and series requests through `/api/v1/requests/*`. The current request contract is TMDB-shaped: `media_type` is `movie`, `series`, or `all`, and request detail/create flows are keyed by `tmdb_id`. Android shared already has request models, API, repository, and view models for this contract.
 
 Android TV already has a Requests top-menu destination, a discover-first `TvRequestsScreen`, reusable request card/status components, and `TvMyRequestsScreen`. The next slice refines that work into an elegant search-led TV Requests Hub rather than a bare utility screen.
 

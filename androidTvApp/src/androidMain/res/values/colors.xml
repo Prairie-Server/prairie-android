@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Primary palette -->
-    <color name="silo_blue">#FF1E88E5</color>
-    <color name="silo_blue_light">#FF6AB7FF</color>
-    <color name="silo_blue_dark">#FF005CB2</color>
-    <color name="silo_icon_background">#FF1718C9</color>
+    <color name="prairie_blue">#FF1E88E5</color>
+    <color name="prairie_blue_light">#FF6AB7FF</color>
+    <color name="prairie_blue_dark">#FF005CB2</color>
+    <color name="prairie_icon_background">#FF1718C9</color>
 
     <!-- Dark surfaces — Midnight Cinema palette, matches phone and web -->
     <color name="dark_background">#FF141417</color>

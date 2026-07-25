@@ -2,13 +2,13 @@
 
 **Date:** 2026-06-12
 **Status:** Approved
-**Scope:** Sub-project 5. Both mobile AND TV get the full feature: create/join/lobby/suggestions/voting/synced playback/invite, including **room creation on TV** (revised 2026-06-12 by user decision — TV is not join-only). Server: silo-server `origin/main` (the Watch Together feature is on main). Realtime-only feature — the per-room websocket IS the feature; no REST fallback.
+**Scope:** Sub-project 5. Both mobile AND TV get the full feature: create/join/lobby/suggestions/voting/synced playback/invite, including **room creation on TV** (revised 2026-06-12 by user decision — TV is not join-only). Server: prairie-server `origin/main` (the Watch Together feature is on main). Realtime-only feature — the per-room websocket IS the feature; no REST fallback.
 
 ## Goal
 
 Close the "Watch Together" parity gap: synchronized playback rooms where members watch the same title in lock-step, with a lobby, host-picked or voted selection, suggestions + voting, and an invite code — on mobile and TV (both can create AND join).
 
-## Server protocol (verified against silo-server main — exact contracts)
+## Server protocol (verified against prairie-server main — exact contracts)
 
 ### Tokens & auth
 - Create/join returns `{ "room": <Snapshot>, "room_access_token": "<JWT>" }`. The **room JWT** (24h) is a SECOND token distinct from the auth JWT.

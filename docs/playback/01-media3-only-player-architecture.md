@@ -10,14 +10,14 @@ in the [migration specification](02-migration-compatibility-validation.md).
 
 ## 1. Decision and terminology
 
-Silo Android will use Media3 ExoPlayer as its only in-process video engine. It
+Prairie Android will use Media3 ExoPlayer as its only in-process video engine. It
 will not construct, select, or advertise MPV. Compatibility comes from choosing
 different server deliveries, not swapping local players.
 
 The following terms are distinct throughout these specifications:
 
 - **Engine**: the sole in-process Media3 ExoPlayer instance or replacement
-  instance owned by `SiloPlaybackService`.
+  instance owned by `PrairiePlaybackService`.
 - **Delivery**: original HTTP, server remux, or server transcode bytes supplied
   to Media3.
 - **Output route**: the current display and audio-sink path, identified by an
@@ -43,7 +43,7 @@ mean sending unsupported bytes to Media3 and hoping playback succeeds.
 Compose phone / Compose TV UI
              │ MediaController
              ▼
-SiloPlaybackService + MediaSession
+PrairiePlaybackService + MediaSession
              │ owns one
              ▼
 Media3 ExoPlayer
@@ -54,7 +54,7 @@ Media3 ExoPlayer
  └── existing PiP, audio focus, and session integration
              │
              ▼
-Versioned Silo playback API
+Versioned Prairie playback API
  ├── original HTTP
  ├── progressive/HLS remux
  ├── video-copy + audio adaptation
@@ -286,7 +286,7 @@ combines it with administrator policy and returns the effective
 | --- | --- |
 | Supported embedded/sidecar text | Render with Media3. |
 | ASS/SSA without required full styling | Render only when `allow_simplified_rendering` applies; otherwise convert or burn in with a warning. |
-| PGS, VobSub, or DVB | Test embedded and sidecar paths separately. Media3 1.10.1 includes parsers, but Silo wiring and fidelity still require fixtures. [Pinned parser source](https://github.com/androidx/media/blob/1.10.1/libraries/extractor/src/main/java/androidx/media3/extractor/text/DefaultSubtitleParserFactory.java#L55-L64) |
+| PGS, VobSub, or DVB | Test embedded and sidecar paths separately. Media3 1.10.1 includes parsers, but Prairie wiring and fidelity still require fixtures. [Pinned parser source](https://github.com/androidx/media/blob/1.10.1/libraries/extractor/src/main/java/androidx/media3/extractor/text/DefaultSubtitleParserFactory.java#L55-L64) |
 | Font-attached styled subtitle | Render only when attachment/style fidelity is validated; otherwise convert or burn in. |
 | Concurrent secondary subtitle | Unsupported until a separate implementation and fixture set exist. |
 

@@ -38,7 +38,7 @@ Real paths, with responsibility:
 
 - `androidApp/src/main/assets/reader/epubjs/epub.min.js` — vendored epub.js library (web asset). **New.**
 - `androidApp/src/main/assets/reader/epubjs/jszip.min.js` — vendored JSZip (epub.js peer dependency). **New.**
-- `androidApp/src/main/assets/reader/epubjs/reader.html` — HTML harness that boots epub.js, exposes `window.SiloReader` JS API, and posts messages to the `AndroidReaderBridge` interface. **New.**
+- `androidApp/src/main/assets/reader/epubjs/reader.html` — HTML harness that boots epub.js, exposes `window.PrairieReader` JS API, and posts messages to the `AndroidReaderBridge` interface. **New.**
 - `androidApp/src/main/assets/reader/epubjs/reader.js` — harness glue (rendition setup, relocation listener, theme application, tap/swipe zones). **New.**
 - `androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/PaginatedWebReader.kt` — Compose `AndroidView` hosting the WebView, wiring `WebViewAssetLoader`, the bridge, and Kotlin→JS calls. Replaces `EpubReader`'s `HorizontalPager` for EPUB. **New.**
 - `androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/EpubBridge.kt` — `@JavascriptInterface` host object + the Kotlin→JS command sender (`EpubCommandSender`). **New.**
@@ -100,7 +100,7 @@ Per spec §9: epub.js in a WebView is the top risk (asset bundling, bridge perfo
   ```bash
   adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
   adb shell am start -n com.continuum.app/.android.ui.screens.reader.SpikeActivity
-  adb logcat -s chromium SiloReaderSpike   # observe console + title changes
+  adb logcat -s chromium PrairieReaderSpike   # observe console + title changes
   ```
   Confirm: (a) book renders paginated; (b) `book.locations.generate` completes and `READY:<N>` shows a plausible page/location count; (c) swipe/`rendition.next()` turns a page and `relocated` fires with a non-empty CFI; (d) on the LARGE book, `locations.generate` finishes within a tolerable budget (target < 8s on a mid-range device) and page turns stay responsive (no multi-second jank).
 - [ ] **Go / no-go decision**, recorded in `docs/architecture/reader-epubjs-bridge.md`:
@@ -260,13 +260,13 @@ The web side. Owns rendering, theming, tap/swipe zones, and posting typed events
       try { AndroidReaderBridge.postEvent(JSON.stringify(obj)); } catch (e) {}
     }
     // Kotlin → JS surface.
-    window.SiloReader = {
+    window.PrairieReader = {
       open: function (rootUrl, startCfi, themeJson) {
         book = ePub(rootUrl, { openAs: "directory" });
         rendition = book.renderTo("viewer", {
           flow: "paginated", width: "100%", height: "100%", spread: "none", manager: "default"
         });
-        if (themeJson) { SiloReader.applyTheme(themeJson); }
+        if (themeJson) { PrairieReader.applyTheme(themeJson); }
         book.ready
           .then(function () { return book.locations.generate(1600); })
           .then(function () {
@@ -305,8 +305,8 @@ The web side. Owns rendering, theming, tap/swipe zones, and posting typed events
     // Tap zones: left 33% = prev, right 33% = next, center reserved for chrome toggle (later phase).
     document.addEventListener("click", function (ev) {
       var x = ev.clientX, w = window.innerWidth;
-      if (x < w * 0.33) { SiloReader.prev(); }
-      else if (x > w * 0.66) { SiloReader.next(); }
+      if (x < w * 0.33) { PrairieReader.prev(); }
+      else if (x > w * 0.66) { PrairieReader.next(); }
       else { post({ type: "tapCenter" }); } // hook reserved; host ignores unknowns
     }, true);
   })();
@@ -342,11 +342,11 @@ The web side. Owns rendering, theming, tap/swipe zones, and posting typed events
   /** Kotlin → JS commands. Always invoked on the main thread. */
   internal class EpubCommandSender(private val web: WebView) {
       fun open(rootUrl: String, startCfi: String?, themeJson: String) =
-          eval("window.SiloReader.open(${js(rootUrl)}, ${js(startCfi ?: "")}, ${js(themeJson)})")
-      fun next() = eval("window.SiloReader.next()")
-      fun prev() = eval("window.SiloReader.prev()")
-      fun display(cfi: String) = eval("window.SiloReader.display(${js(cfi)})")
-      fun applyTheme(themeJson: String) = eval("window.SiloReader.applyTheme(${js(themeJson)})")
+          eval("window.PrairieReader.open(${js(rootUrl)}, ${js(startCfi ?: "")}, ${js(themeJson)})")
+      fun next() = eval("window.PrairieReader.next()")
+      fun prev() = eval("window.PrairieReader.prev()")
+      fun display(cfi: String) = eval("window.PrairieReader.display(${js(cfi)})")
+      fun applyTheme(themeJson: String) = eval("window.PrairieReader.applyTheme(${js(themeJson)})")
       private fun eval(script: String) = web.evaluateJavascript(script, null)
       // JSON-encode a string literal so CFIs/themes can't break out of the call.
       private fun js(value: String): String =

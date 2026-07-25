@@ -5,23 +5,23 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
 }
 
-val siloVersionName = providers
-    .gradleProperty("siloVersionName")
-    .orElse(providers.environmentVariable("SILO_VERSION_NAME"))
+val prairieVersionName = providers
+    .gradleProperty("prairieVersionName")
+    .orElse(providers.environmentVariable("PRAIRIE_VERSION_NAME"))
     // Release builds override this from the validated Git tag in
     // android-build.yml. Keep local/dev builds aligned with the latest release.
     .orElse("0.3.11")
 
-val siloVersionCode = providers
-    .gradleProperty("siloVersionCode")
-    .orElse(providers.environmentVariable("SILO_VERSION_CODE"))
+val prairieVersionCode = providers
+    .gradleProperty("prairieVersionCode")
+    .orElse(providers.environmentVariable("PRAIRIE_VERSION_CODE"))
     .map { value ->
-        val code = value.toIntOrNull() ?: error("siloVersionCode must be an integer.")
-        require(code > 0) { "siloVersionCode must be positive." }
+        val code = value.toIntOrNull() ?: error("prairieVersionCode must be an integer.")
+        require(code > 0) { "prairieVersionCode must be positive." }
         // The *2 (+1 for TV) form-factor multiplier applied at versionCode
         // assignment must stay under Google Play's 2_100_000_000 ceiling.
         require(code <= 1_049_999_999) {
-            "siloVersionCode must be <= 1_049_999_999 so the form-factor multiplier " +
+            "prairieVersionCode must be <= 1_049_999_999 so the form-factor multiplier " +
                 "keeps both artifacts under Google Play's 2_100_000_000 versionCode limit."
         }
         code
@@ -122,7 +122,7 @@ android {
         .map(String::toBoolean)
         .getOrElse(false)
 
-    namespace = "org.siloserver.silo.tv"
+    namespace = "org.prairieserver.prairie.tv"
     compileSdk = 36
     defaultConfig {
         // Shares one Play listing with the phone app, so both must use the
@@ -131,13 +131,13 @@ android {
         // phone app requires android.hardware.touchscreen). The `namespace`
         // above stays distinct so the generated R/BuildConfig classes don't
         // collide with the phone module.
-        applicationId = "org.siloserver.silo"
+        applicationId = "org.prairieserver.prairie"
         minSdk = 24
         targetSdk = 35
         // Two artifacts under one listing need distinct versionCodes: phone =
         // base*2, TV = base*2+1, so each release bumps both by 2 with no reuse.
-        versionCode = siloVersionCode.get() * 2 + 1
-        versionName = siloVersionName.get()
+        versionCode = prairieVersionCode.get() * 2 + 1
+        versionName = prairieVersionName.get()
         // Shadow the android-shared BuildConfig field so per-app flavors can
         // override without rebuilding the shared module. See androidApp's
         // build.gradle.kts for rationale.
@@ -150,19 +150,19 @@ android {
     // Release signing comes from the environment (CI decodes the keystore from
     // a GitHub secret); shared with :androidApp so both apps carry the same
     // signing identity. See that file for rationale.
-    val releaseKeystorePath = providers.environmentVariable("SILO_RELEASE_KEYSTORE").orNull
+    val releaseKeystorePath = providers.environmentVariable("PRAIRIE_RELEASE_KEYSTORE").orNull
     val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank()
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = file(releaseKeystorePath!!)
-                storePassword = providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
-                keyAlias = providers.environmentVariable("SILO_RELEASE_KEY_ALIAS").orNull
+                storePassword = providers.environmentVariable("PRAIRIE_RELEASE_KEYSTORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("PRAIRIE_RELEASE_KEY_ALIAS").orNull
                 // The key password may differ from the keystore password; fall
                 // back to the keystore password when they're the same.
-                keyPassword = providers.environmentVariable("SILO_RELEASE_KEY_PASSWORD").orNull
+                keyPassword = providers.environmentVariable("PRAIRIE_RELEASE_KEY_PASSWORD").orNull
                     ?.takeIf { it.isNotBlank() }
-                    ?: providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
+                    ?: providers.environmentVariable("PRAIRIE_RELEASE_KEYSTORE_PASSWORD").orNull
             }
         }
     }

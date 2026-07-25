@@ -19,7 +19,7 @@ plugins {
  * generator (targetProjectPath = ":androidTvApp") later.
  */
 android {
-    namespace = "org.siloserver.silo.baselineprofile"
+    namespace = "org.prairieserver.prairie.baselineprofile"
     compileSdk = 36
 
     defaultConfig {

@@ -1,7 +1,7 @@
 # Audiobook Player Redesign (Premium) — Design
 
 **Status:** Approved design (brainstorming output). Implementation plan to follow via writing-plans.
-**Scope:** Android **phone** (`androidApp`) **and Android TV** (`androidTvApp`). All non-UI audiobook logic lives in `shared` (pure chapter math, commonMain) and `android-shared` (the player ViewModel, settings store, playback service) so both apps reuse it; only the Compose screens differ — phone touch UI vs. TV 10-foot D-pad UI. Paths are repository-relative; assume the repository root (`silo-android`) is the cwd.
+**Scope:** Android **phone** (`androidApp`) **and Android TV** (`androidTvApp`). All non-UI audiobook logic lives in `shared` (pure chapter math, commonMain) and `android-shared` (the player ViewModel, settings store, playback service) so both apps reuse it; only the Compose screens differ — phone touch UI vs. TV 10-foot D-pad UI. Paths are repository-relative; assume the repository root (`prairie-android`) is the cwd.
 **Server changes:** None required for the audiobook player. All work is client-side.
 
 ---

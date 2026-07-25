@@ -6,9 +6,9 @@
 
 ## Decision
 
-Silo should stay Silo: one product shell, one server integration model, one navigation model, and one download philosophy. We should not fork or rebuild around any single reference app.
+Prairie should stay Prairie: one product shell, one server integration model, one navigation model, and one download philosophy. We should not fork or rebuild around any single reference app.
 
-Instead, Silo adopts a best-of-breed client architecture:
+Instead, Prairie adopts a best-of-breed client architecture:
 
 - Video covers movies and TV shows, follows the backend-boundary path already started in this branch, and keeps Media3 now with MPV/libass-class capability later.
 - Audio covers music and audiobooks. Music needs queue/library/album behavior; audiobooks need chapters, sleep timer, per-book settings, cache-aware streaming, and multi-file chapter mapping.
@@ -16,11 +16,11 @@ Instead, Silo adopts a best-of-breed client architecture:
 - Downloads remain public, discoverable, original-format files that other apps can open.
 - Android TV supports movies, TV shows, music, and audiobooks, but ebooks, comics, and manga remain out of TV.
 
-The reference apps are used as product and engineering sources of truth for behavior, but Silo owns the final interfaces and user experience.
+The reference apps are used as product and engineering sources of truth for behavior, but Prairie owns the final interfaces and user experience.
 
 ## Product Goals
 
-- Make Silo feel like a finished media client instead of a collection of feature checkboxes.
+- Make Prairie feel like a finished media client instead of a collection of feature checkboxes.
 - Use specialized engines under a unified app shell rather than forcing one player or reader to handle every media type.
 - Keep mobile and TV experiences tailored to their devices while sharing infrastructure wherever it lowers risk.
 - Make hard playback cases boring: subtitles display, resume works, buffering is intelligent, external players can open downloaded media, and unsupported formats fail gracefully.
@@ -29,7 +29,7 @@ The reference apps are used as product and engineering sources of truth for beha
 
 ## Non-Goals
 
-- Do not replace the Silo Android apps with a fork of AFinity, Jellyfin, KOReader, Librera, Readest, Mihon, Voice, or Lissen.
+- Do not replace the Prairie Android apps with a fork of AFinity, Jellyfin, KOReader, Librera, Readest, Mihon, Voice, or Lissen.
 - Do not put ebooks, comics, or manga on Android TV.
 - Do not move completed downloads back into app-private storage.
 - Do not treat the current Media3 player as the final answer for every video format.
@@ -56,7 +56,7 @@ Best ideas to absorb:
 - Wholphin's runtime backend choice and libass-aware subtitle path.
 - Jellyfin TV's buffer presets and explicit buffer reporting.
 
-Silo direction:
+Prairie direction:
 
 - Keep the current `VideoPlaybackBackend` work as the foundation.
 - Media3 remains the default backend.
@@ -79,7 +79,7 @@ Best ideas to absorb:
 - Lissen's cache-aware streaming path for smoother playback without replacing completed public downloads.
 - Audiobookshelf app's domain expectations around libraries, chapters, progress, and series.
 
-Silo direction:
+Prairie direction:
 
 - Mobile gets a dedicated premium audiobook player.
 - TV gets a remote-friendly audiobook player, but not every mobile management feature.
@@ -101,7 +101,7 @@ Best ideas to absorb:
 - Jellyfin Android's mature library browsing and media-session behavior.
 - Streamyfin and AFinity's broader server-client patterns where they improve queueing, caching, or mixed-media navigation.
 
-Silo direction:
+Prairie direction:
 
 - Music belongs under `Audio` beside audiobooks.
 - Mobile gets the full music library experience: albums, artists, playlists, queue, now playing, shuffle/repeat, and background playback.
@@ -125,7 +125,7 @@ Best ideas to absorb:
 - Book's Story's Compose-native reader polish, settings, and reader-state ergonomics.
 - Librera/document-viewer/android-book-reader/KOReader as format-depth references, especially for MOBI/AZW/PDF/DjVu-style decisions.
 
-Silo direction:
+Prairie direction:
 
 - Reading stays mobile-only.
 - Ebooks use a dedicated reflowable/fixed book reader path, not separate one-off renderers per format.
@@ -147,7 +147,7 @@ Best ideas to absorb:
 - Kotatsu's Android 7-friendly patterns and manga-reader ergonomics.
 - Seeneva's future-facing OCR/balloon zoom ideas, kept out of the first production slice.
 
-Silo direction:
+Prairie direction:
 
 - Comics and manga belong under Reading on mobile.
 - The comic reader defaults to western page flow, issue/volume metadata, page fit controls, and page progress.
@@ -159,26 +159,26 @@ Silo direction:
 
 Primary references:
 
-- Current Silo `DownloadStorage`, `DownloadWorker`, `DownloadOpenTarget`, and `OfflineMediaResolver`
+- Current Prairie `DownloadStorage`, `DownloadWorker`, `DownloadOpenTarget`, and `OfflineMediaResolver`
 - `/Users/jimcole/source/AFinity`
 - `/Users/jimcole/source/lissen-android`
 
 Best ideas to absorb:
 
-- Silo's current public MediaStore direction is the product rule.
+- Prairie's current public MediaStore direction is the product rule.
 - AFinity-style queue/status polish is useful for download management.
 - Lissen-style cache is useful for streaming, not completed-file storage.
 
-Silo direction:
+Prairie direction:
 
 - Completed downloads are always original-format files.
 - Files are stored where other applications can discover or open them.
-- Sidecars hold Silo metadata privately, but never replace the original media file.
+- Sidecars hold Prairie metadata privately, but never replace the original media file.
 - Streaming cache and completed downloads are separate systems.
 
 ## Architecture
 
-Silo's media architecture should settle into four bounded subsystems:
+Prairie's media architecture should settle into four bounded subsystems:
 
 1. `VideoPlaybackBackend`
    - Owns video engine selection, Media3/MPV backend behavior, subtitle rendering capability, buffer reporting, and mount/remount operations.
@@ -247,7 +247,7 @@ TV must never show Reading, even when the server has ebooks, comics, or manga.
 2. `ReaderScreen` resolves a local downloaded file or authenticated remote/local temporary file as it does today.
 3. `ReaderEngine` selects an ebook, fixed-document, comic, or manga engine.
 4. The engine emits locator/progress events to the existing ebook sync path.
-5. If the format is unsupported internally but the file is downloaded, Silo offers external open.
+5. If the format is unsupported internally but the file is downloaded, Prairie offers external open.
 
 ## Error Handling
 

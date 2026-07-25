@@ -14,7 +14,7 @@
 
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, Media3 1.10.0 `AspectRatioFrameLayout.RESIZE_MODE_*` constants.
 
-**Reference:** Spec section A.3 at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Existing `AndroidView` setup is in `TvPlayerScreen.kt:385-398` (PlayerView factory + update lambda).
+**Reference:** Spec section A.3 at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Existing `AndroidView` setup is in `TvPlayerScreen.kt:385-398` (PlayerView factory + update lambda).
 
 **Testing posture:** Per `AGENTS.md`, no UI test for the toggle. The enum + state addition is trivial and doesn't warrant a unit test.
 
@@ -23,7 +23,7 @@
 ### Task 1: Add `VideoFillMode` + ViewModel state and handler
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
 
 **Why:** Enum + state field + handler — pure plumbing.
 
@@ -67,7 +67,7 @@ Match the local state-update idiom — the file uses `_uiState.update { ... }` (
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -75,10 +75,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): VideoFillMode enum + session-scoped state (A.3d-gravity)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): VideoFillMode enum + session-scoped state (A.3d-gravity)
 
 Adds VideoFillMode (Fit/Zoom) + uiState.videoFillMode (default Fit) +
 onVideoFillModeChanged() handler. Session-scoped per Apple's tvOS
@@ -91,7 +91,7 @@ in the next two commits."
 ### Task 2: Wire `resizeMode` in `AndroidView.update` lambda
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 **Why:** The `AndroidView.update` lambda is invoked on each recomposition where its captured state changes. Adding `state.videoFillMode` to the lambda's closure means a toggle in the HUD will trigger recomposition and re-run the update — applying the new resize mode immediately.
 
@@ -124,7 +124,7 @@ Replace the update lambda body:
 - [ ] **Step 3: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -132,10 +132,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): apply VideoFillMode to PlayerView.resizeMode (A.3d-gravity)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): apply VideoFillMode to PlayerView.resizeMode (A.3d-gravity)
 
 AndroidView.update lambda now reads uiState.videoFillMode and sets
 PlayerView.resizeMode to RESIZE_MODE_FIT or RESIZE_MODE_ZOOM.
@@ -150,14 +150,14 @@ HUD UI toggle to drive this state lands in the next commit."
 ### Task 3: Render the toggle in HUD Video pane
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
 
 **Why:** Replace `HudTab.Video -> HudEmptyStatePane("Video options will appear here")` with a real `HudVideoPane` that shows the Fill mode toggle.
 
 - [ ] **Step 1: Find the Video branch**
 
 ```bash
-grep -n "HudTab.Video" /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
+grep -n "HudTab.Video" /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
 ```
 
 Should land on `HudTab.Video -> HudEmptyStatePane("Video options will appear here")`.
@@ -278,7 +278,7 @@ Find the `TvPlayerHud(...)` call site and add:
 - [ ] **Step 6: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -286,11 +286,11 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 7: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): HUD Video pane renders Fill mode toggle (A.3d-gravity)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): HUD Video pane renders Fill mode toggle (A.3d-gravity)
 
 HudVideoPane shows two chips (Letterbox / Zoom) bound to
 uiState.videoFillMode. Selection fires onVideoFillModeChanged, which

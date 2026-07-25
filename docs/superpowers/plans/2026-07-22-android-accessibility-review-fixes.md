@@ -22,8 +22,8 @@
 ### Task 1: Test and implement pure responsive layout policies
 
 **Files:**
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/layout/ResponsiveControlLayout.kt`
-- Create: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/layout/ResponsiveControlLayoutTest.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/layout/ResponsiveControlLayout.kt`
+- Create: `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/layout/ResponsiveControlLayoutTest.kt`
 
 **Interfaces:**
 - Produces: `AudiobookTransportLayout`, `resolveAudiobookTransportLayout(availableWidthDp, hasChapters)`, and `useCompactPlayerToolbar(availableWidthDp, trailingActionCount)`.
@@ -32,7 +32,7 @@
 - [ ] **Step 1: Write the failing policy tests**
 
 ```kotlin
-package org.siloserver.silo.android.ui.layout
+package org.prairieserver.prairie.android.ui.layout
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -86,7 +86,7 @@ Expected: compilation fails because `AudiobookTransportLayout`, `resolveAudioboo
 - [ ] **Step 3: Implement the minimal policies**
 
 ```kotlin
-package org.siloserver.silo.android.ui.layout
+package org.prairieserver.prairie.android.ui.layout
 
 internal data class AudiobookTransportLayout(
     val spacingDp: Float,
@@ -141,16 +141,16 @@ Expected: four tests pass.
 - [ ] **Step 5: Commit the policy slice**
 
 ```bash
-git add androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/layout/ResponsiveControlLayout.kt \
-  androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/layout/ResponsiveControlLayoutTest.kt
+git add androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/layout/ResponsiveControlLayout.kt \
+  androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/layout/ResponsiveControlLayoutTest.kt
 git commit -m "test(phone): define responsive control layout policy"
 ```
 
 ### Task 2: Apply responsive policies to audiobook and player controls
 
 **Files:**
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/audiobook/AudiobookTransport.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerControls.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/audiobook/AudiobookTransport.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/PlayerControls.kt`
 
 **Interfaces:**
 - Consumes: Task 1's responsive policy functions.
@@ -394,16 +394,16 @@ Expected: four tests pass.
 - [ ] **Step 6: Commit responsive Compose integration**
 
 ```bash
-git add androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/audiobook/AudiobookTransport.kt \
-  androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerControls.kt
+git add androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/audiobook/AudiobookTransport.kt \
+  androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/PlayerControls.kt
 git commit -m "fix(phone): keep enlarged controls reachable on narrow screens"
 ```
 
 ### Task 3: Fix phone touch targets and scrub-preview bounds
 
 **Files:**
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/browse/CatalogGrid.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerProgressBar.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/browse/CatalogGrid.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/PlayerProgressBar.kt`
 
 **Interfaces:**
 - Produces: a scrollable 48dp alphabet rail and a bounded one-line chapter preview.
@@ -485,15 +485,15 @@ Expected: `BUILD SUCCESSFUL`.
 Commit:
 
 ```bash
-git add androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/browse/CatalogGrid.kt \
-  androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerProgressBar.kt
+git add androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/browse/CatalogGrid.kt \
+  androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/PlayerProgressBar.kt
 git commit -m "fix(phone): enforce accessible rail and preview bounds"
 ```
 
 ### Task 4: Strengthen the TV typography floor test-first
 
 **Files:**
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvTypographyReadabilityTest.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvTypographyReadabilityTest.kt`
 
 **Interfaces:**
 - Produces: one `tinyFontPattern` used consistently by theme and source-tree checks.
@@ -566,19 +566,19 @@ Expected: all `TvTypographyReadabilityTest` tests pass.
 Commit:
 
 ```bash
-git add androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvTypographyReadabilityTest.kt
+git add androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvTypographyReadabilityTest.kt
 git commit -m "test(tv): enforce fractional typography floor"
 ```
 
 ### Task 5: Apply the remaining TV accessibility modifiers
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvPinEntryDialog.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminHubScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminScansScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminSessionsScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminUsersScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailEpisodeRail.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvPinEntryDialog.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminHubScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminScansScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminSessionsScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminUsersScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailEpisodeRail.kt`
 
 **Interfaces:**
 - Produces: a 48dp Cancel target, one safe-area gap per admin list, and a scalable episode synopsis.
@@ -627,12 +627,12 @@ Expected: both commands finish with `BUILD SUCCESSFUL`.
 - [ ] **Step 5: Commit the TV modifier slice**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvPinEntryDialog.kt \
-  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminHubScreen.kt \
-  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminScansScreen.kt \
-  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminSessionsScreen.kt \
-  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/admin/TvAdminUsersScreen.kt \
-  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailEpisodeRail.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvPinEntryDialog.kt \
+  androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminHubScreen.kt \
+  androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminScansScreen.kt \
+  androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminSessionsScreen.kt \
+  androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/admin/TvAdminUsersScreen.kt \
+  androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailEpisodeRail.kt
 git commit -m "fix(tv): complete accessibility review follow-ups"
 ```
 
@@ -691,7 +691,7 @@ Expected: the original #87 commits plus the design, policy, phone, TV, and test 
 - [ ] **Step 1: Record exact old heads for force-with-lease safety**
 
 ```bash
-git ls-remote git@github.com:RXWatcher/silo-android.git \
+git ls-remote git@github.com:RXWatcher/prairie-android.git \
   refs/heads/pr/accessibility-foundations-v2 \
   refs/heads/pr/download-reachability-v2 \
   refs/heads/pr/tv-navigation-detail-v2 \
@@ -706,7 +706,7 @@ Expected old #87–#93 heads are respectively `fda092f6`, `cefa8f99`, `dffc5307`
 - [ ] **Step 2: Push #87 normally**
 
 ```bash
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   HEAD:refs/heads/pr/accessibility-foundations-v2
 ```
 
@@ -753,7 +753,7 @@ Expected: tests and both builds pass; no whitespace errors.
 Push each rewritten local branch to its matching remote branch using `--force-with-lease=<ref>:<recorded-old-oid>`. For example:
 
 ```bash
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   --force-with-lease=refs/heads/pr/download-reachability-v2:cefa8f9988f0d656d308bb728980b067950adee0 \
   pr-88:refs/heads/pr/download-reachability-v2
 ```
@@ -761,19 +761,19 @@ git push git@github.com:RXWatcher/silo-android.git \
 Push every remaining branch with its recorded lease:
 
 ```bash
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   --force-with-lease=refs/heads/pr/tv-navigation-detail-v2:dffc530718b6a0251899063dd9fc2033a31ae1e5 \
   pr-89:refs/heads/pr/tv-navigation-detail-v2
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   --force-with-lease=refs/heads/pr/playback-reliability-v2:2607e27d44b1c1c0ea4391afea21b14879e0f50e \
   pr-90:refs/heads/pr/playback-reliability-v2
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   --force-with-lease=refs/heads/pr/tv-track-selection-v2:ce51f03f5996c825237cba635d1e75bb11ca0a74 \
   pr-91:refs/heads/pr/tv-track-selection-v2
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   --force-with-lease=refs/heads/pr/chromecast-v2:dcb9eb80b03318521e6b55507a9ff8b3025a140d \
   pr-92:refs/heads/pr/chromecast-v2
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   --force-with-lease=refs/heads/pr/subtitle-presentation-v2:d5bd301616379b91ade6a355d293192e0435a6ee \
   pr-93:refs/heads/pr/subtitle-presentation-v2
 ```
@@ -784,7 +784,7 @@ Expected: all six remote branches update and no lease is rejected.
 
 ```bash
 for n in 87 88 89 90 91 92 93; do
-  gh pr checks "$n" --repo Silo-Server/silo-android
+  gh pr checks "$n" --repo Prairie-Server/prairie-android
 done
 ```
 

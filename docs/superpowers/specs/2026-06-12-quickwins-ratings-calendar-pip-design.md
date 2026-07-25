@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Status:** Approved — PiP section dropped by user decision on 2026-06-12 (Sections 1–2 only)
-**Scope:** Sub-project 1 of the feature-parity push (mobile-first, natural TV). Server: silo-server `origin/main`.
+**Scope:** Sub-project 1 of the feature-parity push (mobile-first, natural TV). Server: prairie-server `origin/main`.
 
 ## Goal
 
@@ -10,7 +10,7 @@ Close three parity-page gaps with full server support today: personal ratings (m
 
 ## 1. Personal ratings
 
-### Server contract (verified against silo-server main)
+### Server contract (verified against prairie-server main)
 
 - `PUT /api/v1/ratings/{item_id}` body `{"rating": N}`, integer **1–5**; 400 outside range; 204 on success.
 - `GET /api/v1/ratings/{item_id}` → `{"rating": 1-5, "rated_at": "..."}` or 404.

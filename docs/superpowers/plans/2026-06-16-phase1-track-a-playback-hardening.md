@@ -4,7 +4,7 @@
 
 **Goal:** Complete and prove the *existing* dual-engine playback (ExoPlayer + libmpv) so MPV/display-aware playback is selected by a correct Auto policy, fails safe, is observable, and is verified on a real device matrix that establishes the MPV-enable floor.
 
-**Architecture:** Silo already has the dual-engine seam — `MpvPlayer : BasePlayer`, `Media3VideoPlaybackBackend`/`MpvVideoPlaybackBackend`, `VideoPlaybackBackendFactory`, and a pure `VideoPlaybackBackendSelector` with a basic `Auto` policy. **But the real engine owner is the MediaSession service `ContinuumPlaybackService`, which today *always* builds ExoPlayer (`createPlaybackPlayer()` → `playerFactory.createPlayer()`), binds it via `MediaSession.Builder(this, player)`, and never calls the existing `ContinuumPlayerFactory.createMpvPlayer()` (zero call sites).** So a perfect selector still never reaches MPV in production. Therefore **Task 0 (engine-ownership/switch boundary) is the keystone and runs first**; the selector/fallback/observability/HDR work (Tasks 1–5) is only real once Task 0 makes the chosen engine actually own — and rebind — the session player. No new seam; we harden and *connect* the one that exists, then prove it on a device matrix.
+**Architecture:** Prairie already has the dual-engine seam — `MpvPlayer : BasePlayer`, `Media3VideoPlaybackBackend`/`MpvVideoPlaybackBackend`, `VideoPlaybackBackendFactory`, and a pure `VideoPlaybackBackendSelector` with a basic `Auto` policy. **But the real engine owner is the MediaSession service `ContinuumPlaybackService`, which today *always* builds ExoPlayer (`createPlaybackPlayer()` → `playerFactory.createPlayer()`), binds it via `MediaSession.Builder(this, player)`, and never calls the existing `ContinuumPlayerFactory.createMpvPlayer()` (zero call sites).** So a perfect selector still never reaches MPV in production. Therefore **Task 0 (engine-ownership/switch boundary) is the keystone and runs first**; the selector/fallback/observability/HDR work (Tasks 1–5) is only real once Task 0 makes the chosen engine actually own — and rebind — the session player. No new seam; we harden and *connect* the one that exists, then prove it on a device matrix.
 
 **Critical sequencing:** Task 0 first. Tasks 1–5 build on it. Task 6 (device matrix) is the go/no-go gate.
 
@@ -82,7 +82,7 @@ and extend it when those land. The round-trip contract is the point.)
 Run: `./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.backend.PlaybackEngineCommandTest"`
 Expected: FAIL — `PlaybackEngineCommand` does not exist.
 
-- [ ] **Step 3: Implement `PlaybackEngineCommand`** — a `SessionCommand` id `"silo.SET_ENGINE"` plus `toArgs(request): Bundle` / `fromArgs(Bundle): VideoPlaybackBackendRequest` putting each field under a stable key. (Bundle keys are plain strings; enums stored by `name`.)
+- [ ] **Step 3: Implement `PlaybackEngineCommand`** — a `SessionCommand` id `"prairie.SET_ENGINE"` plus `toArgs(request): Bundle` / `fromArgs(Bundle): VideoPlaybackBackendRequest` putting each field under a stable key. (Bundle keys are plain strings; enums stored by `name`.)
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -91,7 +91,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Wire the switch boundary into `ContinuumPlaybackService`** (integration; verified on-device in Task 6, plus the source-assertion test in Step 7):
   - Register the custom command in the `MediaSession.Callback` (`onConnect` available-commands + `onCustomCommand`).
-  - On `silo.SET_ENGINE`: `val request = PlaybackEngineCommand.fromArgs(args)`; compute
+  - On `prairie.SET_ENGINE`: `val request = PlaybackEngineCommand.fromArgs(args)`; compute
     `mpvSupportedOnDevice` from `MpvDeviceFloor.isMpvSupported(Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toList())`;
     `val kind = VideoPlaybackBackendSelector.select(request.copy(mpvSupportedOnDevice = …))`.
   - If `kind != currentEngineKind`: build the new player — `ExoPlayer` via `playerFactory.createPlayer()` (sync) or `MpvPlayer` via `playerFactory.createMpvPlayer()` (suspend, on `scope`) — then `mediaSession?.setPlayer(newPlayer)`, transfer media items/position/`playWhenReady`, and **release the previous player**. Re-attach the analytics listener only when the new player `is ExoPlayer`.

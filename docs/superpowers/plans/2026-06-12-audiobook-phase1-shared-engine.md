@@ -6,7 +6,7 @@
 
 **Architecture:** Pure chapter math lives in `shared` (commonMain, platform-agnostic, `commonTest`-covered). The Android `ViewModel` (Media3 / DataStore / coroutine-bound) lives in `android-shared` (androidMain). The phone Compose screen stays in `androidApp` and only updates its import + Koin wiring. The VM delegates all chapter math to `AudiobookChapters` instead of computing it inline.
 
-**Tech Stack:** Kotlin Multiplatform (androidTarget only on both `shared` and `android-shared`), Gradle, `kotlin-test` (commonTest) + `kotlin-test-junit` (androidUnitTest), Koin DI, Media3, kotlinx-coroutines. Commands assume the repository root (`silo-android`) is the cwd.
+**Tech Stack:** Kotlin Multiplatform (androidTarget only on both `shared` and `android-shared`), Gradle, `kotlin-test` (commonTest) + `kotlin-test-junit` (androidUnitTest), Koin DI, Media3, kotlinx-coroutines. Commands assume the repository root (`prairie-android`) is the cwd.
 
 ---
 

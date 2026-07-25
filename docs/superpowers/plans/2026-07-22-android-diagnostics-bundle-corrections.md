@@ -14,10 +14,10 @@
 
 **Files:**
 
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsRedactor.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsInstrumentation.kt`
-- Test: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsRedactorTest.kt`
-- Test: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsInstrumentationTest.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsRedactor.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsInstrumentation.kt`
+- Test: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsRedactorTest.kt`
+- Test: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsInstrumentationTest.kt`
 
 1. Add failing tests proving a structurally valid JWT is redacted, `c2.android.aac.decoder` is preserved, known static playback routes remain visible, dynamic IDs become `{id}`, and unknown/query-bearing routes fail closed.
 2. Run the two focused test classes and confirm the new assertions fail.
@@ -29,12 +29,12 @@
 
 **Files:**
 
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsLogSummaryBuilder.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsManualCapture.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsBundleBuilder.kt`
-- Create: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsLogSummaryBuilderTest.kt`
-- Modify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsBundleBuilderTest.kt`
-- Modify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsCoordinatorTest.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsLogSummaryBuilder.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsManualCapture.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsBundleBuilder.kt`
+- Create: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsLogSummaryBuilderTest.kt`
+- Modify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsBundleBuilderTest.kt`
+- Modify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsCoordinatorTest.kt`
 
 1. Add failing tests for distinct categories, line counts including malformed lines, non-zero gzip size, empty input, and bundle-time recomputation after final redaction.
 2. Run the focused diagnostics tests and confirm the new assertions fail.
@@ -46,13 +46,13 @@
 
 **Files:**
 
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsPlaybackSessionTracker.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsModule.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsManualCapture.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsRuntime.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/di/PlayerInfraModule.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/PlaybackSessionLifecycle.kt`
-- Create: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsPlaybackSessionTrackerTest.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsPlaybackSessionTracker.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsModule.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsManualCapture.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsRuntime.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/di/PlayerInfraModule.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlaybackSessionLifecycle.kt`
+- Create: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsPlaybackSessionTrackerTest.kt`
 - Modify: relevant capture, runtime, and lifecycle tests.
 
 1. Add failing tests for deduplication, newest-20 bounds, 128-character bounds, manual/crash snapshot inclusion, session recording on start/adoption, and clearing at the diagnostics privacy gate.
@@ -65,13 +65,13 @@
 
 **Files:**
 
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/video/VideoPlaybackStartResult.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/video/VideoPlaybackSessionCoordinator.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsInstrumentation.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/SiloLog.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/MobileVideoPlaybackStarter.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvVideoPlaybackStarter.kt`
-- Modify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/video/VideoPlaybackSessionCoordinatorTest.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/video/VideoPlaybackStartResult.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/video/VideoPlaybackSessionCoordinator.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsInstrumentation.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/PrairieLog.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/MobileVideoPlaybackStarter.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvVideoPlaybackStarter.kt`
+- Modify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/video/VideoPlaybackSessionCoordinatorTest.kt`
 - Modify or create focused starter tests as needed.
 
 1. Add failing tests proving a terminal reason reaches a registered `failure_code` attribute, while user/server prose and exception messages never enter diagnostic output.
@@ -84,15 +84,15 @@
 
 **Files:**
 
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsPerformanceRecorder.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsInstrumentation.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/SiloLog.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsManualCapture.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsModule.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/PlaybackAnalyticsListener.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/PlayerStatsSnapshot.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsPerformanceRecorder.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsInstrumentation.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/PrairieLog.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsManualCapture.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsModule.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlaybackAnalyticsListener.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlayerStatsSnapshot.kt`
 - Modify: phone and TV application/activity startup wiring as required.
-- Create: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsPerformanceRecorderTest.kt`
+- Create: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsPerformanceRecorderTest.kt`
 - Modify: player statistics and instrumentation tests.
 
 1. Add failing pure tests for frame histogram aggregation, refresh-aware slow-frame classification, main-thread stall aggregation, capture gating, startup timing retention, resource bounds, and playback startup/rebuffer/final summary reduction.

@@ -4,7 +4,7 @@
 
 **Goal:** Build the first best-of-source Reading slice: a premium mobile-only reader foundation with formal engine policy, immersive shell state, and first-class external-original handling.
 
-**Architecture:** Keep the working Silo-native renderers, but separate target selection, engine dispatch, and reader chrome. `ReaderViewModel` owns book state and progress; `ReaderEngineHost` mounts the existing reflow/PDF/CBZ engines or an external-open panel; `ReaderShell` owns immersive chrome, sheets, gestures, and shared controls.
+**Architecture:** Keep the working Prairie-native renderers, but separate target selection, engine dispatch, and reader chrome. `ReaderViewModel` owns book state and progress; `ReaderEngineHost` mounts the existing reflow/PDF/CBZ engines or an external-open panel; `ReaderShell` owns immersive chrome, sheets, gestures, and shared controls.
 
 **Tech Stack:** Kotlin Multiplatform shared models, Android/Kotlin shared reader controls, Jetpack Compose Material3, Android WebView reflow engine, Android `PdfRenderer`, ZIP-backed CBZ reader, kotlin-test/JUnit unit tests.
 

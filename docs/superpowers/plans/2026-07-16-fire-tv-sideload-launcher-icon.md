@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the malformed 16:9 legacy launcher icons with crisp square Silo icons while preserving the separate 16:9 TV banner and modern adaptive icon.
+**Goal:** Replace the malformed 16:9 legacy launcher icons with crisp square Prairie icons while preserving the separate 16:9 TV banner and modern adaptive icon.
 
-**Architecture:** Keep the existing manifest contract and resource names so no runtime code or package identity changes. Generate density-specific opaque square PNG fallbacks from the canonical blue gradient and colorful Silo mark, retain the API 26+ adaptive icon, and enforce the icon/banner distinction with JVM asset and manifest tests.
+**Architecture:** Keep the existing manifest contract and resource names so no runtime code or package identity changes. Generate density-specific opaque square PNG fallbacks from the canonical blue gradient and colorful Prairie mark, retain the API 26+ adaptive icon, and enforce the icon/banner distinction with JVM asset and manifest tests.
 
 **Tech Stack:** Android resource qualifiers, PNG assets, Kotlin/JVM tests with `ImageIO`, Gradle, ImageMagick, ADB.
 
@@ -24,8 +24,8 @@
 ### Task 1: Correct and lock down TV launcher assets
 
 **Files:**
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvLauncherIconAssetsTest.kt`
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/TvAndroidManifestPolicyTest.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvLauncherIconAssetsTest.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/TvAndroidManifestPolicyTest.kt`
 - Modify: `androidTvApp/src/androidMain/res/mipmap-mdpi/ic_launcher.png`
 - Modify: `androidTvApp/src/androidMain/res/mipmap-hdpi/ic_launcher.png`
 - Modify: `androidTvApp/src/androidMain/res/mipmap-xhdpi/ic_launcher.png`
@@ -63,7 +63,7 @@ fun legacyTvLauncherIconsAreOpaqueSquaresAtRequiredDensities() {
 }
 
 @Test
-fun legacyTvLauncherIconContainsCenteredColorSiloMark() {
+fun legacyTvLauncherIconContainsCenteredColorPrairieMark() {
     val icon = ImageIO.read(File("src/androidMain/res/mipmap-xxxhdpi/ic_launcher.png"))
     val accentPixels = buildList {
         for (y in 0 until icon.height) {
@@ -98,7 +98,7 @@ fun tvBannerRemainsOpaqueWordmarkAtRequiredDimensions() {
             }
         }
     }
-    assertTrue(wordmarkPixels.size > 500, "TV banner must retain the white Silo wordmark.")
+    assertTrue(wordmarkPixels.size > 500, "TV banner must retain the white Prairie wordmark.")
     val wordmarkBounds = wordmarkPixels.pixelBounds()
     assertTrue(wordmarkBounds.minX >= 70 && wordmarkBounds.maxX <= 249)
     assertTrue(wordmarkBounds.width in 40..180 && wordmarkBounds.height in 10..90)
@@ -150,8 +150,8 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests org.siloserver.silo.tv.ui.theme.TvLauncherIconAssetsTest \
-  --tests org.siloserver.silo.tv.TvAndroidManifestPolicyTest
+  --tests org.prairieserver.prairie.tv.ui.theme.TvLauncherIconAssetsTest \
+  --tests org.prairieserver.prairie.tv.TvAndroidManifestPolicyTest
 ```
 
 Expected: `legacyTvLauncherIconsAreOpaqueSquaresAtRequiredDensities` fails because the existing files are 16:9 and larger than the required square dimensions. The manifest and unchanged adaptive/banner tests pass.
@@ -185,20 +185,20 @@ for density_and_size in mdpi:80 hdpi:120 xhdpi:160 xxhdpi:240 xxxhdpi:320; do
 done
 ```
 
-Expected: five opaque square files with a centered colorful Silo mark on the existing blue gradient. Do not modify `mipmap-anydpi-v26/ic_launcher.xml` or any `ic_launcher_foreground.png`.
+Expected: five opaque square files with a centered colorful Prairie mark on the existing blue gradient. Do not modify `mipmap-anydpi-v26/ic_launcher.xml` or any `ic_launcher_foreground.png`.
 
 Generate the banner separately so Fire OS's centered square crop contains the complete canonical logo:
 
 ```bash
 magick -size 320x180 canvas:'#1718c9' /tmp/silo-tv-banner-background.png
-magick androidTvApp/src/androidMain/res/drawable/silo_wordmark.png \
+magick androidTvApp/src/androidMain/res/drawable/prairie_wordmark.png \
   -trim +repage -resize '180x' /tmp/silo-tv-banner-wordmark.png
 magick /tmp/silo-tv-banner-background.png /tmp/silo-tv-banner-wordmark.png \
   -gravity center -composite \
   'PNG24:androidTvApp/src/androidMain/res/drawable/tv_banner.png'
 ```
 
-Expected: an opaque 320x180 banner with the full Silo logo centered inside the 180x180 crop-safe area.
+Expected: an opaque 320x180 banner with the full Prairie logo centered inside the 180x180 crop-safe area.
 
 - [ ] **Step 5: Run focused tests and inspect the generated master icon**
 
@@ -206,8 +206,8 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests org.siloserver.silo.tv.ui.theme.TvLauncherIconAssetsTest \
-  --tests org.siloserver.silo.tv.TvAndroidManifestPolicyTest
+  --tests org.prairieserver.prairie.tv.ui.theme.TvLauncherIconAssetsTest \
+  --tests org.prairieserver.prairie.tv.TvAndroidManifestPolicyTest
 ```
 
 Expected: `BUILD SUCCESSFUL`. Visually inspect `mipmap-xxxhdpi/ic_launcher.png` and confirm the mark is sharp, centered, uncropped, and balanced.
@@ -232,8 +232,8 @@ git add \
   androidTvApp/src/androidMain/res/mipmap-xxhdpi/ic_launcher.png \
   androidTvApp/src/androidMain/res/mipmap-xxxhdpi/ic_launcher.png \
   androidTvApp/src/androidMain/res/drawable/tv_banner.png \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvLauncherIconAssetsTest.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/TvAndroidManifestPolicyTest.kt
+  androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvLauncherIconAssetsTest.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/TvAndroidManifestPolicyTest.kt
 git commit -m "fix(tv): correct sideloaded launcher icon aspect ratio"
 ```
 
@@ -266,8 +266,8 @@ Expected: the application reports distinct icon and banner resources and exposes
 - [ ] **Step 2: Clean-install on the Fire Stick**
 
 ```bash
-adb -s "$FIRE_TV_SERIAL" shell am force-stop org.siloserver.silo
-adb -s "$FIRE_TV_SERIAL" uninstall org.siloserver.silo || true
+adb -s "$FIRE_TV_SERIAL" shell am force-stop org.prairieserver.prairie
+adb -s "$FIRE_TV_SERIAL" uninstall org.prairieserver.prairie || true
 adb -s "$FIRE_TV_SERIAL" install "$apk"
 adb -s "$FIRE_TV_SERIAL" shell am start -n com.amazon.venezia/.grid.AppsGridLauncherActivity
 ```
@@ -280,13 +280,13 @@ Expected: installation succeeds and the Fire TV app grid opens.
 adb -s "$FIRE_TV_SERIAL" exec-out screencap -p > /tmp/fire-tv-silo-square-launcher.png
 ```
 
-Expected: Fire OS retains its outer gray sideload frame, but the inner Silo icon is square, the colorful mark is not compressed, and the mark is materially larger and sharper than before.
+Expected: Fire OS retains its outer gray sideload frame, but the inner Prairie icon is square, the colorful mark is not compressed, and the mark is materially larger and sharper than before.
 
 - [ ] **Step 4: Clean-install on the Google TV Streamer**
 
 ```bash
-adb -s "$GOOGLE_TV_SERIAL" shell am force-stop org.siloserver.silo
-adb -s "$GOOGLE_TV_SERIAL" uninstall org.siloserver.silo || true
+adb -s "$GOOGLE_TV_SERIAL" shell am force-stop org.prairieserver.prairie
+adb -s "$GOOGLE_TV_SERIAL" uninstall org.prairieserver.prairie || true
 adb -s "$GOOGLE_TV_SERIAL" install "$apk"
 adb -s "$GOOGLE_TV_SERIAL" shell monkey -p com.google.android.apps.tv.launcher 1
 ```

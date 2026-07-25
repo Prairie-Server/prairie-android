@@ -1,7 +1,7 @@
 # Client ↔ Server API Contract Audit
 
 **Date:** 2026-06-15
-**Client:** silo-android (KMP, this repo) · **Server:** silo-server (Go/chi), `origin/main` @ `a4bee92`
+**Client:** prairie-android (KMP, this repo) · **Server:** prairie-server (Go/chi), `origin/main` @ `a4bee92`
 **Method:** 7 parallel domain agents cross-referenced every client `network/api/*.kt` endpoint (116 paths / 158 calls) against the server's `internal/api/router.go` + handlers + DTOs. Top findings then **runtime-verified** with read-only GETs against a live latest-`main` server (logged in as a real profile).
 
 Wire-name comparison = client `@SerialName` (kotlinx) vs server Go `json:"…"` tags. Client `Json` config is `ignoreUnknownKeys = true`, `isLenient = true`, `coerceInputValues = true`, `explicitNulls = false`, `encodeDefaults = true` — this matters: extra server fields are ignored, and **quoted numbers decode into numeric fields** (which downgrades the frame-rate finding).

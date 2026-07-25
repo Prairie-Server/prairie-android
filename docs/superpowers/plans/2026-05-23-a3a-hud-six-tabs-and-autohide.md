@@ -15,7 +15,7 @@
 
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, existing player infrastructure.
 
-**Reference:** Spec section A.3 at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Architectural map from explorer agent (relevant excerpts in tasks below).
+**Reference:** Spec section A.3 at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Architectural map from explorer agent (relevant excerpts in tasks below).
 
 **Testing posture:** Per `AGENTS.md`, no UI tests for visual changes. One focused unit test on the auto-hide gating logic if it's extracted to a pure function — otherwise skipped.
 
@@ -24,14 +24,14 @@
 ### Task 1: Make all 6 HUD tabs always visible (drop conditional gating)
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
 
 **Why:** Per the architectural audit, the HUD currently conditionally shows tabs based on track availability (lines 82–92 per the audit) — for example, the Audio tab is hidden if there's only one audio track, Stats and Chapters are explicitly gated as "stub" tabs that are never rendered. Apple's `TVPlayerInfoHUD` shows all 6 tabs unconditionally. Match that: always show Info / Stats / Video / Audio / Subtitles / Chapters. Panes that have no data show an empty-state message ("Stats unavailable", "No chapters in this title", etc.).
 
 - [ ] **Step 1: Read the current tab list and gating logic**
 
 ```bash
-sed -n '70,180p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
+sed -n '70,180p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
 ```
 
 Find:
@@ -114,7 +114,7 @@ Adjust imports for `Box`/`Alignment`/`padding` if not already there.
 - [ ] **Step 6: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -122,10 +122,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 7: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): always render all 6 HUD tabs (A.3a)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): always render all 6 HUD tabs (A.3a)
 
 Stats and Chapters were previously stub-gated; Audio/Subtitles/Video
 were conditional on track availability. Match Apple's TVPlayerInfoHUD
@@ -142,14 +142,14 @@ states; data wiring lands in A.3b (chapters), A.3c (stats), and A.3d
 ### Task 2: HUD-independent auto-hide timer
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 **Why:** Per the audit, the global controls auto-hide (`CONTROLS_AUTO_HIDE_MS = 5000`) at lines 354–360 hides the entire overlay including the HUD when 5s elapses without input. This is wrong for the HUD specifically — the user opened it intentionally (pressed the Tune button) and expects it to stay until they close it explicitly via Back. Make the auto-hide suspend while `state.hudOpen` is true.
 
 - [ ] **Step 1: Read the current auto-hide LaunchedEffect**
 
 ```bash
-sed -n '345,370p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
+sed -n '345,370p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 ```
 
 Confirm it looks like:
@@ -182,7 +182,7 @@ When the user closes the HUD via Back, `state.hudOpen` flips to false; this effe
 - [ ] **Step 3: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -190,10 +190,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "fix(tv-player): suspend 5s controls auto-hide while HUD is open (A.3a)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "fix(tv-player): suspend 5s controls auto-hide while HUD is open (A.3a)
 
 The global controls auto-hide LaunchedEffect treated the HUD like any
 other transient overlay and dismissed it after 5s of input idle.
@@ -207,16 +207,16 @@ closing the HUD restarts the 5s window for the transport cluster."
 ### Task 3: Remove legacy `TvSubtitleMenu` + `TvAudioTrackMenu` modal dialogs
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
-- Possibly delete: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvTrackMenus.kt` (if both modals are removed and the file is now empty)
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Possibly delete: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvTrackMenus.kt` (if both modals are removed and the file is now empty)
 
 **Why:** Per the audit, `TvSubtitleMenu` and `TvAudioTrackMenu` are pre-HUD modal dialogs rendered at `TvPlayerScreen.kt:474–493`, with corresponding `subtitleMenuOpen` / `audioMenuOpen` ViewModel state and `closeSubtitleMenu()` / `closeAudioMenu()` handlers. The HUD's Audio + Subtitles tabs subsume their function — these are dead UX paths. Remove the modal rendering, the open/close handlers, and the state fields. The companion `BackHandler` chain entries (`state.subtitleMenuOpen -> viewModel.closeSubtitleMenu()` etc.) go too.
 
 **Critical:** before deleting, grep for ANY open trigger:
 
 ```bash
-grep -rn "openSubtitleMenu\|openAudioMenu\|subtitleMenuOpen\|audioMenuOpen" /opt/silo-android/androidTvApp/src
+grep -rn "openSubtitleMenu\|openAudioMenu\|subtitleMenuOpen\|audioMenuOpen" /opt/prairie-android/androidTvApp/src
 ```
 
 If anything other than `TvPlayerScreen.kt`, `TvPlayerViewModel.kt`, or `TvTrackMenus.kt` itself references these, STOP and report — the dialogs may still be reachable from a path the audit missed. (Expected: no external openers; they're orphan UI paths after the HUD landed.)
@@ -224,7 +224,7 @@ If anything other than `TvPlayerScreen.kt`, `TvPlayerViewModel.kt`, or `TvTrackM
 - [ ] **Step 1: Run the grep guard**
 
 ```bash
-grep -rn "openSubtitleMenu\|openAudioMenu\|subtitleMenuOpen\|audioMenuOpen" /opt/silo-android/androidTvApp/src
+grep -rn "openSubtitleMenu\|openAudioMenu\|subtitleMenuOpen\|audioMenuOpen" /opt/prairie-android/androidTvApp/src
 ```
 
 If unexpected hits appear, STOP and report BLOCKED.
@@ -276,7 +276,7 @@ Search for these imports near the top of `TvPlayerScreen.kt` and delete them.
 - [ ] **Step 6: Build and check if `TvTrackMenus.kt` still has callers**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If `TvSubtitleMenu` or `TvAudioTrackMenu` are still referenced, the grep guard in Step 1 missed something — investigate and report.
@@ -284,13 +284,13 @@ Expected: BUILD SUCCESSFUL. If `TvSubtitleMenu` or `TvAudioTrackMenu` are still 
 Then check whether `TvTrackMenus.kt` has any remaining purpose:
 
 ```bash
-grep -rn "TvSubtitleMenu\|TvAudioTrackMenu" /opt/silo-android/androidTvApp/src
+grep -rn "TvSubtitleMenu\|TvAudioTrackMenu" /opt/prairie-android/androidTvApp/src
 ```
 
 If the only hits are inside `TvTrackMenus.kt` itself (i.e., its own definitions), the entire file is dead. Delete it:
 
 ```bash
-git -C /opt/silo-android rm androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvTrackMenus.kt
+git -C /opt/prairie-android rm androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvTrackMenus.kt
 ```
 
 If there are remaining external references you didn't expect, STOP — investigate first.
@@ -298,7 +298,7 @@ If there are remaining external references you didn't expect, STOP — investiga
 - [ ] **Step 7: Rebuild to confirm**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -306,15 +306,15 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 8: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt
 
 # Only add the deletion if Step 6 confirmed the file is dead:
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvTrackMenus.kt 2>/dev/null || true
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "chore(tv-player): remove legacy TvSubtitleMenu and TvAudioTrackMenu (A.3a)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "chore(tv-player): remove legacy TvSubtitleMenu and TvAudioTrackMenu (A.3a)
 
 These modal track-picker dialogs pre-dated the HUD's Audio / Subtitles
 tabs. They were unreachable from UI but kept compiling because the

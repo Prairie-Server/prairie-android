@@ -1,7 +1,7 @@
 # ADB Playback Testing
 
-Scriptable playback testing for the Silo Android apps (TV and phone) using
-`scripts/android-playback-test.sh` (in the silo-android repo).
+Scriptable playback testing for the Prairie Android apps (TV and phone) using
+`scripts/android-playback-test.sh` (in the prairie-android repo).
 One command starts playback of a specific item via deep link; one command
 returns live player state as a single JSON line. No logcat scraping, no UI
 automation.
@@ -34,7 +34,7 @@ builds expose nothing.
      IP shown.
    - Phone: enable *USB debugging* (or *Wireless debugging*) in Developer
      options.
-2. **Install a debug build** signed into your Silo server:
+2. **Install a debug build** signed into your Prairie server:
 
    ```sh
    ./gradlew :androidTvApp:assembleDebug      # or :androidApp:assembleDebug
@@ -45,7 +45,7 @@ builds expose nothing.
    Then sign in and pick a profile once by hand (or use your existing signed-in
    test device).
 3. **Point the harness at the device.** Either export
-   `SILO_DEVICE_SERIAL=192.0.2.10:5555` once, or pass `-s 192.0.2.10:5555` per
+   `PRAIRIE_DEVICE_SERIAL=192.0.2.10:5555` once, or pass `-s 192.0.2.10:5555` per
    invocation. `ADB=/path/to/adb` overrides the binary if it is not on `PATH`.
 4. **Smoke-test the hook:**
 
@@ -65,7 +65,7 @@ builds expose nothing.
 ## Everyday usage
 
 ```sh
-export SILO_DEVICE_SERIAL=192.0.2.10:5555
+export PRAIRIE_DEVICE_SERIAL=192.0.2.10:5555
 
 # One-shot functional test: home -> deep link -> wait -> verify position advances
 scripts/android-playback-test.sh test movie-tmdb-489064 --type movie
@@ -86,7 +86,7 @@ scripts/android-playback-test.sh stop
 # or a 30s position stall; reports drops, rebuffer samples, and fatals
 scripts/android-playback-test.sh soak episode-tvdb-275274-1-1 480 --quality original
 
-# Recent playback-relevant logcat (SiloPlayback, Media3Analytics, SiloDovi, SiloDeepLink)
+# Recent playback-relevant logcat (PrairiePlayback, Media3Analytics, PrairieDovi, PrairieDeepLink)
 scripts/android-playback-test.sh logs 5
 ```
 
@@ -99,7 +99,7 @@ list.
   HDR/DV.** Without it the profile's saved quality applies and the server may
   pick a transcode route (mp4/AAC, short growing HLS-window duration), which
   invalidates format assertions.
-- **Isolate scenarios with `adb shell am force-stop org.siloserver.silo`.**
+- **Isolate scenarios with `adb shell am force-stop org.prairieserver.prairie`.**
   A play deep link for content already loaded resumes the old session instead
   of restarting it, and a back-press followed immediately by a new link races
   player teardown and silently drops the link.

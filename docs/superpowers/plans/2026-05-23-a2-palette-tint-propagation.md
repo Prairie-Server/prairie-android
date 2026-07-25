@@ -12,7 +12,7 @@
 
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, Coil 3.1.0 (already in deps), new `androidx.palette:palette:1.0.0`.
 
-**Reference:** Spec section A.2 at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Audit confirmed the carousel's `onActiveItemChanged` callback already exists with the right signature (`(SectionItem) -> Unit`).
+**Reference:** Spec section A.2 at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Audit confirmed the carousel's `onActiveItemChanged` callback already exists with the right signature (`(SectionItem) -> Unit`).
 
 **Testing posture:** Per `AGENTS.md` ("no tests for small UI changes"), only the pure Palette extraction logic warrants a unit test (Task 3 has it). UI verification is manual on an Android TV emulator post-merge.
 
@@ -23,8 +23,8 @@
 ### Task 1: Add `androidx.palette:palette` dependency
 
 **Files:**
-- Modify: `/opt/silo-android/gradle/libs.versions.toml`
-- Modify: `/opt/silo-android/androidTvApp/build.gradle.kts`
+- Modify: `/opt/prairie-android/gradle/libs.versions.toml`
+- Modify: `/opt/prairie-android/androidTvApp/build.gradle.kts`
 
 **Why:** Palette is the Android API for extracting representative colors from a bitmap. Used by the tint state in Task 2 and the backdrop overlay in Task 3.
 
@@ -56,7 +56,7 @@ Inside `androidMain.dependencies { … }` (around line 18–49), after `implemen
 - [ ] **Step 3: Build to verify dep resolves**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If gradle can't resolve `androidx.palette:palette-ktx:1.0.0`, double-check the version (Maven Central authoritative) and the module name (`palette-ktx`, not `palette`).
@@ -64,11 +64,11 @@ Expected: BUILD SUCCESSFUL. If gradle can't resolve `androidx.palette:palette-kt
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   gradle/libs.versions.toml \
   androidTvApp/build.gradle.kts
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "build(tv): add androidx.palette dep for A.2 backdrop tint extraction
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "build(tv): add androidx.palette dep for A.2 backdrop tint extraction
 
 Pulls in androidx.palette:palette-ktx 1.0.0 for the upcoming ambient
 backdrop tint propagation (A.2). No call sites yet — wired up in the
@@ -80,7 +80,7 @@ next two commits."
 ### Task 2: Create `AmbientBackdropTint.kt` (state + CompositionLocal + extraction coroutine)
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt`
 
 **Why:** A single source of truth for "what's the current accent color." Other components (the backdrop in Task 3; A.6's card glow later) read from `LocalAmbientBackdropTint.current.accent`. The state holder owns: (a) the current active item, (b) the extracted accent color (nullable while loading or if extraction fails), (c) the coroutine that fetches the bitmap and runs Palette.
 
@@ -211,7 +211,7 @@ A few non-obvious design points worth noting in case the implementer wants to re
 - [ ] **Step 2: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If `coil3.toBitmap` is unresolved, the import may need to be `coil3.toBitmap` (extension on `coil3.Image`) or `coil3.asDrawable(context.resources).toBitmapOrNull()` — check Coil 3.1 API docs; the extension lives in `io.coil-kt.coil3:coil-core`.
@@ -222,7 +222,7 @@ If `androidx.palette.graphics.Palette` is unresolved, double-check Task 1 actual
 
 `AGENTS.md` allows tests for non-trivial logic. The `acceptAccent` staleness guard is non-trivial — it's the kind of thing that breaks subtly during rapid hero advances. Add a focused test.
 
-**File:** `/opt/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTintStateTest.kt`
+**File:** `/opt/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTintStateTest.kt`
 
 ```kotlin
 package com.continuum.app.tv.ui.components
@@ -286,7 +286,7 @@ Note: the `SectionItem` constructor signature may differ from what's shown above
 - [ ] **Step 4: Run the test**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.ui.components.AmbientBackdropTintStateTest"
+cd /opt/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.ui.components.AmbientBackdropTintStateTest"
 ```
 
 Expected: 3 tests passing.
@@ -294,11 +294,11 @@ Expected: 3 tests passing.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt \
   androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTintStateTest.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv): AmbientBackdropTintState + LocalAmbientBackdropTint (A.2)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv): AmbientBackdropTintState + LocalAmbientBackdropTint (A.2)
 
 State holder + CompositionLocal for publishing the current hero's
 extracted accent color. Loads bitmap via Coil's singleton ImageLoader,
@@ -314,7 +314,7 @@ the next two commits."
 ### Task 3: Apply the tint multiply layer in `TvRootHeroBackdrop`
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvRootHeroBackdrop.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvRootHeroBackdrop.kt`
 
 **Why:** The backdrop currently renders image → 220dp top gradient → flat 0.34α scrim → vertical fade. Add a fourth layer: a low-alpha multiply of the accent color from `LocalAmbientBackdropTint`. When the accent is null (off-Home or extraction in flight) the layer collapses to fully transparent.
 
@@ -352,7 +352,7 @@ The `0.18f` alpha is the multiply strength — a deliberate ceiling that keeps t
 - [ ] **Step 2: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -360,10 +360,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 3: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvRootHeroBackdrop.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv): tint TvRootHeroBackdrop with LocalAmbientBackdropTint accent
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv): tint TvRootHeroBackdrop with LocalAmbientBackdropTint accent
 
 Adds a fifth overlay layer that multiplies the current accent color
 (from LocalAmbientBackdropTint) at 0.18 alpha across the backdrop.
@@ -376,7 +376,7 @@ tint state is empty (off-Home or extraction pending)."
 ### Task 4: Wire `TvHomeScreen` to provide the tint state and feed the carousel callback
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/home/TvHomeScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/home/TvHomeScreen.kt`
 
 **Why:** This is the final wiring step that makes the tint actually update. Today `TvHomeScreen` passes the *first* featured item to the backdrop forever (line 92: `val featuredItem = featuredSection?.items?.firstOrNull()`). The carousel's `onActiveItemChanged` callback is unused. We:
 1. Provide `LocalAmbientBackdropTint` via `CompositionLocalProvider`.
@@ -487,7 +487,7 @@ Inside the `featuredSection?.let { section -> item(key = "featured:${section.id}
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -502,10 +502,10 @@ The full visual effect (tint multiply animating as hero advances) can only be ve
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/home/TvHomeScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-home): publish active hero item to LocalAmbientBackdropTint (A.2)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-home): publish active hero item to LocalAmbientBackdropTint (A.2)
 
 Home now tracks which hero card is active and pushes it both to the
 backdrop (replacing the static 'first item' reference) and to the

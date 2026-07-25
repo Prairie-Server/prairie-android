@@ -1,7 +1,7 @@
 # Ebook Reader Enhancements — Design
 
 **Status:** Approved design (brainstorming output). Implementation plan to follow via writing-plans.
-**Scope:** Android phone app (`androidApp`) reader, with the position/annotation models in the KMP `shared` module. Coordinated **server changes are in scope** (annotation/locator generalization). Paths are repository-relative; assume the repository root (`silo-android`) is the cwd, and the sibling `silo-server` repo for server work.
+**Scope:** Android phone app (`androidApp`) reader, with the position/annotation models in the KMP `shared` module. Coordinated **server changes are in scope** (annotation/locator generalization). Paths are repository-relative; assume the repository root (`prairie-android`) is the cwd, and the sibling `prairie-server` repo for server work.
 
 ---
 
@@ -37,7 +37,7 @@ A single position abstraction every format maps to and from. This is the foundat
 - **Reader settings** — extend `ReaderControls`/settings with **font family** (serif / sans / dyslexic-friendly) and an in-reader **brightness** slider (window attribute), alongside existing size/theme/margins. Applied to all reflowable formats.
 - **`ReadingEstimator`** — "~X min left in chapter / book" from remaining content length × reading speed (start from a default WPM; optionally adapt to the user's observed pace).
 
-## 6. Server changes (coordinated, in `silo-server`)
+## 6. Server changes (coordinated, in `prairie-server`)
 
 The current annotation model is **CFI-only**, which cannot anchor PDF (page+rect) or comic highlights. Generalize it:
 
@@ -67,7 +67,7 @@ Phases 1–2 deliver the biggest reading-quality jump; 4 depends on the server c
 
 - ⚠️ **PDF search**: `PdfRenderer` has no text extraction. PDF in-text search needs an added text-extraction lib or is **deferred** (recommended: defer, note in UI).
 - ⚠️ **epub.js in WebView**: asset bundling, JS-bridge performance on large books, and selection/highlight reliability across reflow. Spike early in Phase 2; Readium is the fallback.
-- **Server coordination**: Phase 4 requires the `silo-server` annotation/locator change to ship first; until then highlights can run client-local (no sync) behind the same UI.
+- **Server coordination**: Phase 4 requires the `prairie-server` annotation/locator change to ship first; until then highlights can run client-local (no sync) behind the same UI.
 - **Assumptions:** Android phone scope; models live in `shared` so Apple/TV can adopt; comic/PDF do not get reflow (fonts/margins) — those controls hide for fixed-layout formats, as today.
 
 ## 10. Testing

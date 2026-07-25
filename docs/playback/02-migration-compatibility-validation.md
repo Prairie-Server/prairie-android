@@ -17,7 +17,7 @@ telemetry semantics.
 
 | Stage | Artifact | Entry gate | Rollback boundary |
 | --- | --- | --- | --- |
-| Phase 0 | Published minimum-compatible Silo server release | May begin immediately | Before any Release A rollout, server rollback may restore the prior protocol. After A begins, roll back only to another v3-compatible build or revert A first. |
+| Phase 0 | Published minimum-compatible Prairie server release | May begin immediately | Before any Release A rollout, server rollback may restore the prior protocol. After A begins, roll back only to another v3-compatible build or revert A first. |
 | Release A | Android MPV-disabled release; MPV remains packaged but unreachable | Minimum server is published/deployed, Phase 0 proof, Release A automated gates, and pre-A lab gates pass | Halt rollout or revert Release A. |
 | Soak | Evidence and release decision | Metrics and hardware gates are measurable | Do not proceed to Release B. |
 | Release B | Android MPV-removal release | Release A completes the recorded observation window within numeric budgets | Revert Release B to restore dormant packaging; Media3-only behaviour remains. |

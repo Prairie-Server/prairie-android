@@ -10,7 +10,7 @@
 
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, existing `FocusModifier.kt` infrastructure.
 
-**Reference:** Spec section A.6 at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Audit found 5 call sites of `continuumCardDefaults`:
+**Reference:** Spec section A.6 at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Audit found 5 call sites of `continuumCardDefaults`:
 - `TvMediaCard.kt:83` — no override (uses default 1f → will start lifting after this change)
 - `TvEpisodeCard.kt:80` — explicit `focusedScale = 1.04f`
 - `TvReferenceShelfCard.kt:58` — explicit `focusedScale = 1f`
@@ -24,13 +24,13 @@
 ### Task 1: Bump the `focusedScale` default in `continuumCardDefaults`
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/FocusModifier.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/FocusModifier.kt`
 
 **Why:** This is the entire visible change. Card consumers that don't pass an explicit `focusedScale` will start lifting 1.08× on focus.
 
 - [ ] **Step 1: Change the default value from `1f` to `1.08f`**
 
-In `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/FocusModifier.kt`, locate the `continuumCardDefaults` function (around line 104). Change:
+In `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/FocusModifier.kt`, locate the `continuumCardDefaults` function (around line 104). Change:
 
 ```kotlin
 fun continuumCardDefaults(
@@ -53,7 +53,7 @@ That is the only change to this file.
 - [ ] **Step 2: Build the androidTvApp module**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -61,10 +61,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 3: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/FocusModifier.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-theme): default continuumCardDefaults focusedScale to 1.08f (A.6a)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-theme): default continuumCardDefaults focusedScale to 1.08f (A.6a)
 
 TvMediaCard (and any other consumer using the default) will now lift
 on focus instead of staying static. Matches Apple's tvOS card focus
@@ -81,7 +81,7 @@ infrastructure not introduced by A.2."
 ### Task 2: Drop the redundant `focusedScale = 1.08f` override in `TvProfileSelectionScreen`
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/profiles/TvProfileSelectionScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/profiles/TvProfileSelectionScreen.kt`
 
 **Why:** This call site (line 174) explicitly passed `focusedScale = 1.08f`. After Task 1, that matches the default — the override is now noise. Cleanup keeps the codebase consistent with "use the default unless you have a reason to deviate."
 
@@ -90,7 +90,7 @@ The other overrides at `TvEpisodeCard.kt:80` (1.04f), `TvReferenceShelfCard.kt:5
 - [ ] **Step 1: Read the current call site to know the surrounding context**
 
 ```bash
-sed -n '170,180p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/profiles/TvProfileSelectionScreen.kt
+sed -n '170,180p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/profiles/TvProfileSelectionScreen.kt
 ```
 
 You should see something like:
@@ -111,7 +111,7 @@ Edit the line to drop the redundant argument:
 - [ ] **Step 3: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -119,10 +119,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/profiles/TvProfileSelectionScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "chore(tv-profiles): drop redundant focusedScale=1.08f override
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "chore(tv-profiles): drop redundant focusedScale=1.08f override
 
 This override matched the post-A.6a default in continuumCardDefaults,
 so it's now noise. The other explicit overrides in TvEpisodeCard

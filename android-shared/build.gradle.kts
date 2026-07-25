@@ -61,7 +61,7 @@ kotlin {
             implementation(files("libs/media3-decoder-ffmpeg-1.10.1.aar"))
             // Reproducibly built JNI bridge for client-side Dolby Vision
             // Profile 7 RPU conversion. See scripts/build-dovi-aar.sh.
-            implementation(files("libs/silo-dovi-bridge-2.3.1.aar"))
+            implementation(files("libs/prairie-dovi-bridge-2.3.1.aar"))
 
             // Coroutines
             implementation(libs.kotlinx.coroutines.android)
@@ -126,7 +126,7 @@ kotlin {
 }
 
 android {
-    namespace = "org.siloserver.silo.common"
+    namespace = "org.prairieserver.prairie.common"
     compileSdk = 36
     defaultConfig {
         minSdk = 24

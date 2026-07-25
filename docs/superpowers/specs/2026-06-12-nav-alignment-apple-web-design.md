@@ -1,7 +1,7 @@
 # Navigation Alignment (Apple/web shell) — Design
 
 **Status:** Approved design (brainstorming output). Implementation plan to follow via writing-plans.
-**Scope:** Android **TV** (`androidTvApp`) and Android **mobile** (`androidApp`) navigation shells. Paths are repository-relative; assume the repository root (`silo-android`) is the cwd.
+**Scope:** Android **TV** (`androidTvApp`) and Android **mobile** (`androidApp`) navigation shells. Paths are repository-relative; assume the repository root (`prairie-android`) is the cwd.
 **Server changes:** None. Pure client navigation restructure.
 
 ---
@@ -12,13 +12,13 @@ Align the Android TV and Android mobile navigation with the Apple clients and th
 
 ## 2. Reference (what we're matching)
 
-From the Apple clients (`silo-apple/iosApp/iosApp`):
+From the Apple clients (`prairie-apple/iosApp/iosApp`):
 - **tvOS top nav** (`tvOS/Navigation/TVTopMenuBar.swift`, `TVRootDestination`): **Search · Home · Libraries · For You**.
 - **iOS bottom tabs** (`Navigation/TabRouter.swift`, `AppTab`): **Home · Libraries · For You · Settings**.
 - **Home** (`Screens/Home/HomeView.swift`): a featured carousel + server-provided recommendation rows (incl. continue-watching/listening). A curated landing, *not* a media-type tab.
 - **Libraries**: one tab with a **library selector**; per-library landing has Recommended / Collections modes. No Video/Audio/Reading split.
 
-Web UI (`silo-server/web`) matches this shape: a sidebar with **Home** + a **Libraries** list, plus Discover/For-You.
+Web UI (`prairie-server/web`) matches this shape: a sidebar with **Home** + a **Libraries** list, plus Discover/For-You.
 
 > Note: Apple tvOS has **no audiobook player** — Android TV is ahead there (we just built one). Apple is the reference for the **nav shell only**; the audiobook player and the ebook reader stay as-is and are reached through Home (continue-listening) + the Libraries picker by item type.
 
@@ -80,7 +80,7 @@ Each phase ships independently; Phase 1–2 (TV) are low-risk given the existing
 ## 6. Risks & assumptions
 
 - ⚠️ **Mobile Libraries unification** is the risk: today Reading is a separate hub (`ReadingHubScreen`) with its own format filters and entry points. Removing it and surfacing reading libraries through the one Libraries picker must keep **per-item-type routing** correct — selecting a reading library and tapping a book must open the reader, an audiobook the audiobook player. Mis-wiring sends a book to the video player.
-- ⚠️ **Navigation regressions** — both shells rewire route↔destination mapping, deep links, back-stack, and initial focus (TV). Each platform needs an on-device pass (TV via the `Silo_TV` emulator, phone via the Pixel).
+- ⚠️ **Navigation regressions** — both shells rewire route↔destination mapping, deep links, back-stack, and initial focus (TV). Each platform needs an on-device pass (TV via the `Prairie_TV` emulator, phone via the Pixel).
 - **Assumptions:** Home (`TvHomeScreen`/`HomeScreen`) already render server sections across media types (verified: they show Continue Watching + Continue Listening). Recommendations screens exist on both platforms. `MediaMode`/library-type helpers (`mobileMediaModeForLibraryType`, `isAudiobookItemType`, etc.) are reused by the picker for per-library/per-item routing, not for top-level tabs.
 - **Out of scope:** the audiobook player and ebook reader internals (unchanged); a TV "recommendation channel" row; Settings as a bottom-nav tab on mobile (stays in the header/overflow as today).
 

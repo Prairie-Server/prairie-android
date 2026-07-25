@@ -21,8 +21,8 @@
 ### Task 1: Separate For You controls from scrolling content
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/performance/TvListPerformanceSourceTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/recommendations/TvRecommendationsScreen.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/performance/TvListPerformanceSourceTest.kt`
 
 **Interfaces:**
 - The fixed filter row owns an explicit measured/reserved vertical band; the section feed starts below that band and does not scroll beneath a transparent overlay.
@@ -50,15 +50,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/performance/TvListPerformanceSourceTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/recommendations/TvRecommendationsScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/performance/TvListPerformanceSourceTest.kt
 git commit -m "fix(tv): reserve for-you filter space"
 ```
 
 ### Task 2: Canonicalize Skyline horizontal inset
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvSkylineTokenParityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeed.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvSkylineTokenParityTest.kt`
 
 **Interfaces:**
 - Skyline content uses the same horizontal safe-area token as the top-bar chrome.
@@ -86,15 +86,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvSkylineTokenParityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeed.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvSkylineTokenParityTest.kt
 git commit -m "fix(tv): align skyline safe-area inset"
 ```
 
 ### Task 3: Render a focusable Home empty state
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/home/TvHomeScreen.kt`
-- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/home/TvHomeContentStateTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/home/TvHomeScreen.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/home/TvHomeContentStateTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun shouldShowHomeEmptyState(isLoading: Boolean, error: String?, visibleSectionCount: Int): Boolean`.
@@ -103,7 +103,7 @@ git commit -m "fix(tv): align skyline safe-area inset"
 - [ ] **Step 1: Add failing empty-state tests**
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.home
+package org.prairieserver.prairie.tv.ui.screens.home
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -149,15 +149,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/home/TvHomeScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/home/TvHomeContentStateTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/home/TvHomeScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/home/TvHomeContentStateTest.kt
 git commit -m "fix(tv): show empty home state"
 ```
 
 ### Task 4: Remove fixed-height Search status clipping
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/search/TvSearchScreen.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
 
 **Interfaces:**
 - Search status uses text-driven height with at least one line and no fixed 18 dp container.
@@ -185,15 +185,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/search/TvSearchScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
 git commit -m "fix(tv): let search status scale"
 ```
 
 ### Task 5: Keep marquee title visible until logo succeeds
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeedSourceTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeed.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeedSourceTest.kt`
 
 **Interfaces:**
 - Text title is the default state. Successful image loading crossfades to the logo; loading/error keeps title text.
@@ -221,15 +221,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeedSourceTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeed.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvSkylineSectionFeedSourceTest.kt
 git commit -m "fix(tv): retain marquee title while logo loads"
 ```
 
 ### Task 6: Distinguish HUD focus and selection states
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
 
 **Interfaces:**
 - Focused rows use opaque white with dark foreground.
@@ -259,16 +259,16 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
 git commit -m "fix(tv): separate hud focus and selection"
 ```
 
 ### Task 7: Render faithful subtitle appearance preview
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleAppearanceOptions.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleAppearanceOptionsTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleAppearanceOptions.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleAppearanceOptionsTest.kt`
 
 **Interfaces:**
 - Produces preview style from selected size, font family, foreground/background, vertical position, and outline mode.
@@ -297,18 +297,18 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleAppearanceOptions.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleAppearanceOptionsTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleAppearanceOptions.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleAppearanceOptionsTest.kt
 git commit -m "fix(tv): mirror subtitle appearance in preview"
 ```
 
 ### Task 8: Complete selectable semantics and swatch descriptions
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvOptionDialog.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/TvSettingsScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvAiTranslateDialog.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvOptionDialog.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/TvSettingsScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvAiTranslateDialog.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
 
 **Interfaces:**
 - Selectable surfaces apply `Modifier.semantics { selected = isSelected }`.
@@ -337,17 +337,17 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvOptionDialog.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/TvSettingsScreen.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvAiTranslateDialog.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvOptionDialog.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/TvSettingsScreen.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvAiTranslateDialog.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
 git commit -m "fix(tv): expose picker selection semantics"
 ```
 
 ### Task 9: Delete dead picker and correct index contracts
 
 **Files:**
-- Delete: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFullScreenPicker.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Delete: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFullScreenPicker.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormatting.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
 
 **Interfaces:**
 - Comments state that subtitle selector values are combined-space selection indexes.
@@ -375,7 +375,7 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFullScreenPicker.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
+git add -A androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFullScreenPicker.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormatting.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
 git commit -m "chore(tv): remove dead picker and fix index docs"
 ```
 

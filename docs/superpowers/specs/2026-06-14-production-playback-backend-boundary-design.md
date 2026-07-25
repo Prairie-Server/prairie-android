@@ -50,7 +50,7 @@ The Android reference projects point to the same architectural direction:
 - Wholphin chooses between ExoPlayer and MPV at player creation time, and also shows a separate ExoPlayer plus libass path for ASS/SSA rendering.
 - Jellyfin Android TV separates `PlayerBackend` from playback state, queues, timed events, surfaces, and subtitle views.
 
-Silo should not copy any one project wholesale. The right first move is a backend boundary that keeps our current Media3 behavior intact while making the future MPV path obvious.
+Prairie should not copy any one project wholesale. The right first move is a backend boundary that keeps our current Media3 behavior intact while making the future MPV path obvious.
 
 ## Architecture
 
@@ -251,6 +251,6 @@ After this slice lands, the next design can add an MPV backend behind the bounda
 - choose dependency source: Maven `dev.jdtech.mpv:libmpv`, local AAR, or maintained fork
 - define ABI/package-size policy
 - decide Media3 `BasePlayer` wrapper versus backend-specific UI adapter
-- map MPV track list to Silo subtitle/audio entries
+- map MPV track list to Prairie subtitle/audio entries
 - wire MPV cache policy
 - validate ASS/SSA, image subtitles, and hard codec cases on Pixel and Shield

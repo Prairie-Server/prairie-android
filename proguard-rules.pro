@@ -1,11 +1,11 @@
 # ============================================================================
-# Silo Android — R8 / ProGuard keep rules, shared by :androidApp + :androidTvApp.
+# Prairie Android — R8 / ProGuard keep rules, shared by :androidApp + :androidTvApp.
 #
 # This stack is reflection- and JNI-heavy, so naive R8 minification breaks it at
 # RUNTIME (silently). The rules below pin every component that resolves types by
 # name / reflection / JNI. Most third-party libs ship their own consumer rules
 # (Compose, OkHttp, Okio, Room, Coil3, Media3 core, kotlinx-serialization core) —
-# these add the Silo-specific keeps plus the few libraries that need explicit
+# these add the Prairie-specific keeps plus the few libraries that need explicit
 # help or warning suppression.
 #
 # IMPORTANT: a successful minified BUILD does NOT prove runtime correctness under
@@ -25,14 +25,14 @@
 
 # --- kotlinx.serialization ----------------------------------------------------
 # kotlinx-serialization-core ships the generic @Serializable rules; these pin the
-# generated serializers + Companions for Silo's own models (all under
-# org.siloserver.silo), which R8 cannot see are reached only reflectively from the
+# generated serializers + Companions for Prairie's own models (all under
+# org.prairieserver.prairie), which R8 cannot see are reached only reflectively from the
 # JSON format.
--keep,includedescriptorclasses class org.siloserver.silo.**$$serializer { *; }
--keepclasseswithmembers,includedescriptorclasses class org.siloserver.silo.** {
+-keep,includedescriptorclasses class org.prairieserver.prairie.**$$serializer { *; }
+-keepclasseswithmembers,includedescriptorclasses class org.prairieserver.prairie.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keepclassmembers class org.siloserver.silo.** {
+-keepclassmembers class org.prairieserver.prairie.** {
     *** Companion;
 }
 

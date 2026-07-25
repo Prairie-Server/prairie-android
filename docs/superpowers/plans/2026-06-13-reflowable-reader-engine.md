@@ -8,7 +8,7 @@
 
 **Tech Stack:** Kotlin, Jetpack Compose (`AndroidView`, gestures), Android `WebView` + `@JavascriptInterface`, `kotlinx.serialization` (bridge + locator JSON), Robolectric (existing androidApp unit-test runner), JUnit/kotlin.test. No new third-party reader library.
 
-Commands assume the repository root (`silo-android`) is the cwd. Design reference: `docs/superpowers/specs/2026-06-13-reflowable-reader-engine-design.md`.
+Commands assume the repository root (`prairie-android`) is the cwd. Design reference: `docs/superpowers/specs/2026-06-13-reflowable-reader-engine-design.md`.
 
 ---
 

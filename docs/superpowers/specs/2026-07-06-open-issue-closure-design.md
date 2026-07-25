@@ -6,9 +6,9 @@ Close the remaining open Android-client issues that were verified as not correct
 
 - #5 Collections on Android
 - #6 Collections on Android TV
-- #15 SiloControl TV receiver
-- #16 SiloControl phone remote
-- #17 SiloControl "Play on device"
+- #15 PrairieControl TV receiver
+- #16 PrairieControl phone remote
+- #17 PrairieControl "Play on device"
 - #19 Android native push delivery
 - #22 Download series monitoring, retention, and Reclaim Watched
 
@@ -22,7 +22,7 @@ Issue #27 is explicitly excluded from activation. Requests, Admin, and Watch Tog
 - Downloads remain public/discoverable and use original filenames/formats for completed media bytes.
 - New feature work must be test-first: add failing tests, verify the failure, implement, then verify green.
 - Android TV surfaces must be D-pad operable with visible focus and no focus traps.
-- Apple/tvOS is the master for SiloControl protocol shape. Android should interoperate with Apple, not invent a parallel protocol.
+- Apple/tvOS is the master for PrairieControl protocol shape. Android should interoperate with Apple, not invent a parallel protocol.
 
 ## Design Summary
 
@@ -32,7 +32,7 @@ First, Collections becomes browse-only on both Android surfaces. Shared collecti
 
 Second, Downloads gains monitored subscriptions. Users can monitor a series or audiobook/reading collection for future downloads, choose quality and Wi-Fi policy, define retention, and reclaim watched/read/listened downloaded items. A WorkManager worker evaluates subscriptions periodically and after app foreground, compares server metadata against local sidecars, and enqueues missing eligible files through the existing `DownloadEnqueuer`.
 
-Third, SiloControl ports Apple SiloCast. Android TV advertises `_silocast._tcp`, accepts one controller at a time, exposes current playback state, accepts launch/control commands, and can show a standby/remote-connected state. Android phone discovers `_silocast._tcp` devices, shows a target picker, exposes a now-playing mini-bar/full remote, and adds "Play on device" on playable detail screens. The wire protocol mirrors `silo-apple/iosApp/iosApp/Cast/SiloCastProtocol.swift`.
+Third, PrairieControl ports Apple PrairieCast. Android TV advertises `_prairiecast._tcp`, accepts one controller at a time, exposes current playback state, accepts launch/control commands, and can show a standby/remote-connected state. Android phone discovers `_prairiecast._tcp` devices, shows a target picker, exposes a now-playing mini-bar/full remote, and adds "Play on device" on playable detail screens. The wire protocol mirrors `prairie-apple/iosApp/iosApp/Cast/PrairieCastProtocol.swift`.
 
 Fourth, Android native push adds the client-side FCM integration around the server's private push architecture. The app registers an FCM token with the signed-in server/profile, handles data-only messages in a `FirebaseMessagingService`, fetches notification details from the user's server, and posts a generic local notification/deep link. If the checked-in Android repo does not yet have Firebase configuration, the implementation must keep the push code behind optional build/config guards and expose a clear disabled state rather than crashing or inventing fake delivery.
 
@@ -146,13 +146,13 @@ Add tests for:
 - Reclaim Watched calculation excludes queued/failed/in-progress rows
 - manual downloads still work with existing `DownloadEnqueuer`
 
-## SiloControl / SiloCast
+## PrairieControl / PrairieCast
 
 ### Protocol
 
-Mirror Apple `SiloCastProtocol` version 1:
+Mirror Apple `PrairieCastProtocol` version 1:
 
-- service type: `_silocast._tcp`
+- service type: `_prairiecast._tcp`
 - messages: `hello`, `launch`, `control`, `state`, `error`, `ping`, `pong`, `close`
 - peer roles: `phone`, `tv`
 - launch payload: `serverId` plus playback request
@@ -182,13 +182,13 @@ The receiver owns:
 - playback state snapshots from active TV player
 - idle/standby state when no player is active
 
-The TV player already has remote-command plumbing for server playback realtime; SiloCast should use a small adapter rather than duplicate player logic.
+The TV player already has remote-command plumbing for server playback realtime; PrairieCast should use a small adapter rather than duplicate player logic.
 
 ### Android Phone Controller
 
 The phone owns:
 
-- NSD browse for `_silocast._tcp`
+- NSD browse for `_prairiecast._tcp`
 - target picker
 - connect/disconnect lifecycle
 - launch from playable detail screens
@@ -205,7 +205,7 @@ Add tests for:
 - message serialization round-trips matching Apple sample JSON
 - control command names and nullable subtitle-off handling
 - playback clock optimistic seek/play behavior
-- TV receiver source has `_silocast._tcp` advertising and one-controller policy
+- TV receiver source has `_prairiecast._tcp` advertising and one-controller policy
 - phone source has NSD browser, target picker, now-playing mini-bar, and play-on-device entry points
 - command adapter maps controls to existing player operations without requiring a live player in unit tests
 
@@ -231,7 +231,7 @@ Phone app:
 - obtains FCM registration token when Firebase is configured
 - registers token after server/profile selection
 - refreshes registration when token changes, server changes, or profile changes
-- handles data messages in `SiloFirebaseMessagingService`
+- handles data messages in `PrairieFirebaseMessagingService`
 - fetches inbox details from server
 - posts a generic notification with a deep link into notifications/detail or the relevant content if the fetched row provides one
 
@@ -265,7 +265,7 @@ Update README/docs to say:
 
 - Collections are browse-only on Android clients; authoring is web-only.
 - Downloads support monitored auto-download and Reclaim Watched once implemented.
-- SiloControl supports Android phone to Android TV control/play-on-device.
+- PrairieControl supports Android phone to Android TV control/play-on-device.
 - Android push requires server push provider support and Firebase configuration.
 - Requests/Admin/Watch Together remain hidden from user menus.
 
@@ -279,9 +279,9 @@ Run focused tests after each slice, then the broader verification set:
 ./gradlew --rerun-tasks --no-build-cache :shared:testDebugUnitTest :android-shared:testDebugUnitTest :androidApp:testDebugUnitTest :androidTvApp:testDebugUnitTest
 ```
 
-For SiloControl, run an emulator/device check:
+For PrairieControl, run an emulator/device check:
 
-- Android TV advertises `_silocast._tcp`.
+- Android TV advertises `_prairiecast._tcp`.
 - Android phone discovers the TV.
 - "Play on device" launches the selected item.
 - phone remote can play/pause/seek/select subtitles.
@@ -301,4 +301,4 @@ For push, run the deepest available environment:
 
 ## Self-Review
 
-This spec has a complete requirement set for the approved scope. It deliberately excludes #27 activation to honor the current product decision. The highest-risk dependencies are SiloCast transport interoperability and concrete server FCM endpoint shape; both are isolated behind protocol/repository boundaries so implementation can progress without infecting unrelated app code.
+This spec has a complete requirement set for the approved scope. It deliberately excludes #27 activation to honor the current product decision. The highest-risk dependencies are PrairieCast transport interoperability and concrete server FCM endpoint shape; both are isolated behind protocol/repository boundaries so implementation can progress without infecting unrelated app code.

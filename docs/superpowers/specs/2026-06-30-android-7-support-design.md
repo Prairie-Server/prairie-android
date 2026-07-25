@@ -2,7 +2,7 @@
 
 ## Goal
 
-Silo Android mobile and Silo Android TV must support Android 7.0 and 7.1
+Prairie Android mobile and Prairie Android TV must support Android 7.0 and 7.1
 (API 24 and API 25) as first-class install targets. Users on Android 7 should
 be able to sign in, browse libraries, open details, use profiles, play supported
 media, read/download mobile ebooks, and use TV/mobile app surfaces that are

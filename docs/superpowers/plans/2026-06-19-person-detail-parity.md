@@ -19,7 +19,7 @@
 - Do not add Android admin person editing in this pass.
 - Do not change server schema or server routes.
 - Write failing tests before production changes.
-- Match silo-server web UI artwork geometry: `ItemCard.tsx` and `SectionItemCard.tsx` use `item.type === "audiobook" ? "aspect-square" : "aspect-[2/3]"`.
+- Match prairie-server web UI artwork geometry: `ItemCard.tsx` and `SectionItemCard.tsx` use `item.type === "audiobook" ? "aspect-square" : "aspect-[2/3]"`.
 
 ---
 

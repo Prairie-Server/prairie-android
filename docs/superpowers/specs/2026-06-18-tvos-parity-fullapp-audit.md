@@ -1,8 +1,8 @@
 # Android TV ↔ tvOS Full-App Parity Audit
 
 **Date:** 2026-06-18
-**Reference (gold standard):** silo-apple tvOS, `feature/playback-ux-redesign` — `iosApp/iosApp/tvOS/…` + shared views with `#if os(tvOS)`.
-**Target:** silo-android `androidTvApp`, Compose-for-TV — `…/ui/screens/…`.
+**Reference (gold standard):** prairie-apple tvOS, `feature/playback-ux-redesign` — `iosApp/iosApp/tvOS/…` + shared views with `#if os(tvOS)`.
+**Target:** prairie-android `androidTvApp`, Compose-for-TV — `…/ui/screens/…`.
 **Method:** 9 parallel source-level audits (one per surface cluster). Color/theming excluded (Continuum palette already matches); focus is IA / layout / component anatomy / focus / metrics.
 **Standing directive:** Android TV must match tvOS exactly. Rate & Watch Together were intentionally removed from TV detail (do not restore).
 
@@ -26,7 +26,7 @@ A second theme: **Android has several whole feature areas tvOS does not** (Reque
 | A4 | Calendar | last root **tab** | buried in profile dropdown (`TvMainShell.kt:714`) | High |
 | A5 | Cascade selector | anchored 2-level dropdown (libraries → sections flyout), dwell-open / d-pad-down (`TVCascadeSelector.swift`) | ABSENT — full-screen `TvFullScreenPicker` from inside content | High |
 | A6 | Per-type scope store | persisted per type/server/profile (`TVLibraryScopeStore.swift`) | ABSENT | High |
-| A7 | Bar anatomy | `SILO wordmark | center tabs | search+profile` | `profile(leading) | center tabs`, no wordmark, no trailing cluster | High |
+| A7 | Bar anatomy | `PRAIRIE wordmark | center tabs | search+profile` | `profile(leading) | center tabs`, no wordmark, no trailing cluster | High |
 | A8 | Tab focus chrome | inverted white capsule, bg-colored text | translucent white fill, never inverted (`TvTopMenuBar.kt:329-342`) | Med |
 | A9 | Dwell-preview / d-pad-down panel entry | yes | ABSENT (down just moves to content) | High |
 | A10 | Profile dropdown rows | Switch Profile·Watchlist·Favorites·History·Settings·[Admin]·Switch Server·Sign Out + avatar header | Notifications·Calendar·Switch Profile·Settings·Switch Server·Sign Out | Med |

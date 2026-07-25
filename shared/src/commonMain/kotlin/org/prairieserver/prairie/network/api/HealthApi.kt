@@ -1,0 +1,34 @@
+package org.prairieserver.prairie.network.api
+
+import org.prairieserver.prairie.network.ApiResult
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.timeout
+import io.ktor.client.request.get
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class HealthStatus(
+    val status: String,
+    @SerialName("server_name")
+    val serverName: String? = null,
+    @SerialName("server_id")
+    val serverId: String? = null,
+)
+
+open class HealthApi(private val client: HttpClient) {
+
+    open suspend fun checkHealth(): ApiResult<HealthStatus> = safeApiCall {
+        client.get("/api/v1/health") {
+            timeout {
+                connectTimeoutMillis = HEALTH_TIMEOUT_MS
+                requestTimeoutMillis = HEALTH_TIMEOUT_MS
+                socketTimeoutMillis = HEALTH_TIMEOUT_MS
+            }
+        }
+    }
+
+    private companion object {
+        const val HEALTH_TIMEOUT_MS = 6_000L
+    }
+}

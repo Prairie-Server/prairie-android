@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Status:** Approved
-**Scope:** Sub-project 4 of the feature-parity push. Restores the deleted admin surface and extends it to the current server contracts. Mobile = core admin; TV = stats dashboard only. Server: silo-server `origin/main`. Live data via REST + pull-to-refresh (events-ws admin channels are a later enhancement).
+**Scope:** Sub-project 4 of the feature-parity push. Restores the deleted admin surface and extends it to the current server contracts. Mobile = core admin; TV = stats dashboard only. Server: prairie-server `origin/main`. Live data via REST + pull-to-refresh (events-ws admin channels are a later enhancement).
 
 ## Goal
 
@@ -15,7 +15,7 @@ The server gates every admin route on **acting admin** = `user.role == "admin"` 
 - Add a shared `isActingAdmin(user, profile): Boolean` (role == "admin" && (profile == null || profile.isPrimary)).
 - Settings "Admin" entry (mobile + TV) renders only when acting-admin; admin calls otherwise 403 server-side anyway (defense in depth).
 
-## Server contracts (verified against silo-server main)
+## Server contracts (verified against prairie-server main)
 
 All admin endpoints under `/api/v1/admin/*` require acting-admin. Key shapes:
 - **Stats** `GET /admin/stats[?refresh=true]` → `{total_items, total_files, total_users, total_movies, total_movie_files, total_shows, total_show_files, active_streams, total_storage_bytes, watch_provider_activity:{trakt_connected_profiles, ..., scrobbles_24h}}`.

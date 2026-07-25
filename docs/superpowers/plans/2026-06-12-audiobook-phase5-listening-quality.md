@@ -12,7 +12,7 @@
 
 ## File Structure
 
-Real paths (repository root = `silo-android`, the cwd for all commands):
+Real paths (repository root = `prairie-android`, the cwd for all commands):
 
 - `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/audio/AudiobookAudioEffects.kt` — **NEW.** Pure, framework-free decision logic: `isAudiobookMediaItem(MediaItem?)` predicate and `targetGainMb(volumeNormalizationEnabled, volumeBoostDb)` mapper. No Android effect classes referenced; fully unit-testable.
 - `android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/audio/AudiobookAudioEffectsTest.kt` — **NEW.** JUnit tests for the predicate + mapper.

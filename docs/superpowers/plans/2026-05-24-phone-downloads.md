@@ -13,7 +13,7 @@
 - **No automatic LRU eviction** — v2.
 - **No "Download all episodes"** as a single explicit affordance in v1 (server's `series: true` POST works, but UI for it is v2). Per-episode downloads only in v1.
 
-**Server (truth-of-state):** Already shipping at `/opt/silo-server/internal/api/handlers/downloads.go`:
+**Server (truth-of-state):** Already shipping at `/opt/prairie-server/internal/api/handlers/downloads.go`:
 - `POST /api/v1/downloads` body `{content_id, episode_id?, file_id?, series?}` → `downloadResponse`
 - `GET /api/v1/downloads` → `{downloads: [downloadResponse]}`
 - `DELETE /api/v1/downloads/{id}` → 204 (cancel queued or delete completed)
@@ -55,10 +55,10 @@ Per-(server, profile) scoping so profile switches don't expose someone else's by
 **Testing posture:** Pure-Kotlin model serialization tests (commonMain Json round-trip). `DownloadsRepository` sync logic gets a unit test with a fake API. `DownloadStorage` path-mapping logic gets a small unit test. UI and live download against a real server: manual verification on the Pixel.
 
 **Reference:**
-- Server handler: `/opt/silo-server/internal/api/handlers/downloads.go`
-- Server schema: `/opt/silo-server/migrations/042_downloads.up.sql`
+- Server handler: `/opt/prairie-server/internal/api/handlers/downloads.go`
+- Server schema: `/opt/prairie-server/migrations/042_downloads.up.sql`
 - Existing Android UI: `androidApp/.../ui/screens/downloads/DownloadsScreen.kt`, `DownloadsViewModel.kt`, `DownloadItemRow.kt`; `androidApp/.../ui/components/DownloadButton.kt`
-- iOS stub (no functional implementation): `/opt/silo-apple/iosApp/iosApp/Components/DownloadButton.swift`
+- iOS stub (no functional implementation): `/opt/prairie-apple/iosApp/iosApp/Components/DownloadButton.swift`
 
 ---
 

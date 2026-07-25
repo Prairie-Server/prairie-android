@@ -1,4 +1,4 @@
-# Research notes: silo-server PR #138 (manga) — Android client implications
+# Research notes: prairie-server PR #138 (manga) — Android client implications
 
 **Date:** 2026-06-12. Audited at `origin/codex/rebase-pr-137` (82 files, +5284/−349) vs `origin/main`. `manga` does not exist anywhere on current main — all of this is new surface. Feeds the future manga sub-project; no client work has started.
 

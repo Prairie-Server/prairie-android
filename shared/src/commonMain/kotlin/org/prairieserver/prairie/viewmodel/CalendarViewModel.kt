@@ -1,0 +1,178 @@
+package org.prairieserver.prairie.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.model.calendar.CalendarDay
+import org.prairieserver.prairie.model.calendar.CalendarFilter
+import org.prairieserver.prairie.model.calendar.CalendarItem
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.errorMessage
+import org.prairieserver.prairie.repository.CalendarRepository
+import org.prairieserver.prairie.util.IsoDate
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+data class CalendarUiState(
+    val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
+    /** ISO "YYYY-MM-DD" for the platform's current date. */
+    val today: String = "",
+    /** Monday anchoring the visible week, ISO "YYYY-MM-DD". */
+    val weekStart: String = "",
+    /**
+     * The day highlighted in the week strip, ISO "YYYY-MM-DD". Independent of
+     * [today]: selecting a day in the strip scrolls the day list to that
+     * shelf. Defaults to / follows [today] when the visible week is current,
+     * otherwise the first day of the visible week.
+     */
+    val selectedDay: String = "",
+    val filter: String = CalendarFilter.Following,
+    val libraryId: Int? = null,
+    /** Server-grouped day buckets for the visible week. */
+    val days: List<CalendarDay> = emptyList(),
+    val error: String? = null,
+) {
+    /** The 7 ISO dates of the visible week, Monday first. */
+    val weekDates: List<String>
+        get() = if (weekStart.isBlank()) emptyList() else (0L..6L).map { IsoDate.plusDays(weekStart, it) }
+
+    val weekEnd: String
+        get() = if (weekStart.isBlank()) "" else IsoDate.plusDays(weekStart, 6)
+
+    val isCurrentWeek: Boolean
+        get() = today.isNotBlank() && weekStart == IsoDate.weekStart(today)
+
+    val hasAnyItems: Boolean
+        get() = days.any { it.items.isNotEmpty() }
+
+    fun itemsFor(date: String): List<CalendarItem> =
+        days.firstOrNull { it.date == date }?.items.orEmpty()
+}
+
+/**
+ * Shared calendar/upcoming ViewModel (pattern: RequestsViewModels). The
+ * platform supplies "today" and the IANA timezone so week math stays
+ * deterministic in commonTest — no Clock.System defaults baked in.
+ */
+class CalendarViewModel(
+    private val repository: CalendarRepository,
+    private val timezoneId: String,
+    private val todayProvider: () -> String,
+) : ViewModel() {
+
+    /**
+     * Monotonically increasing counter incremented on every fetch start.
+     * Each in-flight coroutine captures the value at launch time and skips
+     * state writes when a newer fetch has already started — preventing a
+     * slow/stale response from overwriting a more-recent result.
+     */
+    private var loadGeneration = 0
+
+    private val _uiState: MutableStateFlow<CalendarUiState>
+    val uiState: StateFlow<CalendarUiState>
+
+    init {
+        val today = todayProvider()
+        _uiState = MutableStateFlow(
+            CalendarUiState(
+                today = today,
+                weekStart = IsoDate.weekStart(today),
+                selectedDay = today,
+            ),
+        )
+        uiState = _uiState.asStateFlow()
+        load()
+    }
+
+    fun load() {
+        val generation = ++loadGeneration
+        viewModelScope.launch {
+            // Recompute "today" on every fetch so a resident/always-on app self-
+            // corrects after midnight: the "Today" highlight + header and
+            // isCurrentWeek (which gates the Today button) stay accurate without
+            // requiring the user to press Today first. weekStart is untouched so
+            // the visible week — and thus the fetched range — doesn't shift.
+            _uiState.update { it.copy(isLoading = true, error = null, today = todayProvider()) }
+            fetch(generation)
+        }
+    }
+
+    fun refresh() {
+        val generation = ++loadGeneration
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true, error = null, today = todayProvider()) }
+            fetch(generation)
+            if (generation == loadGeneration) {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
+        }
+    }
+
+    fun nextWeek() = moveWeek(7)
+
+    fun prevWeek() = moveWeek(-7)
+
+    fun goToToday() {
+        val today = todayProvider()
+        val weekStart = IsoDate.weekStart(today)
+        if (weekStart == _uiState.value.weekStart) {
+            _uiState.update { it.copy(today = today, selectedDay = today) }
+            return
+        }
+        _uiState.update { it.copy(today = today, weekStart = weekStart, selectedDay = today) }
+        load()
+    }
+
+    /** Highlight a day in the week strip (no fetch — the week is already loaded). */
+    fun selectDay(date: String) {
+        if (date == _uiState.value.selectedDay) return
+        _uiState.update { it.copy(selectedDay = date) }
+    }
+
+    fun setFilter(filter: String) {
+        if (filter == _uiState.value.filter) return
+        _uiState.update { it.copy(filter = filter) }
+        load()
+    }
+
+    fun setLibrary(libraryId: Int?) {
+        if (libraryId == _uiState.value.libraryId) return
+        _uiState.update { it.copy(libraryId = libraryId) }
+        load()
+    }
+
+    private fun moveWeek(days: Long) {
+        _uiState.update {
+            val weekStart = IsoDate.plusDays(it.weekStart, days)
+            // Keep the highlight on a day inside the visible week: today when
+            // paging back onto the current week, otherwise the week's Monday.
+            val selectedDay = if (weekStart == IsoDate.weekStart(it.today)) it.today else weekStart
+            it.copy(weekStart = weekStart, selectedDay = selectedDay)
+        }
+        load()
+    }
+
+    private suspend fun fetch(generation: Int) {
+        val state = _uiState.value
+        val result = repository.getCalendar(
+            start = state.weekStart,
+            end = state.weekEnd,
+            filter = state.filter,
+            libraryId = state.libraryId,
+            timezone = timezoneId,
+        )
+        // Discard the result if a newer fetch has already started.
+        if (generation != loadGeneration) return
+        when (result) {
+            is ApiResult.Success -> _uiState.update {
+                it.copy(isLoading = false, days = result.data.events, error = null)
+            }
+            is ApiResult.Error, is ApiResult.NetworkError -> _uiState.update {
+                it.copy(isLoading = false, error = result.errorMessage("Failed to load calendar"))
+            }
+        }
+    }
+}

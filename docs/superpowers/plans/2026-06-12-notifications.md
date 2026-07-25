@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** In-app notification inbox, unread badge, per-profile preferences, and live foreground updates on mobile + TV, per docs/superpowers/specs/2026-06-12-notifications-design.md. Built against silo-server open PR #136 (head 5d7ef15f).
+**Goal:** In-app notification inbox, unread badge, per-profile preferences, and live foreground updates on mobile + TV, per docs/superpowers/specs/2026-06-12-notifications-design.md. Built against prairie-server open PR #136 (head 5d7ef15f).
 
 **Architecture:** REST is the source of truth; the events websocket is a foreground accelerator only. Shared KMP layer (models verified against the PR's Go source, NotificationsApi, a singleton NotificationsRepository with REST + a lifecycle-gated realtime client, pure applyEvent fold) feeds a mobile bell+inbox+settings surface and a TV badge+inbox+settings surface. No FCM/push (server v2; no device-token endpoint exists).
 
@@ -21,9 +21,9 @@ I have all the conventions and wire shapes pinned. Note one wire detail: `Payloa
 ### Task S1: Add ktor-client-websockets dependency + install WebSockets plugin
 
 **Files:**
-- Modify: `/Users/dev/projects/silo/silo-android/gradle/libs.versions.toml`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/build.gradle.kts`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/ContinuumHttpClientImpl.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/gradle/libs.versions.toml`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/build.gradle.kts`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/ContinuumHttpClientImpl.kt`
 
 This is an enabling task. It has no dedicated unit test; verification is a successful shared compile, which proves the new plugin install does not break the existing client config (ContentNegotiation, Auth, Logging, Timeout, defaultRequest).
 
@@ -86,10 +86,10 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S2: NotificationModels.kt (REST + preference + capability + realtime frame models)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/notifications/NotificationModels.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/model/notifications/NotificationModelsSerializationTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/notifications/NotificationModels.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/model/notifications/NotificationModelsSerializationTest.kt`
 
-Evidence — pinned Go wire shapes (silo-server `origin/feat/notifications-v1`):
+Evidence — pinned Go wire shapes (prairie-server `origin/feat/notifications-v1`):
 
 `internal/notifications/dispatcher.go` — `DeliveryRowPayload` (shared by inbox list, ws snapshot, `notification.created`):
 ```go
@@ -727,9 +727,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S3: NotificationsApi.kt (REST + ws-ticket) + NetworkModule registration
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/NotificationsApi.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/NotificationsApiTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/NotificationsApi.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/NotificationsApiTest.kt`
 
 Evidence — routes (router.go, all under `/api/v1`, `RequireProfile`):
 `GET /notifications` (`status=unread`, `limit`, `before`), `GET /notifications/sync` (`since`, `limit`), `GET /notifications/{id}`, `GET /notifications/unread-count`, `GET /notifications/capability`, `GET /notifications/preferences`, `PUT /notifications/preferences`, `POST /notifications/{id}/read` (204), `POST /notifications/read-all` (204), `POST /events/ws-ticket`.
@@ -1108,8 +1108,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S4: NotificationsRealtimeClient.kt (ticket handshake + frame decode → Flow)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/NotificationsRealtimeClient.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/NotificationRealtimeDecoderTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/NotificationsRealtimeClient.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/NotificationRealtimeDecoderTest.kt`
 
 Design: socket I/O is intentionally thin and untested; the load-bearing logic is the pure `decodeRealtimeFrame(json, raw): NotificationRealtimeEvent?` function, which gets full coverage (snapshot / created / read-one / read-all / unknown→null / non-notifications channel→null / malformed→null). Frame `data` shapes come straight from events_ws.go: snapshot `data` is a `[]DeliveryRowPayload`, `notification.created` `data` is one `DeliveryRowPayload`, `notification.read` `data` is `{profile_id,id}` or `{profile_id,all:true}`.
 
@@ -1415,9 +1415,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S5: NotificationsRepository.kt (singleton StateFlows + pure applyEvent fold)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/repository/NotificationsRepository.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/repository/NotificationsRepositoryTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/repository/NotificationsRepository.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/repository/NotificationsRepositoryTest.kt`
 
 Design: REST is the source of truth; `refresh()`/`loadMore()` drive the lists; `connectRealtime(scope)` collects the realtime client flow with capped-backoff reconnect and folds events into the same StateFlows. The fold is a pure top-level `applyEvent(state, event): NotificationsState` plus a pure `recomputeUnread(rows): Int`, both fully unit-tested. The socket reconnect loop and lifecycle wiring are thin and exercised only via a fake flow under `runTest`.
 

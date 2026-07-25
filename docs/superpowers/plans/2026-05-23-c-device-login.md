@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Wire the OAuth-style device-login flow that Apple's tvOS app already uses into the Silo Android TV app. Splices into the QR placeholder shipped by A.4. After this lands, a user can scan a QR on their phone to sign in without typing their password on the TV.
+**Goal:** Wire the OAuth-style device-login flow that Apple's tvOS app already uses into the Prairie Android TV app. Splices into the QR placeholder shipped by A.4. After this lands, a user can scan a QR on their phone to sign in without typing their password on the TV.
 
 **Architecture:**
 - New shared (KMP) auth surface: `DeviceLoginModels.kt`, `DeviceLoginApi.kt`, `DeviceLoginRepository.kt` in `shared/commonMain/auth/` (mirrors Apple's `DeviceLoginModels.swift` + `AuthService.startDeviceLogin/pollDeviceLogin`). Ktor implementation in `shared/commonMain/network/api/`.
@@ -14,9 +14,9 @@
 **Tech stack:** Kotlin 2.1.20, KMP (shared/commonMain), Ktor 3.1.2, kotlinx-serialization 1.8.1, kotlinx-coroutines 1.10.2, ZXing core 3.5.3.
 
 **Reference (canonical):** Apple's working implementation at:
-- `/opt/silo-apple/iosApp/iosApp/Networking/DeviceLoginModels.swift` — the exact wire shape (used verbatim for mirror types).
-- `/opt/silo-apple/iosApp/iosApp/Screens/Auth/AuthService.swift:209-227` — the two endpoint calls.
-- `/opt/silo-apple/iosApp/iosApp/Screens/Auth/QRLoginViewModel.swift` — the polling state machine.
+- `/opt/prairie-apple/iosApp/iosApp/Networking/DeviceLoginModels.swift` — the exact wire shape (used verbatim for mirror types).
+- `/opt/prairie-apple/iosApp/iosApp/Screens/Auth/AuthService.swift:209-227` — the two endpoint calls.
+- `/opt/prairie-apple/iosApp/iosApp/Screens/Auth/QRLoginViewModel.swift` — the polling state machine.
 
 **Endpoint contract (from Apple's `AuthService.swift`):**
 - `POST /api/v1/auth/device/start` with body `{ deviceName: String?, devicePlatform: String? }` → returns the full `DeviceLoginStartResponse`.
@@ -31,10 +31,10 @@
 ### Task 1: Add ZXing dep + shared device-login models + API
 
 **Files:**
-- Modify: `/opt/silo-android/gradle/libs.versions.toml`
-- Modify: `/opt/silo-android/shared/build.gradle.kts`
-- Create: `/opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/auth/DeviceLoginModels.kt`
-- Create: `/opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/DeviceLoginApi.kt`
+- Modify: `/opt/prairie-android/gradle/libs.versions.toml`
+- Modify: `/opt/prairie-android/shared/build.gradle.kts`
+- Create: `/opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/auth/DeviceLoginModels.kt`
+- Create: `/opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/DeviceLoginApi.kt`
 - Possibly modify: existing `AuthApi.kt` (depends on whether the project keeps API interfaces unified per resource or per endpoint — explore at task time)
 
 **Why:** Models + API interface mirror Apple's shapes verbatim so the wire format is identical to what the server expects.
@@ -136,7 +136,7 @@ enum class DeviceLoginStatus {
 The project likely organizes per-resource APIs (one file per resource). Look at the existing `AuthApi.kt` for the pattern:
 
 ```bash
-cat /opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/AuthApi.kt
+cat /opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/AuthApi.kt
 ```
 
 Mirror its style. Sketch (adapt to project's actual Ktor wrapping):
@@ -207,7 +207,7 @@ single<DeviceLoginApi> { DefaultDeviceLoginApi(get()) }
 - [ ] **Step 5: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :shared:compileKotlinAndroid :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :shared:compileKotlinAndroid :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL across both modules.
@@ -215,17 +215,17 @@ Expected: BUILD SUCCESSFUL across both modules.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   gradle/libs.versions.toml \
   androidTvApp/build.gradle.kts \
   shared/src/commonMain/kotlin/com/continuum/app/model/auth/DeviceLoginModels.kt \
   shared/src/commonMain/kotlin/com/continuum/app/network/api/DeviceLoginApi.kt
 
 # Add any DI module that was modified
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   shared/src/commonMain/kotlin/com/continuum/app/di 2>/dev/null || true
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(shared-auth): DeviceLoginApi + models for OAuth device flow (C)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(shared-auth): DeviceLoginApi + models for OAuth device flow (C)
 
 Mirrors Apple's tvOS DeviceLoginModels.swift + AuthService device
 endpoints (start + poll). Wire-format @SerialName mappings keep
@@ -241,8 +241,8 @@ with Task 3. DeviceLoginRepository state machine lands in Task 2."
 ### Task 2: `DeviceLoginRepository` state machine + tests
 
 **Files:**
-- Create: `/opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/repository/DeviceLoginRepository.kt`
-- Create: `/opt/silo-android/shared/src/commonTest/kotlin/com/continuum/app/repository/DeviceLoginRepositoryTest.kt`
+- Create: `/opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/repository/DeviceLoginRepository.kt`
+- Create: `/opt/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/repository/DeviceLoginRepositoryTest.kt`
 
 **Why:** State machine for the polling loop. UI consumes a `StateFlow<DeviceLoginState>`. Tested in isolation with a fake `DeviceLoginApi`.
 
@@ -414,7 +414,7 @@ class DeviceLoginRepository(
 }
 ```
 
-`ApiResult.Error` is assumed to have a `statusCode: Int` and `message: String?` per the project's convention; check `/opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/ApiResult.kt` to confirm field names and adapt.
+`ApiResult.Error` is assumed to have a `statusCode: Int` and `message: String?` per the project's convention; check `/opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/ApiResult.kt` to confirm field names and adapt.
 
 - [ ] **Step 2: Create the test**
 
@@ -589,7 +589,7 @@ single { DeviceLoginRepository(get()) }
 - [ ] **Step 4: Build + run tests**
 
 ```bash
-cd /opt/silo-android && ./gradlew :shared:allTests --tests "com.continuum.app.repository.DeviceLoginRepositoryTest"
+cd /opt/prairie-android && ./gradlew :shared:allTests --tests "com.continuum.app.repository.DeviceLoginRepositoryTest"
 ```
 
 Expected: BUILD SUCCESSFUL + 7 tests pass.
@@ -597,14 +597,14 @@ Expected: BUILD SUCCESSFUL + 7 tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   shared/src/commonMain/kotlin/com/continuum/app/repository/DeviceLoginRepository.kt \
   shared/src/commonTest/kotlin/com/continuum/app/repository/DeviceLoginRepositoryTest.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   shared/src/commonMain/kotlin/com/continuum/app/di 2>/dev/null || true
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(shared-auth): DeviceLoginRepository state machine + tests (C)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(shared-auth): DeviceLoginRepository state machine + tests (C)
 
 State machine: Idle → Initiating → Awaiting(session) → Approved(tokens)
 | Failed(reason). Polls immediately after start, then at server-supplied
@@ -619,7 +619,7 @@ UI consumer (TvLoginViewModel) wires this into the QR pane in Task 4."
 ### Task 3: `QrCodePanel` Compose composable
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/QrCodePanel.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/QrCodePanel.kt`
 
 **Why:** Pure UI — encode a URL into a QR matrix via ZXing, draw it onto a Compose Canvas. Reusable; not bound to device-login specifics.
 
@@ -710,7 +710,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRectModule(
 - [ ] **Step 2: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -718,10 +718,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 3: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/QrCodePanel.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-auth): QrCodePanel — ZXing-backed Compose QR renderer (C)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-auth): QrCodePanel — ZXing-backed Compose QR renderer (C)
 
 Pure UI: encodes a URL into a QR matrix via ZXing's QRCodeWriter and
 draws each module onto a Compose Canvas. Reusable component (not
@@ -735,9 +735,9 @@ TvLoginViewModel wires real content into this panel in Task 4."
 ### Task 4: Wire `TvLoginViewModel` + `TvLoginScreen` to consume `DeviceLoginRepository`
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginViewModel.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
 
 **Why:** End-to-end activation. The ViewModel now runs parallel credential + device flows; whichever succeeds first wins. The `QrPlaceholderCard` shipped by A.4 is replaced with a real QR + status display.
 
@@ -791,7 +791,7 @@ Verify the exact `TokenManager` method names and adapt — the existing credenti
 If the existing login flow does more after token capture (server health-check, user fetch, profile resolution), the device-flow's Approved branch should mirror those steps too. Read `AuthRepository.login()` for the canonical path:
 
 ```bash
-cat /opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/repository/AuthRepository.kt
+cat /opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/repository/AuthRepository.kt
 ```
 
 - [ ] **Step 3: Replace `QrPlaceholderCard` with a real QR pane in `TvLoginScreen.kt`**
@@ -906,7 +906,7 @@ Better: extract the token-save block into a private helper to avoid duplication.
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -922,12 +922,12 @@ The implementer should NOT build + adb-install (user explicitly opted out of aut
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginViewModel.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-auth): wire DeviceLoginRepository into TvLoginScreen QR pane (C)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-auth): wire DeviceLoginRepository into TvLoginScreen QR pane (C)
 
 TvLoginViewModel now runs the credential flow and device-login flow
 in parallel from init. Whichever completes first wins; the other can

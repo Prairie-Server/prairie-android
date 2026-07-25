@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Status:** Approved
-**Scope:** Sub-project 3 of the feature-parity push. Mobile + TV. Built against silo-server open PR #136 (`feat/notifications-v1`, head `5d7ef15f`) — the contract may shift before merge; isolate the unmerged-surface risk behind a REST base with the websocket as an accelerator.
+**Scope:** Sub-project 3 of the feature-parity push. Mobile + TV. Built against prairie-server open PR #136 (`feat/notifications-v1`, head `5d7ef15f`) — the contract may shift before merge; isolate the unmerged-surface risk behind a REST base with the websocket as an accelerator.
 
 ## Goal
 

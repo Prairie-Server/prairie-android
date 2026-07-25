@@ -16,7 +16,7 @@
 
 ## File Structure
 
-Real repository paths (repository root = `silo-android`, the cwd):
+Real repository paths (repository root = `prairie-android`, the cwd):
 
 - `shared/src/commonMain/kotlin/com/continuum/app/model/reader/ReaderLocator.kt` — **(exists, Phase 1)** locator sealed type. Read-only reference here; only touched if a needed variant is missing.
 - `androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/search/TextSearchEngine.kt` — **(new)** pure Kotlin search core for string documents: case-insensitive scan, snippet windowing, `SearchMatch` → `ReaderLocator.CharOffset`. No Android/Compose deps; fully unit-tested.

@@ -2,19 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a real MPV/libmpv video backend behind Silo's shared playback boundary while keeping Media3 as the fallback engine.
+**Goal:** Add a real MPV/libmpv video backend behind Prairie's shared playback boundary while keeping Media3 as the fallback engine.
 
 **Status:** Implemented on `feature/production-playback-architecture` through `8637d65`. The current MPV path is runtime-gated to Android 8/API 26+ because the published `dev.jdtech.mpv:libmpv` artifacts declare `minSdk 26`; Android 7/API 24-25 remains on Media3 so the app still installs there.
 
 **Architecture:** MPV must be an actual Media3 `Player` owned by `ContinuumPlaybackService`; otherwise the screens would still drive the existing Media3 player through `MediaController`. Add a Media3-compatible MPV player adapter in `android-shared`, teach the service to create the selected engine, and update `VideoPlaybackBackendFactory` so diagnostics and future selection policy report the engine truthfully.
 
-**Tech Stack:** Kotlin 2.1, Android minSdk 24, Media3 1.10.0, `dev.jdtech.mpv:libmpv:1.0.0`, Koin, Compose phone/TV player screens, existing Silo playback service.
+**Tech Stack:** Kotlin 2.1, Android minSdk 24, Media3 1.10.0, `dev.jdtech.mpv:libmpv:1.0.0`, Koin, Compose phone/TV player screens, existing Prairie playback service.
 
 ---
 
 ## Scope Check
 
-This plan implements the MPV backend path for video playback. It does not rewrite the player controls, add a user-facing backend picker, rebuild subtitle search, or remove Media3. Media3 remains available because the shared service is also used by audiobook playback, because MPV rollout needs a fallback, and because every published `dev.jdtech.mpv:libmpv` artifact declares `minSdk 26` while Silo must continue to install on Android 7/API 24.
+This plan implements the MPV backend path for video playback. It does not rewrite the player controls, add a user-facing backend picker, rebuild subtitle search, or remove Media3. Media3 remains available because the shared service is also used by audiobook playback, because MPV rollout needs a fallback, and because every published `dev.jdtech.mpv:libmpv` artifact declares `minSdk 26` while Prairie must continue to install on Android 7/API 24.
 
 ## File Structure
 
@@ -405,7 +405,7 @@ Port the Media3 `BasePlayer` adapter shape from `/Users/jimcole/source/AFinity/a
 - `setVideoSurfaceView`/`clearVideoSurfaceView` surface attachment.
 - Media3 `setMediaItems`, `prepare`, `playWhenReady`, `seekTo`, `currentPosition`, `duration`, `bufferedPosition`, `trackSelectionParameters`, and `release`.
 
-Keep the class in Silo's package and remove Timber/Hilt/project-specific dependencies.
+Keep the class in Prairie's package and remove Timber/Hilt/project-specific dependencies.
 
 - [ ] **Step 5: Run source guard and compile**
 

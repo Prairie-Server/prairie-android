@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the remaining uncorrected Android issues: browse-only Collections (#5/#6), monitored downloads/retention/Reclaim Watched (#22), SiloControl (#15/#16/#17), and Android push registration/receiver (#19), while keeping Requests/Admin/Watch Together hidden.
+**Goal:** Close the remaining uncorrected Android issues: browse-only Collections (#5/#6), monitored downloads/retention/Reclaim Watched (#22), PrairieControl (#15/#16/#17), and Android push registration/receiver (#19), while keeping Requests/Admin/Watch Together hidden.
 
-**Architecture:** Implement four isolated slices. Collections is a UI removal with source tests. Downloads adds Room-backed subscription/reclaim foundations and mobile UI. SiloControl ports Apple SiloCast through shared wire models, Android TV receiver plumbing, and Android phone browser/controller UI. Push is guarded behind a client registration contract so builds stay valid when Firebase configuration is absent.
+**Architecture:** Implement four isolated slices. Collections is a UI removal with source tests. Downloads adds Room-backed subscription/reclaim foundations and mobile UI. PrairieControl ports Apple PrairieCast through shared wire models, Android TV receiver plumbing, and Android phone browser/controller UI. Push is guarded behind a client registration contract so builds stay valid when Firebase configuration is absent.
 
 **Tech Stack:** Kotlin Multiplatform Android targets, Jetpack Compose, Compose for TV, Room, WorkManager, Koin, kotlinx.serialization, Android NSD, Media3/mpv player adapters, Android notifications, optional Firebase Messaging integration.
 
@@ -16,38 +16,38 @@
 - Downloads remain public/discoverable and use original filenames/formats for completed media bytes.
 - New feature work must be test-first: add failing tests, verify the failure, implement, then verify green.
 - Android TV surfaces must be D-pad operable with visible focus and no focus traps.
-- Apple/tvOS is the master for SiloControl protocol shape. Android must interoperate with Apple rather than inventing a parallel protocol.
+- Apple/tvOS is the master for PrairieControl protocol shape. Android must interoperate with Apple rather than inventing a parallel protocol.
 
 ---
 
 ## File Structure
 
 Collections:
-- Modify `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/collections/CollectionsScreen.kt` to remove create/delete/move entry points.
-- Modify `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/collections/CollectionDetailScreen.kt` to remove delete/edit affordances.
-- Modify `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/collections/TvCollectionsScreen.kt` to remove create/delete/move entry points.
-- Modify `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/collections/TvCollectionDetailScreen.kt` to remove delete/edit affordances.
+- Modify `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/collections/CollectionsScreen.kt` to remove create/delete/move entry points.
+- Modify `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/collections/CollectionDetailScreen.kt` to remove delete/edit affordances.
+- Modify `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/collections/TvCollectionsScreen.kt` to remove create/delete/move entry points.
+- Modify `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/collections/TvCollectionDetailScreen.kt` to remove delete/edit affordances.
 - Add source tests under `androidApp/src/androidUnitTest/.../collections` and `androidTvApp/src/androidUnitTest/.../collections`.
 
 Downloads:
-- Create shared domain models in `shared/src/commonMain/kotlin/org/siloserver/silo/model/download/DownloadSubscriptionModels.kt`.
-- Add Room entity/DAO/repository in `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/db/entity/DownloadSubscriptionEntity.kt`, `.../dao/DownloadSubscriptionDao.kt`, and `.../repository/RoomDownloadSubscriptionRepository.kt`.
-- Update `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/db/SiloDatabase.kt` from version 6 to 7 with an additive auto migration and committed schema.
-- Create evaluator/reclaim code in `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionEvaluator.kt`, `DownloadSubscriptionWorker.kt`, and `DownloadReclaimPlanner.kt`.
-- Update mobile downloads UI in `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/downloads`.
-- Add tests under `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/downloads` and `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/downloads`.
+- Create shared domain models in `shared/src/commonMain/kotlin/org/prairieserver/prairie/model/download/DownloadSubscriptionModels.kt`.
+- Add Room entity/DAO/repository in `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/db/entity/DownloadSubscriptionEntity.kt`, `.../dao/DownloadSubscriptionDao.kt`, and `.../repository/RoomDownloadSubscriptionRepository.kt`.
+- Update `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/db/PrairieDatabase.kt` from version 6 to 7 with an additive auto migration and committed schema.
+- Create evaluator/reclaim code in `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionEvaluator.kt`, `DownloadSubscriptionWorker.kt`, and `DownloadReclaimPlanner.kt`.
+- Update mobile downloads UI in `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/downloads`.
+- Add tests under `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/downloads` and `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/screens/downloads`.
 
-SiloControl:
-- Create shared SiloCast wire models in `shared/src/commonMain/kotlin/org/siloserver/silo/cast/SiloCastProtocol.kt`, `SiloCastMessage.kt`, and `SiloCastPlaybackClock.kt`.
-- Create Android transport pieces in `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/cast`: `SiloCastFrame.kt`, `SiloCastTransport.kt`, `SiloCastNsdAdvertiser.kt`, `SiloCastNsdBrowser.kt`.
-- Add TV receiver/adapters in `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/cast` and wire from TV app lifecycle/player.
-- Add phone controller/UI in `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/cast` and `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast`.
-- Add source/behavior tests under `shared/src/commonTest/kotlin/org/siloserver/silo/cast`, `android-shared/src/androidUnitTest/.../cast`, `androidApp/src/androidUnitTest/.../cast`, and `androidTvApp/src/androidUnitTest/.../cast`.
+PrairieControl:
+- Create shared PrairieCast wire models in `shared/src/commonMain/kotlin/org/prairieserver/prairie/cast/PrairieCastProtocol.kt`, `PrairieCastMessage.kt`, and `PrairieCastPlaybackClock.kt`.
+- Create Android transport pieces in `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/cast`: `PrairieCastFrame.kt`, `PrairieCastTransport.kt`, `PrairieCastNsdAdvertiser.kt`, `PrairieCastNsdBrowser.kt`.
+- Add TV receiver/adapters in `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/cast` and wire from TV app lifecycle/player.
+- Add phone controller/UI in `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/cast` and `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast`.
+- Add source/behavior tests under `shared/src/commonTest/kotlin/org/prairieserver/prairie/cast`, `android-shared/src/androidUnitTest/.../cast`, `androidApp/src/androidUnitTest/.../cast`, and `androidTvApp/src/androidUnitTest/.../cast`.
 
 Push:
-- Create shared push registration models in `shared/src/commonMain/kotlin/org/siloserver/silo/model/notifications/PushRegistrationModels.kt`.
-- Add API/repository in `shared/src/commonMain/kotlin/org/siloserver/silo/network/api/PushRegistrationApi.kt` and `shared/src/commonMain/kotlin/org/siloserver/silo/repository/PushRegistrationRepository.kt`.
-- Add Android app push service/provider in `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/push`.
+- Create shared push registration models in `shared/src/commonMain/kotlin/org/prairieserver/prairie/model/notifications/PushRegistrationModels.kt`.
+- Add API/repository in `shared/src/commonMain/kotlin/org/prairieserver/prairie/network/api/PushRegistrationApi.kt` and `shared/src/commonMain/kotlin/org/prairieserver/prairie/repository/PushRegistrationRepository.kt`.
+- Add Android app push service/provider in `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/push`.
 - Add guarded Gradle dependency/config in `androidApp/build.gradle.kts` only if Firebase config is available or a compile-safe no-op provider is used.
 - Add tests in `shared/src/commonTest/.../notifications` and `androidApp/src/androidUnitTest/.../push`.
 
@@ -56,12 +56,12 @@ Push:
 ### Task 1: Make Collections Browse-Only On Phone And TV
 
 **Files:**
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/collections/CollectionsScreen.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/collections/CollectionDetailScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/collections/TvCollectionsScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/collections/TvCollectionDetailScreen.kt`
-- Test: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/collections/CollectionsBrowseOnlySourceTest.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/collections/TvCollectionsBrowseOnlySourceTest.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/collections/CollectionsScreen.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/collections/CollectionDetailScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/collections/TvCollectionsScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/collections/TvCollectionDetailScreen.kt`
+- Test: `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/screens/collections/CollectionsBrowseOnlySourceTest.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/collections/TvCollectionsBrowseOnlySourceTest.kt`
 
 **Interfaces:**
 - Consumes: existing `CollectionsViewModel` list/read state and collection detail view models.
@@ -70,7 +70,7 @@ Push:
 - [ ] **Step 1: Write failing phone source test**
 
 ```kotlin
-package org.siloserver.silo.android.ui.screens.collections
+package org.prairieserver.prairie.android.ui.screens.collections
 
 import java.io.File
 import kotlin.test.Test
@@ -82,7 +82,7 @@ class CollectionsBrowseOnlySourceTest {
 
     @Test
     fun collectionsScreenDoesNotExposeAuthoringControls() {
-        val source = source("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/collections/CollectionsScreen.kt")
+        val source = source("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/collections/CollectionsScreen.kt")
         listOf(
             "CreateCollectionSheet",
             "showCreateSheet",
@@ -97,7 +97,7 @@ class CollectionsBrowseOnlySourceTest {
 
     @Test
     fun collectionDetailDoesNotExposeDeleteOrEditActions() {
-        val source = source("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/collections/CollectionDetailScreen.kt")
+        val source = source("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/collections/CollectionDetailScreen.kt")
         listOf("deleteCollection", "updateCollection", "Edit Collection", "Delete Collection").forEach { forbidden ->
             assertFalse(source.contains(forbidden), "$forbidden must not be reachable from mobile Collection detail.")
         }
@@ -109,7 +109,7 @@ class CollectionsBrowseOnlySourceTest {
 - [ ] **Step 2: Write failing TV source test**
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.collections
+package org.prairieserver.prairie.tv.ui.screens.collections
 
 import java.io.File
 import kotlin.test.Test
@@ -121,7 +121,7 @@ class TvCollectionsBrowseOnlySourceTest {
 
     @Test
     fun tvCollectionsScreenDoesNotExposeAuthoringControls() {
-        val source = source("src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/collections/TvCollectionsScreen.kt")
+        val source = source("src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/collections/TvCollectionsScreen.kt")
         listOf(
             "TvCreateCollectionDialog",
             "showCreateSheet",
@@ -138,7 +138,7 @@ class TvCollectionsBrowseOnlySourceTest {
 
     @Test
     fun tvCollectionDetailDoesNotExposeDeleteOrEditActions() {
-        val source = source("src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/collections/TvCollectionDetailScreen.kt")
+        val source = source("src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/collections/TvCollectionDetailScreen.kt")
         listOf("deleteCollection", "updateCollection", "Edit Collection", "Delete Collection").forEach { forbidden ->
             assertFalse(source.contains(forbidden), "$forbidden must not be reachable from TV Collection detail.")
         }
@@ -152,8 +152,8 @@ class TvCollectionsBrowseOnlySourceTest {
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.ui.screens.collections.CollectionsBrowseOnlySourceTest
-./gradlew :androidTvApp:testDebugUnitTest --tests org.siloserver.silo.tv.ui.screens.collections.TvCollectionsBrowseOnlySourceTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.ui.screens.collections.CollectionsBrowseOnlySourceTest
+./gradlew :androidTvApp:testDebugUnitTest --tests org.prairieserver.prairie.tv.ui.screens.collections.TvCollectionsBrowseOnlySourceTest
 ```
 
 Expected: both fail because create/delete/move authoring strings are currently present.
@@ -187,8 +187,8 @@ Edit `TvCollectionDetailScreen.kt`:
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.ui.screens.collections.CollectionsBrowseOnlySourceTest
-./gradlew :androidTvApp:testDebugUnitTest --tests org.siloserver.silo.tv.ui.screens.collections.TvCollectionsBrowseOnlySourceTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.ui.screens.collections.CollectionsBrowseOnlySourceTest
+./gradlew :androidTvApp:testDebugUnitTest --tests org.prairieserver.prairie.tv.ui.screens.collections.TvCollectionsBrowseOnlySourceTest
 ```
 
 Expected: PASS.
@@ -198,8 +198,8 @@ Expected: PASS.
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.ui.navigation.ClientSurfaceVisibilitySourceTest
-./gradlew :androidTvApp:testDebugUnitTest --tests org.siloserver.silo.tv.ui.navigation.TvClientSurfaceVisibilitySourceTest --tests org.siloserver.silo.tv.ui.TvUsabilityGuardTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.ui.navigation.ClientSurfaceVisibilitySourceTest
+./gradlew :androidTvApp:testDebugUnitTest --tests org.prairieserver.prairie.tv.ui.navigation.TvClientSurfaceVisibilitySourceTest --tests org.prairieserver.prairie.tv.ui.TvUsabilityGuardTest
 ```
 
 Expected: PASS; Requests/Admin/Watch Together remain hidden.
@@ -207,7 +207,7 @@ Expected: PASS; Requests/Admin/Watch Together remain hidden.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/collections androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/collections androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/collections androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/collections
+git add androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/collections androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/collections androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/screens/collections androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/collections
 git commit -m "fix: make Android collections browse-only"
 ```
 
@@ -216,12 +216,12 @@ git commit -m "fix: make Android collections browse-only"
 ### Task 2: Add Download Subscription Domain And Room Storage
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/org/siloserver/silo/model/download/DownloadSubscriptionModels.kt`
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/db/entity/DownloadSubscriptionEntity.kt`
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/db/dao/DownloadSubscriptionDao.kt`
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/repository/RoomDownloadSubscriptionRepository.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/db/SiloDatabase.kt`
-- Test: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionDaoTest.kt`
+- Create: `shared/src/commonMain/kotlin/org/prairieserver/prairie/model/download/DownloadSubscriptionModels.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/db/entity/DownloadSubscriptionEntity.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/db/dao/DownloadSubscriptionDao.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/repository/RoomDownloadSubscriptionRepository.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/db/PrairieDatabase.kt`
+- Test: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionDaoTest.kt`
 
 **Interfaces:**
 - Produces: `DownloadSubscription`, `DownloadSubscriptionTargetType`, `DownloadSubscriptionMediaKind`, `DownloadSubscriptionRepository`.
@@ -230,14 +230,14 @@ git commit -m "fix: make Android collections browse-only"
 - [ ] **Step 1: Write failing DAO test**
 
 ```kotlin
-package org.siloserver.silo.common.downloads
+package org.prairieserver.prairie.common.downloads
 
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
-import org.siloserver.silo.common.data.db.SiloDatabase
-import org.siloserver.silo.common.data.db.entity.DownloadSubscriptionEntity
+import org.prairieserver.prairie.common.data.db.PrairieDatabase
+import org.prairieserver.prairie.common.data.db.entity.DownloadSubscriptionEntity
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -246,7 +246,7 @@ import kotlin.test.assertTrue
 
 class DownloadSubscriptionDaoTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
-    private val db = Room.inMemoryDatabaseBuilder(context, SiloDatabase::class.java).build()
+    private val db = Room.inMemoryDatabaseBuilder(context, PrairieDatabase::class.java).build()
     private val dao = db.downloadSubscriptionDao()
 
     @AfterTest
@@ -320,7 +320,7 @@ class DownloadSubscriptionDaoTest {
 Run:
 
 ```bash
-./gradlew :android-shared:testDebugUnitTest --tests org.siloserver.silo.common.downloads.DownloadSubscriptionDaoTest
+./gradlew :android-shared:testDebugUnitTest --tests org.prairieserver.prairie.common.downloads.DownloadSubscriptionDaoTest
 ```
 
 Expected: FAIL because `DownloadSubscriptionEntity`, DAO, and `downloadSubscriptionDao()` do not exist.
@@ -330,7 +330,7 @@ Expected: FAIL because `DownloadSubscriptionEntity`, DAO, and `downloadSubscript
 Create `DownloadSubscriptionModels.kt`:
 
 ```kotlin
-package org.siloserver.silo.model.download
+package org.prairieserver.prairie.model.download
 
 import kotlinx.serialization.Serializable
 
@@ -387,7 +387,7 @@ data class DownloadSubscription(
 Create `DownloadSubscriptionEntity.kt`:
 
 ```kotlin
-package org.siloserver.silo.common.data.db.entity
+package org.prairieserver.prairie.common.data.db.entity
 
 import androidx.room.Entity
 import androidx.room.Index
@@ -424,13 +424,13 @@ data class DownloadSubscriptionEntity(
 Create `DownloadSubscriptionDao.kt`:
 
 ```kotlin
-package org.siloserver.silo.common.data.db.dao
+package org.prairieserver.prairie.common.data.db.dao
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import org.siloserver.silo.common.data.db.entity.DownloadSubscriptionEntity
+import org.prairieserver.prairie.common.data.db.entity.DownloadSubscriptionEntity
 
 @Dao
 interface DownloadSubscriptionDao {
@@ -459,7 +459,7 @@ interface DownloadSubscriptionDao {
 
 - [ ] **Step 5: Wire database version 7**
 
-Modify `SiloDatabase.kt`:
+Modify `PrairieDatabase.kt`:
 - import `DownloadSubscriptionDao`
 - import `DownloadSubscriptionEntity`
 - add `DownloadSubscriptionEntity::class` to `entities`
@@ -480,16 +480,16 @@ Expected: schema JSON for version 7 is generated under `android-shared/schemas`.
 Create `RoomDownloadSubscriptionRepository.kt`:
 
 ```kotlin
-package org.siloserver.silo.common.data.repository
+package org.prairieserver.prairie.common.data.repository
 
-import org.siloserver.silo.common.data.db.SiloDatabase
-import org.siloserver.silo.common.data.db.entity.DownloadSubscriptionEntity
-import org.siloserver.silo.model.download.DownloadQuality
-import org.siloserver.silo.model.download.DownloadSubscription
-import org.siloserver.silo.model.download.DownloadSubscriptionMediaKind
-import org.siloserver.silo.model.download.DownloadSubscriptionTargetType
+import org.prairieserver.prairie.common.data.db.PrairieDatabase
+import org.prairieserver.prairie.common.data.db.entity.DownloadSubscriptionEntity
+import org.prairieserver.prairie.model.download.DownloadQuality
+import org.prairieserver.prairie.model.download.DownloadSubscription
+import org.prairieserver.prairie.model.download.DownloadSubscriptionMediaKind
+import org.prairieserver.prairie.model.download.DownloadSubscriptionTargetType
 
-class RoomDownloadSubscriptionRepository(private val db: SiloDatabase) {
+class RoomDownloadSubscriptionRepository(private val db: PrairieDatabase) {
     private val dao = db.downloadSubscriptionDao()
 
     suspend fun upsert(subscription: DownloadSubscription) = dao.upsert(subscription.toEntity())
@@ -549,7 +549,7 @@ class RoomDownloadSubscriptionRepository(private val db: SiloDatabase) {
 Run:
 
 ```bash
-./gradlew --rerun-tasks --no-build-cache :shared:testDebugUnitTest :android-shared:testDebugUnitTest --tests org.siloserver.silo.common.downloads.DownloadSubscriptionDaoTest
+./gradlew --rerun-tasks --no-build-cache :shared:testDebugUnitTest :android-shared:testDebugUnitTest --tests org.prairieserver.prairie.common.downloads.DownloadSubscriptionDaoTest
 ```
 
 Expected: PASS.
@@ -557,7 +557,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/org/siloserver/silo/model/download/DownloadSubscriptionModels.kt android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/db android-shared/src/androidMain/kotlin/org/siloserver/silo/common/data/repository/RoomDownloadSubscriptionRepository.kt android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionDaoTest.kt android-shared/schemas
+git add shared/src/commonMain/kotlin/org/prairieserver/prairie/model/download/DownloadSubscriptionModels.kt android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/db android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/data/repository/RoomDownloadSubscriptionRepository.kt android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionDaoTest.kt android-shared/schemas
 git commit -m "feat: add download subscription storage"
 ```
 
@@ -566,10 +566,10 @@ git commit -m "feat: add download subscription storage"
 ### Task 3: Add Download Reclaim Planner And Subscription Evaluator Core
 
 **Files:**
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadReclaimPlanner.kt`
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionEvaluator.kt`
-- Test: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/downloads/DownloadReclaimPlannerTest.kt`
-- Test: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionEvaluatorTest.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadReclaimPlanner.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionEvaluator.kt`
+- Test: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/downloads/DownloadReclaimPlannerTest.kt`
+- Test: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionEvaluatorTest.kt`
 
 **Interfaces:**
 - Consumes: `DownloadSubscription`, local `DownloadEntity` rows, existing user-state port, and a candidate provider adapter.
@@ -578,7 +578,7 @@ git commit -m "feat: add download subscription storage"
 - [ ] **Step 1: Write failing Reclaim planner test**
 
 ```kotlin
-package org.siloserver.silo.common.downloads
+package org.prairieserver.prairie.common.downloads
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -636,13 +636,13 @@ class DownloadReclaimPlannerTest {
 - [ ] **Step 2: Write failing evaluator test**
 
 ```kotlin
-package org.siloserver.silo.common.downloads
+package org.prairieserver.prairie.common.downloads
 
 import kotlinx.coroutines.test.runTest
-import org.siloserver.silo.model.download.DownloadQuality
-import org.siloserver.silo.model.download.DownloadSubscription
-import org.siloserver.silo.model.download.DownloadSubscriptionMediaKind
-import org.siloserver.silo.model.download.DownloadSubscriptionTargetType
+import org.prairieserver.prairie.model.download.DownloadQuality
+import org.prairieserver.prairie.model.download.DownloadSubscription
+import org.prairieserver.prairie.model.download.DownloadSubscriptionMediaKind
+import org.prairieserver.prairie.model.download.DownloadSubscriptionTargetType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -715,7 +715,7 @@ class DownloadSubscriptionEvaluatorTest {
 Run:
 
 ```bash
-./gradlew :android-shared:testDebugUnitTest --tests org.siloserver.silo.common.downloads.DownloadReclaimPlannerTest --tests org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorTest
+./gradlew :android-shared:testDebugUnitTest --tests org.prairieserver.prairie.common.downloads.DownloadReclaimPlannerTest --tests org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorTest
 ```
 
 Expected: FAIL because planner/evaluator types do not exist.
@@ -725,7 +725,7 @@ Expected: FAIL because planner/evaluator types do not exist.
 Create `DownloadReclaimPlanner.kt`:
 
 ```kotlin
-package org.siloserver.silo.common.downloads
+package org.prairieserver.prairie.common.downloads
 
 data class DownloadReclaimCandidate(
     val recordId: String,
@@ -779,11 +779,11 @@ class DownloadReclaimPlanner {
 Create `DownloadSubscriptionEvaluator.kt`:
 
 ```kotlin
-package org.siloserver.silo.common.downloads
+package org.prairieserver.prairie.common.downloads
 
-import org.siloserver.silo.model.download.DownloadQuality
-import org.siloserver.silo.model.download.DownloadSubscription
-import org.siloserver.silo.model.download.DownloadSubscriptionMediaKind
+import org.prairieserver.prairie.model.download.DownloadQuality
+import org.prairieserver.prairie.model.download.DownloadSubscription
+import org.prairieserver.prairie.model.download.DownloadSubscriptionMediaKind
 
 data class DownloadSubscriptionCandidate(
     val contentId: String,
@@ -825,7 +825,7 @@ class DownloadSubscriptionEvaluator(
 Run:
 
 ```bash
-./gradlew --rerun-tasks --no-build-cache :android-shared:testDebugUnitTest --tests org.siloserver.silo.common.downloads.DownloadReclaimPlannerTest --tests org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorTest
+./gradlew --rerun-tasks --no-build-cache :android-shared:testDebugUnitTest --tests org.prairieserver.prairie.common.downloads.DownloadReclaimPlannerTest --tests org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorTest
 ```
 
 Expected: PASS.
@@ -833,7 +833,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadReclaimPlanner.kt android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionEvaluator.kt android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/downloads/DownloadReclaimPlannerTest.kt android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionEvaluatorTest.kt
+git add android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadReclaimPlanner.kt android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionEvaluator.kt android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/downloads/DownloadReclaimPlannerTest.kt android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionEvaluatorTest.kt
 git commit -m "feat: add download monitoring planner"
 ```
 
@@ -842,12 +842,12 @@ git commit -m "feat: add download monitoring planner"
 ### Task 4: Wire Download Worker, Reclaim UI, And Subscription Controls
 
 **Files:**
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadSubscriptionWorker.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadEnqueuer.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/downloads/DownloadsViewModel.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/downloads/DownloadsScreen.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt`
-- Test: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/downloads/DownloadsMonitoringSourceTest.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadSubscriptionWorker.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadEnqueuer.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/downloads/DownloadsViewModel.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/downloads/DownloadsScreen.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt`
+- Test: `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/screens/downloads/DownloadsMonitoringSourceTest.kt`
 
 **Interfaces:**
 - Consumes: Task 2 repository and Task 3 evaluator/planner.
@@ -856,7 +856,7 @@ git commit -m "feat: add download monitoring planner"
 - [ ] **Step 1: Write failing mobile source test**
 
 ```kotlin
-package org.siloserver.silo.android.ui.screens.downloads
+package org.prairieserver.prairie.android.ui.screens.downloads
 
 import java.io.File
 import kotlin.test.Test
@@ -865,8 +865,8 @@ import kotlin.test.assertTrue
 class DownloadsMonitoringSourceTest {
     @Test
     fun downloadsScreenExposesMonitoringAndReclaimActions() {
-        val screen = File("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/downloads/DownloadsScreen.kt").readText()
-        val vm = File("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/downloads/DownloadsViewModel.kt").readText()
+        val screen = File("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/downloads/DownloadsScreen.kt").readText()
+        val vm = File("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/downloads/DownloadsViewModel.kt").readText()
 
         assertTrue(screen.contains("Reclaim Watched"), "Downloads screen must expose Reclaim Watched.")
         assertTrue(screen.contains("Monitored"), "Downloads screen must expose monitored downloads.")
@@ -881,7 +881,7 @@ class DownloadsMonitoringSourceTest {
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.ui.screens.downloads.DownloadsMonitoringSourceTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.ui.screens.downloads.DownloadsMonitoringSourceTest
 ```
 
 Expected: FAIL because the UI/view model lacks monitored/reclaim affordances.
@@ -948,8 +948,8 @@ Use existing app visual patterns; do not add TV-only UI here.
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.ui.screens.downloads.DownloadsMonitoringSourceTest
-./gradlew :android-shared:testDebugUnitTest --tests org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorTest --tests org.siloserver.silo.common.downloads.DownloadReclaimPlannerTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.ui.screens.downloads.DownloadsMonitoringSourceTest
+./gradlew :android-shared:testDebugUnitTest --tests org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorTest --tests org.prairieserver.prairie.common.downloads.DownloadReclaimPlannerTest
 ```
 
 Expected: PASS.
@@ -957,60 +957,60 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/downloads androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/downloads/DownloadsMonitoringSourceTest.kt
+git add android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/downloads androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/screens/downloads/DownloadsMonitoringSourceTest.kt
 git commit -m "feat: expose monitored downloads and reclaim watched"
 ```
 
 ---
 
-### Task 5: Add Apple-Compatible SiloCast Wire Protocol
+### Task 5: Add Apple-Compatible PrairieCast Wire Protocol
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/org/siloserver/silo/cast/SiloCastProtocol.kt`
-- Create: `shared/src/commonMain/kotlin/org/siloserver/silo/cast/SiloCastMessage.kt`
-- Create: `shared/src/commonMain/kotlin/org/siloserver/silo/cast/SiloCastPlaybackClock.kt`
-- Test: `shared/src/commonTest/kotlin/org/siloserver/silo/cast/SiloCastMessageTest.kt`
-- Test: `shared/src/commonTest/kotlin/org/siloserver/silo/cast/SiloCastPlaybackClockTest.kt`
+- Create: `shared/src/commonMain/kotlin/org/prairieserver/prairie/cast/PrairieCastProtocol.kt`
+- Create: `shared/src/commonMain/kotlin/org/prairieserver/prairie/cast/PrairieCastMessage.kt`
+- Create: `shared/src/commonMain/kotlin/org/prairieserver/prairie/cast/PrairieCastPlaybackClock.kt`
+- Test: `shared/src/commonTest/kotlin/org/prairieserver/prairie/cast/PrairieCastMessageTest.kt`
+- Test: `shared/src/commonTest/kotlin/org/prairieserver/prairie/cast/PrairieCastPlaybackClockTest.kt`
 
 **Interfaces:**
-- Produces: serialized SiloCast message contract consumed by TV receiver and phone controller.
+- Produces: serialized PrairieCast message contract consumed by TV receiver and phone controller.
 
 - [ ] **Step 1: Write failing message tests**
 
 ```kotlin
-package org.siloserver.silo.cast
+package org.prairieserver.prairie.cast
 
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class SiloCastMessageTest {
+class PrairieCastMessageTest {
     private val json = Json { encodeDefaults = false; ignoreUnknownKeys = true }
 
     @Test
     fun controlCommandUsesAppleSnakeCaseNames() {
-        val encoded = json.encodeToString(SiloCastMessage.serializer(), SiloCastMessage.Control(SiloCastControlCommand.playPause()))
+        val encoded = json.encodeToString(PrairieCastMessage.serializer(), PrairieCastMessage.Control(PrairieCastControlCommand.playPause()))
         assertTrue(encoded.contains("\"type\":\"control\""))
         assertTrue(encoded.contains("\"name\":\"play_pause\""))
         assertEquals(
-            SiloCastMessage.Control(SiloCastControlCommand.playPause()),
-            json.decodeFromString(SiloCastMessage.serializer(), encoded),
+            PrairieCastMessage.Control(PrairieCastControlCommand.playPause()),
+            json.decodeFromString(PrairieCastMessage.serializer(), encoded),
         )
     }
 
     @Test
     fun subtitleOffRoundTripsWithNullTrackId() {
-        val msg = SiloCastMessage.Control(SiloCastControlCommand.selectSubtitleTrack(null))
-        val encoded = json.encodeToString(SiloCastMessage.serializer(), msg)
+        val msg = PrairieCastMessage.Control(PrairieCastControlCommand.selectSubtitleTrack(null))
+        val encoded = json.encodeToString(PrairieCastMessage.serializer(), msg)
         assertTrue(encoded.contains("\"name\":\"select_subtitle_track\""))
-        assertEquals(msg, json.decodeFromString(SiloCastMessage.serializer(), encoded))
+        assertEquals(msg, json.decodeFromString(PrairieCastMessage.serializer(), encoded))
     }
 
     @Test
     fun helloMatchesServiceVersion() {
-        assertEquals(1, SiloCastProtocol.version)
-        assertEquals("_silocast._tcp", SiloCastProtocol.serviceType)
+        assertEquals(1, PrairieCastProtocol.version)
+        assertEquals("_prairiecast._tcp", PrairieCastProtocol.serviceType)
     }
 }
 ```
@@ -1018,16 +1018,16 @@ class SiloCastMessageTest {
 - [ ] **Step 2: Write failing clock tests**
 
 ```kotlin
-package org.siloserver.silo.cast
+package org.prairieserver.prairie.cast
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class SiloCastPlaybackClockTest {
+class PrairieCastPlaybackClockTest {
     @Test
     fun displayTimeInterpolatesWhilePlayingAndClampsToDuration() {
-        val clock = SiloCastPlaybackClock()
+        val clock = PrairieCastPlaybackClock()
         clock.ingest(state(isPlaying = true, currentTime = 10.0, duration = 20.0), nowMs = 1_000)
 
         assertEquals(13.0, clock.displayTime(nowMs = 4_000), 0.01)
@@ -1036,7 +1036,7 @@ class SiloCastPlaybackClockTest {
 
     @Test
     fun optimisticSeekWinsUntilSnapshotCatchesUp() {
-        val clock = SiloCastPlaybackClock()
+        val clock = PrairieCastPlaybackClock()
         clock.ingest(state(currentTime = 10.0, duration = 3_000.0), nowMs = 1_000)
         clock.setOptimisticTime(1_200.0, nowMs = 1_000)
         clock.ingest(state(currentTime = 10.0, duration = 3_000.0), nowMs = 1_500)
@@ -1049,7 +1049,7 @@ class SiloCastPlaybackClockTest {
 
     @Test
     fun optimisticPlayingWinsBriefly() {
-        val clock = SiloCastPlaybackClock()
+        val clock = PrairieCastPlaybackClock()
         clock.ingest(state(isPlaying = false), nowMs = 1_000)
         clock.setOptimisticPlaying(true, nowMs = 1_000)
         assertTrue(clock.isPlaying(nowMs = 1_500))
@@ -1059,7 +1059,7 @@ class SiloCastPlaybackClockTest {
         isPlaying: Boolean = false,
         currentTime: Double = 0.0,
         duration: Double = 100.0,
-    ) = SiloCastPlaybackState(
+    ) = PrairieCastPlaybackState(
         contentId = "content",
         sessionId = null,
         title = "Title",
@@ -1099,25 +1099,25 @@ class SiloCastPlaybackClockTest {
 Run:
 
 ```bash
-./gradlew :shared:testDebugUnitTest --tests org.siloserver.silo.cast.SiloCastMessageTest --tests org.siloserver.silo.cast.SiloCastPlaybackClockTest
+./gradlew :shared:testDebugUnitTest --tests org.prairieserver.prairie.cast.PrairieCastMessageTest --tests org.prairieserver.prairie.cast.PrairieCastPlaybackClockTest
 ```
 
-Expected: FAIL because SiloCast models do not exist.
+Expected: FAIL because PrairieCast models do not exist.
 
 - [ ] **Step 4: Implement protocol and messages**
 
 Create models using `@Serializable` and `@SerialName` exactly matching Apple:
 
 ```kotlin
-package org.siloserver.silo.cast
+package org.prairieserver.prairie.cast
 
-object SiloCastProtocol {
+object PrairieCastProtocol {
     const val version: Int = 1
-    const val serviceType: String = "_silocast._tcp"
+    const val serviceType: String = "_prairiecast._tcp"
 }
 ```
 
-`SiloCastMessage` must be a sealed `@Serializable` class with `@SerialName("hello")`, `@SerialName("launch")`, `@SerialName("control")`, `@SerialName("state")`, `@SerialName("error")`, `@SerialName("ping")`, `@SerialName("pong")`, and `@SerialName("close")`. If sealed-class JSON shape cannot match Apple directly, implement a custom serializer that emits:
+`PrairieCastMessage` must be a sealed `@Serializable` class with `@SerialName("hello")`, `@SerialName("launch")`, `@SerialName("control")`, `@SerialName("state")`, `@SerialName("error")`, `@SerialName("ping")`, `@SerialName("pong")`, and `@SerialName("close")`. If sealed-class JSON shape cannot match Apple directly, implement a custom serializer that emits:
 
 ```json
 {"v":1,"type":"control","control":{"name":"play_pause"}}
@@ -1127,8 +1127,8 @@ not Kotlin's default polymorphic envelope.
 
 - [ ] **Step 5: Implement playback clock**
 
-Implement `SiloCastPlaybackClock` with:
-- `ingest(state: SiloCastPlaybackState, nowMs: Long)`
+Implement `PrairieCastPlaybackClock` with:
+- `ingest(state: PrairieCastPlaybackState, nowMs: Long)`
 - `displayTime(nowMs: Long): Double`
 - `isPlaying(nowMs: Long): Boolean`
 - `setOptimisticTime(seconds: Double, nowMs: Long)`
@@ -1141,7 +1141,7 @@ Use a 2-second optimistic window and clamp display time to `0.0..duration` when 
 Run:
 
 ```bash
-./gradlew --rerun-tasks --no-build-cache :shared:testDebugUnitTest --tests org.siloserver.silo.cast.SiloCastMessageTest --tests org.siloserver.silo.cast.SiloCastPlaybackClockTest
+./gradlew --rerun-tasks --no-build-cache :shared:testDebugUnitTest --tests org.prairieserver.prairie.cast.PrairieCastMessageTest --tests org.prairieserver.prairie.cast.PrairieCastPlaybackClockTest
 ```
 
 Expected: PASS.
@@ -1149,51 +1149,51 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/org/siloserver/silo/cast shared/src/commonTest/kotlin/org/siloserver/silo/cast
-git commit -m "feat: add SiloCast wire protocol"
+git add shared/src/commonMain/kotlin/org/prairieserver/prairie/cast shared/src/commonTest/kotlin/org/prairieserver/prairie/cast
+git commit -m "feat: add PrairieCast wire protocol"
 ```
 
 ---
 
-### Task 6: Add Android TV SiloCast Receiver
+### Task 6: Add Android TV PrairieCast Receiver
 
 **Files:**
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/cast/SiloCastFrame.kt`
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/cast/SiloCastNsdAdvertiser.kt`
-- Create: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/cast/TvSiloCastReceiver.kt`
-- Create: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/cast/TvSiloCastPlayerAdapter.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/di/AndroidTvModule.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/cast/TvSiloCastReceiverSourceTest.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/cast/PrairieCastFrame.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/cast/PrairieCastNsdAdvertiser.kt`
+- Create: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/cast/TvPrairieCastReceiver.kt`
+- Create: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/cast/TvPrairieCastPlayerAdapter.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/di/AndroidTvModule.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScreen.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/cast/TvPrairieCastReceiverSourceTest.kt`
 
 **Interfaces:**
-- Consumes: Task 5 SiloCast messages and existing `TvPlayerViewModel` player commands.
-- Produces: Android TV `_silocast._tcp` receiver with one-controller policy and player command adapter.
+- Consumes: Task 5 PrairieCast messages and existing `TvPlayerViewModel` player commands.
+- Produces: Android TV `_prairiecast._tcp` receiver with one-controller policy and player command adapter.
 
 - [ ] **Step 1: Write failing TV receiver source test**
 
 ```kotlin
-package org.siloserver.silo.tv.cast
+package org.prairieserver.prairie.tv.cast
 
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-class TvSiloCastReceiverSourceTest {
+class TvPrairieCastReceiverSourceTest {
     @Test
-    fun receiverAdvertisesSilocastAndAllowsNewestControllerToWin() {
-        val receiver = File("src/androidMain/kotlin/org/siloserver/silo/tv/cast/TvSiloCastReceiver.kt").takeIf { it.exists() }?.readText().orEmpty()
-        val module = File("src/androidMain/kotlin/org/siloserver/silo/tv/di/AndroidTvModule.kt").readText()
+    fun receiverAdvertisesPrairiecastAndAllowsNewestControllerToWin() {
+        val receiver = File("src/androidMain/kotlin/org/prairieserver/prairie/tv/cast/TvPrairieCastReceiver.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val module = File("src/androidMain/kotlin/org/prairieserver/prairie/tv/di/AndroidTvModule.kt").readText()
 
-        assertTrue(receiver.contains("_silocast._tcp") || receiver.contains("SiloCastProtocol.serviceType"))
+        assertTrue(receiver.contains("_prairiecast._tcp") || receiver.contains("PrairieCastProtocol.serviceType"))
         assertTrue(receiver.contains("activeSession"))
         assertTrue(receiver.contains("closePreviousController"))
-        assertTrue(module.contains("TvSiloCastReceiver"))
+        assertTrue(module.contains("TvPrairieCastReceiver"))
     }
 
     @Test
     fun playerAdapterMapsCoreControls() {
-        val adapter = File("src/androidMain/kotlin/org/siloserver/silo/tv/cast/TvSiloCastPlayerAdapter.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val adapter = File("src/androidMain/kotlin/org/prairieserver/prairie/tv/cast/TvPrairieCastPlayerAdapter.kt").takeIf { it.exists() }?.readText().orEmpty()
         listOf("playPause", "seek", "selectSubtitle", "selectAudio", "setPlaybackSpeed", "playNext").forEach {
             assertTrue(adapter.contains(it), "Adapter must map $it.")
         }
@@ -1206,42 +1206,42 @@ class TvSiloCastReceiverSourceTest {
 Run:
 
 ```bash
-./gradlew :androidTvApp:testDebugUnitTest --tests org.siloserver.silo.tv.cast.TvSiloCastReceiverSourceTest
+./gradlew :androidTvApp:testDebugUnitTest --tests org.prairieserver.prairie.tv.cast.TvPrairieCastReceiverSourceTest
 ```
 
 Expected: FAIL because receiver/adapter files do not exist.
 
 - [ ] **Step 3: Implement frame helpers**
 
-Implement `SiloCastFrame` in `android-shared` using the same 4-byte big-endian length prefix as `PairingFrame`, but in a `cast` package. Reuse parsing limits from pairing to avoid large-frame allocation.
+Implement `PrairieCastFrame` in `android-shared` using the same 4-byte big-endian length prefix as `PairingFrame`, but in a `cast` package. Reuse parsing limits from pairing to avoid large-frame allocation.
 
 - [ ] **Step 4: Implement NSD advertiser**
 
-`SiloCastNsdAdvertiser` should:
+`PrairieCastNsdAdvertiser` should:
 - use `NsdManager`
-- advertise `SiloCastProtocol.serviceType`
+- advertise `PrairieCastProtocol.serviceType`
 - include TXT attributes `v`, `name`, and `deviceId`
 - own start/stop lifecycle
 
 - [ ] **Step 5: Implement receiver**
 
-`TvSiloCastReceiver` should:
+`TvPrairieCastReceiver` should:
 - start a `ServerSocket`
-- advertise via `SiloCastNsdAdvertiser`
+- advertise via `PrairieCastNsdAdvertiser`
 - accept one connection at a time
 - call `closePreviousController()` before accepting a new controller
-- decode frames to `SiloCastMessage`
+- decode frames to `PrairieCastMessage`
 - reply to `ping` with `pong`
 - handle `launch` through a navigation/player launch callback
-- handle `control` through `TvSiloCastPlayerAdapter`
+- handle `control` through `TvPrairieCastPlayerAdapter`
 - periodically send `state` snapshots while connected
 
 - [ ] **Step 6: Implement player adapter**
 
-`TvSiloCastPlayerAdapter` should wrap lambdas rather than depending directly on the whole VM in tests:
+`TvPrairieCastPlayerAdapter` should wrap lambdas rather than depending directly on the whole VM in tests:
 
 ```kotlin
-class TvSiloCastPlayerAdapter(
+class TvPrairieCastPlayerAdapter(
     private val play: () -> Unit,
     private val pause: () -> Unit,
     private val playPause: () -> Unit,
@@ -1261,7 +1261,7 @@ class TvSiloCastPlayerAdapter(
 )
 ```
 
-Add a `handle(command: SiloCastControlCommand)` method that validates required fields and ignores unsupported commands gracefully.
+Add a `handle(command: PrairieCastControlCommand)` method that validates required fields and ignores unsupported commands gracefully.
 
 - [ ] **Step 7: Wire TV DI/lifecycle**
 
@@ -1272,8 +1272,8 @@ Register receiver in `AndroidTvModule.kt`. Start/stop it from signed-in TV lifec
 Run:
 
 ```bash
-./gradlew :androidTvApp:testDebugUnitTest --tests org.siloserver.silo.tv.cast.TvSiloCastReceiverSourceTest
-./gradlew :shared:testDebugUnitTest --tests org.siloserver.silo.cast.SiloCastMessageTest
+./gradlew :androidTvApp:testDebugUnitTest --tests org.prairieserver.prairie.tv.cast.TvPrairieCastReceiverSourceTest
+./gradlew :shared:testDebugUnitTest --tests org.prairieserver.prairie.cast.PrairieCastMessageTest
 ```
 
 Expected: PASS.
@@ -1281,24 +1281,24 @@ Expected: PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add android-shared/src/androidMain/kotlin/org/siloserver/silo/common/cast androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/cast androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/di/AndroidTvModule.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/cast
-git commit -m "feat: add Android TV SiloCast receiver"
+git add android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/cast androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/cast androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/di/AndroidTvModule.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/cast
+git commit -m "feat: add Android TV PrairieCast receiver"
 ```
 
 ---
 
-### Task 7: Add Phone SiloCast Browser, Remote, And Play-On-Device
+### Task 7: Add Phone PrairieCast Browser, Remote, And Play-On-Device
 
 **Files:**
-- Create: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/cast/SiloCastNsdBrowser.kt`
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/cast/SiloCastController.kt`
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast/SiloCastTargetPickerSheet.kt`
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast/SiloCastMiniBar.kt`
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast/SiloCastRemoteScreen.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/detail/ItemDetailScreen.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/navigation/AppNavigation.kt`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt`
-- Test: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/cast/SiloCastPhoneSourceTest.kt`
+- Create: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/cast/PrairieCastNsdBrowser.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/cast/PrairieCastController.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast/PrairieCastTargetPickerSheet.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast/PrairieCastMiniBar.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast/PrairieCastRemoteScreen.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/detail/ItemDetailScreen.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt`
+- Test: `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/cast/PrairieCastPhoneSourceTest.kt`
 
 **Interfaces:**
 - Consumes: Task 5 messages and Task 6 receiver.
@@ -1307,26 +1307,26 @@ git commit -m "feat: add Android TV SiloCast receiver"
 - [ ] **Step 1: Write failing phone source test**
 
 ```kotlin
-package org.siloserver.silo.android.cast
+package org.prairieserver.prairie.android.cast
 
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-class SiloCastPhoneSourceTest {
+class PrairieCastPhoneSourceTest {
     @Test
     fun phoneHasBrowserControllerRemoteAndPlayOnDeviceEntrypoint() {
-        val controller = File("src/androidMain/kotlin/org/siloserver/silo/android/cast/SiloCastController.kt").takeIf { it.exists() }?.readText().orEmpty()
-        val picker = File("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast/SiloCastTargetPickerSheet.kt").takeIf { it.exists() }?.readText().orEmpty()
-        val remote = File("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast/SiloCastRemoteScreen.kt").takeIf { it.exists() }?.readText().orEmpty()
-        val mini = File("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast/SiloCastMiniBar.kt").takeIf { it.exists() }?.readText().orEmpty()
-        val detail = File("src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/detail/ItemDetailScreen.kt").readText()
+        val controller = File("src/androidMain/kotlin/org/prairieserver/prairie/android/cast/PrairieCastController.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val picker = File("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast/PrairieCastTargetPickerSheet.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val remote = File("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast/PrairieCastRemoteScreen.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val mini = File("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast/PrairieCastMiniBar.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val detail = File("src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/detail/ItemDetailScreen.kt").readText()
 
-        assertTrue(controller.contains("SiloCastController"))
-        assertTrue(controller.contains("SiloCastNsdBrowser"))
-        assertTrue(picker.contains("SiloCastTargetPickerSheet"))
-        assertTrue(remote.contains("SiloCastRemoteScreen"))
-        assertTrue(mini.contains("SiloCastMiniBar"))
+        assertTrue(controller.contains("PrairieCastController"))
+        assertTrue(controller.contains("PrairieCastNsdBrowser"))
+        assertTrue(picker.contains("PrairieCastTargetPickerSheet"))
+        assertTrue(remote.contains("PrairieCastRemoteScreen"))
+        assertTrue(mini.contains("PrairieCastMiniBar"))
         assertTrue(detail.contains("Play on device"))
     }
 }
@@ -1337,27 +1337,27 @@ class SiloCastPhoneSourceTest {
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.cast.SiloCastPhoneSourceTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.cast.PrairieCastPhoneSourceTest
 ```
 
-Expected: FAIL because phone SiloCast files and detail action do not exist.
+Expected: FAIL because phone PrairieCast files and detail action do not exist.
 
 - [ ] **Step 3: Implement NSD browser**
 
-`SiloCastNsdBrowser` should:
-- discover `SiloCastProtocol.serviceType`
-- expose `StateFlow<List<SiloCastTarget>>`
+`PrairieCastNsdBrowser` should:
+- discover `PrairieCastProtocol.serviceType`
+- expose `StateFlow<List<PrairieCastTarget>>`
 - resolve host/port/name/deviceId/version TXT data
 - stop browsing cleanly on lifecycle end
 
 - [ ] **Step 4: Implement controller**
 
-`SiloCastController` should:
+`PrairieCastController` should:
 - browse/connect/disconnect
 - send `hello`, `launch`, and `control`
 - consume `state`, `error`, `ping`, `pong`, `close`
-- expose `StateFlow<SiloCastControllerState>`
-- use `SiloCastPlaybackClock` for optimistic play/seek
+- expose `StateFlow<PrairieCastControllerState>`
+- use `PrairieCastPlaybackClock` for optimistic play/seek
 
 - [ ] **Step 5: Implement UI**
 
@@ -1381,8 +1381,8 @@ Remote screen:
 
 In `ItemDetailScreen.kt`, add a secondary action beside existing play/download actions:
 - label: `Play on device`
-- opens `SiloCastTargetPickerSheet`
-- sends `SiloCastLaunchRequest(serverId, playback)` with content/file/track/resume information matching the local play action
+- opens `PrairieCastTargetPickerSheet`
+- sends `PrairieCastLaunchRequest(serverId, playback)` with content/file/track/resume information matching the local play action
 
 Do not add ebooks to TV targets.
 
@@ -1391,8 +1391,8 @@ Do not add ebooks to TV targets.
 Run:
 
 ```bash
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.cast.SiloCastPhoneSourceTest
-./gradlew :shared:testDebugUnitTest --tests org.siloserver.silo.cast.SiloCastPlaybackClockTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.cast.PrairieCastPhoneSourceTest
+./gradlew :shared:testDebugUnitTest --tests org.prairieserver.prairie.cast.PrairieCastPlaybackClockTest
 ```
 
 Expected: PASS.
@@ -1400,8 +1400,8 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add android-shared/src/androidMain/kotlin/org/siloserver/silo/common/cast/SiloCastNsdBrowser.kt androidApp/src/androidMain/kotlin/org/siloserver/silo/android/cast androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/cast androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/detail/ItemDetailScreen.kt androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/navigation/AppNavigation.kt androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/cast
-git commit -m "feat: add phone SiloCast remote"
+git add android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/cast/PrairieCastNsdBrowser.kt androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/cast androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/cast androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/detail/ItemDetailScreen.kt androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/cast
+git commit -m "feat: add phone PrairieCast remote"
 ```
 
 ---
@@ -1409,17 +1409,17 @@ git commit -m "feat: add phone SiloCast remote"
 ### Task 8: Add Android Push Registration And Guarded Receiver
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/org/siloserver/silo/model/notifications/PushRegistrationModels.kt`
-- Create: `shared/src/commonMain/kotlin/org/siloserver/silo/network/api/PushRegistrationApi.kt`
-- Create: `shared/src/commonMain/kotlin/org/siloserver/silo/repository/PushRegistrationRepository.kt`
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/push/AndroidPushTokenProvider.kt`
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/push/SiloFirebaseMessagingService.kt`
-- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/push/PushNotificationPresenter.kt`
+- Create: `shared/src/commonMain/kotlin/org/prairieserver/prairie/model/notifications/PushRegistrationModels.kt`
+- Create: `shared/src/commonMain/kotlin/org/prairieserver/prairie/network/api/PushRegistrationApi.kt`
+- Create: `shared/src/commonMain/kotlin/org/prairieserver/prairie/repository/PushRegistrationRepository.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/push/AndroidPushTokenProvider.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/push/PrairieFirebaseMessagingService.kt`
+- Create: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/push/PushNotificationPresenter.kt`
 - Modify: `androidApp/src/androidMain/AndroidManifest.xml`
-- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt`
-- Test: `shared/src/commonTest/kotlin/org/siloserver/silo/network/api/PushRegistrationApiTest.kt`
-- Test: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/push/AndroidPushSourceTest.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/push/TvPushSurfaceSourceTest.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt`
+- Test: `shared/src/commonTest/kotlin/org/prairieserver/prairie/network/api/PushRegistrationApiTest.kt`
+- Test: `androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/push/AndroidPushSourceTest.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/push/TvPushSurfaceSourceTest.kt`
 
 **Interfaces:**
 - Consumes: existing authenticated API client and notification repository/inbox paths.
@@ -1430,7 +1430,7 @@ git commit -m "feat: add phone SiloCast remote"
 `PushRegistrationApiTest.kt`:
 
 ```kotlin
-package org.siloserver.silo.network.api
+package org.prairieserver.prairie.network.api
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -1443,7 +1443,7 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
-import org.siloserver.silo.model.notifications.PushDeviceRegisterRequest
+import org.prairieserver.prairie.model.notifications.PushDeviceRegisterRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -1471,7 +1471,7 @@ class PushRegistrationApiTest {
 `AndroidPushSourceTest.kt`:
 
 ```kotlin
-package org.siloserver.silo.android.push
+package org.prairieserver.prairie.android.push
 
 import java.io.File
 import kotlin.test.Test
@@ -1480,9 +1480,9 @@ import kotlin.test.assertTrue
 class AndroidPushSourceTest {
     @Test
     fun phonePushHasTokenProviderMessagingServiceAndGenericPresenter() {
-        val provider = File("src/androidMain/kotlin/org/siloserver/silo/android/push/AndroidPushTokenProvider.kt").takeIf { it.exists() }?.readText().orEmpty()
-        val service = File("src/androidMain/kotlin/org/siloserver/silo/android/push/SiloFirebaseMessagingService.kt").takeIf { it.exists() }?.readText().orEmpty()
-        val presenter = File("src/androidMain/kotlin/org/siloserver/silo/android/push/PushNotificationPresenter.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val provider = File("src/androidMain/kotlin/org/prairieserver/prairie/android/push/AndroidPushTokenProvider.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val service = File("src/androidMain/kotlin/org/prairieserver/prairie/android/push/PrairieFirebaseMessagingService.kt").takeIf { it.exists() }?.readText().orEmpty()
+        val presenter = File("src/androidMain/kotlin/org/prairieserver/prairie/android/push/PushNotificationPresenter.kt").takeIf { it.exists() }?.readText().orEmpty()
         val manifest = File("src/androidMain/AndroidManifest.xml").readText()
 
         assertTrue(provider.contains("AndroidPushTokenProvider"))
@@ -1497,7 +1497,7 @@ class AndroidPushSourceTest {
 `TvPushSurfaceSourceTest.kt`:
 
 ```kotlin
-package org.siloserver.silo.tv.push
+package org.prairieserver.prairie.tv.push
 
 import java.io.File
 import kotlin.test.Test
@@ -1506,7 +1506,7 @@ import kotlin.test.assertFalse
 class TvPushSurfaceSourceTest {
     @Test
     fun tvDoesNotExposePushSetupSurface() {
-        val files = File("src/androidMain/kotlin/org/siloserver/silo/tv").walkTopDown()
+        val files = File("src/androidMain/kotlin/org/prairieserver/prairie/tv").walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .joinToString("\n") { it.readText() }
         assertFalse(files.contains("PushNotificationSetup"))
@@ -1520,9 +1520,9 @@ class TvPushSurfaceSourceTest {
 Run:
 
 ```bash
-./gradlew :shared:testDebugUnitTest --tests org.siloserver.silo.network.api.PushRegistrationApiTest
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.push.AndroidPushSourceTest
-./gradlew :androidTvApp:testDebugUnitTest --tests org.siloserver.silo.tv.push.TvPushSurfaceSourceTest
+./gradlew :shared:testDebugUnitTest --tests org.prairieserver.prairie.network.api.PushRegistrationApiTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.push.AndroidPushSourceTest
+./gradlew :androidTvApp:testDebugUnitTest --tests org.prairieserver.prairie.tv.push.TvPushSurfaceSourceTest
 ```
 
 Expected: shared and phone tests fail because push files do not exist; TV test should pass or fail only if a push setup was accidentally added.
@@ -1532,7 +1532,7 @@ Expected: shared and phone tests fail because push files do not exist; TV test s
 Create `PushRegistrationModels.kt`:
 
 ```kotlin
-package org.siloserver.silo.model.notifications
+package org.prairieserver.prairie.model.notifications
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -1586,15 +1586,15 @@ class PushMessageHandler(
 }
 ```
 
-If Firebase dependency is present, `SiloFirebaseMessagingService : FirebaseMessagingService` delegates `remoteMessage.data` to `PushMessageHandler`. If Firebase dependency is absent, keep a non-service `SiloFirebaseMessagingService` wrapper out of the manifest and keep source tests adjusted to the handler.
+If Firebase dependency is present, `PrairieFirebaseMessagingService : FirebaseMessagingService` delegates `remoteMessage.data` to `PushMessageHandler`. If Firebase dependency is absent, keep a non-service `PrairieFirebaseMessagingService` wrapper out of the manifest and keep source tests adjusted to the handler.
 
 - [ ] **Step 6: Add notification presenter**
 
 `PushNotificationPresenter` should fetch notification metadata from existing repository/inbox APIs when possible. If fetch fails, post a generic notification:
 
 ```text
-Silo has a new notification
-Open Silo to view it.
+Prairie has a new notification
+Open Prairie to view it.
 ```
 
 No media titles, profile names, usernames, server URLs, or artwork should be rendered from FCM data.
@@ -1608,9 +1608,9 @@ Add `android.permission.POST_NOTIFICATIONS` to phone manifest. Add the service d
 Run:
 
 ```bash
-./gradlew :shared:testDebugUnitTest --tests org.siloserver.silo.network.api.PushRegistrationApiTest
-./gradlew :androidApp:testDebugUnitTest --tests org.siloserver.silo.android.push.AndroidPushSourceTest
-./gradlew :androidTvApp:testDebugUnitTest --tests org.siloserver.silo.tv.push.TvPushSurfaceSourceTest
+./gradlew :shared:testDebugUnitTest --tests org.prairieserver.prairie.network.api.PushRegistrationApiTest
+./gradlew :androidApp:testDebugUnitTest --tests org.prairieserver.prairie.android.push.AndroidPushSourceTest
+./gradlew :androidTvApp:testDebugUnitTest --tests org.prairieserver.prairie.tv.push.TvPushSurfaceSourceTest
 ```
 
 Expected: PASS.
@@ -1618,7 +1618,7 @@ Expected: PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/org/siloserver/silo/model/notifications/PushRegistrationModels.kt shared/src/commonMain/kotlin/org/siloserver/silo/network/api/PushRegistrationApi.kt shared/src/commonMain/kotlin/org/siloserver/silo/repository/PushRegistrationRepository.kt androidApp/src/androidMain/kotlin/org/siloserver/silo/android/push androidApp/src/androidMain/AndroidManifest.xml androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt shared/src/commonTest/kotlin/org/siloserver/silo/network/api/PushRegistrationApiTest.kt androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/push/AndroidPushSourceTest.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/push/TvPushSurfaceSourceTest.kt
+git add shared/src/commonMain/kotlin/org/prairieserver/prairie/model/notifications/PushRegistrationModels.kt shared/src/commonMain/kotlin/org/prairieserver/prairie/network/api/PushRegistrationApi.kt shared/src/commonMain/kotlin/org/prairieserver/prairie/repository/PushRegistrationRepository.kt androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/push androidApp/src/androidMain/AndroidManifest.xml androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt shared/src/commonTest/kotlin/org/prairieserver/prairie/network/api/PushRegistrationApiTest.kt androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/push/AndroidPushSourceTest.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/push/TvPushSurfaceSourceTest.kt
 git commit -m "feat: add guarded Android push registration"
 ```
 
@@ -1640,7 +1640,7 @@ git commit -m "feat: add guarded Android push registration"
 Document:
 - Collections are browse-only in Android clients; authoring is web-only.
 - Downloads support monitored subscriptions and Reclaim Watched.
-- SiloControl supports phone-to-TV remote/play-on-device.
+- PrairieControl supports phone-to-TV remote/play-on-device.
 - Android push requires server provider support and Firebase configuration for real FCM delivery.
 - Requests/Admin/Watch Together remain hidden from menus.
 
@@ -1654,21 +1654,21 @@ Run:
 :android-shared:testDebugUnitTest \
 :androidApp:testDebugUnitTest \
 :androidTvApp:testDebugUnitTest \
---tests org.siloserver.silo.android.ui.screens.collections.CollectionsBrowseOnlySourceTest \
---tests org.siloserver.silo.tv.ui.screens.collections.TvCollectionsBrowseOnlySourceTest \
---tests org.siloserver.silo.common.downloads.DownloadSubscriptionDaoTest \
---tests org.siloserver.silo.common.downloads.DownloadReclaimPlannerTest \
---tests org.siloserver.silo.common.downloads.DownloadSubscriptionEvaluatorTest \
---tests org.siloserver.silo.android.ui.screens.downloads.DownloadsMonitoringSourceTest \
---tests org.siloserver.silo.cast.SiloCastMessageTest \
---tests org.siloserver.silo.cast.SiloCastPlaybackClockTest \
---tests org.siloserver.silo.tv.cast.TvSiloCastReceiverSourceTest \
---tests org.siloserver.silo.android.cast.SiloCastPhoneSourceTest \
---tests org.siloserver.silo.network.api.PushRegistrationApiTest \
---tests org.siloserver.silo.android.push.AndroidPushSourceTest \
---tests org.siloserver.silo.tv.push.TvPushSurfaceSourceTest \
---tests org.siloserver.silo.android.ui.navigation.ClientSurfaceVisibilitySourceTest \
---tests org.siloserver.silo.tv.ui.navigation.TvClientSurfaceVisibilitySourceTest
+--tests org.prairieserver.prairie.android.ui.screens.collections.CollectionsBrowseOnlySourceTest \
+--tests org.prairieserver.prairie.tv.ui.screens.collections.TvCollectionsBrowseOnlySourceTest \
+--tests org.prairieserver.prairie.common.downloads.DownloadSubscriptionDaoTest \
+--tests org.prairieserver.prairie.common.downloads.DownloadReclaimPlannerTest \
+--tests org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorTest \
+--tests org.prairieserver.prairie.android.ui.screens.downloads.DownloadsMonitoringSourceTest \
+--tests org.prairieserver.prairie.cast.PrairieCastMessageTest \
+--tests org.prairieserver.prairie.cast.PrairieCastPlaybackClockTest \
+--tests org.prairieserver.prairie.tv.cast.TvPrairieCastReceiverSourceTest \
+--tests org.prairieserver.prairie.android.cast.PrairieCastPhoneSourceTest \
+--tests org.prairieserver.prairie.network.api.PushRegistrationApiTest \
+--tests org.prairieserver.prairie.android.push.AndroidPushSourceTest \
+--tests org.prairieserver.prairie.tv.push.TvPushSurfaceSourceTest \
+--tests org.prairieserver.prairie.android.ui.navigation.ClientSurfaceVisibilitySourceTest \
+--tests org.prairieserver.prairie.tv.ui.navigation.TvClientSurfaceVisibilitySourceTest
 ```
 
 Expected: PASS.
@@ -1683,10 +1683,10 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 4: Run SiloControl device smoke when devices are available**
+- [ ] **Step 4: Run PrairieControl device smoke when devices are available**
 
 Manual/device checks:
-- TV app advertises `_silocast._tcp`.
+- TV app advertises `_prairiecast._tcp`.
 - Phone discovers TV target.
 - "Play on device" launches a movie/episode on TV.
 - Phone remote can play/pause/seek.
@@ -1731,9 +1731,9 @@ Spec coverage:
 
 Type consistency:
 - Download subscription target/media kind names are consistent across domain/entity/evaluator.
-- SiloCast protocol names mirror Apple snake-case command values.
+- PrairieCast protocol names mirror Apple snake-case command values.
 - Push registration path is centralized in `PushRegistrationApi`.
 
 Risk notes:
 - If Firebase configuration is absent, #19 cannot be truthfully called real delivery complete. The implementation must make that visible rather than faking success.
-- If SiloCast TLS-PSK interop is blocked by Android runtime behavior, keep the protocol independent and document the transport limitation while retaining Android-to-Android functionality.
+- If PrairieCast TLS-PSK interop is blocked by Android runtime behavior, keep the protocol independent and document the transport limitation while retaining Android-to-Android functionality.

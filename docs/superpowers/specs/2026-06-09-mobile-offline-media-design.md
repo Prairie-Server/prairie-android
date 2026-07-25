@@ -2,7 +2,7 @@
 
 ## Context
 
-Android mobile now supports server-backed audiobook playback and ebook reading through current Silo server contracts. Existing download infrastructure already stores completed media bytes under `DownloadStorage` as `<filesDir>/downloads/<serverId>/<profileId>/<fileId>.bin` with sidecar metadata. The video player already uses those sidecars for offline-first playback.
+Android mobile now supports server-backed audiobook playback and ebook reading through current Prairie server contracts. Existing download infrastructure already stores completed media bytes under `DownloadStorage` as `<filesDir>/downloads/<serverId>/<profileId>/<fileId>.bin` with sidecar metadata. The video player already uses those sidecars for offline-first playback.
 
 This design adds offline mobile playback/reading for completed audiobook and ebook downloads. It does not change download enqueue behavior.
 

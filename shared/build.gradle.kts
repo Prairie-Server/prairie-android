@@ -41,7 +41,7 @@ kotlin {
 }
 
 android {
-    namespace = "org.siloserver.silo.shared"
+    namespace = "org.prairieserver.prairie.shared"
     compileSdk = 36
     sourceSets.getByName("test").resources.srcDir("src/commonTest/resources")
     defaultConfig {

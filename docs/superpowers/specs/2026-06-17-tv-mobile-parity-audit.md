@@ -36,7 +36,7 @@ Legend: status from mobile's perspective — **MISSING** (TV lacks it), **WORSE*
 - **Create user** + **Edit user** (role/enabled/library access/limits) — deferred on TV (delete only).
 
 ### Auth & Settings
-- **Pair Device** — route + `silo://device` deep links + Settings row; TV has none.
+- **Pair Device** — route + `prairie://device` deep links + Settings row; TV has none.
 - **Manage sessions / revoke session** — mobile Account section; TV only switch-profile + sign-out.
 
 ---

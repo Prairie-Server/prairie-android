@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let users open every completed Android mobile download in another capable app, including movies and episodes. Silo should not lock people into its own player or reader when the downloaded bytes are already on the device.
+Let users open every completed Android mobile download in another capable app, including movies and episodes. Prairie should not lock people into its own player or reader when the downloaded bytes are already on the device.
 
 ## Current Shape
 
@@ -10,7 +10,7 @@ Downloads already use the right foundation:
 
 - `DownloadStorage` writes media bytes to public storage where possible.
 - Original filenames/extensions are preserved instead of forcing `.bin`.
-- Private sidecars retain Silo metadata for offline playback, reading, deletion, and grouping.
+- Private sidecars retain Prairie metadata for offline playback, reading, deletion, and grouping.
 - `DownloadOpenTarget` creates safe external open targets only for completed downloads with a local URI.
 - The Downloads UI already exposes `Open` for completed ebooks and audiobooks.
 - Mobile offline playback/reading already prefers local files when appropriate.
@@ -21,9 +21,9 @@ The remaining product gap is video. Completed movie/episode downloads are public
 
 Primary row tap stays in-app:
 
-- Movies/episodes continue to route to Silo playback/detail as they do now.
+- Movies/episodes continue to route to Prairie playback/detail as they do now.
 - Readable ebooks continue to offer in-app `Read`.
-- Audiobooks continue to work with Silo playback.
+- Audiobooks continue to work with Prairie playback.
 
 Secondary external action expands:
 

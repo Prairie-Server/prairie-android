@@ -17,7 +17,7 @@ For an HDR negotiation report, use `find-hdr <range>` to select an exact source 
 
 ## Android player
 
-`shield-test logs` focuses on `SiloDeepLink`, `TvPlayerScreen`, `TvPlayerViewModel`, `AudioCapabilityMgr`, `Media3Analytics`, `HdrDisplayController`, `RefreshRateMatcher`, and `SiloDovi`.
+`shield-test logs` focuses on `PrairieDeepLink`, `TvPlayerScreen`, `TvPlayerViewModel`, `AudioCapabilityMgr`, `Media3Analytics`, `HdrDisplayController`, `RefreshRateMatcher`, and `PrairieDovi`.
 
 Useful signals include:
 

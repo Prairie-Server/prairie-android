@@ -19,7 +19,7 @@
 - [ ] **Step 1: Write failing parser tests**
 
 Assert these inputs resolve to `Route.PairDevice(...).route`:
-- `silo://device?token=t1`
+- `prairie://device?token=t1`
 - `continuum://device?code=ABCD-1234`
 - `https://silo.example/device?token=t1`
 - `https://silo.example/auth/device?code=ABCD`

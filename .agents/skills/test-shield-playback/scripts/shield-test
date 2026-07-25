@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-DEFAULT_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/silo/shield-playback.env"
-CONFIG_FILE="${SILO_SHIELD_TEST_CONFIG:-$DEFAULT_CONFIG}"
+DEFAULT_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/prairie/shield-playback.env"
+CONFIG_FILE="${PRAIRIE_SHIELD_TEST_CONFIG:-$DEFAULT_CONFIG}"
 ADB_BIN="${ADB_BIN:-adb}"
-SILO_PACKAGE="${SILO_PACKAGE:-org.siloserver.silo}"
+PRAIRIE_PACKAGE="${PRAIRIE_PACKAGE:-org.prairieserver.prairie}"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -25,7 +25,7 @@ Usage: shield-test <command> [arguments]
   link <content-id> [movie|episode|audiobook]
   play <content-id> [movie|episode|audiobook]
   item <content-id>
-  open <silo-uri>
+  open <prairie-uri>
   logs [line-count]
   clear-logs
   display
@@ -50,7 +50,7 @@ load_config() {
 
   : "${SHIELD_ADB_SERIAL:?set SHIELD_ADB_SERIAL in $CONFIG_FILE}"
   ADB_BIN="${ADB_BIN:-adb}"
-  SILO_PACKAGE="${SILO_PACKAGE:-org.siloserver.silo}"
+  PRAIRIE_PACKAGE="${PRAIRIE_PACKAGE:-org.prairieserver.prairie}"
 
   if [[ "$ADB_BIN" == */* ]]; then
     [[ -x "$ADB_BIN" ]] || die "ADB_BIN is not executable: $ADB_BIN"
@@ -59,21 +59,21 @@ load_config() {
     [[ -n "$ADB_BIN" ]] || die "adb was not found; set ADB_BIN in $CONFIG_FILE"
   fi
 
-  [[ "$SILO_PACKAGE" =~ ^[A-Za-z0-9._]+$ ]] || die "invalid SILO_PACKAGE"
+  [[ "$PRAIRIE_PACKAGE" =~ ^[A-Za-z0-9._]+$ ]] || die "invalid PRAIRIE_PACKAGE"
 }
 
 require_dev_config() {
-  : "${SILO_DEV_SSH:?set SILO_DEV_SSH in $CONFIG_FILE}"
-  : "${SILO_DEV_DB_CONTAINER:?set SILO_DEV_DB_CONTAINER in $CONFIG_FILE}"
-  : "${SILO_DEV_DB_USER:?set SILO_DEV_DB_USER in $CONFIG_FILE}"
-  : "${SILO_DEV_DB_NAME:?set SILO_DEV_DB_NAME in $CONFIG_FILE}"
+  : "${PRAIRIE_DEV_SSH:?set PRAIRIE_DEV_SSH in $CONFIG_FILE}"
+  : "${PRAIRIE_DEV_DB_CONTAINER:?set PRAIRIE_DEV_DB_CONTAINER in $CONFIG_FILE}"
+  : "${PRAIRIE_DEV_DB_USER:?set PRAIRIE_DEV_DB_USER in $CONFIG_FILE}"
+  : "${PRAIRIE_DEV_DB_NAME:?set PRAIRIE_DEV_DB_NAME in $CONFIG_FILE}"
   : "${SHIELD_DEVICE_MANUFACTURER:?set SHIELD_DEVICE_MANUFACTURER in $CONFIG_FILE}"
   : "${SHIELD_DEVICE_MODEL:?set SHIELD_DEVICE_MODEL in $CONFIG_FILE}"
   : "${SHIELD_DEVICE_CODENAME:?set SHIELD_DEVICE_CODENAME in $CONFIG_FILE}"
 
-  [[ "$SILO_DEV_DB_CONTAINER" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid database container name"
-  [[ "$SILO_DEV_DB_USER" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid database user"
-  [[ "$SILO_DEV_DB_NAME" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid database name"
+  [[ "$PRAIRIE_DEV_DB_CONTAINER" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid database container name"
+  [[ "$PRAIRIE_DEV_DB_USER" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid database user"
+  [[ "$PRAIRIE_DEV_DB_NAME" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid database name"
 }
 
 adb_cmd() {
@@ -102,8 +102,8 @@ sql_hex() {
 remote_psql() {
   require_dev_config
   local sql="$1"
-  printf '%s\n' "$sql" | ssh -o BatchMode=yes -o ConnectTimeout=8 "$SILO_DEV_SSH" \
-    "docker exec -i $SILO_DEV_DB_CONTAINER psql -X -v ON_ERROR_STOP=1 -U $SILO_DEV_DB_USER -d $SILO_DEV_DB_NAME -P pager=off -P footer=off"
+  printf '%s\n' "$sql" | ssh -o BatchMode=yes -o ConnectTimeout=8 "$PRAIRIE_DEV_SSH" \
+    "docker exec -i $PRAIRIE_DEV_DB_CONTAINER psql -X -v ON_ERROR_STOP=1 -U $PRAIRIE_DEV_DB_USER -d $PRAIRIE_DEV_DB_NAME -P pager=off -P footer=off"
 }
 
 validate_content_id() {
@@ -122,19 +122,19 @@ make_play_link() {
   local media_type="${2:-movie}"
   validate_content_id "$content_id"
   validate_type "$media_type"
-  printf 'silo://play/%s?type=%s\n' "$content_id" "$media_type"
+  printf 'prairie://play/%s?type=%s\n' "$content_id" "$media_type"
 }
 
-validate_silo_uri() {
-  [[ "$1" =~ ^silo://(play|item)/[A-Za-z0-9._~%-]+([?][A-Za-z0-9._~%=&+:-]+)?$ ]] || \
-    die "URI must be a safely encoded silo://play or silo://item link"
+validate_prairie_uri() {
+  [[ "$1" =~ ^prairie://(play|item)/[A-Za-z0-9._~%-]+([?][A-Za-z0-9._~%=&+:-]+)?$ ]] || \
+    die "URI must be a safely encoded prairie://play or prairie://item link"
 }
 
 open_uri() {
   local uri="$1"
-  validate_silo_uri "$uri"
+  validate_prairie_uri "$uri"
   ensure_device
-  adb_cmd shell am start -W -a android.intent.action.VIEW -d "'$uri'" "$SILO_PACKAGE"
+  adb_cmd shell am start -W -a android.intent.action.VIEW -d "'$uri'" "$PRAIRIE_PACKAGE"
 }
 
 show_status() {
@@ -147,9 +147,9 @@ show_status() {
   printf ' ('
   adb_cmd shell getprop ro.product.device | tr -d '\r\n'
   printf ')\n'
-  printf 'Package: %s\n' "$SILO_PACKAGE"
-  adb_cmd shell dumpsys package "$SILO_PACKAGE" | awk '/versionCode=|versionName=/{print "  " $0}'
-  printf 'PID: %s\n' "$(adb_cmd shell pidof "$SILO_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+  printf 'Package: %s\n' "$PRAIRIE_PACKAGE"
+  adb_cmd shell dumpsys package "$PRAIRIE_PACKAGE" | awk '/versionCode=|versionName=/{print "  " $0}'
+  printf 'PID: %s\n' "$(adb_cmd shell pidof "$PRAIRIE_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
   adb_cmd shell dumpsys activity activities | awk '/mResumedActivity|topResumedActivity/{print "Foreground: " $0; exit}'
 }
 
@@ -208,7 +208,7 @@ SELECT
   display_title AS title,
   year,
   file_count AS files,
-  'silo://play/' || content_id || '?type=' || type AS play_link
+  'prairie://play/' || content_id || '?type=' || type AS play_link
 FROM playable
 WHERE file_count > 0
 ORDER BY rank, display_title, content_id
@@ -269,7 +269,7 @@ SELECT
   range,
   dimensions,
   frame_rate,
-  'silo://play/' || content_id || '?type=' || type || '&fileId=' || file_id || '&quality=original' AS play_link
+  'prairie://play/' || content_id || '?type=' || type || '&fileId=' || file_id || '&quality=original' AS play_link
 FROM matches
 WHERE content_id IS NOT NULL AND type IN ('movie', 'episode', 'audiobook')
 ORDER BY title, file_id
@@ -283,9 +283,9 @@ show_logs() {
   fi
   ensure_device
   adb_cmd logcat -d -v time -t "$lines" \
-    SiloDeepLink:I TvPlayerScreen:I TvPlayerViewModel:I AudioCapabilityMgr:I \
+    PrairieDeepLink:I TvPlayerScreen:I TvPlayerViewModel:I AudioCapabilityMgr:I \
     PlaybackSessionMgr:I Media3Analytics:I HdrDisplayController:I \
-    RefreshRateMatcher:I SiloDovi:I '*:S'
+    RefreshRateMatcher:I PrairieDovi:I '*:S'
 }
 
 show_display() {
@@ -307,8 +307,8 @@ show_display() {
 show_audio() {
   ensure_device
   local pid
-  pid="$(adb_cmd shell pidof "$SILO_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
-  printf 'Silo PID: %s\n' "${pid:-not running}"
+  pid="$(adb_cmd shell pidof "$PRAIRIE_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+  printf 'Prairie PID: %s\n' "${pid:-not running}"
   printf 'Active AudioFlinger output threads:\n'
   adb_cmd shell dumpsys media.audio_flinger | awk '
     function flush() {
@@ -450,15 +450,15 @@ LIMIT 100;"
 
 restart_app() {
   ensure_device
-  adb_cmd shell am force-stop "$SILO_PACKAGE"
-  adb_cmd shell monkey -p "$SILO_PACKAGE" -c android.intent.category.LEANBACK_LAUNCHER 1 >/dev/null
-  printf 'Relaunched %s\n' "$SILO_PACKAGE"
+  adb_cmd shell am force-stop "$PRAIRIE_PACKAGE"
+  adb_cmd shell monkey -p "$PRAIRIE_PACKAGE" -c android.intent.category.LEANBACK_LAUNCHER 1 >/dev/null
+  printf 'Relaunched %s\n' "$PRAIRIE_PACKAGE"
 }
 
 install_apk() {
-  local default_apk="${SILO_ANDROID_REPO:-}/androidTvApp/build/outputs/apk/debug/androidTvApp-arm64-v8a-debug.apk"
+  local default_apk="${PRAIRIE_ANDROID_REPO:-}/androidTvApp/build/outputs/apk/debug/androidTvApp-arm64-v8a-debug.apk"
   local apk="${1:-$default_apk}"
-  [[ -n "$apk" && -f "$apk" ]] || die "APK not found: ${apk:-set SILO_ANDROID_REPO or pass an APK path}"
+  [[ -n "$apk" && -f "$apk" ]] || die "APK not found: ${apk:-set PRAIRIE_ANDROID_REPO or pass an APK path}"
   ensure_device
   adb_cmd install -r "$apk"
 }
@@ -489,17 +489,17 @@ doctor() {
 
   state="$(adb_cmd get-state 2>/dev/null || true)"
   if [[ "$state" == "device" ]]; then
-    package_path="$(adb_cmd shell pm path "$SILO_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+    package_path="$(adb_cmd shell pm path "$PRAIRIE_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
     if [[ -n "$package_path" ]]; then
-      printf '[ok] package %s installed\n' "$SILO_PACKAGE"
+      printf '[ok] package %s installed\n' "$PRAIRIE_PACKAGE"
     else
-      printf '[fail] package %s not installed\n' "$SILO_PACKAGE" >&2
+      printf '[fail] package %s not installed\n' "$PRAIRIE_PACKAGE" >&2
       failures=$((failures + 1))
     fi
   fi
 
-  if [[ -n "${SILO_DEV_SSH:-}" ]] && ssh -o BatchMode=yes -o ConnectTimeout=8 "$SILO_DEV_SSH" true; then
-    printf '[ok] dev SSH %s\n' "$SILO_DEV_SSH"
+  if [[ -n "${PRAIRIE_DEV_SSH:-}" ]] && ssh -o BatchMode=yes -o ConnectTimeout=8 "$PRAIRIE_DEV_SSH" true; then
+    printf '[ok] dev SSH %s\n' "$PRAIRIE_DEV_SSH"
   else
     printf '[fail] dev SSH\n' >&2
     failures=$((failures + 1))
@@ -512,15 +512,15 @@ doctor() {
     failures=$((failures + 1))
   fi
 
-  if [[ -d "${SILO_ANDROID_REPO:-}" ]]; then
-    printf '[ok] Android checkout %s\n' "$SILO_ANDROID_REPO"
+  if [[ -d "${PRAIRIE_ANDROID_REPO:-}" ]]; then
+    printf '[ok] Android checkout %s\n' "$PRAIRIE_ANDROID_REPO"
   else
     printf '[fail] Android checkout\n' >&2
     failures=$((failures + 1))
   fi
 
-  if [[ -d "${SILO_SERVER_REPO:-}" ]]; then
-    printf '[ok] server checkout %s\n' "$SILO_SERVER_REPO"
+  if [[ -d "${PRAIRIE_SERVER_REPO:-}" ]]; then
+    printf '[ok] server checkout %s\n' "$PRAIRIE_SERVER_REPO"
   else
     printf '[fail] server checkout\n' >&2
     failures=$((failures + 1))
@@ -549,7 +549,7 @@ case "$command" in
       find-hdr) [[ $# -eq 1 ]] || die "find-hdr requires one range"; find_hdr "$1" ;;
       link) [[ $# -ge 1 ]] || die "link requires a content ID"; make_play_link "$1" "${2:-movie}" ;;
       play) [[ $# -ge 1 ]] || die "play requires a content ID"; open_uri "$(make_play_link "$1" "${2:-movie}")" ;;
-      item) [[ $# -eq 1 ]] || die "item requires one content ID"; validate_content_id "$1"; open_uri "silo://item/$1" ;;
+      item) [[ $# -eq 1 ]] || die "item requires one content ID"; validate_content_id "$1"; open_uri "prairie://item/$1" ;;
       open) [[ $# -eq 1 ]] || die "open requires one quoted URI"; open_uri "$1" ;;
       logs) show_logs "${1:-500}" ;;
       clear-logs) ensure_device; adb_cmd logcat -c; printf 'Cleared logcat\n' ;;

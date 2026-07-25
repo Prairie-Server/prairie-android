@@ -21,8 +21,8 @@
 ### Task 1: Reject incomplete preferred presentation variants
 
 **Files:**
-- Modify: `shared/src/commonTest/kotlin/org/siloserver/silo/audiobook/AudiobookTimelineTest.kt`
-- Modify: `shared/src/commonMain/kotlin/org/siloserver/silo/audiobook/AudiobookTimeline.kt:208-227`
+- Modify: `shared/src/commonTest/kotlin/org/prairieserver/prairie/audiobook/AudiobookTimelineTest.kt`
+- Modify: `shared/src/commonMain/kotlin/org/prairieserver/prairie/audiobook/AudiobookTimeline.kt:208-227`
 
 **Interfaces:**
 - Consumes: `audioParts(versions: List<FileVersion>, preferredFileId: Int? = null): List<FileVersion>` and `FileVersion.presentationVariantKey(): String`.
@@ -60,7 +60,7 @@ Run:
 
 ```bash
 ./gradlew :shared:testDebugUnitTest \
-  --tests 'org.siloserver.silo.audiobook.AudiobookTimelineTest'
+  --tests 'org.prairieserver.prairie.audiobook.AudiobookTimelineTest'
 ```
 
 Expected: FAIL because the current selector returns file IDs `[401, 403]`.
@@ -105,7 +105,7 @@ Run:
 
 ```bash
 ./gradlew :shared:testDebugUnitTest \
-  --tests 'org.siloserver.silo.audiobook.AudiobookTimelineTest'
+  --tests 'org.prairieserver.prairie.audiobook.AudiobookTimelineTest'
 ```
 
 Expected: PASS, including the existing complete-preferred and coherent-fallback tests.
@@ -114,16 +114,16 @@ Expected: PASS, including the existing complete-preferred and coherent-fallback 
 
 ```bash
 git add \
-  shared/src/commonMain/kotlin/org/siloserver/silo/audiobook/AudiobookTimeline.kt \
-  shared/src/commonTest/kotlin/org/siloserver/silo/audiobook/AudiobookTimelineTest.kt
+  shared/src/commonMain/kotlin/org/prairieserver/prairie/audiobook/AudiobookTimeline.kt \
+  shared/src/commonTest/kotlin/org/prairieserver/prairie/audiobook/AudiobookTimelineTest.kt
 git commit -m "fix(audiobook): require complete preferred variants [skip ci]"
 ```
 
 ### Task 2: Preserve the downloaded-file preference offline
 
 **Files:**
-- Modify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/AudiobookPlayerStartPositionTest.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/AudiobookPlayerViewModel.kt:758-763`
+- Modify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/AudiobookPlayerStartPositionTest.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/AudiobookPlayerViewModel.kt:758-763`
 
 **Interfaces:**
 - Consumes: `buildAudiobookTimeline(versions: List<FileVersion>, serverTotalSeconds: Double?, preferredFileId: Int? = null)` and `OfflineMedia.fileId` exposed as `media.fileId`.
@@ -153,7 +153,7 @@ Run:
 
 ```bash
 ./gradlew :android-shared:testDebugUnitTest \
-  --tests 'org.siloserver.silo.common.player.AudiobookPlayerStartPositionTest'
+  --tests 'org.prairieserver.prairie.common.player.AudiobookPlayerStartPositionTest'
 ```
 
 Expected: FAIL with `offline cached timeline must select the downloaded presentation variant`.
@@ -178,7 +178,7 @@ Run:
 
 ```bash
 ./gradlew :android-shared:testDebugUnitTest \
-  --tests 'org.siloserver.silo.common.player.AudiobookPlayerStartPositionTest'
+  --tests 'org.prairieserver.prairie.common.player.AudiobookPlayerStartPositionTest'
 ```
 
 Expected: PASS.
@@ -187,18 +187,18 @@ Expected: PASS.
 
 ```bash
 git add \
-  android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/AudiobookPlayerViewModel.kt \
-  android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/AudiobookPlayerStartPositionTest.kt
+  android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/AudiobookPlayerViewModel.kt \
+  android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/AudiobookPlayerStartPositionTest.kt
 git commit -m "fix(audiobook): preserve offline variant selection [skip ci]"
 ```
 
 ### Task 3: Verify the complete PR update
 
 **Files:**
-- Verify: `shared/src/commonMain/kotlin/org/siloserver/silo/audiobook/AudiobookTimeline.kt`
-- Verify: `shared/src/commonTest/kotlin/org/siloserver/silo/audiobook/AudiobookTimelineTest.kt`
-- Verify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/AudiobookPlayerViewModel.kt`
-- Verify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/AudiobookPlayerStartPositionTest.kt`
+- Verify: `shared/src/commonMain/kotlin/org/prairieserver/prairie/audiobook/AudiobookTimeline.kt`
+- Verify: `shared/src/commonTest/kotlin/org/prairieserver/prairie/audiobook/AudiobookTimelineTest.kt`
+- Verify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/AudiobookPlayerViewModel.kt`
+- Verify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/AudiobookPlayerStartPositionTest.kt`
 
 **Interfaces:**
 - Consumes: the two completed fixes.
@@ -208,9 +208,9 @@ git commit -m "fix(audiobook): preserve offline variant selection [skip ci]"
 
 ```bash
 ./gradlew :shared:testDebugUnitTest \
-  --tests 'org.siloserver.silo.audiobook.AudiobookTimelineTest'
+  --tests 'org.prairieserver.prairie.audiobook.AudiobookTimelineTest'
 ./gradlew :android-shared:testDebugUnitTest \
-  --tests 'org.siloserver.silo.common.player.AudiobookPlayerStartPositionTest'
+  --tests 'org.prairieserver.prairie.common.player.AudiobookPlayerStartPositionTest'
 ```
 
 Expected: `BUILD SUCCESSFUL` with both test classes passing.

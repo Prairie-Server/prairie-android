@@ -1,7 +1,7 @@
-# Silo Android — "Best client in the world" architecture debate
+# Prairie Android — "Best client in the world" architecture debate
 
 Shared working doc between **Claude** (the assistant) and **Codex** (codex CLI).
-Goal: settle the foundational architecture for making Silo the best self-hosted
+Goal: settle the foundational architecture for making Prairie the best self-hosted
 media client on Android — beating Plex, Jellyfin (findroid/streamyfin), and Infuse.
 Cost is not a constraint; a re-architecture / partial rewrite is acceptable.
 Reference clients to mine: `/Users/jimcole/source` (findroid, jellyfin-androidtv,
@@ -72,7 +72,7 @@ Stand up the new playback module + data layer, migrate the player surface first
 
 **D1 - REFINE.** I agree with the Android-only end state, but Claude overstates
 both urgency and risk. KMP is build/source-set tax now that iOS/desktop are dead,
-but it does **not** block D2: Silo already has `dev.jdtech.mpv:libmpv` inside the
+but it does **not** block D2: Prairie already has `dev.jdtech.mpv:libmpv` inside the
 KMP `androidMain` module (`android-shared/build.gradle.kts:1-6,46`) and already
 has an MPV `BasePlayer` wrapper (`android-shared/src/androidMain/kotlin/com/continuum/app/common/player/mpv/MpvPlayer.kt:60-64,
 172-195`). Findroid proves the clean Android shape (`/Users/jimcole/source/findroid/player/local/src/main/java/dev/jdtech/jellyfin/player/local/mpv/MPVPlayer.kt:49-61,
@@ -106,7 +106,7 @@ and that app still supports minSdk 23 (`/Users/jimcole/source/jellyfin-androidtv
 The API path for our floor is therefore `preferredDisplayModeId` + supported
 modes; `Surface.setFrameRate` is API-30+ polish, not the baseline. HDR is the
 hand-wavy part: Jellyfin TV's playback controller does refresh, not HDR
-switching, and Silo's `HdrDisplayController` currently takes only width/height/fps
+switching, and Prairie's `HdrDisplayController` currently takes only width/height/fps
 and picks by resolution/refresh (`android-shared/src/androidMain/kotlin/com/continuum/app/common/player/HdrDisplayController.kt:71-126`)
 despite comments about HDR mode selection (`android-shared/src/androidMain/kotlin/com/continuum/app/common/player/HdrDisplayController.kt:23-25`). Position: own this, but call
 it display-mode/fps matching first; HDR policy needs real implementation and
@@ -136,7 +136,7 @@ user item state, track selections, reading CFI, ratings/favorites, and dirty
 operations.
 
 **D5 - AGREE, but reorder.** Strangler is correct. Big-bang rewrite would destroy
-working playback, downloads, and Watch Together. But because Silo already has a
+working playback, downloads, and Watch Together. But because Prairie already has a
 backend boundary and MPV implementation, "migrate player surface first" is not the
 highest-leverage next slice. The larger gap is the data foundation: current
 downloads are file/sidecar based (`android-shared/src/androidMain/kotlin/com/continuum/app/common/downloads/DownloadStorage.kt:21-28,
@@ -153,7 +153,7 @@ gaps; it does not close libass/ASS fidelity or container edge cases. Use MPV as
 Auto/opt-in, not universal default.
 2. **Yes, jellyfin-androidtv drives refresh-rate switching from the app.** The
 working down-floor path is `Display.getSupportedModes()` +
-`WindowManager.LayoutParams.preferredDisplayModeId` (API 23+, so OK for Silo's
+`WindowManager.LayoutParams.preferredDisplayModeId` (API 23+, so OK for Prairie's
 API-24 floor). `Surface.setFrameRate` is API 30+ and should be additive. I found
 refresh switching there, not playback HDR switching.
 3. **Room over SQLDelight.** With KMP gone, Room buys Android integration,
@@ -165,7 +165,7 @@ before more player-surface churn because the playback seam already exists.
 
 **Single biggest risk in Claude's plan:** treating MPV + display/HDR as solved by
 architecture. Findroid and Streamyfin prove MPV can be embedded; they do not prove
-Silo's API-24 floor, ARMv7 TVs, HDMI refresh restores, HDR behavior, audio
+Prairie's API-24 floor, ARMv7 TVs, HDMI refresh restores, HDR behavior, audio
 passthrough, and Cast/MediaSession interactions. Gate MPV-as-default and HDR claims
 behind a real device matrix, not an interface diagram.
 
@@ -174,7 +174,7 @@ behind a real device matrix, not an interface diagram.
 ## Round 3 — Claude's rebuttal + convergence (2026-06-16)
 
 I verified Codex's claims against the live tree. They hold, and they reframe the
-whole project. **Silo is NOT greenfield on playback** — it already has:
+whole project. **Prairie is NOT greenfield on playback** — it already has:
 - the libmpv dep (`android-shared/build.gradle.kts:46`), a 53k-line MPV `BasePlayer`
   wrapper (`android-shared/.../player/mpv/MpvPlayer.kt:48-62`, `vo=gpu-next`/`ao=aaudio`),
 - a backend-swap seam (`android-shared/.../player/backend/VideoPlaybackBackendFactory.kt`,
@@ -199,7 +199,7 @@ floor the matrix establishes** (ARMv7 TVs, old API-24 boxes). Wire `MpvPlayer` i
 as a second `VideoPlaybackBackend` behind the existing factory rather than a new seam.
 
 **D3 — CONCEDE the "moat" overclaim; reframe.** fps/refresh matching is table-stakes,
-already proven in jellyfin-androidtv, and **partly built in Silo** (HdrDisplayController).
+already proven in jellyfin-androidtv, and **partly built in Prairie** (HdrDisplayController).
 The differentiator is the *combination*, device-proven: real **HDR-mode switching**
 (implement `Display.Mode.getSupportedHdrTypes` on API-34+, explicit policy below that),
 **audio passthrough/bitstream detection**, and **bringing display-aware playback to
@@ -308,7 +308,7 @@ in `android-shared/src/androidMain`; those implementations compose the existing
 Ktor APIs plus Room. Do not choose Room-KMP now, and do not accelerate a data-only
 KMP teardown.
 
-**Reasoning:** Silo is Android-only, but D1 already settled that KMP teardown is
+**Reasoning:** Prairie is Android-only, but D1 already settled that KMP teardown is
 later hygiene. Android-only Room gives the data foundation without the blast
 radius of moving source sets first. Room-KMP is viable, but it would put DAOs and
 entities in `commonMain` right before we intend to stop valuing KMP, adding KSP
@@ -351,7 +351,7 @@ optimistic write target; user mutations write both a projection row and a
 `dirty_operations` outbox row; sync drains idempotent operations, refreshes the
 server projection, and resolves conflicts by field policy. Do not use pure
 server-authoritative reads, because offline edits would disappear. Do not copy
-findroid's single dirty row as the whole design, because Silo needs ordered,
+findroid's single dirty row as the whole design, because Prairie needs ordered,
 typed replay for deletes, ratings, favorites, track selections, and CFI.
 
 **Findroid model:** findroid stores user data in Room with a `toBeSynced` dirty
@@ -368,7 +368,7 @@ That is a dirty snapshot, not a general operation outbox; findroid's offline rep
 also has many empty/TODO paths
 (`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/repository/JellyfinRepositoryOfflineImpl.kt:43-115`).
 
-**Concrete Silo shape:**
+**Concrete Prairie shape:**
 - Position: `user_item_state(position_seconds, duration_seconds, client_updated_at,
   server_updated_at)` plus coalescing `SET_POSITION` outbox ops. Conflict: LWW by
   authoritative update timestamp for current resume position; keep an optional
@@ -388,7 +388,7 @@ also has many empty/TODO paths
   `androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/PlayerScreen.kt:545-550`).
 - CFI / ebook progress: store current CFI/location, `progress`, `fileId`, and
   timestamps. Conflict: current CFI is LWW; optional furthest-read progress is
-  max-monotonic. Silo already has local `ProgressSnapshot(location, progress,
+  max-monotonic. Prairie already has local `ProgressSnapshot(location, progress,
   updatedAtMs)` and a syncer that avoids regressing server progress
   (`android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt:11-17`,
   `android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookProgressSyncer.kt:18-21,37-55`).
@@ -397,7 +397,7 @@ also has many empty/TODO paths
   server projection wins after ack or hard rejection. Current APIs are set/delete
   commands (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:19-41,92-111`).
 
-**Evidence:** Silo already has local-first write patterns for reader/audiobook
+**Evidence:** Prairie already has local-first write patterns for reader/audiobook
 position, but outside a unified DB
 (`androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ReaderViewModel.kt:392-410`,
 `android-shared/src/androidMain/kotlin/com/continuum/app/common/player/AudiobookPlayerViewModel.kt:673-690`).
@@ -409,7 +409,7 @@ entities and migrations
 `/Users/jimcole/source/Voice/core/data/api/src/main/kotlin/voice/core/data/Bookmark.kt:8-17`,
 `/Users/jimcole/source/Voice/core/data/impl/src/test/kotlin/voice/core/data/repo/internals/internals/DataBaseMigratorTest.kt:26-46`).
 
-**Biggest risk:** Silo's server APIs do not yet expose enough per-field
+**Biggest risk:** Prairie's server APIs do not yet expose enough per-field
 `updated_at` or idempotency metadata for rigorous LWW. Track B must either add
 that server contract or degrade to "local optimistic, server projection after
 ack" with logged conflicts.
@@ -607,7 +607,7 @@ only when migration tests start using `room-testing`.
 **Task-1 schema review:** the proposed four entities are a good minimal start,
 but they are not yet a complete offline-first projection/outbox.
 
-- `UserItemStateEntity` must include `serverId` in identity. Silo's legacy stores
+- `UserItemStateEntity` must include `serverId` in identity. Prairie's legacy stores
   scope state by `(serverId, profileId, contentId)`
   (`android-shared/src/androidMain/kotlin/com/continuum/app/common/store/ScopedJsonFileStore.kt:24-29`),
   and downloads are scoped the same way
@@ -648,7 +648,7 @@ but they are not yet a complete offline-first projection/outbox.
   `importedAtMs`, `importVersion`, `status`, and nullable `error`. Use a unique
   index on `(sourceKind, sourcePath)` rather than assuming every path namespace is
   globally stable.
-- `SiloDatabase` needs `@TypeConverters` only if entities use non-primitive Room
+- `PrairieDatabase` needs `@TypeConverters` only if entities use non-primitive Room
   fields. Strings, numbers, booleans, and JSON strings need no converter. Findroid
   needs converters because it persists UUIDs, SDK DateTime, and chapter lists
   (`/Users/jimcole/source/findroid/data/src/main/java/dev/jdtech/jellyfin/database/Converters.kt:11-40`);
@@ -671,7 +671,7 @@ local offline writes set that flag after updating position/favorite/played
 and `SyncWorker` later posts the snapshot and clears the flag
 (`/Users/jimcole/source/findroid/core/src/main/java/dev/jdtech/jellyfin/work/SyncWorker.kt:72-93`).
 That is useful precedent for local-first projection, but
-Silo needs a typed operation outbox because Silo has independent server commands
+Prairie needs a typed operation outbox because Prairie has independent server commands
 for progress, watched, favorite, and rating, most returning `Unit`
 (`shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:85-89`,
 `shared/src/commonMain/kotlin/com/continuum/app/network/api/PersonalDataApi.kt:102-110`,
@@ -681,7 +681,7 @@ it exports schemas, keeps explicit auto migrations on the database
 (`/Users/jimcole/source/Voice/core/data/impl/src/main/kotlin/voice/core/data/repo/internals/AppDb.kt:18-38`),
 and validates migrations with `MigrationTestHelper`
 (`/Users/jimcole/source/Voice/core/data/impl/src/test/kotlin/voice/core/data/repo/internals/internals/DataBaseMigratorTest.kt:26-46`).
-For Silo Task 1, ship version 1 with no
+For Prairie Task 1, ship version 1 with no
 auto migrations; after schema v1 is committed, use auto migrations only for
 simple additive/rename cases and manual migrations for any data transform.
 
@@ -709,7 +709,7 @@ Claude proposed a narrower re-scope after the Explore map showed the plan's draf
 
 **Schema:** amend v1 in place (no migration) — the DB is committed but unreleased and not yet wired into DI, so no device has `silo.db`.
 
-**DI:** commonMain `single { PersonalDataRepository(get(), getOrNull() ?: NoOpUserItemStatePort) }`; `androidModule`+`androidTvModule` bind `SiloDatabase` and `single<UserItemStatePort> { RoomUserItemStateRepository(...) }` after `sharedModules()` (mirrors TokenManager override at `AndroidModule.kt:94`).
+**DI:** commonMain `single { PersonalDataRepository(get(), getOrNull() ?: NoOpUserItemStatePort) }`; `androidModule`+`androidTvModule` bind `PrairieDatabase` and `single<UserItemStatePort> { RoomUserItemStateRepository(...) }` after `sharedModules()` (mirrors TokenManager override at `AndroidModule.kt:94`).
 
 ### Track B Task 4 — Codex code-review verdict (2026-06-16)
 
@@ -780,13 +780,13 @@ All three media types (video, audiobook, ebook) now ride ONE durable, scope-pinn
 
 ### Track B — offline HOME cache (SWR, 2026-06-16)
 
-First offline-BROWSE slice: the app opens to the last Home with no network instead of an error. `HomeCachePort` (commonMain, no-op default) + `RoomHomeCacheRepository` (JSON blob of resolved sections per (serverId,profileId)). `HomeViewModel` = stale-while-revalidate: serve cached instantly → refresh → re-cache on FULL resolution only (partial-resolve guard); on refresh failure keep what's shown (no blocking error if sections present). `SiloDatabase` v1→v2 via additive `@AutoMigration` (data-preserving). User-state/position overlay on cached cards deferred (Codex-agreed). Device-validated: auto-migration ran on the live v1 DB, online load cached 20 sections, airplane-mode cold-start rendered Home from cache. Codex must-fix applied: partial refresh no longer replaces an already-shown Home.
+First offline-BROWSE slice: the app opens to the last Home with no network instead of an error. `HomeCachePort` (commonMain, no-op default) + `RoomHomeCacheRepository` (JSON blob of resolved sections per (serverId,profileId)). `HomeViewModel` = stale-while-revalidate: serve cached instantly → refresh → re-cache on FULL resolution only (partial-resolve guard); on refresh failure keep what's shown (no blocking error if sections present). `PrairieDatabase` v1→v2 via additive `@AutoMigration` (data-preserving). User-state/position overlay on cached cards deferred (Codex-agreed). Device-validated: auto-migration ran on the live v1 DB, online load cached 20 sections, airplane-mode cold-start rendered Home from cache. Codex must-fix applied: partial refresh no longer replaces an already-shown Home.
 
 Remaining offline-browse follow-ups: library/search/full-catalog offline cache; user-state overlay on cached home cards; downloads→Room projection.
 
 ### Track B — offline LIBRARY cache (repo-level fallback, 2026-06-16)
 
-Repository-level cache-with-fallback (vs Home's VM-SWR) because the library list has multiple consumers and browse is paginated. `CatalogCachePort` (commonMain, no-op default) + `RoomCatalogCacheRepository` (generic `catalog_cache(serverId,profileId,cacheKey,json)` table, typed methods). `PersonalDataRepository.listUserLibraries` + `CatalogRepository.browse` cache on success and serve cached on `canServeCache()` (NetworkError/5xx, NOT 4xx). Browse cached ONLY for the unfiltered default first page (every request-shaping param at default; keeps TV browse — which sends source/mediaType/title-sort — uncached). `SiloDatabase` v2→v3 additive `@AutoMigration`. Device-validated: migration ran on the live DB; `libraries` + `library:1` (42 items) cached; cached rows' scope matches active scope + JSON decodes (offline read would hit). Codex: committable, no must-fix.
+Repository-level cache-with-fallback (vs Home's VM-SWR) because the library list has multiple consumers and browse is paginated. `CatalogCachePort` (commonMain, no-op default) + `RoomCatalogCacheRepository` (generic `catalog_cache(serverId,profileId,cacheKey,json)` table, typed methods). `PersonalDataRepository.listUserLibraries` + `CatalogRepository.browse` cache on success and serve cached on `canServeCache()` (NetworkError/5xx, NOT 4xx). Browse cached ONLY for the unfiltered default first page (every request-shaping param at default; keeps TV browse — which sends source/mediaType/title-sort — uncached). `PrairieDatabase` v2→v3 additive `@AutoMigration`. Device-validated: migration ran on the live DB; `libraries` + `library:1` (42 items) cached; cached rows' scope matches active scope + JSON decodes (offline read would hit). Codex: committable, no must-fix.
 
 **KNOWN UX GAP (immediate follow-up):** the phone Libraries tab LANDS on the network-only "Recommended" subtab (`SectionRepository.getLibrarySections`), so offline it shows "Something went wrong" before the user can reach the cached Browse grid (a top-level chip). The cache+fallback is correct; the cached grid just isn't reachable offline through the current landing. Fix options: cache the library Recommended sections too (mirror Home), OR have LibrariesScreen fall back to the cached Browse grid when Recommended fails offline. TV offline library grid also not covered (TV browse params outside the gate).
 

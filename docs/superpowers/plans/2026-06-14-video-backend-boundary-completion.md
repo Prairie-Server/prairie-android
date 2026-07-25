@@ -6,7 +6,7 @@
 
 **Architecture:** The backend model and `Media3VideoPlaybackBackend` already exist in `android-shared`. This plan adds a small factory, registers it in both Android Koin modules, migrates mobile and TV screens from direct `ContinuumPlayerFactory`/mounter/coordinator calls to the backend, and surfaces backend capabilities in TV diagnostics.
 
-**Tech Stack:** Kotlin 2.1, Android, Compose, Media3 1.10.0, Koin, existing Silo player helpers, source-guard unit tests.
+**Tech Stack:** Kotlin 2.1, Android, Compose, Media3 1.10.0, Koin, existing Prairie player helpers, source-guard unit tests.
 
 ---
 

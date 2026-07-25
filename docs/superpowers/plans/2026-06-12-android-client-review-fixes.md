@@ -732,7 +732,7 @@ Notes verified against the repo: module is `:androidTvApp` (settings.gradle.kts)
 - Modify: `androidApp/src/androidMain/kotlin/com/continuum/app/android/di/AndroidModule.kt:152`
 - Test: none (manual verification — see Step 1)
 
-- [ ] **Step 1: Write the failing test** — No unit test feasible: the cancel call goes through `DownloadEnqueuer.cancel` → `WorkManager.cancelAllWorkByTag`. `DownloadEnqueuer` is a final class whose constructor requires an Android `Context` (plus 6 other collaborators), `androidApp`'s `androidUnitTest` source set has no mocking framework (only `kotlin-test`/`kotlin-test-junit`) and no Robolectric, so neither the enqueuer nor a `DownloadsViewModel` holding it can be constructed in a local unit test. Manual check: start a large download from item detail, go to the Downloads tab while it is in `Downloading` state, delete the row, and verify (a) the progress notification disappears immediately, (b) logcat shows `DownloadEnqueuer: cancel: downloadId=…` followed by `DownloadWorker: doWork cancelled id=…` (from Task 1), and (c) no orphaned media file keeps growing under `Movies/Silo/…`.
+- [ ] **Step 1: Write the failing test** — No unit test feasible: the cancel call goes through `DownloadEnqueuer.cancel` → `WorkManager.cancelAllWorkByTag`. `DownloadEnqueuer` is a final class whose constructor requires an Android `Context` (plus 6 other collaborators), `androidApp`'s `androidUnitTest` source set has no mocking framework (only `kotlin-test`/`kotlin-test-junit`) and no Robolectric, so neither the enqueuer nor a `DownloadsViewModel` holding it can be constructed in a local unit test. Manual check: start a large download from item detail, go to the Downloads tab while it is in `Downloading` state, delete the row, and verify (a) the progress notification disappears immediately, (b) logcat shows `DownloadEnqueuer: cancel: downloadId=…` followed by `DownloadWorker: doWork cancelled id=…` (from Task 1), and (c) no orphaned media file keeps growing under `Movies/Prairie/…`.
 
 - [ ] **Step 2: Run test to verify it fails** — N/A (no unit test). Pre-fix repro: delete a `Downloading` row from the Downloads tab and watch the notification keep ticking to 100% while the row is already gone — the finished multi-GB file is left on disk with no record to delete it.
 
@@ -2234,11 +2234,11 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task D1: Fix WatchNextSyncWorker instantiation (TvWorkerFactory + manifest opt-out + explicit WorkManager init)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/TvWorkerFactory.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ContinuumTvApplication.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/AndroidManifest.xml`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt` (doc comment only)
+- Create: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/TvWorkerFactory.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ContinuumTvApplication.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/AndroidManifest.xml`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt` (doc comment only)
 - Test: none (manual verification — see Step 1)
 
 - [ ] **Step 1: Write the failing test**
@@ -2273,7 +2273,7 @@ Run the *before* manual check above on the current branch build (`./gradlew :and
 
 - [ ] **Step 3: Implementation**
 
-**3a. Create `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/TvWorkerFactory.kt`:**
+**3a. Create `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/TvWorkerFactory.kt`:**
 
 ```kotlin
 package com.continuum.app.tv.watchnext
@@ -2333,7 +2333,7 @@ class TvWorkerFactory : WorkerFactory() {
 }
 ```
 
-**3b. Replace the entire contents of `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ContinuumTvApplication.kt`:**
+**3b. Replace the entire contents of `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ContinuumTvApplication.kt`:**
 
 ```kotlin
 package com.continuum.app.tv
@@ -2388,7 +2388,7 @@ class ContinuumTvApplication : Application(), Configuration.Provider {
 }
 ```
 
-**3c. In `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/AndroidManifest.xml`** — add the `tools` namespace to the root element:
+**3c. In `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/AndroidManifest.xml`** — add the `tools` namespace to the root element:
 
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2415,7 +2415,7 @@ and insert this block after the `</service>` closing tag of `ContinuumPlaybackSe
         </provider>
 ```
 
-**3d. In `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`** — delete these two imports:
+**3d. In `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`** — delete these two imports:
 
 ```kotlin
 import com.continuum.app.tv.watchnext.WatchNextSyncWorker
@@ -2445,7 +2445,7 @@ with:
     single { WatchNextSeeder(androidContext(), get()) }
 ```
 
-**3e. In `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt`** — replace the stale doc-comment lines:
+**3e. In `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt`** — replace the stale doc-comment lines:
 
 ```kotlin
  * Constructed by Koin's [org.koin.androidx.workmanager.factory.KoinWorkerFactory]
@@ -2472,7 +2472,7 @@ Then re-run the *after* manual check from Step 1 on a device/emulator.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && git add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/TvWorkerFactory.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ContinuumTvApplication.kt androidTvApp/src/androidMain/AndroidManifest.xml androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt && git commit -m "$(cat <<'EOF'
+cd /Users/dev/projects/silo/prairie-android && git add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/TvWorkerFactory.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ContinuumTvApplication.kt androidTvApp/src/androidMain/AndroidManifest.xml androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt && git commit -m "$(cat <<'EOF'
 Fix WatchNextSyncWorker instantiation on TV
 
 Mirror the phone app's WorkManager recipe: hand-rolled TvWorkerFactory,
@@ -2490,12 +2490,12 @@ EOF
 ### Task D2: Reinstate one-shot legacy tv_prefs migration (playback settings + library selection)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigration.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/build.gradle.kts` (add `kotlinx-coroutines-test` to androidUnitTest deps)
-- Test: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigrationTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigration.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/build.gradle.kts` (add `kotlinx-coroutines-test` to androidUnitTest deps)
+- Test: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigrationTest.kt`
 
 Design notes (decided after reading main's `TvPreferences.kt` / `TvSettingsViewModel.kt`):
 - Exact legacy keys in the `tv_prefs` DataStore: `playback_quality` (string wire value), `subtitle_size` (string label `Small`/`Medium`/`Large`), `auto_play_next` (bool, default true), `auto_skip_intro` (bool, default false), `auto_skip_credits` (bool, default false), `libraries_selected_library_id` (int).
@@ -2504,7 +2504,7 @@ Design notes (decided after reading main's `TvPreferences.kt` / `TvSettingsViewM
 
 - [ ] **Step 1: Write the failing test**
 
-First add the missing coroutines-test dependency. In `/Users/dev/projects/silo/silo-android/androidTvApp/build.gradle.kts`, change:
+First add the missing coroutines-test dependency. In `/Users/dev/projects/silo/prairie-android/androidTvApp/build.gradle.kts`, change:
 
 ```kotlin
         androidUnitTest.dependencies {
@@ -2523,7 +2523,7 @@ to:
         }
 ```
 
-Create `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigrationTest.kt`:
+Create `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigrationTest.kt`:
 
 ```kotlin
 package com.continuum.app.tv.data.preferences
@@ -2918,13 +2918,13 @@ private class FakeTokenManager(
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.data.preferences.LegacyTvPrefsMigrationTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.data.preferences.LegacyTvPrefsMigrationTest"
 ```
 Expected failure: compilation error in `compileDebugUnitTestKotlinAndroid` — `e: ... LegacyTvPrefsMigrationTest.kt: ... Unresolved reference 'LegacyTvPrefsMigration'` (the class does not exist yet).
 
 - [ ] **Step 3: Implementation**
 
-**3a. Create `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigration.kt`:**
+**3a. Create `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigration.kt`:**
 
 ```kotlin
 package com.continuum.app.tv.data.preferences
@@ -3110,7 +3110,7 @@ class LegacyTvPrefsMigration(
 }
 ```
 
-**3b. In `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt`** — add the import:
+**3b. In `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt`** — add the import:
 
 ```kotlin
 import com.continuum.app.tv.data.preferences.LegacyTvPrefsMigration
@@ -3188,7 +3188,7 @@ to:
 
 (rest of the function unchanged).
 
-**3c. In `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt`** — add the import:
+**3c. In `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt`** — add the import:
 
 ```kotlin
 import com.continuum.app.tv.data.preferences.LegacyTvPrefsMigration
@@ -3236,7 +3236,7 @@ to:
             val storedLibraryId = librarySelectionStore.getSelectedLibraryId()
 ```
 
-**3d. In `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`** — add imports:
+**3d. In `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`** — add imports:
 
 ```kotlin
 import com.continuum.app.network.ApiResult
@@ -3316,14 +3316,14 @@ to:
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.data.preferences.LegacyTvPrefsMigrationTest" && ./gradlew :androidTvApp:testDebugUnitTest :androidTvApp:assembleDebug
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.data.preferences.LegacyTvPrefsMigrationTest" && ./gradlew :androidTvApp:testDebugUnitTest :androidTvApp:assembleDebug
 ```
 Expected: all 8 new tests pass, the rest of the TV suite stays green, and the app module compiles (verifies the DI/ViewModel wiring).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && git add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigration.kt androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigrationTest.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt androidTvApp/build.gradle.kts && git commit -m "$(cat <<'EOF'
+cd /Users/dev/projects/silo/prairie-android && git add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigration.kt androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/data/preferences/LegacyTvPrefsMigrationTest.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt androidTvApp/build.gradle.kts && git commit -m "$(cat <<'EOF'
 Restore one-shot legacy tv_prefs migration on TV
 
 The branch dropped main's first-boot import of the legacy tv_prefs
@@ -3342,8 +3342,8 @@ EOF
 ### Task D3: Constrain Palette extraction decode size in AmbientBackdropTint
 
 **Files:**
-- Modify: `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt`
-- Test: none (existing `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTintStateTest.kt` continues to cover the state holder)
+- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt`
+- Test: none (existing `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTintStateTest.kt` continues to cover the state holder)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3355,13 +3355,13 @@ Manual check: build, install, open Home on a TV device, and D-pad across hero ca
 
 Not applicable (no new unit test). Baseline instead:
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :androidTvApp:testDebugUnitTest
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest
 ```
 Expected: current suite green before the change (so any post-change failure is attributable to this edit).
 
 - [ ] **Step 3: Implementation**
 
-In `/Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt`, replace lines 93–98.
+In `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt`, replace lines 93–98.
 
 Before:
 
@@ -3397,14 +3397,14 @@ No import changes — `size(int)` is a member of `coil3.request.ImageRequest.Bui
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :androidTvApp:testDebugUnitTest :androidTvApp:assembleDebug
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest :androidTvApp:assembleDebug
 ```
 Expected: suite green (including `AmbientBackdropTintStateTest`), module compiles. Then run the Step 1 manual check on a device.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && git add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt && git commit -m "$(cat <<'EOF'
+cd /Users/dev/projects/silo/prairie-android && git add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/AmbientBackdropTint.kt && git commit -m "$(cat <<'EOF'
 Cap ambient backdrop Palette decode at 128px
 
 The accent-extraction ImageRequest used allowHardware(false) with no
@@ -4090,11 +4090,11 @@ class EbookMetadataSerializationTest {
     fun decodesSeriesGroupWithIncompleteEntry() {
         val series = json.decodeFromString<MediaSeriesGroup>(
             """
-            { "name": "Silo Stories", "entries": [ { "series_index": 2.0 } ] }
+            { "name": "Prairie Stories", "entries": [ { "series_index": 2.0 } ] }
             """.trimIndent(),
         )
 
-        assertEquals("Silo Stories", series.name)
+        assertEquals("Prairie Stories", series.name)
         assertEquals("", series.entries.single().contentId)
         assertEquals(2.0, series.entries.single().seriesIndex)
     }
@@ -4220,13 +4220,13 @@ EOF
 ### Task F1: Shared request presentation policy (mobile + TV)
 
 **Files:**
-- Create: /Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/request/RequestPresentation.kt
-- Test: /Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/model/request/RequestPresentationTest.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/requests/RequestComponents.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/requests/RequestDetailScreen.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/requests/MyRequestsScreen.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/requests/TvRequestComponents.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/requests/TvMyRequestsScreen.kt
+- Create: /Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/request/RequestPresentation.kt
+- Test: /Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/model/request/RequestPresentationTest.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/requests/RequestComponents.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/requests/RequestDetailScreen.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/requests/MyRequestsScreen.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/requests/TvRequestComponents.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/requests/TvMyRequestsScreen.kt
 
 Background (verified): `requestImageUrl`/`requestPosterUrl` and the cancel predicate are byte-identical in `RequestComponents.kt` (237–248, 270–271) and `TvRequestComponents.kt` (294–306). Badge precedence is duplicated with drift: mobile `badgeText()` (262–268) returns prettified text directly; TV `cardChipText()` (308–314) returns raw lowercase tokens that `TvRequestStatusChip` later prettifies via `requestLabel()` (321–331). `targetSummary` drift: mobile truncates with `"…"` (275), TV with `"..."` (335). The unification below keeps TV's rendered output identical (its chip still receives raw tokens and prettifies them), and unifies truncation on `"…"`.
 
@@ -4553,10 +4553,10 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task F2: ApiResult.errorMessage — collapse 14 duplicated error branches in RequestsViewModels
 
 **Files:**
-- Modify: /Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/ApiResult.kt
-- Modify: /Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/viewmodel/RequestsViewModels.kt
-- Test: /Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/ApiResultErrorMessageTest.kt
-- Test (extend): /Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/viewmodel/RequestsViewModelTest.kt
+- Modify: /Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/ApiResult.kt
+- Modify: /Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/viewmodel/RequestsViewModels.kt
+- Test: /Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/ApiResultErrorMessageTest.kt
+- Test (extend): /Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/viewmodel/RequestsViewModelTest.kt
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4758,13 +4758,13 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task F3: One formatBytes for androidApp (5 duplicates)
 
 **Files:**
-- Create: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/util/Formatters.kt
-- Test: /Users/dev/projects/silo/silo-android/androidApp/src/androidUnitTest/kotlin/com/continuum/app/android/ui/util/FormattersTest.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadEntryRows.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadsScreen.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadItemRow.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/QualitySelector.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/detail/MediaInfoSheet.kt
+- Create: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/util/Formatters.kt
+- Test: /Users/dev/projects/silo/prairie-android/androidApp/src/androidUnitTest/kotlin/com/continuum/app/android/ui/util/FormattersTest.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadEntryRows.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadsScreen.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadItemRow.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/QualitySelector.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/detail/MediaInfoSheet.kt
 
 Verified inventory (corrects one earlier note): the log10/1024 `"%.1f %s"` variant is byte-identical in `DownloadEntryRows.kt:467`, `DownloadsScreen.kt:387`, `DownloadItemRow.kt:105`. **Both** `QualitySelector.kt:141` and `MediaInfoSheet.kt:182` are when-ladder variants (no TB; `"%.1f GB"/"%.0f MB"/"%.0f KB"` and `"%.2f GB"/"%.1f MB"/"%.0f KB"` respectively) — their output changes slightly to the unified `"%.1f <unit>"` format (e.g. "250 MB" → "250.0 MB", "1.25 GB" → "1.2 GB"); acceptable.
 
@@ -4887,12 +4887,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task F4: One formatClockTime for androidApp (4 drifted clones)
 
 **Files:**
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/util/Formatters.kt
-- Test: /Users/dev/projects/silo/silo-android/androidApp/src/androidUnitTest/kotlin/com/continuum/app/android/ui/util/FormattersTest.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/PlayerProgressBar.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/ChaptersSheet.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/audiobook/AudiobookPlayerScreen.kt
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/audiobook/AudiobookBookmarksSheet.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/util/Formatters.kt
+- Test: /Users/dev/projects/silo/prairie-android/androidApp/src/androidUnitTest/kotlin/com/continuum/app/android/ui/util/FormattersTest.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/PlayerProgressBar.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/player/ChaptersSheet.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/audiobook/AudiobookPlayerScreen.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/audiobook/AudiobookBookmarksSheet.kt
 
 Drift being unified: `PlayerProgressBar.formatTime` rounds (`roundToInt`), the other three truncate; only `ChaptersSheet.formatChapterTime` guards NaN. Unified semantics: truncation (`toLong`) + NaN/negative guard. The only visible change is the video player's clock, which may read 1 s lower at half-second boundaries; chapter/audiobook output is bit-identical.
 
@@ -5001,7 +5001,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task F5: Collapse SeriesRow/SeasonRow into one ExpandableAggregateRow
 
 **Files:**
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadEntryRows.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/downloads/DownloadEntryRows.kt
 - Test: none new
 
 The sealed `DownloadEntry` base (DownloadsViewModel.kt:65–76) exposes `id/title/subtitle/posterUrl/posterThumbhash/totalBytesUsed/progress/isComplete`, so one composable can serve both; only child selection differs.
@@ -5118,13 +5118,13 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task F6: ScopedJsonFileStore — shared skeleton for the three scoped JSON stores
 
 **Files:**
-- Create: /Users/dev/projects/silo/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/store/ScopedJsonFileStore.kt
-- Test: /Users/dev/projects/silo/silo-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/store/ScopedJsonFileStoreTest.kt
-- Test: /Users/dev/projects/silo/silo-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/audiobook/AudiobookBookmarksStoreTest.kt
-- Test (extend): /Users/dev/projects/silo/silo-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/ebook/EbookLocalStateStoreTest.kt
-- Modify: /Users/dev/projects/silo/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt
-- Modify: /Users/dev/projects/silo/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookPositionStore.kt
-- Modify: /Users/dev/projects/silo/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookBookmarksStore.kt
+- Create: /Users/dev/projects/silo/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/store/ScopedJsonFileStore.kt
+- Test: /Users/dev/projects/silo/prairie-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/store/ScopedJsonFileStoreTest.kt
+- Test: /Users/dev/projects/silo/prairie-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/audiobook/AudiobookBookmarksStoreTest.kt
+- Test (extend): /Users/dev/projects/silo/prairie-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/ebook/EbookLocalStateStoreTest.kt
+- Modify: /Users/dev/projects/silo/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/ebook/EbookLocalStateStore.kt
+- Modify: /Users/dev/projects/silo/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookPositionStore.kt
+- Modify: /Users/dev/projects/silo/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/audiobook/AudiobookBookmarksStore.kt
 
 Notes from reading the code: all three stores re-declare `Json { ignoreUnknownKeys = true }`, the `$serverId/$profileId/$contentId` path builder, runCatching-read-with-`Log.w`, and the tmp+rename write (no fsync). Dedupe drift: ebook `addBookmark` uses `.distinctBy { it.id }`; audiobook `add` appends plain — and additionally returns the *unsorted* appended list while persisting the sorted one. Both get fixed: dedupe-by-id everywhere, and `add` returns exactly what it persists. `android.util.Log` is safe at unit-test scope (`isReturnDefaultValues = true` in android-shared's testOptions).
 
@@ -5575,7 +5575,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task F7: ReadingHubUiState.clearingLibraryContent() — centralize the 14-field reset
 
 **Files:**
-- Modify: /Users/dev/projects/silo/silo-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reading/ReadingHubViewModel.kt
+- Modify: /Users/dev/projects/silo/prairie-android/androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reading/ReadingHubViewModel.kt
 - Test: none new
 
 - [ ] **Step 1: Write the failing test** — not unit-testable at reasonable cost: no `ReadingHubViewModel` test exists (androidApp unit tests cover only downloads/navigation/reader), and one would require fakes for `PersonalDataRepository`, `SectionRepository`, and `CatalogRepository`. This is a behavior-preserving consolidation of `copy(...)` lists; covered by the existing suite plus compilation: `./gradlew :androidApp:testDebugUnitTest :androidApp:compileDebugKotlinAndroid`.
