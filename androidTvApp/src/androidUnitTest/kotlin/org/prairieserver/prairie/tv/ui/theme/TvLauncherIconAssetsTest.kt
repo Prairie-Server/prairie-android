@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 class TvLauncherIconAssetsTest {
 
     @Test
-    fun adaptiveForegroundUsesMarkOnlySafeZoneInsteadOfBakedSquareTile() {
+    fun adaptiveForegroundUsesBrandMarkInsideSafeZoneInsteadOfBakedSquareTile() {
         val foreground = ImageIO.read(
             File("src/androidMain/res/mipmap-xxxhdpi/ic_launcher_foreground.png"),
         )
@@ -29,24 +29,29 @@ class TvLauncherIconAssetsTest {
         assertEquals(0, foreground.alphaAt(foreground.width / 2, foreground.height - 1), "Bottom edge should be transparent.")
         assertEquals(0, foreground.alphaAt(0, foreground.height / 2), "Left edge should be transparent.")
         assertEquals(0, foreground.alphaAt(foreground.width - 1, foreground.height / 2), "Right edge should be transparent.")
-        assertEquals(
-            0,
-            foreground.alphaAt(foreground.width / 2, foreground.height / 2),
-            "The adaptive foreground should be mark-only, not a centered opaque square tile.",
+        assertTrue(
+            foreground.alphaAt(foreground.width / 2, foreground.height / 2) > 200,
+            "The adaptive foreground should place the Prairie brand mark in the center safe zone.",
         )
 
         val bounds = foreground.opaqueBounds()
+        // Adaptive icons keep artwork inside ~66% of the canvas; the Prairie mark is a
+        // near-square landscape composition with transparent padding outside that zone.
         assertTrue(
-            bounds.minX in 170..185 && bounds.maxX in 245..265,
+            bounds.minX in 60..90 && bounds.maxX in 340..375,
             "Opaque mark should stay centered horizontally inside the adaptive safe zone: $bounds",
         )
         assertTrue(
-            bounds.minY in 80..100 && bounds.maxY in 330..355,
+            bounds.minY in 60..90 && bounds.maxY in 340..375,
             "Opaque mark should stay vertically inset inside the adaptive safe zone: $bounds",
         )
         assertTrue(
-            bounds.width in 70..100 && bounds.height in 240..275,
-            "Adaptive foreground should contain a tall Prairie mark, not a full tile: $bounds",
+            bounds.width in 250..310 && bounds.height in 250..310,
+            "Adaptive foreground should contain the centered Prairie brand mark, not a full tile: $bounds",
+        )
+        assertTrue(
+            bounds.width >= (bounds.height * 9) / 10 && bounds.height >= (bounds.width * 9) / 10,
+            "Adaptive foreground mark should remain roughly square for launcher masks: $bounds",
         )
     }
 
