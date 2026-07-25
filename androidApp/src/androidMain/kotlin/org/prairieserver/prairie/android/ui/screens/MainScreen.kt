@@ -57,6 +57,7 @@ import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
 import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.MediaModeCapabilities
 import org.prairieserver.prairie.model.navigation.mobileMediaModeCapabilities
+import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
@@ -134,9 +135,11 @@ fun MainScreen(
     val authRepository: AuthRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val liveTvFeatureStore: LiveTvFeatureStore = koinInject()
     val metadataAiFeatureStore: MetadataAiFeatureStore = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
+    val liveTvEnabled by liveTvFeatureStore.isEnabled.collectAsState()
     val reachabilityScope = rememberCoroutineScope()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
     val mediaCapabilities by produceState(
@@ -201,6 +204,8 @@ fun MainScreen(
     LaunchedEffect(activeEntry?.id, activeEntry?.profileId, headerState.activeProfile?.id) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
+        liveTvFeatureStore.reset()
+        liveTvFeatureStore.refresh()
         metadataAiFeatureStore.reset()
         metadataAiFeatureStore.refresh()
     }
@@ -209,6 +214,7 @@ fun MainScreen(
         reachabilityScope.launch {
             authRepository.logout()
             requestsFeatureStore.reset()
+            liveTvFeatureStore.reset()
             metadataAiFeatureStore.reset()
             navController.navigate(Route.Login.route) {
                 popUpTo(0) { inclusive = true }
@@ -218,6 +224,11 @@ fun MainScreen(
     }
     val requestsMenuAction: (() -> Unit)? = if (requestsEnabled) {
         { navController.navigate(Route.Requests.route) }
+    } else {
+        null
+    }
+    val liveTvMenuAction: (() -> Unit)? = if (liveTvEnabled) {
+        { navController.navigate(Route.LiveTv.route) }
     } else {
         null
     }
@@ -292,6 +303,7 @@ fun MainScreen(
                             onRemoteDisconnectClick = { prairieCastController.disconnect() },
                             isRemoteControlActive = prairieCastState.hasActiveSession,
                             onRequestsClick = requestsMenuAction,
+                            onLiveTvClick = liveTvMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = {
                                 navController.navigate(Route.ProfileSelection.route)
@@ -318,6 +330,7 @@ fun MainScreen(
                             onLibrarySelectorClick = { showLibrarySelector = true },
                             onSearchClick = { navController.navigate(Route.Search().route) },
                             onRequestsClick = requestsMenuAction,
+                            onLiveTvClick = liveTvMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = {
                                 navController.navigate(Route.ProfileSelection.route)
@@ -393,6 +406,7 @@ fun MainScreen(
                     isProfileLoading = headerState.isLoading,
                     onSearchClick = { navController.navigate(Route.Search().route) },
                     onRequestsClick = requestsMenuAction,
+                    onLiveTvClick = liveTvMenuAction,
                     onSettingsClick = { navController.navigate(Route.Settings.route) },
                     onSwitchProfileClick = {
                         navController.navigate(Route.ProfileSelection.route)

@@ -258,6 +258,24 @@ sealed class TvMainRoute(val route: String) {
     data object Audiobooks : TvMainRoute("main/audiobooks")
     data object Requests : TvMainRoute("main/requests")
     data object MyRequests : TvMainRoute("main/requests/mine")
+    data object LiveTv : TvMainRoute("main/livetv")
+    data class LiveTvPlayer(
+        val channelId: String,
+        val channelName: String = "",
+    ) : TvMainRoute(
+        buildString {
+            append("main/livetv/player/${android.net.Uri.encode(channelId)}")
+            if (channelName.isNotBlank()) {
+                append("?name=${android.net.Uri.encode(channelName)}")
+            }
+        },
+    ) {
+        companion object {
+            const val ROUTE = "main/livetv/player/{channelId}?name={name}"
+            const val ARG_CHANNEL_ID = "channelId"
+            const val ARG_NAME = "name"
+        }
+    }
     data object Settings : TvMainRoute("main/settings")
 
     data object Collections : TvMainRoute("main/collections")

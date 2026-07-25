@@ -54,6 +54,7 @@ fun MainAppTopBar(
     isProfileLoading: Boolean,
     onSearchClick: () -> Unit,
     onRequestsClick: (() -> Unit)? = null,
+    onLiveTvClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -147,6 +148,17 @@ fun MainAppTopBar(
                                     onRequestsClick()
                                 },
                             )
+                        }
+                        if (onLiveTvClick != null) {
+                            DropdownMenuItem(
+                                text = { Text("Live TV") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onLiveTvClick()
+                                },
+                            )
+                        }
+                        if (onRequestsClick != null || onLiveTvClick != null) {
                             HorizontalDivider()
                         }
                         DropdownMenuItem(

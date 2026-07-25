@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
@@ -110,6 +111,7 @@ import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.admin.shouldShowClientAdminSurface
 import org.prairieserver.prairie.model.auth.isActingAdmin
+import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.model.personal.UserLibrary
 import org.prairieserver.prairie.network.ApiResult
@@ -145,6 +147,8 @@ import org.prairieserver.prairie.tv.ui.screens.personal.TvWatchlistScreen
 import org.prairieserver.prairie.tv.ui.screens.recommendations.TvRecommendationsScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvMyRequestsScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestDetailScreen
+import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvPlayerScreen
+import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsScreen
 import org.prairieserver.prairie.tv.ui.screens.search.TvSearchScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.TvManageSessionsScreen
@@ -187,10 +191,12 @@ fun TvMainShell(
     val profileRepository: ProfileRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val liveTvFeatureStore: LiveTvFeatureStore = koinInject()
     val metadataAiFeatureStore: org.prairieserver.prairie.model.feature.MetadataAiFeatureStore = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
+    val liveTvEnabled by liveTvFeatureStore.isEnabled.collectAsState()
     val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     val serverUrl = rememberProfileServerUrl()
@@ -281,6 +287,8 @@ fun TvMainShell(
     LaunchedEffect(activeServerEntry?.id, activeServerEntry?.profileId) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
+        liveTvFeatureStore.reset()
+        liveTvFeatureStore.refresh()
         metadataAiFeatureStore.reset()
         metadataAiFeatureStore.refresh()
     }
@@ -974,6 +982,33 @@ fun TvMainShell(
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                     )
                 }
+                composable(TvMainRoute.LiveTv.route) {
+                    TvLiveTvScreen(
+                        onChannelClick = { channel ->
+                            navigateToSecondary(
+                                TvMainRoute.LiveTvPlayer(channel.id, channel.displayName).route,
+                            )
+                        },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                    )
+                }
+                composable(
+                    route = TvMainRoute.LiveTvPlayer.ROUTE,
+                    arguments = listOf(
+                        navArgument(TvMainRoute.LiveTvPlayer.ARG_CHANNEL_ID) { type = NavType.StringType },
+                        navArgument(TvMainRoute.LiveTvPlayer.ARG_NAME) {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = ""
+                        },
+                    ),
+                ) { entry ->
+                    TvLiveTvPlayerScreen(
+                        channelId = entry.arguments?.getString(TvMainRoute.LiveTvPlayer.ARG_CHANNEL_ID).orEmpty(),
+                        channelName = entry.arguments?.getString(TvMainRoute.LiveTvPlayer.ARG_NAME).orEmpty(),
+                        onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
+                    )
+                }
                 composable(
                     route = TvMainRoute.RequestDetail.ROUTE,
                     arguments = listOf(
@@ -1290,6 +1325,11 @@ fun TvMainShell(
                     navigateToSecondary(TvMainRoute.Requests.route)
                     moveFocusToContent(TvMainRoute.Requests.route)
                 },
+                showLiveTv = liveTvEnabled,
+                onLiveTv = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.LiveTv.route)
+                    moveFocusToContent(TvMainRoute.LiveTv.route)
+                },
                 onSettings = {
                     // Keep focus on the dropdown row through the route fade.
                     // TvSettingsScreen closes the menu only after its General
@@ -1497,6 +1537,8 @@ private fun TvProfileDropdown(
     onHistory: () -> Unit,
     showRequests: Boolean,
     onRequests: () -> Unit,
+    showLiveTv: Boolean,
+    onLiveTv: () -> Unit,
     onSettings: () -> Unit,
     onSwitchServer: () -> Unit,
     onSignOut: () -> Unit,
@@ -1547,6 +1589,13 @@ private fun TvProfileDropdown(
                 label = "Requests",
                 icon = Icons.Filled.AutoAwesome,
                 onClick = onRequests,
+            )
+        }
+        if (showLiveTv) {
+            ProfileDropdownRow(
+                label = "Live TV",
+                icon = Icons.Filled.LiveTv,
+                onClick = onLiveTv,
             )
         }
 
