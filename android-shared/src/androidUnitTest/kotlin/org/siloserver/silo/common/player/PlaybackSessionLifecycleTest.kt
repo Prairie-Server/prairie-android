@@ -98,6 +98,55 @@ class PlaybackSessionLifecycleTest {
     }
 
     @Test
+    fun `a stop during start does not strand the new session`() = runTest {
+        // start() runs its API call outside the lifecycle mutex, and for that
+        // whole window state is Loading with no adopted id — so stop()'s
+        // ownership guard has nothing to compare and tears down anyway. The
+        // start then published Active over a screen the user had dismissed, and
+        // because that stop never saw this session id, the session stayed alive
+        // on the server eating a concurrent-stream slot until it timed out.
+        val gate = kotlinx.coroutines.CompletableDeferred<ApiResult<PlaybackSessionResponse>>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun startSession(
+                fileId: Int,
+                profileId: String,
+                capabilities: ClientCodecCapabilities,
+                audioTrackIndex: Int?,
+                qualityPreference: String?,
+                startPosition: Double?,
+                disableProgressPersistence: Boolean,
+            ): ApiResult<PlaybackSessionResponse> {
+                startCallCount++
+                return gate.await()
+            }
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+
+        val startJob = launch { lifecycle.start(defaultStartParams()) }
+        advanceUntilIdle()
+        assertEquals(SessionState.Loading, lifecycle.state.value)
+
+        // The user leaves. Nothing is Active yet, so the caller has no id to pass.
+        lifecycle.stop()
+        advanceUntilIdle()
+
+        gate.complete(ApiResult.Success(makeSession("sess-late")))
+        advanceUntilIdle()
+        startJob.join()
+
+        assertEquals(
+            SessionState.Idle,
+            lifecycle.state.value,
+            "a dismissed screen must not be resurrected by its own in-flight start",
+        )
+        assertEquals(
+            "sess-late",
+            sessionMgr.lastStoppedSessionId,
+            "the late session must be stopped, not left running on the server",
+        )
+    }
+
+    @Test
     fun `start emits Failed when profile id is null`() = runTest {
         val lifecycle = newLifecycle(
             sessionMgr = FakeSessionManager(),
@@ -621,6 +670,7 @@ private open class FakeSessionManager : PlaybackSessionManager(
     var startCallCount = 0
     var progressCallCount = 0
     var stopCallCount = 0
+    var lastStoppedSessionId: String? = null
     var lastStartPosition: Double? = null
     var lastProgressSessionId: String? = null
     var lastProgressPosition: Double? = null
@@ -655,6 +705,7 @@ private open class FakeSessionManager : PlaybackSessionManager(
 
     override suspend fun stopSession(sessionId: String): ApiResult<Unit> {
         stopCallCount++
+        lastStoppedSessionId = sessionId
         return stopResult
     }
 }
