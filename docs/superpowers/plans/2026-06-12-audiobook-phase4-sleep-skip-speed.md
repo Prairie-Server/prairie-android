@@ -14,7 +14,7 @@
 
 **Tech Stack:** Kotlin (KMP, `androidTarget`, `jvmTarget = 21`), Jetpack Compose (phone Material3 + TV Material), Media3 (interval/speed applied via the existing `MediaController`/pending-seek bridge), AndroidX DataStore Preferences (`libs.datastore.preferences`), kotlinx.coroutines (Flow + viewModelScope), JUnit + kotlin.test (`commonTest` / `androidUnitTest`). DI: Koin. Gradle test tasks: `:shared:testDebugUnitTest`, `:android-shared:testDebugUnitTest`, `:androidApp:testDebugUnitTest`, `:androidTvApp:testDebugUnitTest`.
 
-Commands assume the repository root (`silo-android`) is the cwd.
+Commands assume the repository root (`prairie-android`) is the cwd.
 
 ---
 

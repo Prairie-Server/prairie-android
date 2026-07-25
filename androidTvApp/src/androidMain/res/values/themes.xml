@@ -2,10 +2,10 @@
 <resources>
     <!--
         Base XML theme for TV system integration. Compose for TV applies
-        SiloTvTheme at runtime; this theme only needs to set the splash
+        PrairieTvTheme at runtime; this theme only needs to set the splash
         background so nothing flashes white before Compose takes over.
     -->
-    <style name="Theme.SiloTv" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.PrairieTv" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/dark_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
     </style>

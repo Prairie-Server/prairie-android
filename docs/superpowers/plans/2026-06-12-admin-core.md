@@ -21,9 +21,9 @@ The convention is `./gradlew :shared:testDebugUnitTest --tests "..."` for common
 ### Task S1: Gating — `Profile.isPrimary` + shared `isActingAdmin`
 
 **Files:**
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/profile/ProfileModels.kt`
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/auth/AdminPermissions.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/model/auth/AdminPermissionsTest.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/profile/ProfileModels.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/auth/AdminPermissions.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/model/auth/AdminPermissionsTest.kt`
 
 Evidence (server gate, design §"Admin gating"): acting admin = `user.role == "admin"` AND active `profile.is_primary == true`. `Profile` currently has **no** `is_primary` field (verified in ProfileModels.kt) so it must be added. The UI computes this from `AuthRepository`/`AuthApi.getMe()` (returns `User` with `role`) and `ProfileRepository.getActiveProfile(): Profile?`. Placing `isActingAdmin` in `model/auth` keeps it package-adjacent to `User` while accepting a `Profile` param.
 
@@ -91,7 +91,7 @@ class AdminPermissionsTest {
 - [ ] **Step 2: Run test to verify it fails** (command + expected failure)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.auth.AdminPermissionsTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.auth.AdminPermissionsTest"
 ```
 
 Expected: compilation failure — `Profile` has no `isPrimary` member and `isActingAdmin` is unresolved (`unresolved reference: isPrimary`, `unresolved reference: isActingAdmin`).
@@ -146,7 +146,7 @@ fun isActingAdmin(user: User?, profile: Profile?): Boolean =
 - [ ] **Step 4: Run tests** (command)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.auth.AdminPermissionsTest" --tests "com.continuum.app.model.profile.*"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.auth.AdminPermissionsTest" --tests "com.continuum.app.model.profile.*"
 ```
 
 - [ ] **Step 5: Commit**
@@ -165,8 +165,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S2: `model/admin/AdminModels.kt` — admin DTOs + serialization tests
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/admin/AdminModels.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/model/admin/AdminModelsSerializationTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/admin/AdminModels.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/model/admin/AdminModelsSerializationTest.kt`
 
 Evidence (Go structs, exact `json:"..."` tags):
 - `AdminStats` + `WatchProviderActivity` from `admin_stats.go` (quoted above): all snake_case; `total_storage_bytes int64`; `WatchProviderActivity` has `trakt_connected_profiles`, `trakt_enabled_profiles`, `trakt_export_enabled`, `trakt_scrobble_enabled`, `last_sync_completed_at *time.Time (omitempty)`, `sync_runs_24h`, `sync_errors_24h`, `imported_watched_24h`, `imported_progress_24h`, `exported_watched_24h`, `pending_exports`, `failed_exports`, `open_scrobbles`, `scrobbles_24h`.
@@ -445,7 +445,7 @@ class AdminModelsSerializationTest {
                  "user_id": 3, "impersonator_user_id": 1, "session_id": "sess-2",
                  "request_id": "req-9", "method": "POST", "path": "/api/v1/admin/users",
                  "path_pattern": "/api/v1/admin/users", "status_code": 201,
-                 "user_agent": "silo/1.0", "duration_ms": 42}
+                 "user_agent": "prairie/1.0", "duration_ms": 42}
               ],
               "next_cursor": "Y3Vy"
             }
@@ -491,7 +491,7 @@ class AdminModelsSerializationTest {
 - [ ] **Step 2: Run test to verify it fails** (command + expected failure)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.admin.AdminModelsSerializationTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.admin.AdminModelsSerializationTest"
 ```
 
 Expected: compilation failure — `unresolved reference: AdminStats / AdminUser / CreateUserRequest / AdminSession / AdminLogPage / AdminAuditPage / ScanRequest / ScanResponse / ScanCancelResponse` (the model file does not yet exist).
@@ -508,7 +508,7 @@ import kotlinx.serialization.json.JsonElement
 
 // ---------------------------------------------------------------------------
 // Stats — GET /api/v1/admin/stats[?refresh=true]
-// (silo-server internal/api/handlers/admin_stats.go: AdminStats / WatchProviderActivity)
+// (prairie-server internal/api/handlers/admin_stats.go: AdminStats / WatchProviderActivity)
 // ---------------------------------------------------------------------------
 
 @Serializable
@@ -789,7 +789,7 @@ data class ScanCancelResponse(
 - [ ] **Step 4: Run tests** (command)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.admin.AdminModelsSerializationTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.admin.AdminModelsSerializationTest"
 ```
 
 - [ ] **Step 5: Commit**
@@ -807,9 +807,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S3: `network/api/AdminApi.kt` (interface + Default) + NetworkModule + MockEngine tests
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/AdminApi.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/AdminApiTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/AdminApi.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/AdminApiTest.kt`
 
 Evidence (routes, all under `/api/v1`, design §"Server contracts"; verified handlers):
 - `GET /admin/stats` with optional `?refresh=true` (admin_stats.go provider; refresh forces a cache bypass server-side).
@@ -1124,7 +1124,7 @@ class AdminApiTest {
 - [ ] **Step 2: Run test to verify it fails** (command + expected failure)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.network.api.AdminApiTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.network.api.AdminApiTest"
 ```
 
 Expected: compilation failure — `unresolved reference: AdminApi / DefaultAdminApi` (the api file does not yet exist).
@@ -1377,7 +1377,7 @@ Register in NetworkModule (add the line after the NotificationsApi binding):
 - [ ] **Step 4: Run tests** (command)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.network.api.AdminApiTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.network.api.AdminApiTest"
 ```
 
 - [ ] **Step 5: Commit**
@@ -1396,9 +1396,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S4: `repository/AdminRepository.kt` — pass-throughs + RepositoryModule + repository test
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/repository/AdminRepository.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/repository/AdminRepositoryTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/repository/AdminRepository.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/repository/AdminRepositoryTest.kt`
 
 Evidence: existing repos are thin `ApiResult` pass-throughs around an interface-backed API (e.g. `SubtitlesRepository(get())` in RepositoryModule; `SubtitlesApi`/`NotificationsApi` are interfaces faked in tests). `AdminApi` is an interface (Task 3), so the repository is constructed `AdminRepository(get())` and the test fakes `AdminApi`. The scan endpoints live under `/libraries` but are reached via `AdminApi` (documented there); the repository exposes them as `triggerScan`/`cancelScan` so the admin "Scans" sub-screen has a single dependency — KDoc records the `/libraries` placement.
 
@@ -1601,7 +1601,7 @@ class AdminRepositoryTest {
 - [ ] **Step 2: Run test to verify it fails** (command + expected failure)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.repository.AdminRepositoryTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.repository.AdminRepositoryTest"
 ```
 
 Expected: compilation failure — `unresolved reference: AdminRepository` (the repository does not yet exist).
@@ -1728,7 +1728,7 @@ import com.continuum.app.repository.AdminRepository
 - [ ] **Step 4: Run tests** (command)
 
 ```bash
-cd /Users/dev/projects/silo/silo-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.repository.AdminRepositoryTest"
+cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.repository.AdminRepositoryTest"
 ```
 
 - [ ] **Step 5: Commit**

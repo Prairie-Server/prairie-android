@@ -82,7 +82,7 @@ androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/player/
 - [ ] Run repository status and note unrelated local changes without reverting them.
 
 ```bash
-cd /Users/jimcole/projects/silo/silo-android
+cd /Users/jimcole/projects/silo/prairie-android
 git status --short
 git branch --show-current
 ```

@@ -1,0 +1,2076 @@
+package org.prairieserver.prairie.tv.ui.screens.settings
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
+import org.prairieserver.prairie.model.settings.SubtitleBackgroundStylePreset
+import org.prairieserver.prairie.model.settings.SubtitleAppearance
+import org.prairieserver.prairie.model.settings.SubtitleFontSizePreset
+import org.prairieserver.prairie.model.settings.SubtitlePositionPreset
+import org.prairieserver.prairie.model.settings.pointSize
+import org.prairieserver.prairie.tv.BuildConfig
+import org.prairieserver.prairie.tv.data.preferences.PlaybackQuality
+import org.prairieserver.prairie.tv.data.preferences.SubtitleMode
+import org.prairieserver.prairie.tv.ui.screens.player.TvSubtitleAppearanceOptions
+import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
+import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
+import org.prairieserver.prairie.tv.ui.theme.FocusedContent
+import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.koin.compose.viewmodel.koinViewModel
+import kotlinx.coroutines.delay
+
+/**
+ * TV Settings — a tvOS-style split rail/detail surface modeled on
+ * `iosApp/.../tvOS/Screens/Settings/TVSettingsView.swift`.
+ *
+ * Requests/watch-together routes stay compiled elsewhere without normal menu
+ * rows. The stats-only Admin dashboard remains role-gated in this surface.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvSettingsScreen(
+    onNavigateToAdmin: () -> Unit = {},
+    onManageServers: () -> Unit = {},
+    onSignedOut: () -> Unit = {},
+    onSwitchProfile: () -> Unit = {},
+    onNavigateHome: () -> Unit = {},
+    onNavigateToDiagnostics: () -> Unit = {},
+    onInitialContentFocus: () -> Unit = {},
+    initialManageServersFocus: Boolean = false,
+    onManageServersReturnFocusConsumed: () -> Unit = {},
+    viewModel: TvSettingsViewModel = koinViewModel(),
+    diagnosticsViewModel: TvDiagnosticsViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectAsState()
+    val diagnosticsState by diagnosticsViewModel.state.collectAsState()
+    val metadataAiStore: org.prairieserver.prairie.model.feature.MetadataAiFeatureStore =
+        org.koin.compose.koinInject()
+    val metadataAiStatus by metadataAiStore.status.collectAsState()
+    val context = LocalContext.current
+    val categoryFocusRequesters = remember {
+        TvSettingsCategory.entries.associateWith { FocusRequester() }
+    }
+    val detailFocusRequester = remember { FocusRequester() }
+
+    var selectedCategory by remember {
+        mutableStateOf(
+            if (initialManageServersFocus) TvSettingsCategory.Server else TvSettingsCategory.General,
+        )
+    }
+    var detailHasFocus by remember { mutableStateOf(false) }
+    var detailFocusRequest by remember { mutableStateOf(0) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val requester = if (initialManageServersFocus) {
+            detailFocusRequester
+        } else {
+            categoryFocusRequesters.getValue(TvSettingsCategory.General)
+        }
+        var focusRestored = false
+        for (attempt in 0 until 4) {
+            if (runCatching { requester.requestFocus() }.getOrDefault(false)) {
+                focusRestored = true
+                break
+            }
+            delay(50)
+        }
+        if (initialManageServersFocus && focusRestored) onManageServersReturnFocusConsumed()
+        onInitialContentFocus()
+    }
+
+    LaunchedEffect(detailFocusRequest) {
+        if (detailFocusRequest > 0) runCatching { detailFocusRequester.requestFocus() }
+    }
+
+    BackHandler {
+        if (detailHasFocus) {
+            runCatching { categoryFocusRequesters.getValue(selectedCategory).requestFocus() }
+        } else {
+            onNavigateHome()
+        }
+    }
+
+    LaunchedEffect(state.navAction) {
+        when (state.navAction) {
+            TvSettingsViewModel.NavAction.SIGNED_OUT -> {
+                viewModel.onNavActionConsumed()
+                onSignedOut()
+            }
+            TvSettingsViewModel.NavAction.SWITCH_PROFILE -> {
+                viewModel.onNavActionConsumed()
+                onSwitchProfile()
+            }
+            null -> Unit
+        }
+    }
+
+    SettingsSplitLayout(
+        state = state,
+        diagnosticsState = diagnosticsState,
+        selectedCategory = selectedCategory,
+        categoryFocusRequesters = categoryFocusRequesters,
+        detailFocusRequester = detailFocusRequester,
+        onDetailFocusChanged = { detailHasFocus = it },
+        onCategorySelected = { selectedCategory = it },
+        onEnterCategory = {
+            selectedCategory = it
+            detailFocusRequest += 1
+        },
+        onSwitchProfile = viewModel::onSwitchProfile,
+        onManageServers = onManageServers,
+        onNavigateToDiagnostics = onNavigateToDiagnostics,
+        onRequestSignOut = { showSignOutConfirm = true },
+        onNavigateToAdmin = onNavigateToAdmin,
+        onQualityChanged = viewModel::onPlaybackQualityChanged,
+        onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
+        onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
+        onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
+        onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
+        onMatchContentFrameRateChanged = viewModel::onMatchContentFrameRateChanged,
+        onDolbyVisionEnabledChanged = viewModel::onDolbyVisionEnabledChanged,
+        onDvProfile7HDR10FallbackChanged = viewModel::onDvProfile7HDR10FallbackChanged,
+        onResumeRewindSecondsChanged = viewModel::onResumeRewindSecondsChanged,
+        onPassOutThresholdChanged = viewModel::onPassOutThresholdChanged,
+        onNextUpPromptSecondsChanged = viewModel::onNextUpPromptSecondsChanged,
+        onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
+        onSubtitleModeChanged = viewModel::onSubtitleModeChanged,
+        onSubtitleLanguageChanged = viewModel::onSubtitleLanguageChanged,
+        onMetadataLanguageChanged = viewModel::onMetadataLanguageChanged,
+        metadataLanguageEnabled = metadataAiStatus.enabled && metadataAiStatus.onView != org.prairieserver.prairie.model.metadata.MetadataAiOnView.Off,
+        onShowForcedSubtitlesChanged = viewModel::onShowForcedSubtitlesChanged,
+        onSubtitleFontSizeChanged = viewModel::setSubtitleFontSize,
+        onSubtitleFontFamilyChanged = viewModel::setSubtitleFontFamily,
+        onSubtitleFontColorChanged = viewModel::setSubtitleFontColor,
+        onSubtitleTextOutlineChanged = viewModel::setSubtitleTextOutline,
+        onSubtitleTextOutlineColorChanged = viewModel::setSubtitleTextOutlineColor,
+        onSubtitleBackgroundStyleChanged = viewModel::setSubtitleBackgroundStyle,
+        onSubtitleBackgroundOpacityChanged = viewModel::setSubtitleBackgroundOpacity,
+        onSubtitleBackgroundColorChanged = viewModel::setSubtitleBackgroundColor,
+        onSubtitlePositionChanged = viewModel::setSubtitlePosition,
+        onResetSubtitleAppearance = viewModel::resetSubtitleAppearance,
+        onSubtitleDeviceOverrideEnabledChanged = viewModel::setSubtitleDeviceOverrideEnabled,
+        onSubtitleMatchesDeviceChanged = viewModel::onSubtitleMatchesDeviceChanged,
+        onShowAudiobooksTabChanged = viewModel::onShowAudiobooksTabChanged,
+    )
+
+    if (showSignOutConfirm) {
+        TvSettingsConfirmDialog(
+            title = "Sign Out",
+            message = "You will be returned to the login screen.",
+            confirmLabel = "Sign Out",
+            onConfirm = {
+                showSignOutConfirm = false
+                viewModel.onSignOut(context)
+            },
+            onDismiss = { showSignOutConfirm = false },
+        )
+    }
+}
+
+private enum class TvSettingsCategory(
+    val title: String,
+    val eyebrow: String,
+    val blurb: String,
+    val icon: ImageVector,
+) {
+    General(
+        title = "General",
+        eyebrow = "PREFERENCES",
+        blurb = "App-level options for this Android TV.",
+        icon = Icons.Filled.Settings,
+    ),
+    Playback(
+        title = "Playback",
+        eyebrow = "PREFERENCES",
+        blurb = "Streaming, episode, and playback behavior for this device.",
+        icon = Icons.Filled.PlayCircle,
+    ),
+    Subtitles(
+        title = "Subtitles",
+        eyebrow = "PREFERENCES",
+        blurb = "Language, behavior, and subtitle appearance.",
+        icon = Icons.Filled.ClosedCaption,
+    ),
+    Server(
+        title = "Server",
+        eyebrow = "CONNECTION",
+        blurb = "Active server, device pairing, and account tools.",
+        icon = Icons.Filled.Dns,
+    ),
+}
+
+private val LocalSettingsDetailFocusReporter = staticCompositionLocalOf<(Boolean) -> Unit> { {} }
+
+// ---------------------------------------------------------------------------
+// Split settings layout (tvOS parity)
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
+@Composable
+private fun SettingsSplitLayout(
+    state: TvSettingsViewModel.UiState,
+    diagnosticsState: org.prairieserver.prairie.common.diagnostics.DiagnosticsUiState,
+    selectedCategory: TvSettingsCategory,
+    categoryFocusRequesters: Map<TvSettingsCategory, FocusRequester>,
+    detailFocusRequester: FocusRequester,
+    onDetailFocusChanged: (Boolean) -> Unit,
+    onCategorySelected: (TvSettingsCategory) -> Unit,
+    onEnterCategory: (TvSettingsCategory) -> Unit,
+    onShowAudiobooksTabChanged: (Boolean) -> Unit,
+    onSwitchProfile: () -> Unit,
+    onManageServers: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
+    onRequestSignOut: () -> Unit,
+    onNavigateToAdmin: () -> Unit,
+    onQualityChanged: (PlaybackQuality) -> Unit,
+    onAudioLanguageChanged: (String) -> Unit,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
+    onAutoSkipIntroChanged: (Boolean) -> Unit,
+    onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onMatchContentFrameRateChanged: (Boolean) -> Unit,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
+    onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
+    onResumeRewindSecondsChanged: (Int) -> Unit,
+    onPassOutThresholdChanged: (Int) -> Unit,
+    onNextUpPromptSecondsChanged: (Int) -> Unit,
+    onResetPlaybackOverrides: () -> Unit,
+    onSubtitleModeChanged: (SubtitleMode) -> Unit,
+    onSubtitleLanguageChanged: (String) -> Unit,
+    onMetadataLanguageChanged: (String) -> Unit,
+    metadataLanguageEnabled: Boolean,
+    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
+    onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
+    onSubtitleFontFamilyChanged: (String) -> Unit,
+    onSubtitleFontColorChanged: (String) -> Unit,
+    onSubtitleTextOutlineChanged: (Boolean) -> Unit,
+    onSubtitleTextOutlineColorChanged: (String) -> Unit,
+    onSubtitleBackgroundStyleChanged: (SubtitleBackgroundStylePreset) -> Unit,
+    onSubtitleBackgroundOpacityChanged: (Int) -> Unit,
+    onSubtitleBackgroundColorChanged: (String) -> Unit,
+    onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
+    onResetSubtitleAppearance: () -> Unit,
+    onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+    onSubtitleMatchesDeviceChanged: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SettingsBackground)
+            // tvOS TVSettingsView: safeAreaX 88pt + HStack spacing 64pt, with a
+            // 430pt rail — halved to Android dp. Full-screen surface (the shell
+            // hides the top bar on this route), so only the safe-area inset.
+            .padding(
+                start = 44.dp,
+                top = Spacing.safeArea,
+                end = 44.dp,
+                bottom = Spacing.xxxl,
+            ),
+        horizontalArrangement = Arrangement.spacedBy(32.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        SettingsRail(
+            state = state,
+            selectedCategory = selectedCategory,
+            categoryFocusRequesters = categoryFocusRequesters,
+            detailFocusRequester = detailFocusRequester,
+            onCategorySelected = onCategorySelected,
+            onEnterCategory = onEnterCategory,
+            onRailCategoryFocused = { onDetailFocusChanged(false) },
+            onSwitchProfile = onSwitchProfile,
+            onNavigateToAdmin = onNavigateToAdmin,
+            onRequestSignOut = onRequestSignOut,
+            modifier = Modifier.width(200.dp),
+        )
+        SettingsDetailPane(
+            state = state,
+            diagnosticsState = diagnosticsState,
+            selectedCategory = selectedCategory,
+            detailFocusRequester = detailFocusRequester,
+            onDetailFocusChanged = onDetailFocusChanged,
+            onShowAudiobooksTabChanged = onShowAudiobooksTabChanged,
+            onManageServers = onManageServers,
+            onNavigateToDiagnostics = onNavigateToDiagnostics,
+            onQualityChanged = onQualityChanged,
+            onAudioLanguageChanged = onAudioLanguageChanged,
+            onAutoPlayNextChanged = onAutoPlayNextChanged,
+            onAutoSkipIntroChanged = onAutoSkipIntroChanged,
+            onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+            onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
+            onDolbyVisionEnabledChanged = onDolbyVisionEnabledChanged,
+            onDvProfile7HDR10FallbackChanged = onDvProfile7HDR10FallbackChanged,
+            onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
+            onPassOutThresholdChanged = onPassOutThresholdChanged,
+            onNextUpPromptSecondsChanged = onNextUpPromptSecondsChanged,
+            onResetPlaybackOverrides = onResetPlaybackOverrides,
+            onSubtitleModeChanged = onSubtitleModeChanged,
+            onSubtitleLanguageChanged = onSubtitleLanguageChanged,
+            onMetadataLanguageChanged = onMetadataLanguageChanged,
+            metadataLanguageEnabled = metadataLanguageEnabled,
+            onShowForcedSubtitlesChanged = onShowForcedSubtitlesChanged,
+            onSubtitleFontSizeChanged = onSubtitleFontSizeChanged,
+            onSubtitleFontFamilyChanged = onSubtitleFontFamilyChanged,
+            onSubtitleFontColorChanged = onSubtitleFontColorChanged,
+            onSubtitleTextOutlineChanged = onSubtitleTextOutlineChanged,
+            onSubtitleTextOutlineColorChanged = onSubtitleTextOutlineColorChanged,
+            onSubtitleBackgroundStyleChanged = onSubtitleBackgroundStyleChanged,
+            onSubtitleBackgroundOpacityChanged = onSubtitleBackgroundOpacityChanged,
+            onSubtitleBackgroundColorChanged = onSubtitleBackgroundColorChanged,
+            onSubtitlePositionChanged = onSubtitlePositionChanged,
+            onResetSubtitleAppearance = onResetSubtitleAppearance,
+            onSubtitleDeviceOverrideEnabledChanged = onSubtitleDeviceOverrideEnabledChanged,
+            onSubtitleMatchesDeviceChanged = onSubtitleMatchesDeviceChanged,
+            // Contain Up at the pane's top row: escaping to the top menu from
+            // inside a category was disorienting (QA 2026-07-08). Left still
+            // exits to the category rail.
+            modifier = Modifier
+                .weight(1f)
+                .onFocusChanged { onDetailFocusChanged(it.hasFocus) }
+                .focusGroup()
+                .focusProperties {
+                    exit = { direction ->
+                        when (direction) {
+                            FocusDirection.Up -> FocusRequester.Cancel
+                            FocusDirection.Left -> categoryFocusRequesters.getValue(selectedCategory)
+                            else -> FocusRequester.Default
+                        }
+                    }
+                },
+        )
+    }
+}
+
+@Composable
+private fun SettingsRail(
+    state: TvSettingsViewModel.UiState,
+    selectedCategory: TvSettingsCategory,
+    categoryFocusRequesters: Map<TvSettingsCategory, FocusRequester>,
+    detailFocusRequester: FocusRequester,
+    onCategorySelected: (TvSettingsCategory) -> Unit,
+    onEnterCategory: (TvSettingsCategory) -> Unit,
+    onRailCategoryFocused: () -> Unit,
+    onSwitchProfile: () -> Unit,
+    onRequestSignOut: () -> Unit,
+    onNavigateToAdmin: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var railActionHasFocus by remember { mutableStateOf(false) }
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .focusGroup(),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.displayMedium.copy(fontSize = 22.sp, lineHeight = 26.sp),
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(start = 10.dp, bottom = 10.dp),
+        )
+        SettingsAccountRow(
+            name = state.profileName ?: state.user?.username ?: "-",
+            subtitle = accountSubtitle(state),
+            avatar = state.profileAvatar,
+            onClick = onSwitchProfile,
+        )
+        Spacer(modifier = Modifier.height(9.dp))
+        TvSettingsCategory.entries.forEach { category ->
+            SettingsRailCategoryRow(
+                category = category,
+                selected = category == selectedCategory && !railActionHasFocus,
+                onClick = { onEnterCategory(category) },
+                // tvOS parity: focusing a category live-swaps the detail pane.
+                onFocused = {
+                    railActionHasFocus = false
+                    onRailCategoryFocused()
+                    onCategorySelected(category)
+                },
+                // Entry focus lands on General, not the profile row.
+                focusRequester = categoryFocusRequesters.getValue(category),
+                rightFocusRequester = detailFocusRequester,
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        // Apple-parity admin surface: the stats dashboard only, role-gated.
+        if (state.adminVisible) {
+            SettingsRailActionRow(
+                label = "Admin",
+                icon = Icons.Filled.Settings,
+                onClick = onNavigateToAdmin,
+                onFocused = { railActionHasFocus = true },
+            )
+        }
+        SettingsRailActionRow(
+            label = "Sign Out",
+            icon = Icons.AutoMirrored.Filled.Logout,
+            onClick = onRequestSignOut,
+            destructive = true,
+            onFocused = { railActionHasFocus = true },
+        )
+        Text(
+            text = "Prairie ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 14.sp,
+                letterSpacing = 1.sp,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+        )
+    }
+}
+
+/**
+ * tvOS `TVSettingsRailRowStyle` parity: rows rest transparent, the selected
+ * category keeps a soft white fill + hairline border while unfocused, and the
+ * focused row inverts to the white platter.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsRailCategoryRow(
+    category: TvSettingsCategory,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onFocused: () -> Unit = {},
+    focusRequester: FocusRequester? = null,
+    rightFocusRequester: FocusRequester? = null,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val foreground = if (isFocused) FocusedContent else Color.White
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Color.White.copy(alpha = 0.14f) else Color.Transparent,
+            contentColor = Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = if (selected) {
+                Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)), shape = RowShape)
+            } else {
+                Border.None
+            },
+            focusedBorder = Border.None,
+            pressedBorder = Border.None,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .fillMaxWidth()
+            .height(38.dp)
+            .focusProperties {
+                right = rightFocusRequester ?: FocusRequester.Default
+            }
+            .onFocusChanged { if (it.isFocused) onFocused() },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Icon(
+                imageVector = category.icon,
+                contentDescription = null,
+                tint = foreground,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(
+                text = category.title,
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+                color = foreground,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/** Rail action row (Admin, Sign Out) — same transparent rest chrome as categories. */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsRailActionRow(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    onFocused: () -> Unit = {},
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val foreground = when {
+        isFocused && destructive -> DestructiveRedOnPlatter
+        isFocused -> FocusedContent
+        destructive -> DestructiveRed
+        else -> Color.White
+    }
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .onFocusChanged { if (it.isFocused) onFocused() },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = foreground,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+                color = foreground,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsDetailPane(
+    state: TvSettingsViewModel.UiState,
+    diagnosticsState: org.prairieserver.prairie.common.diagnostics.DiagnosticsUiState,
+    selectedCategory: TvSettingsCategory,
+    detailFocusRequester: FocusRequester,
+    onDetailFocusChanged: (Boolean) -> Unit,
+    onShowAudiobooksTabChanged: (Boolean) -> Unit,
+    onManageServers: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
+    onQualityChanged: (PlaybackQuality) -> Unit,
+    onAudioLanguageChanged: (String) -> Unit,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
+    onAutoSkipIntroChanged: (Boolean) -> Unit,
+    onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onMatchContentFrameRateChanged: (Boolean) -> Unit,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
+    onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
+    onResumeRewindSecondsChanged: (Int) -> Unit,
+    onPassOutThresholdChanged: (Int) -> Unit,
+    onNextUpPromptSecondsChanged: (Int) -> Unit,
+    onResetPlaybackOverrides: () -> Unit,
+    onSubtitleModeChanged: (SubtitleMode) -> Unit,
+    onSubtitleLanguageChanged: (String) -> Unit,
+    onMetadataLanguageChanged: (String) -> Unit,
+    metadataLanguageEnabled: Boolean,
+    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
+    onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
+    onSubtitleFontFamilyChanged: (String) -> Unit,
+    onSubtitleFontColorChanged: (String) -> Unit,
+    onSubtitleTextOutlineChanged: (Boolean) -> Unit,
+    onSubtitleTextOutlineColorChanged: (String) -> Unit,
+    onSubtitleBackgroundStyleChanged: (SubtitleBackgroundStylePreset) -> Unit,
+    onSubtitleBackgroundOpacityChanged: (Int) -> Unit,
+    onSubtitleBackgroundColorChanged: (String) -> Unit,
+    onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
+    onResetSubtitleAppearance: () -> Unit,
+    onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+    onSubtitleMatchesDeviceChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    CompositionLocalProvider(LocalSettingsDetailFocusReporter provides onDetailFocusChanged) {
+      Column(modifier = modifier.fillMaxSize()) {
+        Text(
+            text = selectedCategory.eyebrow,
+            style = SettingsMonoHeaderStyle(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = selectedCategory.title,
+            style = MaterialTheme.typography.displaySmall.copy(fontSize = 20.sp, lineHeight = 24.sp),
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(top = 5.dp),
+        )
+        Text(
+            text = selectedCategory.blurb,
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 5.dp, bottom = 14.dp),
+        )
+
+        when (selectedCategory) {
+            TvSettingsCategory.General -> TvGeneralSettingsPane(
+                state = state,
+                firstFocusRequester = detailFocusRequester,
+                onShowAudiobooksTabChanged = onShowAudiobooksTabChanged,
+            )
+            TvSettingsCategory.Playback -> TvPlaybackSettingsPane(
+                state = state,
+                firstFocusRequester = detailFocusRequester,
+                onQualityChanged = onQualityChanged,
+                onAudioLanguageChanged = onAudioLanguageChanged,
+                onAutoPlayNextChanged = onAutoPlayNextChanged,
+                onAutoSkipIntroChanged = onAutoSkipIntroChanged,
+                onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+            onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
+            onDolbyVisionEnabledChanged = onDolbyVisionEnabledChanged,
+            onDvProfile7HDR10FallbackChanged = onDvProfile7HDR10FallbackChanged,
+                onResumeRewindSecondsChanged = onResumeRewindSecondsChanged,
+                onPassOutThresholdChanged = onPassOutThresholdChanged,
+                onNextUpPromptSecondsChanged = onNextUpPromptSecondsChanged,
+                onResetPlaybackOverrides = onResetPlaybackOverrides,
+            )
+            TvSettingsCategory.Subtitles -> TvSubtitleSettingsPane(
+                state = state,
+                firstFocusRequester = detailFocusRequester,
+                onSubtitleModeChanged = onSubtitleModeChanged,
+                onSubtitleLanguageChanged = onSubtitleLanguageChanged,
+                onMetadataLanguageChanged = onMetadataLanguageChanged,
+                metadataLanguageEnabled = metadataLanguageEnabled,
+                onShowForcedSubtitlesChanged = onShowForcedSubtitlesChanged,
+                onSubtitleFontSizeChanged = onSubtitleFontSizeChanged,
+                onSubtitleFontFamilyChanged = onSubtitleFontFamilyChanged,
+                onSubtitleFontColorChanged = onSubtitleFontColorChanged,
+                onSubtitleTextOutlineChanged = onSubtitleTextOutlineChanged,
+                onSubtitleTextOutlineColorChanged = onSubtitleTextOutlineColorChanged,
+                onSubtitleBackgroundStyleChanged = onSubtitleBackgroundStyleChanged,
+                onSubtitleBackgroundOpacityChanged = onSubtitleBackgroundOpacityChanged,
+                onSubtitleBackgroundColorChanged = onSubtitleBackgroundColorChanged,
+                onSubtitlePositionChanged = onSubtitlePositionChanged,
+                onResetSubtitleAppearance = onResetSubtitleAppearance,
+                onSubtitleDeviceOverrideEnabledChanged = onSubtitleDeviceOverrideEnabledChanged,
+            onSubtitleMatchesDeviceChanged = onSubtitleMatchesDeviceChanged,
+            )
+            TvSettingsCategory.Server -> TvServerSettingsPane(
+                state = state,
+                diagnosticsState = diagnosticsState,
+                firstFocusRequester = detailFocusRequester,
+                onManageServers = onManageServers,
+                onNavigateToDiagnostics = onNavigateToDiagnostics,
+            )
+        }
+      }
+    }
+}
+
+@Composable
+private fun TvGeneralSettingsPane(
+    state: TvSettingsViewModel.UiState,
+    firstFocusRequester: FocusRequester,
+    onShowAudiobooksTabChanged: (Boolean) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
+    ) {
+        item {
+            // tvOS TVGeneralSettingsPane TOP MENU parity: the Audiobooks tab
+            // is opt-in (hidden by default) even when the server has an
+            // audiobook library.
+            SettingsGroup(title = "Top Menu") {
+                SettingsToggleRow(
+                    label = "Show Audiobooks",
+                    checked = state.showAudiobooksTab,
+                    onCheckedChange = onShowAudiobooksTabChanged,
+                    focusRequester = firstFocusRequester,
+                )
+                SettingsFooterText(
+                    text = "Adds an Audiobooks tab to the top menu when your server has an audiobook library. Hidden by default.",
+                )
+            }
+        }
+        // No Library group — tvOS parity: Apple's TVSettingsView has no such
+        // section (it is iOS-only). On TV these destinations live in the
+        // For You dropdown (Watchlist/Favorites), the profile menu
+        // (Watchlist/Favorites/History), Home (Browse), and each library's
+        // cascade (Collections). (QA 2026-07-08.)
+    }
+}
+
+@Composable
+private fun TvPlaybackSettingsPane(
+    state: TvSettingsViewModel.UiState,
+    firstFocusRequester: FocusRequester,
+    onQualityChanged: (PlaybackQuality) -> Unit,
+    onAudioLanguageChanged: (String) -> Unit,
+    onAutoPlayNextChanged: (Boolean) -> Unit,
+    onAutoSkipIntroChanged: (Boolean) -> Unit,
+    onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onMatchContentFrameRateChanged: (Boolean) -> Unit,
+    onDolbyVisionEnabledChanged: (Boolean) -> Unit,
+    onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
+    onResumeRewindSecondsChanged: (Int) -> Unit,
+    onPassOutThresholdChanged: (Int) -> Unit,
+    onNextUpPromptSecondsChanged: (Int) -> Unit,
+    onResetPlaybackOverrides: () -> Unit,
+) {
+    var activePicker by remember { mutableStateOf<PlaybackPicker?>(null) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
+    ) {
+        item {
+            SettingsGroup(title = "Streaming") {
+                SettingsValueRow(
+                    label = "Quality",
+                    value = state.playbackQuality.label,
+                    onClick = { activePicker = PlaybackPicker.Quality },
+                    focusRequester = firstFocusRequester,
+                )
+                SettingsValueRow(
+                    label = "Audio Language",
+                    value = audioLanguageLabel(state.audioLanguage),
+                    onClick = { activePicker = PlaybackPicker.AudioLanguage },
+                )
+                // tvOS TVPlaybackSettingsPane STREAMING parity: Dolby Vision
+                // (default on; off plays the HDR10 base layer) with the
+                // narrower Profile 7 fallback nested under it — the P7 row
+                // only shows while Dolby Vision is on, as on Apple TV.
+                SettingsToggleRow(
+                    label = "Dolby Vision",
+                    checked = state.dolbyVisionEnabled,
+                    onCheckedChange = onDolbyVisionEnabledChanged,
+                )
+                if (state.dolbyVisionEnabled) {
+                    SettingsToggleRow(
+                        label = "Profile 7 HDR10 Fallback",
+                        checked = state.dvProfile7HDR10Fallback,
+                        onCheckedChange = onDvProfile7HDR10FallbackChanged,
+                    )
+                }
+                SettingsToggleRow(
+                    label = "Match Content Frame Rate",
+                    checked = state.matchContentFrameRate,
+                    onCheckedChange = onMatchContentFrameRateChanged,
+                )
+            }
+        }
+        item {
+            SettingsGroup(title = "Episodes") {
+                SettingsToggleRow(
+                    label = "Auto-Play Next Episode",
+                    checked = state.autoPlayNext,
+                    onCheckedChange = onAutoPlayNextChanged,
+                )
+                SettingsValueRow(
+                    label = "Show Next Up",
+                    value = nextUpPromptLabel(state.nextUpPromptSeconds),
+                    onClick = { activePicker = PlaybackPicker.NextUpPrompt },
+                )
+                SettingsToggleRow(
+                    label = "Auto-Skip Intros",
+                    checked = state.autoSkipIntro,
+                    onCheckedChange = onAutoSkipIntroChanged,
+                )
+                SettingsToggleRow(
+                    label = "Auto-Skip Credits",
+                    checked = state.autoSkipCredits,
+                    onCheckedChange = onAutoSkipCreditsChanged,
+                )
+                SettingsValueRow(
+                    label = "Resume Skip-Back",
+                    value = resumeRewindLabel(state.resumeRewindSeconds),
+                    onClick = { activePicker = PlaybackPicker.ResumeRewind },
+                )
+                SettingsValueRow(
+                    label = "Still-Watching Prompt After",
+                    value = passOutThresholdLabel(state.passOutThreshold),
+                    onClick = { activePicker = PlaybackPicker.PassOutThreshold },
+                )
+            }
+        }
+        item {
+            SettingsGroup(title = "Reset") {
+                SettingsActionRow(
+                    label = "Reset Playback Overrides",
+                    onClick = onResetPlaybackOverrides,
+                    destructive = true,
+                )
+                SettingsFooterText(
+                    text = "Resets playback choices for this Android TV and profile back to the server fallback.",
+                )
+            }
+        }
+    }
+
+    when (activePicker) {
+        PlaybackPicker.Quality -> TvSettingsPickerSheet(
+            title = "Quality",
+            options = PlaybackQuality.values().map { PickerOption(it.name, it.label) },
+            selectedId = state.playbackQuality.name,
+            onSelect = { id ->
+                PlaybackQuality.values().firstOrNull { it.name == id }?.let(onQualityChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        PlaybackPicker.AudioLanguage -> TvSettingsPickerSheet(
+            title = "Audio Language",
+            options = AudioLanguages.map { PickerOption(it.first, it.second) },
+            selectedId = state.audioLanguage,
+            onSelect = { onAudioLanguageChanged(it); activePicker = null },
+            onDismiss = { activePicker = null },
+        )
+        PlaybackPicker.NextUpPrompt -> TvSettingsPickerSheet(
+            title = "Show Next Up",
+            options = NextUpPromptOptions.map { PickerOption(it.toString(), nextUpPromptLabel(it)) },
+            selectedId = state.nextUpPromptSeconds.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let(onNextUpPromptSecondsChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        PlaybackPicker.ResumeRewind -> TvSettingsPickerSheet(
+            title = "Resume Skip-Back",
+            options = ResumeRewindOptions.map { PickerOption(it.toString(), resumeRewindLabel(it)) },
+            selectedId = state.resumeRewindSeconds.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let(onResumeRewindSecondsChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        PlaybackPicker.PassOutThreshold -> TvSettingsPickerSheet(
+            title = "Still-Watching Prompt After",
+            options = PassOutThresholdOptions.map { PickerOption(it.toString(), passOutThresholdLabel(it)) },
+            selectedId = state.passOutThreshold.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let(onPassOutThresholdChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        null -> Unit
+    }
+}
+
+@Composable
+private fun TvSubtitleSettingsPane(
+    state: TvSettingsViewModel.UiState,
+    firstFocusRequester: FocusRequester,
+    onSubtitleModeChanged: (SubtitleMode) -> Unit,
+    onSubtitleLanguageChanged: (String) -> Unit,
+    onMetadataLanguageChanged: (String) -> Unit,
+    metadataLanguageEnabled: Boolean,
+    onShowForcedSubtitlesChanged: (Boolean) -> Unit,
+    onSubtitleFontSizeChanged: (SubtitleFontSizePreset) -> Unit,
+    onSubtitleFontFamilyChanged: (String) -> Unit,
+    onSubtitleFontColorChanged: (String) -> Unit,
+    onSubtitleTextOutlineChanged: (Boolean) -> Unit,
+    onSubtitleTextOutlineColorChanged: (String) -> Unit,
+    onSubtitleBackgroundStyleChanged: (SubtitleBackgroundStylePreset) -> Unit,
+    onSubtitleBackgroundOpacityChanged: (Int) -> Unit,
+    onSubtitleBackgroundColorChanged: (String) -> Unit,
+    onSubtitlePositionChanged: (SubtitlePositionPreset) -> Unit,
+    onResetSubtitleAppearance: () -> Unit,
+    onSubtitleDeviceOverrideEnabledChanged: (Boolean) -> Unit,
+    onSubtitleMatchesDeviceChanged: (Boolean) -> Unit,
+) {
+    var activePicker by remember { mutableStateOf<SubtitlePicker?>(null) }
+    var showResetConfirmation by remember { mutableStateOf(false) }
+    val appearance = state.subtitleAppearance
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
+    ) {
+        item {
+            SettingsGroup(title = "Profile") {
+                SettingsValueRow(
+                    label = "Mode",
+                    value = state.subtitleMode.label,
+                    onClick = { activePicker = SubtitlePicker.Mode },
+                    focusRequester = firstFocusRequester,
+                )
+                SettingsValueRow(
+                    label = "Language",
+                    value = subtitleLanguageLabel(state.subtitleLanguage),
+                    onClick = { activePicker = SubtitlePicker.Language },
+                )
+                if (metadataLanguageEnabled) {
+                    SettingsValueRow(
+                        label = "Metadata Language",
+                        value = subtitleLanguageLabel(state.metadataLanguage),
+                        onClick = { activePicker = SubtitlePicker.MetadataLanguage },
+                    )
+                }
+                SettingsToggleRow(
+                    label = "Show Forced Subtitles",
+                    checked = state.showForcedSubtitles,
+                    onCheckedChange = onShowForcedSubtitlesChanged,
+                )
+                SettingsFooterText(
+                    text = "Used to pick a matching track when one is available. Forced subtitles cover " +
+                        "foreign-language dialogue even when subtitles are off or set to auto.",
+                )
+            }
+        }
+        item {
+            SettingsGroup(title = "Appearance") {
+                TvSettingsSubtitlePreview(state.effectiveSubtitleAppearance)
+                SettingsToggleRow(
+                    // tvOS parity: appearance follows the OS captioning
+                    // settings while this is on.
+                    label = "Use System Caption Style",
+                    checked = state.subtitleMatchesDevice,
+                    onCheckedChange = onSubtitleMatchesDeviceChanged,
+                )
+                SettingsToggleRow(
+                    label = "Custom Subtitle Appearance",
+                    checked = state.subtitleUsesDeviceOverride,
+                    onCheckedChange = onSubtitleDeviceOverrideEnabledChanged,
+                )
+                SettingsNestedGroup(enabled = state.subtitleUsesDeviceOverride) {
+                    SettingsValueRow(
+                        label = "Font Size",
+                        value = TvSubtitleAppearanceOptions.fontSizeLabel(appearance.fontSize),
+                        onClick = { activePicker = SubtitlePicker.FontSize },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsValueRow(
+                        label = "Font Family",
+                        value = TvSubtitleAppearanceOptions.fontFamilyLabel(appearance.fontFamily),
+                        onClick = { activePicker = SubtitlePicker.FontFamily },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsValueRow(
+                        label = "Font Color",
+                        value = TvSubtitleAppearanceOptions.fontColorLabel(appearance.fontColor),
+                        onClick = { activePicker = SubtitlePicker.FontColor },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsToggleRow(
+                        label = "Text Outline",
+                        checked = appearance.textOutline,
+                        onCheckedChange = onSubtitleTextOutlineChanged,
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsValueRow(
+                        label = "Outline Color",
+                        value = TvSubtitleAppearanceOptions.outlineColorLabel(appearance.textOutlineColor),
+                        onClick = { activePicker = SubtitlePicker.OutlineColor },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsValueRow(
+                        label = "Background Style",
+                        value = TvSubtitleAppearanceOptions.backgroundStyleLabel(appearance.backgroundStyle),
+                        onClick = { activePicker = SubtitlePicker.BackgroundStyle },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsValueRow(
+                        label = "Background Opacity",
+                        value = "${appearance.backgroundOpacity}%",
+                        onClick = { activePicker = SubtitlePicker.BackgroundOpacity },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsValueRow(
+                        label = "Background Color",
+                        value = TvSubtitleAppearanceOptions.backgroundColorLabel(appearance.backgroundColor),
+                        onClick = { activePicker = SubtitlePicker.BackgroundColor },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsValueRow(
+                        label = "Position",
+                        value = TvSubtitleAppearanceOptions.positionLabel(appearance.position),
+                        onClick = { activePicker = SubtitlePicker.Position },
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                    SettingsActionRow(
+                        label = "Reset Custom Appearance",
+                        onClick = { showResetConfirmation = true },
+                        destructive = true,
+                        enabled = state.subtitleUsesDeviceOverride,
+                    )
+                }
+            }
+        }
+        item {
+            SettingsFooterText(
+                text = if (state.subtitleUsesDeviceOverride) {
+                    "Appearance is saved on the server for this profile on this device."
+                } else {
+                    "Appearance is using the server fallback for this profile on this device."
+                },
+            )
+        }
+    }
+
+    when (activePicker) {
+        SubtitlePicker.Mode -> TvSettingsPickerSheet(
+            title = "Mode",
+            options = SubtitleMode.values().map { PickerOption(it.name, it.label) },
+            selectedId = state.subtitleMode.name,
+            onSelect = { id ->
+                SubtitleMode.values().firstOrNull { it.name == id }?.let(onSubtitleModeChanged)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.Language -> TvSettingsPickerSheet(
+            title = "Language",
+            options = SubtitleLanguages.map { PickerOption(it.first, it.second) },
+            selectedId = state.subtitleLanguage,
+            onSelect = { onSubtitleLanguageChanged(it); activePicker = null },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.MetadataLanguage -> TvSettingsPickerSheet(
+            title = "Metadata Language",
+            options = SubtitleLanguages.map { PickerOption(it.first, it.second) },
+            selectedId = state.metadataLanguage,
+            onSelect = { onMetadataLanguageChanged(it); activePicker = null },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.FontSize -> TvSettingsPickerSheet(
+            title = "Font Size",
+            options = TvSubtitleAppearanceOptions.FONT_SIZES.map { PickerOption(it.first.name, it.second) },
+            selectedId = appearance.fontSize.name,
+            onSelect = { id ->
+                TvSubtitleAppearanceOptions.FONT_SIZES.firstOrNull { it.first.name == id }?.let {
+                    onSubtitleFontSizeChanged(it.first)
+                }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.FontFamily -> TvSettingsPickerSheet(
+            title = "Font Family",
+            options = TvSubtitleAppearanceOptions.FONT_FAMILIES.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.fontFamily,
+            onSelect = { id ->
+                TvSubtitleAppearanceOptions.FONT_FAMILIES.firstOrNull { it.first == id }?.let {
+                    onSubtitleFontFamilyChanged(it.first)
+                }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.FontColor -> TvSettingsPickerSheet(
+            title = "Font Color",
+            options = TvSubtitleAppearanceOptions.FONT_COLORS.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.fontColor.lowercase(),
+            onSelect = { id ->
+                onSubtitleFontColorChanged(id)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.OutlineColor -> TvSettingsPickerSheet(
+            title = "Outline Color",
+            options = TvSubtitleAppearanceOptions.OUTLINE_COLORS.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.textOutlineColor.lowercase(),
+            onSelect = { id ->
+                onSubtitleTextOutlineColorChanged(id)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.BackgroundStyle -> TvSettingsPickerSheet(
+            title = "Background Style",
+            options = TvSubtitleAppearanceOptions.BACKGROUND_STYLES.map { PickerOption(it.first.name, it.second) },
+            selectedId = appearance.backgroundStyle.name,
+            onSelect = { id ->
+                TvSubtitleAppearanceOptions.BACKGROUND_STYLES.firstOrNull { it.first.name == id }?.let {
+                    onSubtitleBackgroundStyleChanged(it.first)
+                }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.BackgroundOpacity -> TvSettingsPickerSheet(
+            title = "Background Opacity",
+            options = TvSubtitleAppearanceOptions.OPACITY_PERCENT_STEPS.map { PickerOption(it.toString(), "$it%") },
+            selectedId = appearance.backgroundOpacity.toString(),
+            onSelect = { id ->
+                id.toIntOrNull()?.let { onSubtitleBackgroundOpacityChanged(it) }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.BackgroundColor -> TvSettingsPickerSheet(
+            title = "Background Color",
+            options = TvSubtitleAppearanceOptions.BACKGROUND_COLORS.map { PickerOption(it.first, it.second) },
+            selectedId = appearance.backgroundColor.lowercase(),
+            onSelect = { id ->
+                onSubtitleBackgroundColorChanged(id)
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        SubtitlePicker.Position -> TvSettingsPickerSheet(
+            title = "Position",
+            options = TvSubtitleAppearanceOptions.POSITIONS.map { PickerOption(it.first.name, it.second) },
+            selectedId = appearance.position.name,
+            onSelect = { id ->
+                TvSubtitleAppearanceOptions.POSITIONS.firstOrNull { it.first.name == id }?.let {
+                    onSubtitlePositionChanged(it.first)
+                }
+                activePicker = null
+            },
+            onDismiss = { activePicker = null },
+        )
+        null -> Unit
+    }
+
+    if (showResetConfirmation) {
+        TvSettingsConfirmDialog(
+            title = "Reset Custom Appearance?",
+            message = "This restores all custom subtitle appearance options to their defaults.",
+            confirmLabel = "Reset",
+            onConfirm = {
+                showResetConfirmation = false
+                onResetSubtitleAppearance()
+            },
+            onDismiss = { showResetConfirmation = false },
+        )
+    }
+}
+
+/** Live approximation of the effective subtitle style, matching tvOS Settings. */
+@Composable
+private fun TvSettingsSubtitlePreview(appearance: SubtitleAppearance) {
+    val safe = appearance.sanitized()
+    val alignment = when (safe.position) {
+        SubtitlePositionPreset.Top -> Alignment.TopCenter
+        SubtitlePositionPreset.LowerThird -> Alignment.BottomCenter
+        SubtitlePositionPreset.Bottom -> Alignment.BottomCenter
+    }
+    val bottomPadding = if (safe.position == SubtitlePositionPreset.LowerThird) 18.dp else 7.dp
+    val fontFamily = when (safe.fontFamily.lowercase()) {
+        SubtitleAppearance.SERIF -> FontFamily.Serif
+        SubtitleAppearance.MONOSPACE -> FontFamily.Monospace
+        else -> FontFamily.SansSerif
+    }
+    val fontSize = (safe.fontSize.pointSize * 0.36).sp
+    val foreground = settingsHexColor(safe.fontColor)
+    val outline = settingsHexColor(safe.textOutlineColor)
+    val showOutline = safe.textOutline || safe.backgroundStyle == SubtitleBackgroundStylePreset.Outline
+    val boxColor = settingsHexColor(safe.backgroundColor).copy(
+        alpha = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) {
+            safe.backgroundOpacity.coerceIn(0, 100) / 100f
+        } else {
+            0f
+        },
+    )
+
+    Box(
+        modifier = Modifier
+            .widthIn(max = RowMaxWidth)
+            .fillMaxWidth()
+            .height(76.dp)
+            .padding(bottom = 7.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF55575A), Color(0xFF101113)),
+                ),
+            )
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        contentAlignment = alignment,
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(bottom = bottomPadding)
+                .clip(RoundedCornerShape(3.dp))
+                .background(boxColor)
+                .padding(
+                    horizontal = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) 7.dp else 0.dp,
+                    vertical = if (safe.backgroundStyle == SubtitleBackgroundStylePreset.Box) 2.dp else 0.dp,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (showOutline) {
+                listOf(-1 to -1, -1 to 1, 1 to -1, 1 to 1).forEach { (x, y) ->
+                    Text(
+                        text = SubtitlePreviewText,
+                        color = outline,
+                        fontFamily = fontFamily,
+                        fontSize = fontSize,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.offset(x.dp, y.dp),
+                    )
+                }
+            }
+            Text(
+                text = SubtitlePreviewText,
+                color = foreground,
+                fontFamily = fontFamily,
+                fontSize = fontSize,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvServerSettingsPane(
+    state: TvSettingsViewModel.UiState,
+    diagnosticsState: org.prairieserver.prairie.common.diagnostics.DiagnosticsUiState,
+    firstFocusRequester: FocusRequester,
+    onManageServers: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = Spacing.xxxl),
+    ) {
+        item {
+            SettingsGroup(title = "Active Server") {
+                SettingsInfoRow(
+                    label = "Server",
+                    value = state.serverName.ifBlank { "Not configured" },
+                )
+                if (state.serverUrl.isNotBlank() && state.serverName != state.serverUrl) {
+                    SettingsInfoRow(label = "URL", value = state.serverUrl, singleLine = false)
+                }
+                SettingsActionRow(
+                    label = "Manage Servers",
+                    onClick = onManageServers,
+                    focusRequester = firstFocusRequester,
+                )
+            }
+        }
+        if (diagnosticsState.profileEligible) {
+            item {
+                SettingsGroup(title = "Diagnostics") {
+                    SettingsActionRow(
+                        label = "Diagnostics & Crash Reports",
+                        onClick = onNavigateToDiagnostics,
+                    )
+                    SettingsFooterText(
+                        text = "Review local reports, choose consent, and run a timed diagnostic capture.",
+                    )
+                }
+            }
+        }
+        item {
+            SettingsGroup(title = "About") {
+                SettingsInfoRow(label = "Version", value = BuildConfig.VERSION_NAME)
+            }
+        }
+    }
+}
+
+private const val SubtitlePreviewText = "Subtitles will look like this"
+
+private fun settingsHexColor(value: String): Color = runCatching {
+    val normalized = value.trim().removePrefix("#")
+    Color(0xFF000000.toInt() or (normalized.toLong(16).toInt() and 0x00FFFFFF))
+}.getOrElse { Color.White }
+
+// tvOS `accountSubtitle` parity: "Administrator" for admins, else the
+// username, else a generic signed-in line.
+private fun accountSubtitle(state: TvSettingsViewModel.UiState): String {
+    val role = state.user?.role?.trim().orEmpty()
+    if (role.equals("admin", ignoreCase = true)) return "Administrator"
+    return state.user?.username?.takeIf { it.isNotBlank() } ?: "Signed in"
+}
+
+private enum class PlaybackPicker { Quality, AudioLanguage, NextUpPrompt, ResumeRewind, PassOutThreshold }
+
+private enum class SubtitlePicker {
+    Mode,
+    Language,
+    MetadataLanguage,
+    FontSize,
+    FontFamily,
+    FontColor,
+    OutlineColor,
+    BackgroundStyle,
+    BackgroundOpacity,
+    BackgroundColor,
+    Position,
+}
+
+// ---------------------------------------------------------------------------
+// Reusable picker sheet (centered modal vertical option list)
+// ---------------------------------------------------------------------------
+
+data class PickerOption(val id: String, val label: String)
+
+/**
+ * Reusable centered modal option picker. Renders a vertical list with a
+ * checkmark on the current selection, auto-focuses the selected row and
+ * scrolls it into view, and dismisses on selection or Back. Mirrors the
+ * tvOS `TVSettingsPickerSheet`.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvSettingsPickerSheet(
+    title: String,
+    options: List<PickerOption>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+
+    val initialFocus = remember { FocusRequester() }
+    val selectedIndex = options.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+    val focusTargetIndex = if (options.isEmpty()) -1 else selectedIndex
+    val listState: LazyListState = rememberLazyListState()
+
+    LaunchedEffect(title, selectedId) {
+        if (focusTargetIndex >= 0) {
+            runCatching { listState.scrollToItem(focusTargetIndex) }
+            runCatching { initialFocus.requestFocus() }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        // tvOS presents pickers as a fullScreenCover over the opaque app
+        // background with a leading nav title and a centered option column.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.94f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.displaySmall.copy(fontSize = 19.sp, lineHeight = 23.sp),
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 20.dp),
+                )
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .width(420.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    items(options, key = { it.id }) { option ->
+                        val isFocusTarget = option.id == (options.getOrNull(focusTargetIndex)?.id)
+                        TvSettingsPickerOptionRow(
+                            option = option,
+                            selected = option.id == selectedId,
+                            onClick = { onSelect(option.id) },
+                            modifier = if (isFocusTarget) {
+                                Modifier.focusRequester(initialFocus)
+                            } else {
+                                Modifier
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSettingsPickerOptionRow(
+    option: PickerOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(7.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.07f),
+            contentColor = Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.09f)), shape = shape),
+            focusedBorder = Border.None,
+            pressedBorder = Border.None,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { this.selected = selected },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // tvOS TVSettingsPickerOptionRow: the checkmark leads and always
+            // reserves its slot so option labels stay aligned.
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = if (isFocused) FocusedContent else Color.White,
+                modifier = Modifier
+                    .size(15.dp)
+                    .alpha(if (selected) 1f else 0f),
+            )
+            Text(
+                text = option.label,
+                style = MaterialTheme.typography.headlineSmall.copy(fontSize = 15.sp, lineHeight = 18.sp),
+                color = if (isFocused) FocusedContent else Color.White,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Confirm dialog
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSettingsConfirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+    // Default focus lands on Cancel so a stray OK press never triggers the
+    // destructive action.
+    val cancelFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.86f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(320.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, lineHeight = 22.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 17.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DialogButton(
+                        label = "Cancel",
+                        onClick = onDismiss,
+                        focusRequester = cancelFocus,
+                    )
+                    DialogButton(
+                        label = confirmLabel,
+                        onClick = onConfirm,
+                        destructive = true,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DialogButton(
+    label: String,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    focusRequester: FocusRequester? = null,
+) {
+    val shape = RoundedCornerShape(6.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.08f),
+            contentColor = if (destructive) MaterialTheme.colorScheme.error else Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, lineHeight = 17.sp),
+            color = if (isFocused) FocusedContent else if (destructive) MaterialTheme.colorScheme.error else Color.White,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared row primitives — inverted-capsule focus chrome
+// ---------------------------------------------------------------------------
+
+/**
+ * tvOS `TVSettingsSectionHeader` parity: small mono uppercase section label
+ * (size 15pt mono semibold, tracking 2) above tightly packed rows.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsGroup(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title.uppercase(),
+            style = SettingsMonoHeaderStyle(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 2.dp),
+        )
+        content()
+    }
+}
+
+@Composable
+private fun SettingsNestedGroup(
+    enabled: Boolean,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .widthIn(max = RowMaxWidth)
+            .fillMaxWidth()
+            .padding(start = 14.dp, top = 2.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.White.copy(alpha = 0.025f))
+            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(10.dp))
+            .padding(6.dp)
+            .alpha(if (enabled) 1f else 0.42f),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun SettingsMonoHeaderStyle() =
+    MaterialTheme.typography.labelMedium.copy(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 1.5.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+
+/** Shared 16sp text for all detail-pane row labels and values. */
+@Composable
+private fun SettingsRowTextStyle() =
+    MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 20.sp)
+
+private val RowShape = RoundedCornerShape(10.dp)
+private val RowMaxWidth = 520.dp
+// 42dp keeps the 16sp row text comfortably centered — audit 2026-07-20.
+private val RowHeight = 42.dp
+private val SettingsBackground = Color(0xFF17181A)
+
+// tvOS destructive row colors: bright red at rest on black, deeper red on the
+// focused white platter (TVSettingsRailRowStyle).
+private val DestructiveRed = Color(0xFFD22F3F)
+private val DestructiveRedOnPlatter = Color(0xFFB00020)
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsAccountRow(
+    name: String,
+    subtitle: String,
+    avatar: String?,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        // tvOS rail parity: the profile row rests transparent (no card fill)
+        // and only inverts to the platter on focus.
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = Color.White,
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+            pressedContainerColor = FocusedContainer,
+            pressedContentColor = FocusedContent,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isFocused) FocusedContent.copy(alpha = 0.15f)
+                        else Color.White.copy(alpha = 0.12f),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = name.take(1).uppercase(),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp),
+                    color = if (isFocused) FocusedContent else Color.White,
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, lineHeight = 17.sp),
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isFocused) FocusedContent else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+                    color = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.5f),
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsValueRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+    enabled: Boolean = true,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val reportDetailFocus = LocalSettingsDetailFocusReporter.current
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = invertedRowColors(),
+        border = invertedRowBorder(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        // widthIn must precede fillMaxWidth: as the outer constraint it caps
+        // the row at RowMaxWidth, and fillMaxWidth then stretches to that cap
+        // (the reverse order lets fillMaxWidth's fixed constraints win).
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .widthIn(max = RowMaxWidth)
+            .fillMaxWidth()
+            .height(RowHeight)
+            .onFocusChanged { if (it.isFocused) reportDetailFocus(true) },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = label,
+                style = SettingsRowTextStyle(),
+                color = if (isFocused) FocusedContent else Color.White,
+                modifier = Modifier.weight(1f),
+            )
+            if (value.isNotBlank()) {
+                Text(
+                    text = value,
+                    style = SettingsRowTextStyle(),
+                    color = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.68f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.55f),
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsActionRow(
+    label: String,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    enabled: Boolean = true,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val reportDetailFocus = LocalSettingsDetailFocusReporter.current
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = invertedRowColors(),
+        border = invertedRowBorder(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        // widthIn must precede fillMaxWidth: as the outer constraint it caps
+        // the row at RowMaxWidth, and fillMaxWidth then stretches to that cap
+        // (the reverse order lets fillMaxWidth's fixed constraints win).
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .widthIn(max = RowMaxWidth)
+            .fillMaxWidth()
+            .height(RowHeight)
+            .onFocusChanged { if (it.isFocused) reportDetailFocus(true) },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = SettingsRowTextStyle(),
+                color = when {
+                    isFocused && destructive -> DestructiveRedOnPlatter
+                    isFocused -> FocusedContent
+                    destructive -> DestructiveRed
+                    else -> Color.White
+                },
+                modifier = Modifier.weight(1f),
+            )
+            if (!destructive) {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = (if (isFocused) FocusedContent else Color.White).copy(alpha = 0.55f),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    focusRequester: FocusRequester? = null,
+    enabled: Boolean = true,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val reportDetailFocus = LocalSettingsDetailFocusReporter.current
+    Surface(
+        onClick = { onCheckedChange(!checked) },
+        enabled = enabled,
+        interactionSource = interactionSource,
+        shape = ClickableSurfaceDefaults.shape(shape = RowShape),
+        colors = invertedRowColors(),
+        border = invertedRowBorder(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f),
+        // widthIn must precede fillMaxWidth: as the outer constraint it caps
+        // the row at RowMaxWidth, and fillMaxWidth then stretches to that cap
+        // (the reverse order lets fillMaxWidth's fixed constraints win).
+        modifier = (focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .widthIn(max = RowMaxWidth)
+            .fillMaxWidth()
+            .height(RowHeight)
+            .onFocusChanged { if (it.isFocused) reportDetailFocus(true) },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = SettingsRowTextStyle(),
+                color = if (isFocused) FocusedContent else Color.White,
+                modifier = Modifier.weight(1f),
+            )
+            // tvOS TVSettingsToggleRow: the state reads as text — semibold and
+            // near-opaque when on, faded when off. No accent color.
+            Text(
+                text = if (checked) "On" else "Off",
+                style = SettingsRowTextStyle(),
+                fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Normal,
+                color = (if (isFocused) FocusedContent else Color.White)
+                    .copy(alpha = if (checked) 0.9f else 0.55f),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsInfoRow(label: String, value: String, singleLine: Boolean = true) {
+    Row(
+        modifier = Modifier
+            .widthIn(max = RowMaxWidth)
+            .fillMaxWidth()
+            .let { if (singleLine) it.height(RowHeight) else it.heightIn(min = RowHeight) }
+            .clip(RowShape)
+            .background(Color.White.copy(alpha = 0.07f))
+            .border(1.dp, Color.White.copy(alpha = 0.09f), RowShape)
+            .padding(horizontal = 16.dp, vertical = if (singleLine) 0.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = SettingsRowTextStyle(),
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = SettingsRowTextStyle(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // Long values (the server URL) wrap instead of truncating into
+            // unreadability (QA 2026-07-08).
+            maxLines = if (singleLine) 1 else 3,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(2f),
+        )
+    }
+}
+
+/** Non-focusable explanatory footer below a settings group (tvOS `TVSettingsFooter`). */
+@Composable
+private fun SettingsFooterText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+        modifier = Modifier
+            .widthIn(max = RowMaxWidth)
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp),
+    )
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun invertedRowColors() = ClickableSurfaceDefaults.colors(
+    containerColor = Color.White.copy(alpha = 0.07f),
+    contentColor = Color.White,
+    focusedContainerColor = FocusedContainer,
+    focusedContentColor = FocusedContent,
+    pressedContainerColor = FocusedContainer,
+    pressedContentColor = FocusedContent,
+)
+
+/**
+ * tvOS `TVSettingsPaneRowStyle` parity: resting rows carry a hairline
+ * `white 0.09` border over the `white 0.07` fill; the focused platter drops it.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun invertedRowBorder() = ClickableSurfaceDefaults.border(
+    border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.09f)), shape = RowShape),
+    focusedBorder = Border.None,
+    pressedBorder = Border.None,
+)
+
+// ---------------------------------------------------------------------------
+// Option data + value formatting
+// ---------------------------------------------------------------------------
+
+// Discrete choices for the F1/F2 behavior settings (0 = off).
+private val ResumeRewindOptions = listOf(0, 3, 5, 7, 10, 15, 20, 30)
+private val PassOutThresholdOptions = listOf(0, 2, 3, 4, 5)
+
+// Up-Next prompt timing (seconds before end; 0 = at end). Mirrors tvOS.
+private val NextUpPromptOptions = listOf(0, 10, 30, 60, 120)
+
+// Audio-language options mirror the phone: the stored value IS the display
+// name (Default => "" locally), persisted to playerSettingsStore.audioLanguage.
+private val AudioLanguages = listOf(
+    "" to "Default",
+    "English" to "English",
+    "Spanish" to "Spanish",
+    "French" to "French",
+    "German" to "German",
+    "Japanese" to "Japanese",
+    "Korean" to "Korean",
+    "Chinese" to "Chinese",
+    "Portuguese" to "Portuguese",
+    "Italian" to "Italian",
+    "Russian" to "Russian",
+)
+
+private val SubtitleLanguages = listOf(
+    "" to "Off",
+    "en" to "English",
+    "es" to "Spanish",
+    "fr" to "French",
+    "de" to "German",
+    "ja" to "Japanese",
+    "ko" to "Korean",
+    "zh" to "Chinese",
+    "pt" to "Portuguese",
+    "it" to "Italian",
+    "ru" to "Russian",
+)
+
+private fun audioLanguageLabel(wire: String): String =
+    AudioLanguages.firstOrNull { it.first == wire }?.second ?: "Default"
+
+private fun subtitleLanguageLabel(wire: String): String =
+    SubtitleLanguages.firstOrNull { it.first == wire }?.second ?: "Off"
+
+private fun resumeRewindLabel(seconds: Int): String =
+    if (seconds <= 0) "Off" else "${seconds}s"
+
+private fun passOutThresholdLabel(count: Int): String =
+    if (count <= 0) "Off" else "$count"
+
+private fun nextUpPromptLabel(seconds: Int): String = when {
+    seconds <= 0 -> "At end"
+    seconds < 60 -> "$seconds seconds before end"
+    seconds == 60 -> "1 minute before end"
+    else -> "${seconds / 60} minutes before end"
+}

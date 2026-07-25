@@ -12,7 +12,7 @@ This plan does NOT rebuild the per-profile infrastructure (already shipping). It
 
 **Tech stack:** Kotlin 2.1.20, `androidx.datastore.preferences`, existing Koin DI, `EncryptedTokenManagerImpl.getProfileId()` as the profile identity source.
 
-**Reference:** Spec section D at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. The spec was outdated — fix it during cleanup. Pattern reference: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/settings/AndroidPlayerSettingsStore.kt:41-44` (per-profile DataStore factory pattern).
+**Reference:** Spec section D at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. The spec was outdated — fix it during cleanup. Pattern reference: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/settings/AndroidPlayerSettingsStore.kt:41-44` (per-profile DataStore factory pattern).
 
 **Testing posture:** Per `AGENTS.md`, focused tests for non-trivial logic. The new store's per-profile keying is simple and worth a small Robolectric-style test (or skipped if test infra friction is high).
 
@@ -21,7 +21,7 @@ This plan does NOT rebuild the per-profile infrastructure (already shipping). It
 ### Task 1: Create `TvLibrarySelectionStore` (per-profile DataStore for `selectedLibraryId`)
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/TvLibrarySelectionStore.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/TvLibrarySelectionStore.kt`
 
 **Why:** A tiny per-profile DataStore that owns just one key. Avoids piggybacking on `AndroidPlayerSettingsStore` (which would mix UI state into a server-flushed settings store) and avoids resurrecting `TvPreferences`.
 
@@ -148,7 +148,7 @@ class TvLibrarySelectionStore(
 
 - [ ] **Step 2: Register in Koin**
 
-Open `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`. Add (near the existing `TvPreferences` registration — likely around line 84):
+Open `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`. Add (near the existing `TvPreferences` registration — likely around line 84):
 
 ```kotlin
     single { TvLibrarySelectionStore(androidContext(), get()) }
@@ -159,7 +159,7 @@ Open `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv
 - [ ] **Step 3: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -167,11 +167,11 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/TvLibrarySelectionStore.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv): TvLibrarySelectionStore — per-profile selected-library state (D)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv): TvLibrarySelectionStore — per-profile selected-library state (D)
 
 New tiny per-profile DataStore that owns just selectedLibraryId. Models
 the file-per-profile pattern from AndroidPlayerSettingsStore but with
@@ -187,14 +187,14 @@ TvLibrariesViewModel consumer migration lands in the next commit."
 ### Task 2: Migrate `TvLibrariesViewModel` to the new store
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt`
 
 **Why:** This is the only live consumer of `TvPreferences.selectedLibraryId`. After this commit, `TvPreferences.kt` is fully unused outside the legacy migration-only reads in `TvSettingsViewModel` (cleaned in Task 3).
 
 - [ ] **Step 1: Read the current ViewModel**
 
 ```bash
-sed -n '1,80p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt
+sed -n '1,80p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt
 ```
 
 Look for:
@@ -246,7 +246,7 @@ In `AndroidTvModule.kt`, find the `viewModel { TvLibrariesViewModel(...) }` regi
 - [ ] **Step 6: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If `TvPreferences` is now unreferenced from `TvLibrariesViewModel.kt` but still imported, remove the orphan import.
@@ -254,11 +254,11 @@ Expected: BUILD SUCCESSFUL. If `TvPreferences` is now unreferenced from `TvLibra
 - [ ] **Step 7: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/libraries/TvLibrariesViewModel.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "refactor(tv-libraries): use TvLibrarySelectionStore for selected library (D)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "refactor(tv-libraries): use TvLibrarySelectionStore for selected library (D)
 
 TvLibrariesViewModel now reads/writes the per-profile selectedLibraryId
 via TvLibrarySelectionStore (filename hashed per profile) instead of
@@ -276,9 +276,9 @@ the next commit."
 ### Task 3: Delete `TvPreferences` + drop the dead legacy migration reads
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
-- Delete: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/TvPreferences.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
+- Delete: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/TvPreferences.kt`
 
 **Why:** With Task 2 done, the only remaining references are (a) the legacy-migration reads in `TvSettingsViewModel` (dead — the migration already executed) and (b) the Koin registration in `AndroidTvModule.kt`. Both go.
 
@@ -287,7 +287,7 @@ the next commit."
 - [ ] **Step 1: Grep guard — confirm where TvPreferences is still referenced**
 
 ```bash
-grep -rnE "TvPreferences\b" /opt/silo-android/androidTvApp/src
+grep -rnE "TvPreferences\b" /opt/prairie-android/androidTvApp/src
 ```
 
 Expected hits after Task 2:
@@ -320,13 +320,13 @@ In `AndroidTvModule.kt`:
 - [ ] **Step 4: Delete the TvPreferences.kt file**
 
 ```bash
-git -C /opt/silo-android rm androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/TvPreferences.kt
+git -C /opt/prairie-android rm androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/data/preferences/TvPreferences.kt
 ```
 
 - [ ] **Step 5: Build to verify nothing compiles against it**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If `Unresolved reference: TvPreferences` surfaces, Steps 2-3 missed a reference — investigate.
@@ -334,11 +334,11 @@ Expected: BUILD SUCCESSFUL. If `Unresolved reference: TvPreferences` surfaces, S
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/settings/TvSettingsViewModel.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "chore(tv): delete legacy TvPreferences (D)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "chore(tv): delete legacy TvPreferences (D)
 
 After Task 2 moved selectedLibraryId to TvLibrarySelectionStore, the
 only remaining TvPreferences references were the legacy-migration

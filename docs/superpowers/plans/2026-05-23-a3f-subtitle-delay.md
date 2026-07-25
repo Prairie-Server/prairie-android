@@ -13,8 +13,8 @@
 **Tech stack:** Kotlin, Media3 1.10.0, existing per-profile DataStore.
 
 **Reference:**
-- Spec section A.3 (subtitles delay) at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`.
-- E plan for the analogous audio-delay pattern: `/opt/silo-android/docs/superpowers/plans/2026-05-23-e-player-route-matrix.md`.
+- Spec section A.3 (subtitles delay) at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`.
+- E plan for the analogous audio-delay pattern: `/opt/prairie-android/docs/superpowers/plans/2026-05-23-e-player-route-matrix.md`.
 - `PlayerSettingsStore.subtitleSyncMsFlow` already exists (`AndroidPlayerSettingsStore.kt:160-161`; setter at `:214-215`).
 - `ContinuumPlayerFactory.kt:63` currently sets `DefaultSubtitleParserFactory()` — that's the swap point.
 
@@ -25,10 +25,10 @@
 ### Task 1: `SubtitleOffsetHolder` + `OffsetSubtitleParserFactory` + tests
 
 **Files:**
-- Create: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/subtitle/SubtitleOffsetHolder.kt`
-- Create: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/subtitle/OffsetSubtitleParserFactory.kt`
-- Create: `/opt/silo-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/subtitle/SubtitleOffsetHolderTest.kt`
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt` (Koin reg for holder)
+- Create: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/subtitle/SubtitleOffsetHolder.kt`
+- Create: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/subtitle/OffsetSubtitleParserFactory.kt`
+- Create: `/opt/prairie-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/subtitle/SubtitleOffsetHolderTest.kt`
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt` (Koin reg for holder)
 
 **Why:** Hold the current offset in a shared object so the parser can read it without recreation on every change. Factory wraps the default factory so all subtitle formats (SRT, WebVTT, SSA, etc.) get the offset.
 
@@ -178,7 +178,7 @@ class SubtitleOffsetHolderTest {
 
 - [ ] **Step 4: Koin registration**
 
-In `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt`:
+In `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt`:
 
 ```kotlin
 import com.continuum.app.common.player.subtitle.SubtitleOffsetHolder
@@ -190,8 +190,8 @@ single { SubtitleOffsetHolder() }
 - [ ] **Step 5: Build + run tests**
 
 ```bash
-cd /opt/silo-android && ./gradlew :android-shared:compileDebugKotlin
-cd /opt/silo-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.subtitle.SubtitleOffsetHolderTest"
+cd /opt/prairie-android && ./gradlew :android-shared:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.subtitle.SubtitleOffsetHolderTest"
 ```
 
 Expected: BUILD SUCCESSFUL + 4 tests pass.
@@ -199,12 +199,12 @@ Expected: BUILD SUCCESSFUL + 4 tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/subtitle/ \
   android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/subtitle/ \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(player-subtitle): SubtitleOffsetHolder + OffsetSubtitleParserFactory (A.3f)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(player-subtitle): SubtitleOffsetHolder + OffsetSubtitleParserFactory (A.3f)
 
 Shared holder (AtomicLong) stores the current subtitle offset in
 microseconds. OffsetSubtitleParserFactory wraps Media3's
@@ -221,8 +221,8 @@ the next commit."
 ### Task 2: Wire `OffsetSubtitleParserFactory` into `ContinuumPlayerFactory` + bind `subtitleSyncMsFlow`
 
 **Files:**
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt`
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt`
 
 **Why:** Replace the plain `DefaultSubtitleParserFactory()` with the wrapper. Add a flow collector mirroring E's audio-sync binding.
 
@@ -288,7 +288,7 @@ subtitleSyncJob?.cancel()
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :android-shared:compileDebugKotlin :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :android-shared:compileDebugKotlin :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -296,13 +296,13 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt \
   androidApp/src/androidMain/kotlin/com/continuum/app/android/di/AndroidModule.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(player-subtitle): wire OffsetSubtitleParserFactory + bind sync flow (A.3f)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(player-subtitle): wire OffsetSubtitleParserFactory + bind sync flow (A.3f)
 
 ContinuumPlayerFactory's extractors now use OffsetSubtitleParserFactory
 instead of the bare DefaultSubtitleParserFactory. ContinuumPlaybackService
@@ -319,9 +319,9 @@ HUD slider lands in T3."
 ### Task 3: HUD Subtitles pane delay stepper
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 **Why:** UI counterpart. Mirror the E T4 audio stepper but for subtitles. Subtitles already render a picker (per A.3a); add a delay row below it.
 
@@ -420,7 +420,7 @@ TvPlayerHud(
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -428,12 +428,12 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): subtitle delay stepper in HUD Subtitles pane (A.3f)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): subtitle delay stepper in HUD Subtitles pane (A.3f)
 
 Mirrors the audio delay UI (E T4): 5-button stepper bound to
 per-profile PlayerSettingsStore.subtitleSyncMsFlow. The flow is

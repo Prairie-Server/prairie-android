@@ -57,7 +57,7 @@ Detailed and timed captures will enable a low-overhead Android-native performanc
 - Java heap use, process proportional-set-size memory, low-memory state, and thermal status; and
 - only the allowlisted route identifier already maintained by diagnostics lifecycle instrumentation.
 
-The recorder will retain process-start-to-first-frame timing as one process-local scalar so a capture started after launch can still include startup evidence. Frame timing, heartbeat, memory, and thermal sampling otherwise run only while detailed capture is enabled and a Silo activity is foregrounded. Native `FrameMetrics`, main-loop scheduling, `Debug.MemoryInfo`, `ActivityManager`, and `PowerManager` APIs avoid a third-party telemetry dependency.
+The recorder will retain process-start-to-first-frame timing as one process-local scalar so a capture started after launch can still include startup evidence. Frame timing, heartbeat, memory, and thermal sampling otherwise run only while detailed capture is enabled and a Prairie activity is foregrounded. Native `FrameMetrics`, main-loop scheduling, `Debug.MemoryInfo`, `ActivityManager`, and `PowerManager` APIs avoid a third-party telemetry dependency.
 
 Playback performance will extend the existing Media3 analytics aggregate with start-to-ready and first-frame timing, rebuffer count/total/maximum duration, seek completion duration when both endpoints are observable, bandwidth estimate, buffered duration, and final cumulative dropped-frame and audio-underrun counts. Periodic snapshots and the final session aggregate are emitted only while detailed capture is enabled.
 

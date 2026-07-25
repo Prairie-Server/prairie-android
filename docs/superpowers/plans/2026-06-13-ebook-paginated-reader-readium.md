@@ -10,7 +10,7 @@
 
 **Tech Stack:** Kotlin, Jetpack Compose (`AndroidView`), AndroidX Fragment (`FragmentContainerView`, `FragmentManager`), **Readium Kotlin toolkit** (`readium-shared`, `readium-streamer`, `readium-navigator`, `readium-adapter-pdfium` not required for EPUB), `kotlinx.serialization` (Locator JSON ↔ progress string), Koin DI, Robolectric (existing androidApp unit-test runner), JUnit/kotlin.test.
 
-Commands assume the repository root (`silo-android`) is the cwd.
+Commands assume the repository root (`prairie-android`) is the cwd.
 
 ---
 
@@ -321,7 +321,7 @@ The existing `SectionsSheet` consumes `List<ReaderSection>` and jumps via `onJum
 - **FragmentActivity (Task 2) is the blast-radius change.** Everything else is additive and reader-scoped. Verify the whole app after Task 2 before building on it.
 - **Readium API drift.** The toolkit's `AssetRetriever` / `PublicationOpener` / `EpubNavigatorFactory` / `EpubPreferences` signatures differ across 2.x and 3.x. Pin one version (Task 1) and reconcile the code shapes in Tasks 4–6 to *that* version — the plan specifies the **contract** (open→Publication, settings→preferences, locator round-trip), not version-exact call signatures.
 - **Locator back-compat.** Old EPUB rows store `"page:N"`; `ReadiumLocatorCodec.decode` returns `null` for those so the reader opens at the start — acceptable one-time reset. New rows store Locator JSON; the already-shipped `EbookProgressSyncer` transports it unchanged.
-- **No server change.** `location` stays an opaque string end to end (client save/load, local store, sync-back). Nothing on `silo-server` is required.
+- **No server change.** `location` stays an opaque string end to end (client save/load, local store, sync-back). Nothing on `prairie-server` is required.
 
 ## Out of scope (later phases)
 

@@ -21,16 +21,16 @@
 
 ## File map
 
-- Create `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHeroContentLayout.kt`: action-first measurement and placement boundary for the fixed hero.
-- Modify `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt`: fixed/clipped frame, constrained-mode selection, and content-layout wiring.
-- Modify `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvExpandableSynopsis.kt`: configurable collapsed line limit with the existing three-line behavior as the default.
+- Create `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHeroContentLayout.kt`: action-first measurement and placement boundary for the fixed hero.
+- Modify `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt`: fixed/clipped frame, constrained-mode selection, and content-layout wiring.
+- Modify `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvExpandableSynopsis.kt`: configurable collapsed line limit with the existing three-line behavior as the default.
 
 ### Task 1: Implement fixed, action-safe detail geometry
 
 **Files:**
-- Create: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHeroContentLayout.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvExpandableSynopsis.kt`
+- Create: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHeroContentLayout.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvExpandableSynopsis.kt`
 
 **Interfaces:**
 - Consumes: `TvDetailHeroBottomInset`, `HERO_HEIGHT_FRACTION`, the existing editorial lambda, and the existing action/selector lambda.
@@ -41,7 +41,7 @@
 Run:
 
 ```bash
-rg -q '\.height\(heroHeight\)' androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt
+rg -q '\.height\(heroHeight\)' androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt
 ```
 
 Expected: exit 1 because the hero still uses `.heightIn(min = heroHeight)`.
@@ -49,7 +49,7 @@ Expected: exit 1 because the hero still uses `.heightIn(min = heroHeight)`.
 Run:
 
 ```bash
-rg -q 'collapsedMaxLines: Int = 3' androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvExpandableSynopsis.kt
+rg -q 'collapsedMaxLines: Int = 3' androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvExpandableSynopsis.kt
 ```
 
 Expected: exit 1 because the synopsis line budget is not configurable.
@@ -59,7 +59,7 @@ Expected: exit 1 because the synopsis line budget is not configurable.
 Create `TvDetailHeroContentLayout.kt` with this implementation:
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.detail
+package org.prairieserver.prairie.tv.ui.screens.detail
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -241,9 +241,9 @@ Remove the unused `heightIn` import and add imports for `clipToBounds` and
 Run:
 
 ```bash
-rg -q '\.height\(heroHeight\)' androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt
-rg -q 'collapsedMaxLines: Int = 3' androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvExpandableSynopsis.kt
-! rg -q '\.heightIn\(min = heroHeight\)' androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt
+rg -q '\.height\(heroHeight\)' androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt
+rg -q 'collapsedMaxLines: Int = 3' androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvExpandableSynopsis.kt
+! rg -q '\.heightIn\(min = heroHeight\)' androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt
 ```
 
 Expected: all three commands exit 0.
@@ -282,7 +282,7 @@ Run:
 
 ```bash
 git diff --check
-git diff -- androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHeroContentLayout.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvExpandableSynopsis.kt
+git diff -- androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHeroContentLayout.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvExpandableSynopsis.kt
 ```
 
 Expected: no whitespace errors; the diff contains only the fixed frame,
@@ -291,7 +291,7 @@ action-first layout, constrained spacing, and configurable collapsed synopsis.
 Commit:
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHeroContentLayout.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailHero.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvExpandableSynopsis.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHeroContentLayout.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvExpandableSynopsis.kt
 git commit -m "fix(tv): lock detail hero to viewport geometry"
 ```
 
@@ -350,7 +350,7 @@ Expected: clean `pr-93`, ancestor check exit 0, and `BUILD SUCCESSFUL`.
 Run:
 
 ```bash
-git ls-remote git@github.com:RXWatcher/silo-android.git refs/heads/pr/tv-navigation-detail-v2 refs/heads/pr/playback-reliability-v2 refs/heads/pr/tv-track-selection-v2 refs/heads/pr/chromecast-v2 refs/heads/pr/subtitle-presentation-v2
+git ls-remote git@github.com:RXWatcher/prairie-android.git refs/heads/pr/tv-navigation-detail-v2 refs/heads/pr/playback-reliability-v2 refs/heads/pr/tv-track-selection-v2 refs/heads/pr/chromecast-v2 refs/heads/pr/subtitle-presentation-v2
 ```
 
 Expected remote tips before pushing:
@@ -366,7 +366,7 @@ ed32c553252c28df718cc10c6b00126fef7d8abf  refs/heads/pr/playback-reliability-v2
 Push PR #89 normally and downstream PRs with exact lease protection:
 
 ```bash
-git push git@github.com:RXWatcher/silo-android.git \
+git push git@github.com:RXWatcher/prairie-android.git \
   --force-with-lease=refs/heads/pr/tv-navigation-detail-v2:dd3ad247d150daa3593a57fbad83f285ae941c82 \
   --force-with-lease=refs/heads/pr/playback-reliability-v2:ed32c553252c28df718cc10c6b00126fef7d8abf \
   --force-with-lease=refs/heads/pr/tv-track-selection-v2:0c3690158b2820ac1a921991d7beef6f896f28e8 \
@@ -387,7 +387,7 @@ lease mismatch stops the task for remote-review inspection instead of overwrite.
 Run:
 
 ```bash
-git ls-remote git@github.com:RXWatcher/silo-android.git refs/heads/pr/tv-navigation-detail-v2 refs/heads/pr/playback-reliability-v2 refs/heads/pr/tv-track-selection-v2 refs/heads/pr/chromecast-v2 refs/heads/pr/subtitle-presentation-v2
+git ls-remote git@github.com:RXWatcher/prairie-android.git refs/heads/pr/tv-navigation-detail-v2 refs/heads/pr/playback-reliability-v2 refs/heads/pr/tv-track-selection-v2 refs/heads/pr/chromecast-v2 refs/heads/pr/subtitle-presentation-v2
 ```
 
 Expected: each remote SHA equals the corresponding local `pr-89` through

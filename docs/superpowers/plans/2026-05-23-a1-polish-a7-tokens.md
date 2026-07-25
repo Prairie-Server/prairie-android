@@ -13,7 +13,7 @@
 
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, existing `androidx.compose.ui.input.nestedscroll` APIs, existing `androidx.compose.animation.core.Animatable` for menu visibility.
 
-**Reference:** Spec `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md` sections A.1 and A.7. Audit confirmed `FocusedContainer` and `FocusedContent` color tokens are NOT drawer-only (used by `TvHeroToggleIconButton`, `TvChip`, `TvFullScreenPicker`, `TvAlphabetRail`) — leave them alone.
+**Reference:** Spec `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md` sections A.1 and A.7. Audit confirmed `FocusedContainer` and `FocusedContent` color tokens are NOT drawer-only (used by `TvHeroToggleIconButton`, `TvChip`, `TvFullScreenPicker`, `TvAlphabetRail`) — leave them alone.
 
 **Testing posture:** Per `AGENTS.md` ("no tests for small UI changes"), Tasks 1, 3, 4 verify via build success; Task 5's scroll-hide is manually verified on an Android TV emulator. The plan adds no Compose UI test framework — out of pattern for this repo.
 
@@ -28,7 +28,7 @@
 
 - [ ] **Step 1: Add the three tokens to the `Spacing` object**
 
-Open `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/Spacing.kt`. Inside the existing `object Spacing { … }` block, after the existing `sectionSpacing = 30.dp` line, add:
+Open `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/Spacing.kt`. Inside the existing `object Spacing { … }` block, after the existing `sectionSpacing = 30.dp` line, add:
 
 ```kotlin
     /** Inset applied around the Infuse-style player HUD panel (A.3). */
@@ -43,7 +43,7 @@ Open `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv
 
 - [ ] **Step 2: Build the androidTvApp module to verify Spacing.kt compiles**
 
-Run from `/opt/silo-android`:
+Run from `/opt/prairie-android`:
 
 ```bash
 ./gradlew :androidTvApp:compileDebugKotlin
@@ -54,8 +54,8 @@ Expected: BUILD SUCCESSFUL. No warnings about Spacing.kt.
 - [ ] **Step 3: Commit**
 
 ```bash
-git -C /opt/silo-android add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/Spacing.kt
-git -C /opt/silo-android commit -m "feat(tv-theme): add hudPanelInset, topMenuBarHeight, heroBackdropFade spacing tokens
+git -C /opt/prairie-android add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/Spacing.kt
+git -C /opt/prairie-android commit -m "feat(tv-theme): add hudPanelInset, topMenuBarHeight, heroBackdropFade spacing tokens
 
 Placeholder tokens for upcoming A.1 scroll-hide, A.2 backdrop fade, and
 A.3 player HUD work. No current consumers."
@@ -71,7 +71,7 @@ A.3 player HUD work. No current consumers."
 
 - [ ] **Step 1: Grep for each drawer-only token across all sources**
 
-Run from `/opt/silo-android`:
+Run from `/opt/prairie-android`:
 
 ```bash
 grep -rnE "DrawerSurface|DrawerMenuSurface|DrawerOutline|DrawerScrimStart|DrawerScrimMid|DrawerScrimEnd|DrawerSelectedSurface|DrawerSelectedBorder|DrawerIconSurface" \
@@ -106,7 +106,7 @@ If either grep returns unexpected external references, STOP and report them — 
 - [ ] **Step 1: Delete the file**
 
 ```bash
-git -C /opt/silo-android rm androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvNavigationDrawer.kt
+git -C /opt/prairie-android rm androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvNavigationDrawer.kt
 ```
 
 - [ ] **Step 2: Build the androidTvApp module**
@@ -120,7 +120,7 @@ Expected: BUILD SUCCESSFUL. If any import of `TvNavigationDrawer`, `TvNavigation
 - [ ] **Step 3: Commit**
 
 ```bash
-git -C /opt/silo-android commit -m "chore(tv-shell): delete unreferenced legacy TvNavigationDrawer
+git -C /opt/prairie-android commit -m "chore(tv-shell): delete unreferenced legacy TvNavigationDrawer
 
 The drawer was superseded by TvTopMenuBar (already wired in TvMainShell).
 Confirmed zero external references prior to deletion."
@@ -167,8 +167,8 @@ Expected: BUILD SUCCESSFUL. If any `Unresolved reference: Drawer…` shows up, y
 - [ ] **Step 3: Commit**
 
 ```bash
-git -C /opt/silo-android add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/Color.kt
-git -C /opt/silo-android commit -m "chore(tv-theme): remove drawer-only color tokens
+git -C /opt/prairie-android add androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/theme/Color.kt
+git -C /opt/prairie-android commit -m "chore(tv-theme): remove drawer-only color tokens
 
 DrawerSurface, DrawerMenuSurface, DrawerOutline, DrawerScrimStart,
 DrawerScrimMid, DrawerScrimEnd, DrawerSelectedSurface, DrawerSelectedBorder,
@@ -193,7 +193,7 @@ The implementation deliberately does NOT use `androidx.compose.material3.Snackba
 - [ ] **Step 1: Read the current `TvMainShell.kt` to understand the content-hosting Box and the existing `TvTopMenuBar` invocation**
 
 ```bash
-sed -n '1,330p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvMainShell.kt
+sed -n '1,330p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvMainShell.kt
 ```
 
 Locate (around line 289) the `TvTopMenuBar(…)` call and the inner content (likely a `NavHost(…)`) it sits above. Both live inside a common `Box { … }`. The plan modifies the wrapping `Box`'s child layout: add `Modifier.nestedScroll(scrollConnection)` to the inner content container; pass a `menuVisibility: Float` to `TvTopMenuBar`.
@@ -347,10 +347,10 @@ If verification passes, proceed. If the menu interferes with focus or causes vis
 - [ ] **Step 8: Commit**
 
 ```bash
-git -C /opt/silo-android add \
+git -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvMainShell.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/shell/TvTopMenuBar.kt
-git -C /opt/silo-android commit -m "feat(tv-shell): hide TvTopMenuBar on content scroll-down
+git -C /opt/prairie-android commit -m "feat(tv-shell): hide TvTopMenuBar on content scroll-down
 
 TvMainShell hoists a NestedScrollConnection that maps content scroll
 into a 0..1 visibility animation; TvTopMenuBar applies it via

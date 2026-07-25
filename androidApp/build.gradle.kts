@@ -14,23 +14,23 @@ if (file("google-services.json").isFile) {
     apply(plugin = "com.google.gms.google-services")
 }
 
-val siloVersionName = providers
-    .gradleProperty("siloVersionName")
-    .orElse(providers.environmentVariable("SILO_VERSION_NAME"))
+val prairieVersionName = providers
+    .gradleProperty("prairieVersionName")
+    .orElse(providers.environmentVariable("PRAIRIE_VERSION_NAME"))
     // Release builds override this from the validated Git tag in
     // android-build.yml. Keep local/dev builds aligned with the latest release.
     .orElse("0.3.11")
 
-val siloVersionCode = providers
-    .gradleProperty("siloVersionCode")
-    .orElse(providers.environmentVariable("SILO_VERSION_CODE"))
+val prairieVersionCode = providers
+    .gradleProperty("prairieVersionCode")
+    .orElse(providers.environmentVariable("PRAIRIE_VERSION_CODE"))
     .map { value ->
-        val code = value.toIntOrNull() ?: error("siloVersionCode must be an integer.")
-        require(code > 0) { "siloVersionCode must be positive." }
+        val code = value.toIntOrNull() ?: error("prairieVersionCode must be an integer.")
+        require(code > 0) { "prairieVersionCode must be positive." }
         // The *2 (+1 for TV) form-factor multiplier applied at versionCode
         // assignment must stay under Google Play's 2_100_000_000 ceiling.
         require(code <= 1_049_999_999) {
-            "siloVersionCode must be <= 1_049_999_999 so the form-factor multiplier " +
+            "prairieVersionCode must be <= 1_049_999_999 so the form-factor multiplier " +
                 "keeps both artifacts under Google Play's 2_100_000_000 versionCode limit."
         }
         code
@@ -89,7 +89,7 @@ kotlin {
             implementation(libs.koin.androidx.workmanager)
             implementation(libs.firebase.messaging)
             // Google Cast (Chromecast) — phone app only. TV app must not depend
-            // on this; it uses the separate NSD/mDNS SiloCast device-remote.
+            // on this; it uses the separate NSD/mDNS PrairieCast device-remote.
             implementation(libs.play.services.cast.framework)
             implementation(libs.androidx.mediarouter)
             implementation("androidx.palette:palette-ktx:1.0.0")
@@ -121,7 +121,7 @@ kotlin {
             implementation("org.json:json:20240303")
             // ReaderViewModelReaderTargetSourceTest resolves offline media through
             // the Room-backed DownloadMetadataStore, so it builds an in-memory
-            // SiloDatabase. :android-shared exposes Room as `implementation`, so the
+            // PrairieDatabase. :android-shared exposes Room as `implementation`, so the
             // runtime + ApplicationProvider aren't transitive — add them here.
             implementation(libs.androidx.room.runtime)
             implementation(libs.androidx.test.core)
@@ -136,17 +136,17 @@ android {
         .map(String::toBoolean)
         .getOrElse(false)
 
-    namespace = "org.siloserver.silo.android"
+    namespace = "org.prairieserver.prairie.android"
     compileSdk = 36
     defaultConfig {
-        applicationId = "org.siloserver.silo"
+        applicationId = "org.prairieserver.prairie"
         minSdk = 24
         targetSdk = 35
         // Shares one Play listing with the TV app (same applicationId). Two
         // artifacts under one listing need distinct versionCodes: phone =
         // base*2, TV = base*2+1, so each release bumps both by 2 with no reuse.
-        versionCode = siloVersionCode.get() * 2
-        versionName = siloVersionName.get()
+        versionCode = prairieVersionCode.get() * 2
+        versionName = prairieVersionName.get()
         // Shadow the android-shared BuildConfig field so per-app flavors
         // (e.g., a "no-FFmpeg" sideload build for size-constrained QA) can
         // override without rebuilding the shared module. The runtime reads
@@ -161,19 +161,19 @@ android {
     // Release signing comes from the environment (CI decodes the keystore from
     // a GitHub secret). Local release builds without these vars fall back to
     // the debug-signing opt-in below, or stay unsigned.
-    val releaseKeystorePath = providers.environmentVariable("SILO_RELEASE_KEYSTORE").orNull
+    val releaseKeystorePath = providers.environmentVariable("PRAIRIE_RELEASE_KEYSTORE").orNull
     val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank()
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = file(releaseKeystorePath!!)
-                storePassword = providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
-                keyAlias = providers.environmentVariable("SILO_RELEASE_KEY_ALIAS").orNull
+                storePassword = providers.environmentVariable("PRAIRIE_RELEASE_KEYSTORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("PRAIRIE_RELEASE_KEY_ALIAS").orNull
                 // The key password may differ from the keystore password; fall
                 // back to the keystore password when they're the same.
-                keyPassword = providers.environmentVariable("SILO_RELEASE_KEY_PASSWORD").orNull
+                keyPassword = providers.environmentVariable("PRAIRIE_RELEASE_KEY_PASSWORD").orNull
                     ?.takeIf { it.isNotBlank() }
-                    ?: providers.environmentVariable("SILO_RELEASE_KEYSTORE_PASSWORD").orNull
+                    ?: providers.environmentVariable("PRAIRIE_RELEASE_KEYSTORE_PASSWORD").orNull
             }
         }
     }

@@ -822,7 +822,7 @@ ReaderScaffold(
     isLoading = state.isLoading,
     error = state.error ?: when {
         state.fileUrl.isNullOrBlank() && !state.isLoading -> "No file available for this book."
-        engineKind == null && !state.isLoading -> "Format not supported in the Silo reader."
+        engineKind == null && !state.isLoading -> "Format not supported in the Prairie reader."
         else -> null
     },
     capabilities = capabilities,
@@ -1242,7 +1242,7 @@ Expected: command stays running without immediate app crash output.
 
 On device:
 
-1. Open Silo.
+1. Open Prairie.
 2. Go to Reading.
 3. Pick an EPUB.
 4. Tap Read.

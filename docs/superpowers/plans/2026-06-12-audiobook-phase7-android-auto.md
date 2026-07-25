@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
 
-**Goal:** Make Silo audiobooks browsable and playable from Android Auto. Convert the process-wide shared playback service from a Media3 `MediaSessionService` into a Media3 `MediaLibraryService`, expose a browsable content tree (`Continue Listening`, `Audiobook Libraries`, and — when an item is playing — its `Chapters`), and declare the automotive browse intent-filter. The video player must keep working byte-for-byte: this refactor is purely additive from video's perspective.
+**Goal:** Make Prairie audiobooks browsable and playable from Android Auto. Convert the process-wide shared playback service from a Media3 `MediaSessionService` into a Media3 `MediaLibraryService`, expose a browsable content tree (`Continue Listening`, `Audiobook Libraries`, and — when an item is playing — its `Chapters`), and declare the automotive browse intent-filter. The video player must keep working byte-for-byte: this refactor is purely additive from video's perspective.
 
 **Architecture:** `ContinuumPlaybackService` (in `android-shared`) owns the single `ExoPlayer` for the process and currently exposes it through a `MediaSession`. `MediaLibraryService` is a strict superset of `MediaSessionService`; its session type is `MediaLibrarySession`, which is itself a `MediaSession`. The video `PlayerScreen` connects with a plain `MediaController` against the same `ComponentName` and never calls any library API — so it is unaffected by the upgrade. The browse tree is built by a new **pure** `AudiobookBrowseTree` builder (in `shared`, `commonMain`, unit-tested) that turns `UserLibrary`/`BrowseItem`/`ProgressEntry`/`VersionChapter` data into a flat `MediaItem` parent/children model expressed as platform-agnostic data, plus a thin Android adapter (`AudiobookBrowseTreeMediaItems`, in `android-shared`) that maps that data to Media3 `MediaItem`s with the right `MediaMetadata` browsable/playable flags. A new `AudiobookBrowseRepository` (in `shared`) fetches the live data via the existing `PersonalDataRepository` (libraries + continue-listening progress), `CatalogRepository` (library contents + item detail for chapters), and exposes it to the session callback. The `MediaLibrarySession.Callback` (`onGetLibraryRoot`/`onGetChildren`/`onGetItem`/`onAddMediaItems`) lives in the service and delegates ID parsing + child resolution to these builders.
 
@@ -18,7 +18,7 @@
 
 ## File Structure
 
-Real paths (repository root = `silo-android`, assumed cwd):
+Real paths (repository root = `prairie-android`, assumed cwd):
 
 | Path | Responsibility |
 | --- | --- |
@@ -108,13 +108,13 @@ Android adapter that turns `BrowseNode`s into Media3 `MediaItem`s with correct b
 - [ ] Write the failing test `AudiobookBrowseTreeMediaItemsTest.kt`:
   - `toMediaItem(browsableNode)` → a `MediaItem` whose `mediaId == node.id`, `mediaMetadata.isBrowsable == true`, `isPlayable == false`, `title == node.title`.
   - `toMediaItem(playableNode)` → `isPlayable == true`, `isBrowsable == false`, `title`/`subtitle`/`artworkUri` populated when present (artwork null when `artworkUrl` null/blank).
-  - `rootMediaItem()` → `mediaId == "root"`, browsable, not playable, title `"Silo Audiobooks"`.
+  - `rootMediaItem()` → `mediaId == "root"`, browsable, not playable, title `"Prairie Audiobooks"`.
   - `toMediaItems(list)` preserves order and size.
 - [ ] Run and confirm failure:
   - `./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.browse.AudiobookBrowseTreeMediaItemsTest"`
   - Expected: unresolved reference to `AudiobookBrowseTreeMediaItems`.
 - [ ] Implement `AudiobookBrowseTreeMediaItems` (`@UnstableApi` not required for `MediaItem`/`MediaMetadata`):
-  - `fun rootMediaItem(): MediaItem` — `mediaId = MediaBrowseId.encode(MediaBrowseId.Root)`, metadata `setIsBrowsable(true).setIsPlayable(false).setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).setTitle("Silo Audiobooks")`.
+  - `fun rootMediaItem(): MediaItem` — `mediaId = MediaBrowseId.encode(MediaBrowseId.Root)`, metadata `setIsBrowsable(true).setIsPlayable(false).setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).setTitle("Prairie Audiobooks")`.
   - `fun toMediaItem(node: BrowseNode): MediaItem` — build `MediaMetadata.Builder()` with `setTitle(node.title)`, `setSubtitle(node.subtitle)` (only when non-null), `setIsBrowsable(node.isBrowsable)`, `setIsPlayable(node.isPlayable)`, `setMediaType(if (node.isBrowsable) MediaMetadata.MEDIA_TYPE_FOLDER_AUDIO_BOOKS else MediaMetadata.MEDIA_TYPE_AUDIO_BOOK)`, and `setArtworkUri(Uri.parse(it))` for non-blank `artworkUrl`. `MediaItem.Builder().setMediaId(node.id).setMediaMetadata(...).build()`.
   - `fun toMediaItems(nodes: List<BrowseNode>): List<MediaItem> = nodes.map(::toMediaItem)`.
 - [ ] Run again; expected: green.
@@ -272,7 +272,7 @@ One-time DHU setup:
   - Expected: the DHU window opens showing the Auto home screen.
 
 Browse-tree verification (in DHU):
-- [ ] Open the media app launcher in DHU and select **Silo** (the new media app entry, surfaced because of the `automotive_app_desc` + browse service from Task 6).
+- [ ] Open the media app launcher in DHU and select **Prairie** (the new media app entry, surfaced because of the `automotive_app_desc` + browse service from Task 6).
 - [ ] Confirm the **root** shows two folders: **Continue Listening** and **Audiobook Libraries**.
 - [ ] Open **Audiobook Libraries** → confirm only audiobook-type libraries appear (no movie/TV libraries — the `isAudiobookLikeLibraryType` filter).
 - [ ] Open a library → confirm audiobook items appear with titles and cover art.

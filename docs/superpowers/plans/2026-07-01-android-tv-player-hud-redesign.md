@@ -24,9 +24,9 @@
 ### Task 1: Adaptive HUD Shell And Test Guards
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvSkylineTokenParityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvSkylineTokenParityTest.kt`
 
 **Interfaces:**
 - Consumes: existing `TvPlayerHud(...)` composable signature.
@@ -74,8 +74,8 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
-  --tests 'org.siloserver.silo.tv.ui.theme.TvSkylineTokenParityTest'
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
+  --tests 'org.prairieserver.prairie.tv.ui.theme.TvSkylineTokenParityTest'
 ```
 
 Expected: fails because `HudMaxWidth`, `HudMinHeight`, `HudMaxHeight`, and adaptive `heightIn(...)` do not exist and old `.height(190.dp)` still exists.
@@ -145,8 +145,8 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
-  --tests 'org.siloserver.silo.tv.ui.theme.TvSkylineTokenParityTest'
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
+  --tests 'org.prairieserver.prairie.tv.ui.theme.TvSkylineTokenParityTest'
 ```
 
 Expected: PASS for updated shell assertions. If unrelated source assertions fail because old compact typography is still expected, defer only those typography assertions to Task 2.
@@ -154,9 +154,9 @@ Expected: PASS for updated shell assertions. If unrelated source assertions fail
 - [ ] **Step 5: Commit Task 1**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvSkylineTokenParityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvSkylineTokenParityTest.kt
 git commit -m "fix(tv): make player hud shell adaptive"
 ```
 
@@ -165,8 +165,8 @@ git commit -m "fix(tv): make player hud shell adaptive"
 ### Task 2: Pane Layouts, Rows, And Sleep Timer
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
 
 **Interfaces:**
 - Consumes: Task 1 HUD constants.
@@ -206,7 +206,7 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerControlsUsabilityTest'
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerControlsUsabilityTest'
 ```
 
 Expected: FAIL because `HudPaneViewport`, `HudTwoColumnPane`, `HudPaneBottomPadding`, and row-based sleep timer are not implemented.
@@ -412,8 +412,8 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerHudTabsTest'
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerHudTabsTest'
 ```
 
 Expected: PASS.
@@ -421,8 +421,8 @@ Expected: PASS.
 - [ ] **Step 8: Commit Task 2**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
 git commit -m "fix(tv): improve player hud tab layouts"
 ```
 
@@ -431,7 +431,7 @@ git commit -m "fix(tv): improve player hud tab layouts"
 ### Task 3: Build, Install, And Visual QA Across Tabs
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt` only if Task 3 visual QA finds small spacing bugs.
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt` only if Task 3 visual QA finds small spacing bugs.
 - Test: existing HUD-focused unit/source tests.
 
 **Interfaces:**
@@ -444,9 +444,9 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerHudTabsTest' \
-  --tests 'org.siloserver.silo.tv.ui.theme.TvSkylineTokenParityTest'
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerControlsUsabilityTest' \
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerHudTabsTest' \
+  --tests 'org.prairieserver.prairie.tv.ui.theme.TvSkylineTokenParityTest'
 ```
 
 Expected: PASS.
@@ -467,7 +467,7 @@ Run:
 
 ```bash
 adb -s 192.168.1.128:5555 install -r androidTvApp/build/outputs/apk/debug/androidTvApp-arm64-v8a-debug.apk
-adb -s 192.168.1.128:5555 shell dumpsys package org.siloserver.silo.tv | rg 'versionName|lastUpdateTime'
+adb -s 192.168.1.128:5555 shell dumpsys package org.prairieserver.prairie.tv | rg 'versionName|lastUpdateTime'
 ```
 
 Expected: install `Success`; `lastUpdateTime` matches current time.
@@ -513,7 +513,7 @@ Re-run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerControlsUsabilityTest'
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerControlsUsabilityTest'
 ./gradlew :androidTvApp:assembleDebug
 adb -s 192.168.1.128:5555 install -r androidTvApp/build/outputs/apk/debug/androidTvApp-arm64-v8a-debug.apk
 ```
@@ -523,9 +523,9 @@ Expected: tests and build pass, installed APK reflects the spacing fix.
 - [ ] **Step 7: Commit Task 3**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/theme/TvSkylineTokenParityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/theme/TvSkylineTokenParityTest.kt
 git commit -m "test(tv): verify player hud tabs"
 ```
 

@@ -1,17 +1,17 @@
-# Silo Android — Foundational Architecture (design)
+# Prairie Android — Foundational Architecture (design)
 
 **Date:** 2026-06-16
 **Status:** Design draft — converged via the Claude↔Codex debate in
 `docs/superpowers/notes/architecture-debate.md` (Rounds 1–4). Supersedes the
 narrow foliate spike spec for sequencing purposes (foliate reading becomes a
 later sub-phase, see Roadmap).
-**Goal:** Make Silo the best self-hosted media client on Android — beating Plex,
+**Goal:** Make Prairie the best self-hosted media client on Android — beating Plex,
 Jellyfin (findroid/streamyfin), and Infuse on Android specifically. Cost is not a
 constraint; deep re-architecture is acceptable. Single Android target (no iOS/desktop).
 
 ## Why this is not a greenfield rewrite
 
-A device-level review of the live tree (corroborated by Codex) found Silo already has
+A device-level review of the live tree (corroborated by Codex) found Prairie already has
 substantial best-in-class scaffolding, which dictates a **strangler re-foundation, not
 a big-bang rewrite**:
 - libmpv dependency (`android-shared/build.gradle.kts:46`) + a 53k-line MPV

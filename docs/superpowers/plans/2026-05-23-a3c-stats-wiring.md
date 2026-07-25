@@ -8,7 +8,7 @@
 
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, existing `PlaybackAnalyticsListener` infrastructure, Koin DI.
 
-**Reference:** Spec section A.3 at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Audit confirmed `PlaybackAnalyticsListener` already exists with `events: SharedFlow<Event>` exposing VideoDecoderInitialized, AudioDecoderInitialized, VideoFormatChanged, AudioFormatChanged, DroppedFrames, AudioUnderrun, LoadError, BandwidthEstimate.
+**Reference:** Spec section A.3 at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Audit confirmed `PlaybackAnalyticsListener` already exists with `events: SharedFlow<Event>` exposing VideoDecoderInitialized, AudioDecoderInitialized, VideoFormatChanged, AudioFormatChanged, DroppedFrames, AudioUnderrun, LoadError, BandwidthEstimate.
 
 **Testing posture:** Per `AGENTS.md`, focused tests for non-trivial logic. The event reducer (event → snapshot mutation) is non-trivial enough to warrant a small unit test (Task 1). Pane UI is verified manually.
 
@@ -17,15 +17,15 @@
 ### Task 1: Add `PlayerStatsSnapshot` + collect events in ViewModel
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
-- Create: `/opt/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/player/PlayerStatsSnapshotReducerTest.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/player/PlayerStatsSnapshotReducerTest.kt`
 
 **Why:** The ViewModel becomes the integration point: subscribe to `PlaybackAnalyticsListener.events`, reduce each event into a running snapshot, expose on `UiState`.
 
 - [ ] **Step 1: Read the ViewModel's current shape**
 
 ```bash
-sed -n '1,160p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt
+sed -n '1,160p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt
 ```
 
 Note:
@@ -161,7 +161,7 @@ import com.continuum.app.common.player.PlaybackAnalyticsListener
 
 - [ ] **Step 7: Add unit tests for the reducer**
 
-Create `/opt/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/player/PlayerStatsSnapshotReducerTest.kt`:
+Create `/opt/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/player/PlayerStatsSnapshotReducerTest.kt`:
 
 ```kotlin
 package com.continuum.app.tv.ui.screens.player
@@ -256,8 +256,8 @@ Verify the imports for `Format.Builder`, `ColorInfo`, and `C` against the actual
 - [ ] **Step 8: Build + run tests**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
-cd /opt/silo-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.ui.screens.player.PlayerStatsSnapshotReducerTest"
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.ui.screens.player.PlayerStatsSnapshotReducerTest"
 ```
 
 Expected: BUILD SUCCESSFUL + 6 tests pass.
@@ -267,15 +267,15 @@ If `LoadError`'s constructor takes a `Throwable` rather than `IOException`, adap
 - [ ] **Step 9: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt \
   androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/player/PlayerStatsSnapshotReducerTest.kt
 
 # Add the DI module too if you modified it (usually AndroidTvModule.kt)
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt 2>/dev/null || true
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): collect player analytics into PlayerStatsSnapshot (A.3c)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): collect player analytics into PlayerStatsSnapshot (A.3c)
 
 ViewModel now injects PlaybackAnalyticsListener and reduces its
 SharedFlow<Event> into a PlayerStatsSnapshot exposed on UiState.
@@ -294,14 +294,14 @@ Stats pane consumes the snapshot in the next commit."
 ### Task 2: Render the snapshot in HUD Stats pane
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
 
 **Why:** The Stats pane currently shows `HudEmptyStatePane("Stats unavailable")`. Replace with a real renderer when the snapshot has at least one populated field, falling back to the empty state otherwise.
 
 - [ ] **Step 1: Read the current Stats pane branch in `TvPlayerHud.kt`**
 
 ```bash
-sed -n '140,200p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
+sed -n '140,200p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
 ```
 
 Find the `HudTab.Stats -> HudEmptyStatePane("Stats unavailable")` branch (added in A.3a).
@@ -381,7 +381,7 @@ HudTab.Stats -> HudStatsPane(state.stats)
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -389,10 +389,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): HUD Stats pane renders live PlayerStatsSnapshot (A.3c)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): HUD Stats pane renders live PlayerStatsSnapshot (A.3c)
 
 Stats pane now shows codec, resolution, frame rate, HDR mode, decoder
 names, bitrate, and (when non-zero) cumulative dropped frames and

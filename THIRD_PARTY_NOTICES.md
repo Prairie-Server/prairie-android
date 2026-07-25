@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Silo Android is licensed under `AGPL-3.0-or-later`. Third-party dependencies keep their original licenses.
+Prairie Android is licensed under `AGPL-3.0-or-later`. Third-party dependencies keep their original licenses.
 
 ## Media3 FFmpeg Decoder AAR
 
@@ -12,7 +12,7 @@ Rebuild and source instructions are in [scripts/README-ffmpeg-aar.md](scripts/RE
 
 ## libass Subtitles
 
-Silo uses [`ass-media` 0.4.0](https://github.com/peerless2012/libass-android) under the MIT license to integrate authored ASS/SSA subtitle rendering with AndroidX Media3. Its native package includes [`libass`](https://github.com/libass/libass), distributed under the ISC license, plus libass's font and text-shaping dependencies under their respective upstream licenses.
+Prairie uses [`ass-media` 0.4.0](https://github.com/peerless2012/libass-android) under the MIT license to integrate authored ASS/SSA subtitle rendering with AndroidX Media3. Its native package includes [`libass`](https://github.com/libass/libass), distributed under the ISC license, plus libass's font and text-shaping dependencies under their respective upstream licenses.
 
 ## Gradle Wrapper
 

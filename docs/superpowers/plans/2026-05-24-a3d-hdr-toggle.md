@@ -15,9 +15,9 @@
 **Tech stack:** Kotlin, Media3 1.10.0, existing per-profile DataStore. No new dependencies.
 
 **Reference:**
-- Spec section A.3, A.3d row, at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`.
-- Apple HUD toggle: `/opt/silo-apple/iosApp/iosApp/Screens/Player/tvOS/TVPlayerInfoHUD.swift:559` (`boolLabel(viewModel.settings.hdrEnabled)`).
-- Apple core SDR coercion: `/opt/silo-apple/iosApp/iosApp/Screens/Player/CoreMedia/PlayerCore.swift:1295,2452` (informational — Android can't mirror surface-level SDR forcing).
+- Spec section A.3, A.3d row, at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`.
+- Apple HUD toggle: `/opt/prairie-apple/iosApp/iosApp/Screens/Player/tvOS/TVPlayerInfoHUD.swift:559` (`boolLabel(viewModel.settings.hdrEnabled)`).
+- Apple core SDR coercion: `/opt/prairie-apple/iosApp/iosApp/Screens/Player/CoreMedia/PlayerCore.swift:1295,2452` (informational — Android can't mirror surface-level SDR forcing).
 - Current Android plumbing: `playerSettingsStore.hdrEnabledFlow` (read), `TvPlayerViewModel.hdrEnabled` (StateFlow), `TvPlayerViewModel.onSetHdrEnabled` (setter), `TrackSelectionPresets.buildTvVideoMimePreferences` (filter point — `TrackSelectionPresets.kt:116`).
 
 **Testing posture:** Pure MIME-preference helper gets a unit test (one case for `allowHdr=true` keeps DV, one for `allowHdr=false` drops it). HUD chip + re-application verified manually on TV hardware.
@@ -27,8 +27,8 @@
 ### Task 1: `TrackSelectionPresets` — `allowHdr` parameter + test
 
 **Files:**
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/TrackSelectionPresets.kt`
-- Modify: `/opt/silo-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/TrackSelectionPresetsFfmpegTest.kt` (or sibling test file — verify on first read) — add two cases for `buildTvVideoMimePreferences`.
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/TrackSelectionPresets.kt`
+- Modify: `/opt/prairie-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/TrackSelectionPresetsFfmpegTest.kt` (or sibling test file — verify on first read) — add two cases for `buildTvVideoMimePreferences`.
 
 **Why:** The preset is the only place where DV MIME enters the preferred list. Dropping it there is the smallest change that produces the user-visible effect.
 
@@ -103,18 +103,18 @@ Adjust `HdrCapabilities` constructor args to match the actual data-class shape (
 - [ ] **Step 4: Build + test**
 
 ```bash
-cd /opt/silo-android && ./gradlew :android-shared:compileDebugKotlin
-cd /opt/silo-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.TrackSelectionPresets*"
+cd /opt/prairie-android && ./gradlew :android-shared:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.TrackSelectionPresets*"
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C /opt/silo-android add \
+git -C /opt/prairie-android add \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/TrackSelectionPresets.kt \
   android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(player-track-selection): allowHdr param drops DV MIME when disabled (A.3d-hdr)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(player-track-selection): allowHdr param drops DV MIME when disabled (A.3d-hdr)
 
 buildTvVideoMimePreferences gains an allowHdr flag; when false, the
 Dolby Vision MIME is excluded from the preferred-MIME list so the
@@ -133,8 +133,8 @@ to fall back to and the toggle becomes a no-op for that file."
 ### Task 2: Wire `hdrEnabled` through `applyTrackSelectionPresets` + screen re-application
 
 **Files:**
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 **Why:** Connect the existing per-profile preference to the new preset parameter, and ensure the toggle takes effect mid-playback by re-running the preset bind whenever the value changes.
 
@@ -201,17 +201,17 @@ The `hdrEnabled` `collectAsState` goes alongside `audioDelayMs` / `subtitleDelay
 - [ ] **Step 3: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :android-shared:compileDebugKotlin :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :android-shared:compileDebugKotlin :androidTvApp:compileDebugKotlin
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git -C /opt/silo-android add \
+git -C /opt/prairie-android add \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): wire HDR preference into track-selection presets (A.3d-hdr)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): wire HDR preference into track-selection presets (A.3d-hdr)
 
 applyTrackSelectionPresets gains an hdrEnabled flag (default true)
 that forwards to buildTvParameters. TvPlayerScreen's LaunchedEffect
@@ -227,8 +227,8 @@ HUD toggle UI lands in T3."
 ### Task 3: HUD Video pane HDR chip
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 **Why:** UI counterpart. Mirror Apple's HUD HDR row as a chip toggle in the existing Video pane (above Fill mode).
 
@@ -402,17 +402,17 @@ onHdrEnabledChanged = viewModel::onSetHdrEnabled,
 - [ ] **Step 5: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C /opt/silo-android add \
+git -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): HDR toggle in HUD Video pane (A.3d-hdr)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): HDR toggle in HUD Video pane (A.3d-hdr)
 
 Mirrors Apple's TVPlayerInfoHUD HDR row: On/Off chip pair above the
 existing Fill mode chips in the Video pane. Bound to the existing

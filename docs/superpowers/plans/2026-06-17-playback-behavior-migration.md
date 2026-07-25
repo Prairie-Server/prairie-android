@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add three playback-behavior features to silo-android — skip-back-on-resume, pass-out protection, and a remote session-control WebSocket — reusing silo's existing service-owned player.
+**Goal:** Add three playback-behavior features to prairie-android — skip-back-on-resume, pass-out protection, and a remote session-control WebSocket — reusing silo's existing service-owned player.
 
-**Architecture:** Pure logic lands in `shared`/`android-shared` (unit-testable, reusable by `androidTvApp`); UI stays in `androidApp`. The realtime socket mirrors the existing `WatchTogetherRealtimeClient` (shared, thin I/O + pure decode) bound to `PlayerViewModel` by a `PlaybackRealtimeController` that mirrors `RoomSyncController`. Server protocol already exists (`/sessions/{session_id}/control/ws`); the wire format matches `silo-server/web/src/player/realtime-protocol.ts`.
+**Architecture:** Pure logic lands in `shared`/`android-shared` (unit-testable, reusable by `androidTvApp`); UI stays in `androidApp`. The realtime socket mirrors the existing `WatchTogetherRealtimeClient` (shared, thin I/O + pure decode) bound to `PlayerViewModel` by a `PlaybackRealtimeController` that mirrors `RoomSyncController`. Server protocol already exists (`/sessions/{session_id}/control/ws`); the wire format matches `prairie-server/web/src/player/realtime-protocol.ts`.
 
 **Tech Stack:** Kotlin Multiplatform, Ktor client WebSockets, kotlinx.serialization, Koin, JUnit/kotlin.test, Compose.
 
@@ -518,7 +518,7 @@ git commit -m "feat(playback): Still watching? prompt UI"
 
 - [ ] **Step 1: Define the wire models**
 
-These match `silo-server/internal/playback/realtime.go` and `web/src/player/realtime-protocol.ts` exactly.
+These match `prairie-server/internal/playback/realtime.go` and `web/src/player/realtime-protocol.ts` exactly.
 
 ```kotlin
 package com.continuum.app.network
@@ -559,7 +559,7 @@ data class PlaybackHelloEnvelope(
 )
 
 @Serializable
-data class HelloClient(val name: String = "silo-android", val version: String = "1")
+data class HelloClient(val name: String = "prairie-android", val version: String = "1")
 
 @Serializable
 data class HelloCapabilities(val commands: List<String>)

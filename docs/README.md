@@ -1,4 +1,4 @@
-# Silo Android Docs
+# Prairie Android Docs
 
 Start with the root [README](../README.md) for architecture/build instructions and
 [FEATURES](../FEATURES.md) for the current exposed feature inventory.
@@ -31,4 +31,4 @@ Start with the root [README](../README.md) for architecture/build instructions a
 
 - Design: [`superpowers/specs/2026-07-22-android-client-diagnostics-design.md`](superpowers/specs/2026-07-22-android-client-diagnostics-design.md)
 - Implementation plan and verification commands: [`superpowers/plans/2026-07-22-android-client-diagnostics.md`](superpowers/plans/2026-07-22-android-client-diagnostics.md)
-- The compatible server ingest endpoint shipped separately in Silo Server PR 445.
+- The compatible server ingest endpoint shipped separately in Prairie Server PR 445.

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Kotlin/Compose client (`shared` KMP module + `androidApp`), kotlinx.serialization, Ktor; Go server with chi router, pgx/Postgres, Goose migrations.
 
-This plan implements **Phase 4 only** of `docs/superpowers/specs/2026-06-12-ebook-reader-enhancements-design.md` (§5 highlights, §6 server changes, §8 phase 4, §9). Commands assume the repository root is the cwd: `silo-server` for SERVER tasks, `silo-android` for CLIENT tasks. The two repos are siblings under the same parent directory.
+This plan implements **Phase 4 only** of `docs/superpowers/specs/2026-06-12-ebook-reader-enhancements-design.md` (§5 highlights, §6 server changes, §8 phase 4, §9). Commands assume the repository root is the cwd: `prairie-server` for SERVER tasks, `prairie-android` for CLIENT tasks. The two repos are siblings under the same parent directory.
 
 **Assumptions carried from earlier phases (per spec §9):**
 - Phase 1 shipped a typed `ReaderLocator` in `shared` and a backward-compatible `"page:N"` reader. **This plan does NOT assume that type already exists** — Phase 1 has not landed in the read codebase, so Task 6 below defines the minimal `ReaderLocator` range types this phase needs (`ReaderLocator`, `ReaderLocatorRange`) and notes they should be folded into / reconciled with Phase 1's model if Phase 1 lands first. Reconciliation is explicit in Task 6 so there is no silent drift.
@@ -18,7 +18,7 @@ This plan implements **Phase 4 only** of `docs/superpowers/specs/2026-06-12-eboo
 
 ## File Structure
 
-### SERVER (silo-server, Go) — lands first
+### SERVER (prairie-server, Go) — lands first
 
 | Path | Responsibility |
 | --- | --- |
@@ -26,7 +26,7 @@ This plan implements **Phase 4 only** of `docs/superpowers/specs/2026-06-12-eboo
 | `internal/api/handlers/ebook_reader.go` | EDIT: add `LocatorRange json.RawMessage` to `EbookReaderAnnotation`, request, and patch structs; thread it through `buildEbookReaderAnnotation`, `mergeEbookReaderAnnotationPatch`, `validateEbookReaderAnnotation`; update the PG store List/Create/Update SQL + `scanEbookReaderAnnotation`. |
 | `internal/api/handlers/ebook_reader_test.go` | EDIT: table-driven validation tests for locator-range-anchored annotations + legacy CFI; create/list/patch round-trips carrying `locator_range`. |
 
-### CLIENT (silo-android, Kotlin/Compose)
+### CLIENT (prairie-android, Kotlin/Compose)
 
 | Path | Responsibility |
 | --- | --- |
@@ -53,7 +53,7 @@ This plan implements **Phase 4 only** of `docs/superpowers/specs/2026-06-12-eboo
 **Files:**
 - `migrations/sql/<timestamp>_ebook_annotation_locator_range.sql` (NEW — generated)
 
-- [ ] From `silo-server` repo root, generate the migration:
+- [ ] From `prairie-server` repo root, generate the migration:
   ```
   make migrate-create NAME=ebook_annotation_locator_range
   ```
@@ -279,7 +279,7 @@ Write these tests FIRST (they will fail to compile until Task 3 adds the fields)
 
 **Files:** none (deploy + verify)
 
-- [ ] Deploy `silo-server` to the target environment per the deployment runbook (`.claude/skills/deployment-debugging/SKILL.md`) so `migrate-up` runs on boot.
+- [ ] Deploy `prairie-server` to the target environment per the deployment runbook (`.claude/skills/deployment-debugging/SKILL.md`) so `migrate-up` runs on boot.
 - [ ] Smoke-test against the deployed API: create a legacy `cfi_range` highlight (200/201), create a `locator_range` highlight (200/201), list returns both, PATCH one to add the other anchor. Capture the responses; this is the contract the client codes against.
 
 ---

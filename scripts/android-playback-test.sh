@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# android-playback-test.sh — Scriptable playback testing for the Silo Android
+# android-playback-test.sh — Scriptable playback testing for the Prairie Android
 # apps (TV and phone) over ADB.
 #
 # Pairs with the debug-only PlaybackDebugReceiver baked into both debug builds:
@@ -30,18 +30,18 @@
 #                               rebuffers, and any fatal exceptions at the end
 #
 # Environment:
-#   SILO_DEVICE_SERIAL   default adb serial (e.g. 192.0.2.10:5555 or a USB serial);
-#                        -s overrides. SILO_TV_SERIAL is honored as a fallback.
+#   PRAIRIE_DEVICE_SERIAL   default adb serial (e.g. 192.0.2.10:5555 or a USB serial);
+#                        -s overrides. PRAIRIE_TV_SERIAL is honored as a fallback.
 #   ADB                  explicit adb binary (defaults to `adb` on PATH)
 
 set -euo pipefail
 
-APP_ID="org.siloserver.silo"
-RECEIVER="$APP_ID/org.siloserver.silo.common.player.debug.PlaybackDebugReceiver"
-ACTION_STATUS="org.siloserver.silo.debug.PLAYBACK_STATUS"
-ACTION_COMMAND="org.siloserver.silo.debug.PLAYBACK_COMMAND"
+APP_ID="org.prairieserver.prairie"
+RECEIVER="$APP_ID/org.prairieserver.prairie.common.player.debug.PlaybackDebugReceiver"
+ACTION_STATUS="org.prairieserver.prairie.debug.PLAYBACK_STATUS"
+ACTION_COMMAND="org.prairieserver.prairie.debug.PLAYBACK_COMMAND"
 ADB_BIN="${ADB:-adb}"
-SERIAL="${SILO_DEVICE_SERIAL:-${SILO_TV_SERIAL:-}}"
+SERIAL="${PRAIRIE_DEVICE_SERIAL:-${PRAIRIE_TV_SERIAL:-}}"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -97,7 +97,7 @@ play_uri() { # play_uri <contentId> [--type T] [--file-id N] [--quality Q]
             *) die "unknown play option: $1" ;;
         esac
     done
-    local uri="silo://play/${content_id}" sep="?"
+    local uri="prairie://play/${content_id}" sep="?"
     [[ -n "$type" ]] && { uri="${uri}${sep}type=${type}"; sep="&"; }
     [[ -n "$file_id" ]] && { uri="${uri}${sep}fileId=${file_id}"; sep="&"; }
     [[ -n "$quality" ]] && { uri="${uri}${sep}quality=${quality}"; sep="&"; }
@@ -142,7 +142,7 @@ case "$CMD" in
         ;;
     item)
         [[ $# -ge 1 ]] || die "item needs a contentId"
-        deep_link "silo://item/$1"
+        deep_link "prairie://item/$1"
         ;;
     status)
         status_json
@@ -177,7 +177,7 @@ case "$CMD" in
         minutes="${1:-2}"
         since=$(adbx shell "date -d '-${minutes} min' '+%m-%d %H:%M:%S.000'" 2>/dev/null | tr -d '\r') \
             || since=""
-        adbx logcat -d ${since:+-t "$since"} -s SiloPlayback:V Media3Analytics:V SiloDovi:V SiloDeepLink:V
+        adbx logcat -d ${since:+-t "$since"} -s PrairiePlayback:V Media3Analytics:V PrairieDovi:V PrairieDeepLink:V
         ;;
     test)
         [[ $# -ge 1 ]] || die "test needs a contentId"
@@ -190,7 +190,7 @@ case "$CMD" in
         echo "waiting for playback..."
         if ! json=$(wait_playing 45); then
             printf 'FAIL: playback did not start\n%s\n' "$json"
-            adbx logcat -d -s SiloPlayback:V Media3Analytics:V SiloDeepLink:V | tail -40
+            adbx logcat -d -s PrairiePlayback:V Media3Analytics:V PrairieDeepLink:V | tail -40
             exit 1
         fi
         pos1=$(json_field "$json" positionMs)

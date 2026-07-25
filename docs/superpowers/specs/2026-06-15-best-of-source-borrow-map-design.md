@@ -134,7 +134,7 @@ They de-risk everything built on top.
 - **koreader typography** (`frontend/apps/reader/modules/readertypography.lua`, `ui/data/creoptions.lua`, `css_tweaks.lua`): 60+ language→hyphenation-dictionary tags; named margin presets; toggleable CSS tweaks.
 - **LibreraReader MOBI** (`app/.../libmobi/LibMobi.java`, `Builder/jni/libmobi-0.12/`): JNI `convertToEpub()`; strategy is convert-once then reuse EPUB pipeline. FB2 parse has a retry-on-XML-fixup fallback (`Fb2Context.java`).
 
-### Silo current state
+### Prairie current state
 
 - **Two parallel EPUB paths:** legacy `EpubReader.kt` (per-chapter pager + scrolling WebView, no intra-chapter pagination) and the strategic `reflow/ReflowableReader.kt` (single `ReflowWebView` + JS column paginator). `EpubReader.kt` looks superseded.
 - **Locator sound but coarse:** `reflow/ReflowLocator.kt` = `(sectionIndex, pageProgression, bookProgression)`, JSON-encoded; book progress estimated from per-section char counts (`SectionWeights.kt`). Render-independent (good) but only section+page-fraction granularity — no intra-paragraph anchor, so resume can drift after a font change and TOC/bookmarks can't target an element.
@@ -186,7 +186,7 @@ They de-risk everything built on top.
 - **mihon preloading + transitions** (`PagerViewer.kt:225-244`, `PagerViewerAdapter.kt:47-114`): preload next chapter when `pages.size - page.number < 5`; flat list stitches [prev][transition][curr][transition][next]; `offscreenPageLimit = 1`; per-page decode is a cancellable coroutine tied to view attach/detach.
 - **Kotatsu** (`core/model/ZoomMode.kt`, `reader/domain/PageLoader.kt`): fit modes via SSIV; `Semaphore(3)` + reversed LIFO prefetch capped at 6, **disabled under 80 MB free RAM**; adaptive `downSampling` and RGB_565 vs ARGB_8888 by RAM; auto-webtoon detection by aspect ratio; remappable 9-zone `TapGridArea` with per-zone `TapAction`.
 
-### Silo current state
+### Prairie current state
 
 `ComicReader.kt` is a ~360-line monolith:
 - **Single mode only:** `HorizontalPager` LTR (`:212`); no RTL/vertical/webtoon (RTL flagged "later", `:56-58`).
@@ -244,7 +244,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 - **Page locator** — Librera `AppBook.java:99-116` (fraction → `round(pages*p)`); document-viewer `BookSettings.java` (currentPage + offsetX/Y).
 - **Thumbnails** — document-viewer `ThumbnailFile.java`/`CacheManager.java` (SoftReference + disk JPEG).
 
-### Silo current state
+### Prairie current state
 
 `PdfReader.kt` (backed by `PdfRenderer`, in a `HorizontalPager`):
 - **Lifecycle — mostly solid:** `SerializedCloseable` (`:244-260`) serializes every renderer touch + close through one `Mutex`; `awaitDispose` closes on a scope outliving composition (`:92-96`); `openRenderer` closes PFD on ctor throw (`:269-277`). Already has the single-mutex version of the references' lesson.
@@ -292,7 +292,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 - **Voice service & sleep timer:** `PlaybackService : MediaLibraryService` (`core/playback/.../session/PlaybackService.kt:32`); ExoPlayer for speech (`AUDIO_CONTENT_TYPE_SPEECH`, `setHandleAudioBecomingNoisy`, `setWakeMode`, `PlaybackModule.kt:47`). Notification prev/next remapped to interval seek (`player/VoicePlayer.kt:109,128`); in-app buttons do chapter-boundary skip via custom commands (`session/LibrarySessionCallback.kt:56,78`). **Sleep timer** is a `tailrec` countdown that pauses while not playing (`SleepTimerImpl.kt:75,125`), ramps volume in the fade window (`:116`), pauses with auto-rewind (`PlayerController.pauseWithRewind:147`), then a 30s shake-to-reset window (Seismic, `:108,134`); EndOfChapter via scheduled `PlayerMessage` cue points (`VoicePlayer.registerChapterMarkCallbacks:306`). Per-book speed/gain/skip-silence on `BookContent` (`BookContent.kt:14,26`) re-applied on load (`:289`); gain via `LoudnessEnhancer` keyed to the session id (`misc/VolumeGain.kt`).
 - **lissen timeline:** `bookToChapterMediaItems()` → one MediaItem per chapter (`PlaybackService.kt:303-346`); `resolveChapterToFiles()` handles chapter/file misalignment (`:255-301`); `LissenMediaSourceFactory` builds `ClippingMediaSource`/`ConcatenatingMediaSource2` over a `lissen://` URI (`:62-112`); absolute→chapter binary search (`CalculateChapterIndexAndPosition.kt:20-48`). **Dual cache:** opportunistic `SimpleCache` LRU (`MediaModule.kt:41-55`, ≤512MB) via `CacheDataSource`, distinct from the Room+filesystem download store; `provideFileUri()` prefers the local downloaded file, else cached HTTP (`LissenMediaProvider.kt:70-93`). Progress sync event + interval (45s, tightening to 5s near boundaries) writing local + `POST /session/{id}/sync` with `timeListened` delta (`PlaybackSynchronizationService.kt:69-136`).
 
-### Silo current state
+### Prairie current state
 
 - Chapter math already clean/shared: `AudiobookChapters` (`shared/.../audiobook/AudiobookChapters.kt:26,29,120-144`); chapters from `VersionChapter` (`CatalogModels.kt:200`).
 - `AudiobookPlayerViewModel` (`android-shared/.../common/player/AudiobookPlayerViewModel.kt:78`) mirrors a `MediaController`, polls position at 4 Hz.
@@ -315,7 +315,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 |---|---|---|---|---|---|
 | One-MediaItem-per-chapter playlist from clipped/concatenated segments → true multi-file timeline | lissen `PlaybackService.kt:303`, `resolveChapterToFiles:255`, `LissenMediaSourceFactory.kt:62` | new `AudiobookMediaItemBuilder` → `ContinuumPlayerFactory`; VM stops collapsing to one `selectedFileId` (`:186`) | L | GPLv3 — reimplement | `ConcatenatingMediaSource2`/`ClippingMediaSource` fine on API24 |
 | Centralized absolute↔(chapter,offset) math + `CHAPTER_START_MS` | lissen `CalculateChapterIndexAndPosition.kt:20`, `PlaybackSynchronizationService.kt:175` | extend `AudiobookChapters.kt:36` with reverse-map + media-index helpers | S | GPLv3 pattern | pure Kotlin |
-| Dual cache: streaming `SimpleCache`+`CacheDataSource` separate from public downloads | lissen `MediaModule.kt:41`, `LissenDataSourceFactory.kt:43`, `LissenMediaProvider:70` | new `AudiobookStreamCache`; resolver tries `OfflineMediaResolver` first else cached HTTP | M | GPLv3 pattern | cache under `externalCacheDir`, never `Music/Silo` |
+| Dual cache: streaming `SimpleCache`+`CacheDataSource` separate from public downloads | lissen `MediaModule.kt:41`, `LissenDataSourceFactory.kt:43`, `LissenMediaProvider:70` | new `AudiobookStreamCache`; resolver tries `OfflineMediaResolver` first else cached HTTP | M | GPLv3 pattern | cache under `externalCacheDir`, never `Music/Prairie` |
 | Sleep-timer fade + auto-rewind + shake-to-reset | Voice `SleepTimerImpl.kt:75,108,116`, `PlayerController.pauseWithRewind:147` | extend `applySleepTimer:539`; add `ShakeDetector` (androidMain) | M | Voice GPLv3; Seismic Apache-2.0 (direct dep OK) | `SensorManager` since API1; gate on availability |
 | End-of-chapter via scheduled cue points (vs poll) | Voice `VoicePlayer.registerChapterMarkCallbacks:306` | replace `maybeFireSleepBoundary:586` once chapters are real MediaItems | S | GPLv3 pattern | `PlayerMessage` API24 |
 | Per-book audio prefs (speed/gain/skip-silence on the book) | Voice `BookContent.kt:14,26`, `VoicePlayer.setBook:289` | per-book override layer over `AudiobookSettingsStore` | M | GPLv3 pattern | n/a |
@@ -328,7 +328,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 ### What NOT to borrow / risks
 
 - Don't collapse the audiobook player into a music/now-playing UX — keep the book metaphor (chapter list w/ per-chapter progress, whole-book scrub, chapter-aware skip).
-- **Don't let the streaming cache replace public downloads** — two stores: ephemeral `SimpleCache` (`externalCacheDir`, evictable) vs user-facing `DownloadStorage` (`Music/Silo`, `DownloadStorage.kt:420,596`); `OfflineMediaResolver` stays the authoritative "downloaded?" check.
+- **Don't let the streaming cache replace public downloads** — two stores: ephemeral `SimpleCache` (`externalCacheDir`, evictable) vs user-facing `DownloadStorage` (`Music/Prairie`, `DownloadStorage.kt:420,596`); `OfflineMediaResolver` stays the authoritative "downloaded?" check.
 - Don't apply Voice's notification prev/next remap globally — silo's service is shared with video; gate by media type.
 - Don't adopt lissen's per-chapter `ConcatenatingMediaSource2` for the video path; keep `ContinuumPlayerFactory` buffer/processor config branched by media type.
 - Voice/lissen are XML/Hilt-based audiobook apps — borrow their playback-service shape and timeline math; reimplement in silo's Compose/KMP style rather than pasting. Seismic (shake) is a clean direct dependency.
@@ -355,7 +355,7 @@ silo is **not greenfield** here — it already ships a `VideoPlaybackBackend` co
 - **findroid/AFinity MPV-behind-`BasePlayer`:** wrap libmpv as `BasePlayer` so the app keeps talking Media3; player choice a boolean pref at VM init; `hwdec=mediacodec`; map `TrackSelectionOverride`→mpv `aid/sid/vid`; external subs via `sub-add`. AFinity `PlayerViewModel.kt:566-613` surfaces libass styling as settings.
 - **Wholphin libass on ExoPlayer** (`PlayerFactory.kt:108`): `AssHandler(renderType)` with version-gated `AssRenderType` (Canvas ≤P / OpenGL Q+) — ASS/SSA without MPV's native risk.
 
-### Silo current state
+### Prairie current state
 
 silo is ahead on every axis except UI surfacing and two bugs.
 - **Backend contract — DONE:** `backend/VideoPlaybackBackend.kt:12`; `Media3VideoPlaybackBackend` + `MpvVideoPlaybackBackend`; factory + `VideoPlaybackBackendSelector.kt:6` Auto policy (TRANSCODE→Media3, hard-container→MPV, styled-subs→MPV).
@@ -396,7 +396,7 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 ## Watch-Together (survey)
 
-**Silo current state.** Time-sync = NTP-midpoint from one ping/pong, last-writer-wins (`RoomSyncEngine.kt:53-61`); single `serverTimeOffsetMs` (`:47`). Scheduling computes `localExecuteDelayMs`, falls back to apply-immediately when no offset yet (`:91-95`); corrective seek only when drift > 350ms (`:97-103`). Server-authoritative; seek host-only, play/pause gated (`RoomTransportAuthority.kt:22-28`); snapshot carries a server anchor (`WatchTogetherModels.kt:146-147`) the engine never uses. Dedupe on single `lastCommandId` (`:50,82,88`); no `issued_at` ordering. Reconnect backoff `[500,1k,2k,5k]`; terminal only on `room_closed` with non-null reason (`WatchTogetherRepository.kt:277-284`); catch-all `Throwable` → reconnect forever (`:295-297`). Buffering send exists but no local "hold until group ready" gate.
+**Prairie current state.** Time-sync = NTP-midpoint from one ping/pong, last-writer-wins (`RoomSyncEngine.kt:53-61`); single `serverTimeOffsetMs` (`:47`). Scheduling computes `localExecuteDelayMs`, falls back to apply-immediately when no offset yet (`:91-95`); corrective seek only when drift > 350ms (`:97-103`). Server-authoritative; seek host-only, play/pause gated (`RoomTransportAuthority.kt:22-28`); snapshot carries a server anchor (`WatchTogetherModels.kt:146-147`) the engine never uses. Dedupe on single `lastCommandId` (`:50,82,88`); no `issued_at` ordering. Reconnect backoff `[500,1k,2k,5k]`; terminal only on `room_closed` with non-null reason (`WatchTogetherRepository.kt:277-284`); catch-all `Throwable` → reconnect forever (`:295-297`). Buffering send exists but no local "hold until group ready" gate.
 
 **Best reference approach.** jellyfin-android delegates SyncPlay to bundled jellyfin-web JS; jellyfin-androidtv has none; streamyfin's two-way-sync is unrelated offline reconciliation. The real reference is **jellyfin-web SyncPlay** (`src/components/syncPlay/core/`): TimeSyncCore keeps a **rolling sample window** and picks the **min-RTT** sample (continuous re-measure); commands carry an absolute server `When`, scheduled via offset, with continuous drift correction (small → rate nudge/micro-seek, large → hard seek); **WAITING** state — server doesn't Unpause until all members report Ready (leader blocks on the slowest); on reconnect the client requests fresh group state + re-runs time-sync before resuming; commands applied in `When` order, older-than-last dropped.
 
@@ -412,7 +412,7 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 ## Notifications (survey)
 
-**Silo current state.** REST-source-of-truth inbox + realtime accelerator: pure `applyEvent` fold (`NotificationsRepository.kt:58`); capped-backoff reconnect (`:227`); optimistic `markRead`/`markAllRead` with revert (`:169,177`); `reset()` on profile switch (`:212`). Realtime client mints ws-ticket, decodes frames (`NotificationsRealtimeClient.kt:65`). **silo is far ahead of every reference here** (streamyfin = expo-push/badge only; jellyfin clients = in-memory app alerts; Campfire = server config) — only correctness gaps:
+**Prairie current state.** REST-source-of-truth inbox + realtime accelerator: pure `applyEvent` fold (`NotificationsRepository.kt:58`); capped-backoff reconnect (`:227`); optimistic `markRead`/`markAllRead` with revert (`:169,177`); `reset()` on profile switch (`:212`). Realtime client mints ws-ticket, decodes frames (`NotificationsRealtimeClient.kt:65`). **silo is far ahead of every reference here** (streamyfin = expo-push/badge only; jellyfin clients = in-memory app alerts; Campfire = server config) — only correctness gaps:
 - Unsynchronized `_state` RMW — fold all mutations through `_state.update{}` (atomic pattern); derive rows/unread from `_state`. **S** — *branch-review bug.*
 - No terminal on persistent auth failure — `connectRealtime` loops forever; `Closed("ticket_error_401")` folds as no-op. Stop/long-backoff on 401/403; expose a disconnected state. **M** — *branch-review bug.*
 - Backoff not reset on clean close — reset on successful *connect* (hello/subscribed), not on traffic. **S** — *branch-review bug.*
@@ -421,15 +421,15 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 ## Requests (survey)
 
-**Silo current state.** `RequestsRepository.kt` exposes status/discover/search/detail/create/cancel + singleton `_mine` (`:18`, `upsertMine:73`); ViewModels in `RequestsViewModels.kt`. Only **streamyfin** (Jellyseerr) covers requests — a model for *breadth* (admin approve/decline, season-level requests, list filter/sort/paginate, per-user clear on logout/403) but **no** optimistic/gating/cancel patterns.
+**Prairie current state.** `RequestsRepository.kt` exposes status/discover/search/detail/create/cancel + singleton `_mine` (`:18`, `upsertMine:73`); ViewModels in `RequestsViewModels.kt`. Only **streamyfin** (Jellyseerr) covers requests — a model for *breadth* (admin approve/decline, season-level requests, list filter/sort/paginate, per-user clear on logout/403) but **no** optimistic/gating/cancel patterns.
 - No `loadGeneration` gating → stale overwrite — `refreshMine` (`:378`) and search write without a generation guard. Adopt the `AdminUsersViewModel.kt:34` pattern. **M** — *branch-review bug.*
 - Singleton `_mine` not cleared on logout/switch → cross-user leak — add `reset()` (contrast `NotificationsRepository.reset()`), invoke from the profile-switch path. **M** — *branch-review bug.*
 - Discover-section pagination unused — `totalPages` returned but only first page loaded (`:83`); wire load-more or accept. **S.**
-- No admin approve/decline path — `RequestDecisionBody` model exists (`RequestModels.kt:200`) but unused; add if silo-server supports it, else drop. **M, optional.**
+- No admin approve/decline path — `RequestDecisionBody` model exists (`RequestModels.kt:200`) but unused; add if prairie-server supports it, else drop. **M, optional.**
 
 ## Admin (survey)
 
-**Silo current state.** `AdminRepository.kt` stateless pass-through: stats, user CRUD, session list + control, app/audit logs, library scan. ViewModels: `AdminUsersViewModel` (generation-gated, `:34`), `AdminUserEditViewModel` (`:53`), `AdminStatsViewModel`. **No reference app covers admin** — silo is the only one with real CRUD + session control + logs. Correctness only:
+**Prairie current state.** `AdminRepository.kt` stateless pass-through: stats, user CRUD, session list + control, app/audit logs, library scan. ViewModels: `AdminUsersViewModel` (generation-gated, `:34`), `AdminUserEditViewModel` (`:53`), `AdminStatsViewModel`. **No reference app covers admin** — silo is the only one with real CRUD + session control + logs. Correctness only:
 - Cleared library-ids field revokes all access — `update` always sends `libraryIds = parseLibraryIds(text)` (`:137`); blank → `emptyList()` (`AdminUserForm.kt:48`), *sent* (not omitted) → server revokes all. Send `null` when blank, or distinguish cleared vs empty. **S** — *branch-review bug.* (Quota fields are safe — `parseQuota` returns null.)
 - `deleteUser` — current code removes from list **only on success** (`:59`), no optimistic resurrect path; the review's "resurrect" premise appears stale for this revision. **No change unless an optimistic variant returns** — confirm.
 - `AdminUserEditViewModel.load` idempotent guard (`loaded` flag, `:60`) can't switch targets within one instance — correct only if always freshly scoped per navigation; else add id-aware reload. **S.**

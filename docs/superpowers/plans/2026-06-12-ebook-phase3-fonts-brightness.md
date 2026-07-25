@@ -13,7 +13,7 @@
 
 **Tech Stack:** Kotlin, Jetpack Compose (Material 3 `Slider`, `FontFamily`), Android `WindowManager.LayoutParams.screenBrightness` / `BRIGHTNESS_OVERRIDE_NONE`, WebView CSS injection (`loadDataWithBaseURL` + `@font-face`), kotlinx.serialization.
 
-Commands assume the repository root (`silo-android`) is the cwd.
+Commands assume the repository root (`prairie-android`) is the cwd.
 
 ---
 

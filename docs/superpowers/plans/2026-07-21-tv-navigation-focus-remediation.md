@@ -21,8 +21,8 @@
 ### Task 1: Shelf-aware calendar Up routing
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/calendar/TvCalendarScreen.kt`
-- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/calendar/TvCalendarFocusRoutingTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/calendar/TvCalendarScreen.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/calendar/TvCalendarFocusRoutingTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun shouldReturnCalendarFocusToControls(focusedShelfIndex: Int?, firstFocusableShelfIndex: Int, isReturningToControls: Boolean): Boolean`
@@ -30,7 +30,7 @@
 - [ ] **Step 1: Write the failing routing test**
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.calendar
+package org.prairieserver.prairie.tv.ui.screens.calendar
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -81,16 +81,16 @@ Expected: all three tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/calendar/TvCalendarScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/calendar/TvCalendarFocusRoutingTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/calendar/TvCalendarScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/calendar/TvCalendarFocusRoutingTest.kt
 git commit -m "fix(tv): preserve calendar shelf up navigation"
 ```
 
 ### Task 2: Saveable library-grid focus restoration
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvCatalogGrid.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/library/TvLibraryDetailScreen.kt`
-- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/library/TvLibraryFocusRestoreTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvCatalogGrid.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/library/TvLibraryDetailScreen.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/library/TvLibraryFocusRestoreTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun restoredLibraryFocusIndex(savedIndex: Int, itemCount: Int): Int?`
@@ -99,7 +99,7 @@ git commit -m "fix(tv): preserve calendar shelf up navigation"
 - [ ] **Step 1: Add failing index-clamping tests**
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.library
+package org.prairieserver.prairie.tv.ui.screens.library
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -144,15 +144,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvCatalogGrid.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/library/TvLibraryDetailScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/library/TvLibraryFocusRestoreTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvCatalogGrid.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/library/TvLibraryDetailScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/library/TvLibraryFocusRestoreTest.kt
 git commit -m "fix(tv): restore library grid focus position"
 ```
 
 ### Task 3: Search entry versus back-return focus
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt`
-- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchFocusPolicyTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/search/TvSearchScreen.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/search/TvSearchFocusPolicyTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun shouldFocusSearchField(hasEnteredSearch: Boolean, hasResults: Boolean, explicitFieldRequest: Boolean): Boolean`
@@ -160,7 +160,7 @@ git commit -m "fix(tv): restore library grid focus position"
 - [ ] **Step 1: Add failing policy tests**
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.search
+package org.prairieserver.prairie.tv.ui.screens.search
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -208,16 +208,16 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/search/TvSearchFocusPolicyTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/search/TvSearchScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/search/TvSearchFocusPolicyTest.kt
 git commit -m "fix(tv): keep search results focused on return"
 ```
 
 ### Task 4: Profile-menu Back ownership
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvShellFocusState.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/shell/TvShellFocusStateTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvShellFocusState.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/shell/TvShellFocusStateTest.kt`
 
 **Interfaces:**
 - `TvShellBackAction.CloseProfileMenu` means close the overlay and request avatar focus; it must not synthesize `Root(Home)`.
@@ -252,17 +252,17 @@ Expected: shell tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvShellFocusState.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/shell/TvShellFocusStateTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvShellFocusState.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/shell/TvShellFocusStateTest.kt
 git commit -m "fix(tv): return profile menu back to avatar"
 ```
 
 ### Task 5: Geometric selector entry and cast-rail re-entry
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailScreen.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvCastCrewSection.kt`
-- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailFocusPolicyTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailScreen.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvCastCrewSection.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailFocusPolicyTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun restoredRailIndex(lastFocusedIndex: Int, itemCount: Int): Int?`
@@ -271,7 +271,7 @@ git commit -m "fix(tv): return profile menu back to avatar"
 - [ ] **Step 1: Add failing rail restore tests**
 
 ```kotlin
-package org.siloserver.silo.tv.ui.screens.detail
+package org.prairieserver.prairie.tv.ui.screens.detail
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -310,15 +310,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailScreen.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvCastCrewSection.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailFocusPolicyTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailScreen.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvCastCrewSection.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvDetailFocusPolicyTest.kt
 git commit -m "fix(tv): preserve detail navigation positions"
 ```
 
 ### Task 6: Browse-only episode selection
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailScreen.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/performance/TvDetailOpenPerformanceSourceTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailScreen.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/performance/TvDetailOpenPerformanceSourceTest.kt`
 
 **Interfaces:**
 - Episode-card click invokes only `onOpenItemDetail(contentId)`; playback remains on explicit Play actions.
@@ -346,7 +346,7 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/performance/TvDetailOpenPerformanceSourceTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/performance/TvDetailOpenPerformanceSourceTest.kt
 git commit -m "fix(tv): browse episode details before playback"
 ```
 

@@ -14,7 +14,7 @@
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, Compose `AnimatedVisibility` for slide animation. No new dependencies.
 
 **Reference:**
-- Spec section A.5 at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md` (post-audit revision).
+- Spec section A.5 at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md` (post-audit revision).
 - Architectural map of current filter UX: see scoping notes below for line refs.
 
 **Current state file:line map** (from filter-architecture audit):
@@ -46,7 +46,7 @@
 ### Task 1: Extend `TvLibraryBrowseFilter` + ViewModel with `yearMin/yearMax`
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailViewModel.kt`
 
 **Why:** The data layer (browse endpoint) already accepts `yearMin`/`yearMax`. The ViewModel state and reload pipeline need to thread these through. Adding the fields with defaults of `null` makes this a purely additive change — no consumer breaks.
 
@@ -110,7 +110,7 @@ If the existing call uses named arguments, slot the two new ones alphabetically 
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -118,10 +118,10 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailViewModel.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-library): add yearMin/yearMax to TvLibraryBrowseFilter (A.5)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-library): add yearMin/yearMax to TvLibraryBrowseFilter (A.5)
 
 ViewModel state + onYearRangeChanged handler + threads yearMin/yearMax
 into the existing catalogRepository.browse() call (which already
@@ -134,7 +134,7 @@ commit. No behavior change yet."
 ### Task 2: Create `TvFilterSheet` skeleton (container + sections placeholder)
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvFilterSheet.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvFilterSheet.kt`
 
 **Why:** Build the sheet container in isolation first — slide-up animation, scrim, BackHandler, focus group. Sections are stub `Text("TODO Genre")` etc., wired up in Tasks 3–6.
 
@@ -261,7 +261,7 @@ fun TvFilterSheet(
 - [ ] **Step 2: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. The component is not yet called anywhere — this just verifies it compiles.
@@ -269,10 +269,10 @@ Expected: BUILD SUCCESSFUL. The component is not yet called anywhere — this ju
 - [ ] **Step 3: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/components/TvFilterSheet.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv): TvFilterSheet container — slide-up 60% bottom panel (A.5)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv): TvFilterSheet container — slide-up 60% bottom panel (A.5)
 
 Skeleton component for the library detail filter rework. Slide-up
 animated, scrim above, BackHandler dismiss, focus-trapped via
@@ -285,8 +285,8 @@ composed by the caller in a later commit."
 ### Task 3: Build year-decade options module + unit test
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryYearOptions.kt`
-- Create: `/opt/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryYearOptionsTest.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryYearOptions.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryYearOptionsTest.kt`
 
 **Why:** Decade-to-(yearMin, yearMax) mapping is the only non-trivial new logic in A.5. Isolating it into a pure function makes it testable without Compose. Hardcoded since Year isn't in the API's filter list.
 
@@ -412,8 +412,8 @@ class TvLibraryYearOptionsTest {
 - [ ] **Step 3: Build + run tests**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
-cd /opt/silo-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.ui.screens.library.TvLibraryYearOptionsTest"
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.ui.screens.library.TvLibraryYearOptionsTest"
 ```
 
 Expected: BUILD SUCCESSFUL + 5 tests pass.
@@ -421,11 +421,11 @@ Expected: BUILD SUCCESSFUL + 5 tests pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryYearOptions.kt \
   androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryYearOptionsTest.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-library): year-decade options for A.5 filter sheet
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-library): year-decade options for A.5 filter sheet
 
 Pure module + 5 unit tests. Year isn't in /api/v1/catalog/filters but
 the browse endpoint accepts yearMin/yearMax — so we synthesize a
@@ -438,7 +438,7 @@ and let users select a coarse range. UI wiring lands next."
 ### Task 4: Swap in `TvFilterSheet` + active-filters pill row; remove old picker UI
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt`
 
 **Why:** This is the big swap — the previous tasks were preparation. Now we replace the `FilterRow` + the two `TvFullScreenPicker` invocations + the edge `TvAlphabetRail` with a single "Filter" button, a thin pill row showing active filters, and the new `TvFilterSheet` populated with all four sections.
 
@@ -447,8 +447,8 @@ The diff will be large but the structure is straightforward: delete the old, add
 - [ ] **Step 1: Read the surrounding context**
 
 ```bash
-sed -n '300,430p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt
-sed -n '880,990p' /opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt
+sed -n '300,430p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt
+sed -n '880,990p' /opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt
 ```
 
 Understand:
@@ -615,7 +615,7 @@ Where `FilterSectionHeader` and `FilterChoiceChip` are small helpers you add to 
 - [ ] **Step 8: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. Compose warnings about unused params are OK.
@@ -634,10 +634,10 @@ The expected behavior:
 - [ ] **Step 10: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/library/TvLibraryDetailScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-library): swap in TvFilterSheet bottom-panel (A.5)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-library): swap in TvFilterSheet bottom-panel (A.5)
 
 Replaces the dual TvFullScreenPicker (Genre, Sort) + edge TvAlphabetRail
 with a single bottom-anchored TvFilterSheet containing Genre / Year /

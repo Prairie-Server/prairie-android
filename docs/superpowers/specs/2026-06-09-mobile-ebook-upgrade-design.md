@@ -23,7 +23,7 @@ This design builds on that foundation instead of replacing it.
 1. A user can open an ebook from library, search, detail, or downloads and land in the right reader with clear format/version behavior.
 2. A user can navigate long ebooks more comfortably through bookmarks, table-of-contents or section navigation where available, and page/location controls.
 3. A user can personalize reading enough for daily use with basic reader display settings.
-4. A user can find downloaded ebook files under Android public downloads and open them in another reader app without Silo lock-in.
+4. A user can find downloaded ebook files under Android public downloads and open them in another reader app without Prairie lock-in.
 
 ## Scope
 
@@ -57,8 +57,8 @@ Finish the downloaded ebook ownership path:
 - Downloaded ebook rows show original filename, extension/format, and clear actions for `Read` and `Open with`.
 - Public downloads keep original filenames and extensions. `.bin` is not supported and no legacy fallback is added.
 - `Open with` uses Android content/file sharing mechanisms already supported by the download storage layer, granting temporary read access where needed.
-- Downloads remain discoverable under the public `Downloads/Silo` area so other reader apps can find EPUB/PDF/CBZ/etc. directly.
-- If a file exists locally but cannot be opened in Silo, the user can still hand it to another app.
+- Downloads remain discoverable under the public `Downloads/Prairie` area so other reader apps can find EPUB/PDF/CBZ/etc. directly.
+- If a file exists locally but cannot be opened in Prairie, the user can still hand it to another app.
 
 ## Non-Goals
 
@@ -99,7 +99,7 @@ Use existing mobile navigation:
 
 - `Route.BookReader(contentId, fileId)` remains the reader entry.
 - Detail/read actions pass `fileId` when a specific version is selected.
-- Downloads can either read in Silo or open the public file with another app.
+- Downloads can either read in Prairie or open the public file with another app.
 
 ## Data Flow
 

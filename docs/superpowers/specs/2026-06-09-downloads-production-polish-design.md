@@ -7,7 +7,7 @@ Make downloads feel like user-owned files, not app-locked cache:
 - downloaded bytes keep their original file names and formats;
 - completed video, audiobook, ebook, comic, manga, and unknown downloads can be opened by other apps from the Downloads screen;
 - public Android storage remains the source for discoverability;
-- Silo still uses private sidecars for metadata and offline app state.
+- Prairie still uses private sidecars for metadata and offline app state.
 
 This pass hardens the current system. It does not replace the existing download worker, storage layout, or Downloads UI.
 
@@ -17,11 +17,11 @@ The app already has the right broad architecture:
 
 - `DownloadStorage` writes bytes to public storage, not only private app files.
 - Android 10+ uses `MediaStorePublicDownloadStore`.
-- Android 9 and below use a public `Download/Silo` fallback.
+- Android 9 and below use a public `Download/Prairie` fallback.
 - Original file names and containers are carried through `DownloadSidecar`.
 - Downloads are grouped by media type in the Downloads tab.
 - Completed rows expose `Open with` when a local URI exists.
-- Downloaded ebooks with EPUB/PDF/CBZ can also open in Silo's reader.
+- Downloaded ebooks with EPUB/PDF/CBZ can also open in Prairie's reader.
 
 The remaining production gaps are mostly hardening:
 
@@ -35,7 +35,7 @@ The remaining production gaps are mostly hardening:
 
 ### File Ownership
 
-Downloads must remain in their original formats. No `.bin` extension should be introduced for new downloads. If the server provides `fileName`, Silo uses the sanitized basename. If not, Silo falls back to `<fileId>.<container>`, and only falls back to `<fileId>.download` when no useful container exists.
+Downloads must remain in their original formats. No `.bin` extension should be introduced for new downloads. If the server provides `fileName`, Prairie uses the sanitized basename. If not, Prairie falls back to `<fileId>.<container>`, and only falls back to `<fileId>.download` when no useful container exists.
 
 ### Public Discoverability
 
@@ -46,7 +46,7 @@ Files should be discoverable by other Android apps:
 - ebooks, comics, manga, and unknown files land under public Downloads;
 - sidecar metadata remains private under app files.
 
-For Android 10+, discoverability means MediaStore entries with correct display name, MIME type, and `IS_PENDING = 0` after completion. For Android 9 and below, discoverability means real files under `Download/Silo/...`.
+For Android 10+, discoverability means MediaStore entries with correct display name, MIME type, and `IS_PENDING = 0` after completion. For Android 9 and below, discoverability means real files under `Download/Prairie/...`.
 
 ### Open With
 
@@ -59,7 +59,7 @@ Every completed download with a local URI should show `Open with`. This includes
 - comics/manga;
 - unknown file types.
 
-For EPUB/PDF/CBZ ebooks, Silo may also show `Read`. `Read` opens the in-app reader. `Open with` opens the Android chooser so another reader/player can handle the same original file.
+For EPUB/PDF/CBZ ebooks, Prairie may also show `Read`. `Read` opens the in-app reader. `Open with` opens the Android chooser so another reader/player can handle the same original file.
 
 Open-with should:
 

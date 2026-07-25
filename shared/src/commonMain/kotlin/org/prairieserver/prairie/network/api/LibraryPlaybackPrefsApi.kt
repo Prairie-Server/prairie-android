@@ -1,0 +1,33 @@
+package org.prairieserver.prairie.network.api
+
+import org.prairieserver.prairie.model.settings.LibraryPlaybackPrefRequest
+import org.prairieserver.prairie.model.settings.LibraryPlaybackPrefsResponse
+import org.prairieserver.prairie.network.ApiResult
+import io.ktor.client.HttpClient
+import io.ktor.client.request.delete
+import io.ktor.client.request.get
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+
+open class LibraryPlaybackPrefsApi(private val client: HttpClient) {
+
+    open suspend fun list(): ApiResult<LibraryPlaybackPrefsResponse> = safeApiCall {
+        client.get("/api/v1/library-playback-prefs")
+    }
+
+    open suspend fun set(
+        libraryId: Int,
+        request: LibraryPlaybackPrefRequest,
+    ): ApiResult<Unit> = safeApiCall {
+        client.put("/api/v1/library-playback-prefs/$libraryId") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }
+
+    open suspend fun delete(libraryId: Int): ApiResult<Unit> = safeApiCall {
+        client.delete("/api/v1/library-playback-prefs/$libraryId")
+    }
+}

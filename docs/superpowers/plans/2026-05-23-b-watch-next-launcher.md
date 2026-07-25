@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Surface Silo "Continue Watching" + "Next Up" items on the Android TV launcher's Watch Next row. User can resume a show without launching the Silo app first. Tiles deep-link into the existing detail/player screens via the `continuum://` URL scheme.
+**Goal:** Surface Prairie "Continue Watching" + "Next Up" items on the Android TV launcher's Watch Next row. User can resume a show without launching the Prairie app first. Tiles deep-link into the existing detail/player screens via the `continuum://` URL scheme.
 
 **Architecture:**
 - New gradle dep `androidx.tvprovider:tvprovider:1.0.0` + `koin-androidx-workmanager`.
@@ -15,10 +15,10 @@
 
 **Tech stack:** Kotlin 2.1.20, `androidx.tvprovider:tvprovider:1.0.0`, `androidx.work:work-runtime-ktx` (likely transitive via Coil; add explicit if not), `koin-androidx-workmanager:4.1.0`.
 
-**Reference:** Spec section B at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Architectural audit confirmed:
-- `SectionItem` data class at `/opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/section/SectionModels.kt:8-31` with fields `contentId`, `title`, `posterUrl`, `backdropUrl`, `type`, `progressUpdatedAt` (ISO 8601), `positionSeconds`, `durationSeconds`, `userState`.
+**Reference:** Spec section B at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Architectural audit confirmed:
+- `SectionItem` data class at `/opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/section/SectionModels.kt:8-31` with fields `contentId`, `title`, `posterUrl`, `backdropUrl`, `type`, `progressUpdatedAt` (ISO 8601), `positionSeconds`, `durationSeconds`, `userState`.
 - `ResolvedSection.sectionType: String` field at lines 34–47 of same file. Server emits `"continue_watching"` / `"next_up"` directly.
-- `SectionRepository.getHomeSections(): ApiResult<SectionsResponse>` at `/opt/silo-android/shared/src/commonMain/kotlin/com/continuum/app/repository/SectionRepository.kt:13-54`.
+- `SectionRepository.getHomeSections(): ApiResult<SectionsResponse>` at `/opt/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/repository/SectionRepository.kt:13-54`.
 - `MainTvActivity.kt` (90 lines): has `onCreate` only — no `onNewIntent` handling today.
 - Current intent filter: only `MAIN` + `LEANBACK_LAUNCHER` (manifest lines 33–37).
 - Existing permissions: `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `WAKE_LOCK`. Missing both EPG permissions.
@@ -30,9 +30,9 @@
 ### Task 1: Add gradle deps + manifest permissions + deep-link intent filter
 
 **Files:**
-- Modify: `/opt/silo-android/gradle/libs.versions.toml`
-- Modify: `/opt/silo-android/androidTvApp/build.gradle.kts`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/AndroidManifest.xml`
+- Modify: `/opt/prairie-android/gradle/libs.versions.toml`
+- Modify: `/opt/prairie-android/androidTvApp/build.gradle.kts`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/AndroidManifest.xml`
 
 **Why:** Foundation. All later tasks compile against `androidx.tvprovider.media.tv.*` and require WorkManager + EPG permissions + the deep-link filter.
 
@@ -96,7 +96,7 @@ The existing LEANBACK_LAUNCHER filter STAYS; the new one is additive.
 - [ ] **Step 5: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If `androidx.tv:tvprovider:1.0.0` fails to resolve, try `androidx.tvprovider:tvprovider:1.0.0` instead and report DONE_WITH_CONCERNS.
@@ -104,12 +104,12 @@ Expected: BUILD SUCCESSFUL. If `androidx.tv:tvprovider:1.0.0` fails to resolve, 
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   gradle/libs.versions.toml \
   androidTvApp/build.gradle.kts \
   androidTvApp/src/androidMain/AndroidManifest.xml
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "build(tv): add tvprovider/work/koin-workmanager deps + EPG perms + deep links (B)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "build(tv): add tvprovider/work/koin-workmanager deps + EPG perms + deep links (B)
 
 Foundation for sub-project B (Watch Next launcher tiles):
 - androidx.tv:tvprovider 1.0.0 — Watch Next ContentProvider builder
@@ -128,8 +128,8 @@ Manifest:
 ### Task 2: `WatchNextProgramMapper` (pure SectionItem → Bundle-of-WatchNextProgram-params) + tests
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextProgramMapper.kt`
-- Create: `/opt/silo-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/watchnext/WatchNextProgramMapperTest.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextProgramMapper.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/watchnext/WatchNextProgramMapperTest.kt`
 
 **Why:** The mapper turns a `SectionItem` into the parameters needed for `WatchNextProgram.Builder`. Keeping it pure (no Android dependencies on the input/output) makes it unit-testable. The actual `WatchNextProgram.Builder` call happens inside `WatchNextRepository` (Task 3) which receives the mapper's output.
 
@@ -386,8 +386,8 @@ Verify the `SectionItem` constructor signature in `SectionModels.kt` and adapt t
 - [ ] **Step 3: Build + run tests**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
-cd /opt/silo-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.watchnext.WatchNextProgramMapperTest"
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:testDebugUnitTest --tests "com.continuum.app.tv.watchnext.WatchNextProgramMapperTest"
 ```
 
 Expected: BUILD SUCCESSFUL + 11 tests pass.
@@ -395,11 +395,11 @@ Expected: BUILD SUCCESSFUL + 11 tests pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextProgramMapper.kt \
   androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/watchnext/WatchNextProgramMapperTest.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-watchnext): pure mapper SectionItem → WatchNextProgramFields (B)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-watchnext): pure mapper SectionItem → WatchNextProgramFields (B)
 
 Stateless transformation kept Android-free for unit-testability.
 11 tests cover: sectionType→WATCH_NEXT_TYPE mapping, intentUri
@@ -413,7 +413,7 @@ consumes WatchNextProgramFields in the next commit."
 ### Task 3: `WatchNextRepository` (ContentResolver wrapper + diff-apply)
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextRepository.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextRepository.kt`
 
 **Why:** Owns the actual `ContentResolver` interaction. Insert new programs, update existing (by externalId), delete programs whose externalIds aren't in the new remote set. Single method `diffAndApply(remoteFields: List<WatchNextProgramFields>)`.
 
@@ -554,7 +554,7 @@ Notes:
 - [ ] **Step 2: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If package imports don't resolve, the most likely culprits are:
@@ -566,10 +566,10 @@ If the artifact ID is `androidx.tvprovider:tvprovider` (legacy group), update Ta
 - [ ] **Step 3: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextRepository.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-watchnext): WatchNextRepository — ContentResolver wrapper (B)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-watchnext): WatchNextRepository — ContentResolver wrapper (B)
 
 Single diffAndApply(List<WatchNextProgramFields>): inserts new tiles,
 updates existing by externalId match, deletes orphans whose
@@ -583,9 +583,9 @@ Dispatchers.IO. Worker consumer lands next."
 ### Task 4: `WatchNextSyncWorker` + Koin wiring + WorkManager setup
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt` (Koin worker registration)
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/AndroidManifest.xml` (already has provider declaration via androidx.work; verify nothing needs adding)
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt` (Koin worker registration)
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/AndroidManifest.xml` (already has provider declaration via androidx.work; verify nothing needs adding)
 - Modify: an app-init point to install Koin's WorkManager factory
 
 **Why:** Periodic + on-demand worker that fetches sections, maps, and calls `WatchNextRepository.diffAndApply`. WorkManager handles persistence across app death.
@@ -677,7 +677,7 @@ If the Application class doesn't exist or Koin is initialized differently (e.g. 
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -685,15 +685,15 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSyncWorker.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt
 
 # Also add the Application file if you touched it for workManagerFactory()
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
-  $(find /opt/silo-android/androidTvApp/src/androidMain -name "*Application*.kt" -type f) 2>/dev/null || true
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
+  $(find /opt/prairie-android/androidTvApp/src/androidMain -name "*Application*.kt" -type f) 2>/dev/null || true
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-watchnext): WatchNextSyncWorker + Koin worker registration (B)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-watchnext): WatchNextSyncWorker + Koin worker registration (B)
 
 CoroutineWorker fetches /api/v1/home/sections, filters to
 continue_watching + next_up sections, maps items via
@@ -710,9 +710,9 @@ DI. Scheduling lands in the next commit."
 ### Task 5: `WatchNextSeeder` + auth/profile-switch integration + WorkManager periodic schedule
 
 **Files:**
-- Create: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSeeder.kt`
+- Create: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSeeder.kt`
 - Modify: appropriate post-auth integration point (likely `TvLoginScreen` callback path or `TvAppNavigation.kt`)
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt` for the seeder
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt` for the seeder
 
 **Why:** Triggers the worker. Periodic for background refresh (~1h cadence), expedited on profile switch / sign-out / sign-in.
 
@@ -804,7 +804,7 @@ This is the messiest task in the plan — the trigger points are spread across t
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -812,12 +812,12 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/watchnext/WatchNextSeeder.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/navigation/TvAppNavigation.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-watchnext): WatchNextSeeder + lifecycle triggers (B)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-watchnext): WatchNextSeeder + lifecycle triggers (B)
 
 WatchNextSeeder owns the WorkManager surface — seedNow() on
 auth/profile-select, enqueuePeriodic() on startup (1h cadence,
@@ -832,7 +832,7 @@ post-profile-select, on-switch-profile, and on-signed-out."
 ### Task 6: `MainTvActivity` deep-link handler
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/MainTvActivity.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/MainTvActivity.kt`
 
 **Why:** Watch Next tiles tap into `continuum://item/<id>` or `continuum://play/<id>`. The activity needs to parse these intents (from `onCreate` for cold launches and `onNewIntent` for warm launches) and route through the existing `TvAppNavigation`.
 
@@ -905,7 +905,7 @@ For unauthenticated cold launches: the deep link sits in `pendingDeepLink` until
 - [ ] **Step 3: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -913,12 +913,12 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/MainTvActivity.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/navigation/TvAppNavigation.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-watchnext): MainTvActivity onNewIntent + TvAppNavigation handler (B)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-watchnext): MainTvActivity onNewIntent + TvAppNavigation handler (B)
 
 continuum://item/<id> routes to ItemDetail; continuum://play/<id>
 routes to Player. Pending URI lives in a Koin-provided

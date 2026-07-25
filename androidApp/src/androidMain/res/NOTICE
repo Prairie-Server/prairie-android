@@ -1,20 +1,14 @@
-SILO BRAND ASSETS — NOTICE
-==========================
+PRAIRIE BRAND ASSETS - NOTICE
+=============================
 
-The files in this directory (and its subdirectories) that constitute Silo brand
-assets — including the Silo logo, wordmark, app icons, and other visual-identity
-files — are:
+The files in this directory and its subdirectories include Prairie visual
+identity assets, including the Prairie app icon, launcher icons, wordmark, and
+TV banner.
 
-    Copyright (c) 2026 Silo Media L.L.C. All rights reserved.
+These files replace the upstream Silo brand assets for this Prairie fork. They
+are not Silo Media L.L.C. assets, and this distribution does not grant any right
+to use the Silo name, logo, wordmark, or other Silo Media marks.
 
-These brand assets are TRADEMARKS of Silo Media L.L.C. They are NOT licensed
-under the GNU Affero General Public License (AGPL-3.0-or-later) that covers the
-Silo source code, nor under any other open-source license.
-
-If you redistribute or fork this software, you MUST remove or replace these
-brand assets. You may not use the Silo name or logo as the identity of a
-modified or redistributed version, and you may not publish a Silo-branded app to
-any app store without written permission from Silo Media L.L.C.
-
-See TRADEMARK.md for the full Silo Trademark & Brand Policy, including the
-permitted referential uses (e.g. "compatible with Silo").
+Prairie source code is licensed under AGPL-3.0-or-later as described in the root
+LICENSE file. Trademark and brand rights are separate from the code license. See
+TRADEMARK.md for the full Prairie trademark and fork-branding notes.

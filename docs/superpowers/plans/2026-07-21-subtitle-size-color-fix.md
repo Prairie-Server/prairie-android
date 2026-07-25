@@ -21,10 +21,10 @@
 ### Task 1: Restore the standard shared and Android subtitle sizes
 
 **Files:**
-- Modify: `shared/src/commonTest/kotlin/org/siloserver/silo/model/settings/SubtitleAppearanceTest.kt`
-- Modify: `shared/src/commonMain/kotlin/org/siloserver/silo/model/settings/SubtitleAppearance.kt`
-- Modify: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/SubtitleManagerAppearanceTest.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/SubtitleManager.kt`
+- Modify: `shared/src/commonTest/kotlin/org/prairieserver/prairie/model/settings/SubtitleAppearanceTest.kt`
+- Modify: `shared/src/commonMain/kotlin/org/prairieserver/prairie/model/settings/SubtitleAppearance.kt`
+- Modify: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/SubtitleManagerAppearanceTest.kt`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/SubtitleManager.kt`
 
 **Interfaces:**
 - Consumes: `SubtitleFontSizePreset.pointSize: Double` and `SubtitleManager.fractionalSizeFor(SubtitleFontSizePreset): Float`.
@@ -53,8 +53,8 @@ assertEquals(0.072f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.XXL
 Run:
 
 ```bash
-./gradlew :shared:testDebugUnitTest --tests 'org.siloserver.silo.model.settings.SubtitleAppearanceTest' \
-  :android-shared:testDebugUnitTest --tests 'org.siloserver.silo.common.player.SubtitleManagerAppearanceTest'
+./gradlew :shared:testDebugUnitTest --tests 'org.prairieserver.prairie.model.settings.SubtitleAppearanceTest' \
+  :android-shared:testDebugUnitTest --tests 'org.prairieserver.prairie.common.player.SubtitleManagerAppearanceTest'
 ```
 
 Expected: assertions report the enlarged `68/82/96` and `0.060/0.072/0.084` mappings.
@@ -84,8 +84,8 @@ Run the command from Step 2. Expected: both test classes pass.
 ### Task 2: Make TV color swatches activate with OK
 
 **Files:**
-- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt`
 
 **Interfaces:**
 - Consumes: `StyleColorSwatch(..., onClick: () -> Unit)` and Compose `Modifier.clickable` keyboard behavior.
@@ -119,7 +119,7 @@ Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
-  --tests 'org.siloserver.silo.tv.ui.screens.player.TvPlayerControlsUsabilityTest.subtitleColorSwatchesUseOneActivatingFocusTarget'
+  --tests 'org.prairieserver.prairie.tv.ui.screens.player.TvPlayerControlsUsabilityTest.subtitleColorSwatchesUseOneActivatingFocusTarget'
 ```
 
 Expected: failure reports that the swatch block still contains `.focusable(`.

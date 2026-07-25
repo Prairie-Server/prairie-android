@@ -1,4 +1,4 @@
-# Silo Android — Feature List
+# Prairie Android — Feature List
 
 A detailed inventory of what the Android **phone** and **TV** clients do today. Legend:
 
@@ -17,7 +17,7 @@ File pointers are repository-relative.
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| Media3/ExoPlayer engine via shared `MediaSessionService` | ✅ | ✅ | One session per process; UI drives it via `MediaController`. `android-shared/.../player/SiloPlaybackService.kt` |
+| Media3/ExoPlayer engine via shared `MediaSessionService` | ✅ | ✅ | One session per process; UI drives it via `MediaController`. `android-shared/.../player/PrairiePlaybackService.kt` |
 | Direct Play | ✅ | ✅ | Progressive HTTP; server-selected from advertised capabilities |
 | Remux (HLS or progressive container/audio re-mux) | ✅ | ✅ | Server-selected protocol-v3 plan |
 | Transcode (HLS full re-encode) | ✅ | ✅ | Server-selected plan or classified v3 replan |
@@ -44,7 +44,7 @@ File pointers are repository-relative.
 | Lock-screen / notification / headset / Assistant controls | ✅ | ✅ | Via `MediaSession` |
 | D-pad transport, info HUD, chapter scrubber | ➖ | ✅ | `TvPlayerHud`, `TvPlayerScrubber` |
 | Landscape-on-play (auto-rotate aware) | 🚧 | ➖ | Implemented then reverted; pending re-apply |
-| Picture-in-Picture | ✅ | ✅ | `SiloPictureInPictureCoordinator`; enters on home-press during playback |
+| Picture-in-Picture | ✅ | ✅ | `PrairiePictureInPictureCoordinator`; enters on home-press during playback |
 
 ## Watch Together (not exposed)
 
@@ -136,7 +136,7 @@ File pointers are repository-relative.
 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
-| Multiple Silo servers + switching (encrypted per-server tokens) | ✅ | ✅ | `ServerRegistry` |
+| Multiple Prairie servers + switching (encrypted per-server tokens) | ✅ | ✅ | `ServerRegistry` |
 | First-time server setup (admin creation) | ✅ | ➖ | TV signs in to already-set-up servers |
 | Username/password login | ✅ | ✅ | |
 | QR / device pairing sign-in | 🟡 | ✅ | TV displays code; phone approves device logins |

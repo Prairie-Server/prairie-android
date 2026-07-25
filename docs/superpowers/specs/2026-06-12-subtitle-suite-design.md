@@ -2,13 +2,13 @@
 
 **Date:** 2026-06-12
 **Status:** Approved
-**Scope:** Sub-project 2 of the feature-parity push. Mobile AND TV video players (revised 2026-06-12: neither feature needs text input — search is a language picker, AI translate is pure pickers — so TV is in scope). Server: silo-server `origin/main`.
+**Scope:** Sub-project 2 of the feature-parity push. Mobile AND TV video players (revised 2026-06-12: neither feature needs text input — search is a language picker, AI translate is pure pickers — so TV is in scope). Server: prairie-server `origin/main`.
 
 ## Goal
 
 Close the parity gaps "Subtitle search and download" and "AI subtitle translation and transcription" on the Android mobile video player, mirroring the web reference UX.
 
-## Server contracts (verified against silo-server main)
+## Server contracts (verified against prairie-server main)
 
 ### Provider search/download
 - `POST /api/v1/subtitles/search` body `{"media_file_id": Int, "languages": [String]}` → `{"results": [SubtitleResult], "warnings": [String]?}`; `SubtitleResult = {id, provider(opensubtitles|subdl|subsource), language, release_name, format, score(0-100), downloads, hearing_impaired, upload_date?}`.

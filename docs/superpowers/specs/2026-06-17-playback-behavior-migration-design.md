@@ -2,18 +2,18 @@
 
 **Date:** 2026-06-17
 **Status:** Approved design, pending implementation plan
-**Target:** `silo-android` (`androidApp`, `android-shared`, `shared`)
+**Target:** `prairie-android` (`androidApp`, `android-shared`, `shared`)
 **Source of reference:** `continuum_clients` (reference design only — not a lift-and-shift)
 
 ## Background
 
-`silo-android` is a mature KMP successor to `continuum_clients`. It already has a
+`prairie-android` is a mature KMP successor to `continuum_clients`. It already has a
 service-owned player (`ContinuumPlaybackService`, a `MediaSessionService`), working
 dual-engine MPV+Media3, sleep timer, buffering, lock-screen notifications, intro
 auto-skip, encrypted tokens, offline downloads, and Watch Together room sync.
 
 A review of the requested feature migration found that several originally-requested
-features already exist in silo-android (sleep timer, buffering, lock-screen
+features already exist in prairie-android (sleep timer, buffering, lock-screen
 notifications). This spec covers only the **playback-behavior** gaps, the first of
 three planned subsystem specs:
 
@@ -98,7 +98,7 @@ consume server-pushed playback enrichment events.
 
 **Server contract** (already implemented; see `internal/playback/realtime.go`,
 `internal/api/handlers/session_ws.go`, `command_dispatcher.go`,
-`admin_playback_control.go` in `silo-server`):
+`admin_playback_control.go` in `prairie-server`):
 - Endpoint: `GET …/sessions/{session_id}/control/ws`, authenticated via the normal
   profile session (no separate ticket). Session must belong to the requesting user.
 - Message types: `hello`, `command`, `event`, `ack`, `result`.

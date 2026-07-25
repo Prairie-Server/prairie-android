@@ -5,7 +5,7 @@
 
 ## 1. Taxonomy (what we tier)
 
-Planning assumption: silo-server PR **#138 (manga)** merges; PR **#107 (unified literary works)** does **not** — so books group by existing `author`/`seriesTitle` metadata, not a "work" model.
+Planning assumption: prairie-server PR **#138 (manga)** merges; PR **#107 (unified literary works)** does **not** — so books group by existing `author`/`seriesTitle` metadata, not a "work" model.
 
 | Media (`DownloadMediaType`) | Tiers (parent → … → leaf) | Leaf playable unit |
 |---|---|---|

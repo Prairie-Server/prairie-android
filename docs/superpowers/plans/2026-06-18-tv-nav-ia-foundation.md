@@ -2,9 +2,9 @@
 
 > Execute task-by-task with subagent-driven-development; Codex-review each change before commit; emulator-verify; commit author rxwatcher, no push.
 
-**Goal:** Migrate Android TV top nav to the tvOS content-type-first model: `SILO | Home·Movies·Series·Music·Audiobooks·Calendar | search-icon + profile-avatar`, with an anchored two-level cascade scope selector replacing the full-screen library picker, persisted per-type scope, inverted-capsule tab focus, and focus-driven bar dim.
+**Goal:** Migrate Android TV top nav to the tvOS content-type-first model: `PRAIRIE | Home·Movies·Series·Music·Audiobooks·Calendar | search-icon + profile-avatar`, with an anchored two-level cascade scope selector replacing the full-screen library picker, persisted per-type scope, inverted-capsule tab focus, and focus-driven bar dim.
 
-**Reference (tvOS):** `silo-apple/iosApp/iosApp/tvOS/Navigation/{TVMainTabView,TVTopMenuBar,TVCascadeSelector,TVLibraryScopeStore}.swift`.
+**Reference (tvOS):** `prairie-apple/iosApp/iosApp/tvOS/Navigation/{TVMainTabView,TVTopMenuBar,TVCascadeSelector,TVLibraryScopeStore}.swift`.
 
 **For You decision:** demote from a tab to a Home "Recommended For You" row (matches tvOS); keep `TvRecommendationsScreen` reachable as a secondary route.
 

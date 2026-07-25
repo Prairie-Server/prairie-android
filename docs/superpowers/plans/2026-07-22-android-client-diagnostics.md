@@ -2,7 +2,7 @@
 
 > **For implementation:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Use subagents only if the user explicitly requests delegated execution. Steps use checkbox (- [ ]) syntax for tracking.
 
-**Goal:** Deliver the complete Android and Android TV client-diagnostics feature in one pull request, compatible with Silo diagnostics schema v1 and the shipped self-hosted server ingest API.
+**Goal:** Deliver the complete Android and Android TV client-diagnostics feature in one pull request, compatible with Prairie diagnostics schema v1 and the shipped self-hosted server ingest API.
 
 **Architecture:** Platform-neutral wire models and Ktor upload code live in shared. Android-native logging, persistence, capture, identity, bundling, and upload orchestration live in android-shared. Phone and TV own Compose presentation and startup integration. Crash-time work stays bounded and synchronous; report conversion, review, bundle construction, and upload happen after restart under fail-closed identity and consent checks.
 
@@ -12,7 +12,7 @@
 
 - Deliver one comprehensive PR with ordered commits; do not create stacked PRs.
 - Add no Sentry, GlitchTip, Crashlytics, OpenTelemetry, ACRA, or similar dependency.
-- Target schema version 1 and copy canonical fixtures from Silo-Server/silo-server.
+- Target schema version 1 and copy canonical fixtures from Prairie-Server/prairie-server.
 - Default crash reporting to Ask and debug logging to off.
 - Bind consent and reports to server instance, account user, and notice version.
 - Confirmed child-profile evidence is purged and cannot be reviewed or uploaded.
@@ -32,33 +32,33 @@ Test snippets use local fixture helpers declared in the named test file: fixture
 
 Shared wire/API files:
 
-- shared/src/commonMain/kotlin/org/siloserver/silo/model/diagnostics/DiagnosticsModels.kt
-- shared/src/commonMain/kotlin/org/siloserver/silo/model/diagnostics/DiagnosticsValidation.kt
-- shared/src/commonMain/kotlin/org/siloserver/silo/network/api/DiagnosticsApi.kt
-- shared/src/commonMain/kotlin/org/siloserver/silo/network/DiagnosticsRequestScope.kt
-- shared/src/androidUnitTest/kotlin/org/siloserver/silo/model/diagnostics/DiagnosticsContractTest.kt
-- shared/src/commonTest/kotlin/org/siloserver/silo/network/api/DiagnosticsApiTest.kt
+- shared/src/commonMain/kotlin/org/prairieserver/prairie/model/diagnostics/DiagnosticsModels.kt
+- shared/src/commonMain/kotlin/org/prairieserver/prairie/model/diagnostics/DiagnosticsValidation.kt
+- shared/src/commonMain/kotlin/org/prairieserver/prairie/network/api/DiagnosticsApi.kt
+- shared/src/commonMain/kotlin/org/prairieserver/prairie/network/DiagnosticsRequestScope.kt
+- shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/model/diagnostics/DiagnosticsContractTest.kt
+- shared/src/commonTest/kotlin/org/prairieserver/prairie/network/api/DiagnosticsApiTest.kt
 - shared/src/commonTest/resources/diagnostics/v1/ (canonical fixture tree and SOURCE metadata)
 
-Android infrastructure under android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/:
+Android infrastructure under android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/:
 
-- DiagnosticsRedactor.kt, SiloLog.kt, LogRing.kt, DiagnosticsFileLogger.kt
+- DiagnosticsRedactor.kt, PrairieLog.kt, LogRing.kt, DiagnosticsFileLogger.kt
 - DiagnosticsSettingsStore.kt, DiagnosticsIdentityResolver.kt, DiagnosticsRunLedger.kt
 - PendingReportStore.kt, DiagnosticsBundleBuilder.kt
 - DeviceSnapshotCollector.kt, CrashCapture.kt, ExitInfoCollector.kt
 - DiagnosticsUploader.kt, DiagnosticsUploadWorker.kt, DiagnosticsCoordinator.kt
 - DiagnosticsModule.kt, DiagnosticsPresentationModels.kt
 
-Phone presentation lives under androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/settings/diagnostics/. TV presentation lives under androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/.
+Phone presentation lives under androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/diagnostics/. TV presentation lives under androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/diagnostics/.
 
 ---
 
 ### Task 1: Import and implement the canonical schema-v1 contract
 
 **Files:**
-- Create: shared/src/commonMain/kotlin/org/siloserver/silo/model/diagnostics/DiagnosticsModels.kt
-- Create: shared/src/commonMain/kotlin/org/siloserver/silo/model/diagnostics/DiagnosticsValidation.kt
-- Create: shared/src/androidUnitTest/kotlin/org/siloserver/silo/model/diagnostics/DiagnosticsContractTest.kt
+- Create: shared/src/commonMain/kotlin/org/prairieserver/prairie/model/diagnostics/DiagnosticsModels.kt
+- Create: shared/src/commonMain/kotlin/org/prairieserver/prairie/model/diagnostics/DiagnosticsValidation.kt
+- Create: shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/model/diagnostics/DiagnosticsContractTest.kt
 - Create: shared/src/commonTest/resources/diagnostics/v1/ (canonical fixture tree and SOURCE metadata)
 - Modify: shared/build.gradle.kts
 
@@ -76,7 +76,7 @@ Copy docs/design/schemas/client-diagnostics/v1 from server main byte-for-byte. A
 class DiagnosticsContractTest {
     @Test
     fun validAndroidCrashRoundTrips() {
-        val manifest = SiloJson.decodeFromString<DiagnosticsManifest>(
+        val manifest = PrairieJson.decodeFromString<DiagnosticsManifest>(
             fixture("fixtures/valid/android-tv-crash-ueh.json"),
         )
         manifest.validate()
@@ -161,11 +161,11 @@ git commit -m "feat(diagnostics): add schema v1 contracts"
 ### Task 2: Add diagnostics status and multipart upload APIs
 
 **Files:**
-- Create: shared/src/commonMain/kotlin/org/siloserver/silo/network/api/DiagnosticsApi.kt
-- Create: shared/src/commonMain/kotlin/org/siloserver/silo/network/DiagnosticsRequestScope.kt
-- Create: shared/src/commonTest/kotlin/org/siloserver/silo/network/api/DiagnosticsApiTest.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/network/AuthInterceptorImpl.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/di/NetworkModule.kt
+- Create: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/api/DiagnosticsApi.kt
+- Create: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/DiagnosticsRequestScope.kt
+- Create: shared/src/commonTest/kotlin/org/prairieserver/prairie/network/api/DiagnosticsApiTest.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/AuthInterceptorImpl.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/di/NetworkModule.kt
 
 **Interfaces:**
 - Produces DiagnosticsApi.getStatus() and upload(manifestJson, bundleBytes, capturedProfileId).
@@ -253,17 +253,17 @@ git commit -m "feat(diagnostics): add status and upload API"
 
 ---
 
-### Task 3: Implement collection-time redaction and SiloLog
+### Task 3: Implement collection-time redaction and PrairieLog
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsRedactor.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/SiloLog.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsRedactorTest.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/SiloLogTest.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsRedactor.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/PrairieLog.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsRedactorTest.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/PrairieLogTest.kt
 
 **Interfaces:**
-- Produces DiagnosticsRedactor, SiloLogAttribute, DiagnosticsLogSink, and pre-Koin SiloLog.
-- SiloLog always forwards to android.util.Log and optionally offers a structured line.
+- Produces DiagnosticsRedactor, PrairieLogAttribute, DiagnosticsLogSink, and pre-Koin PrairieLog.
+- PrairieLog always forwards to android.util.Log and optionally offers a structured line.
 
 - [x] **Step 1: Write failing leak and registry tests**
 
@@ -288,26 +288,26 @@ fun unregisteredAttributeIsDropped() {
 - [x] **Step 2: Verify RED**
 
 ~~~bash
-./gradlew :android-shared:testDebugUnitTest --tests '*DiagnosticsRedactorTest' --tests '*SiloLogTest'
+./gradlew :android-shared:testDebugUnitTest --tests '*DiagnosticsRedactorTest' --tests '*PrairieLogTest'
 ~~~
 
 - [x] **Step 3: Implement typed logging and canonical registry**
 
 ~~~kotlin
-sealed interface SiloLogAttribute {
-    data class Text(val value: String) : SiloLogAttribute
-    data class Integer(val value: Long) : SiloLogAttribute
-    data class Number(val value: Double) : SiloLogAttribute
-    data class Flag(val value: Boolean) : SiloLogAttribute
-    data class Url(val value: String) : SiloLogAttribute
-    data class Failure(val value: Throwable) : SiloLogAttribute
+sealed interface PrairieLogAttribute {
+    data class Text(val value: String) : PrairieLogAttribute
+    data class Integer(val value: Long) : PrairieLogAttribute
+    data class Number(val value: Double) : PrairieLogAttribute
+    data class Flag(val value: Boolean) : PrairieLogAttribute
+    data class Url(val value: String) : PrairieLogAttribute
+    data class Failure(val value: Throwable) : PrairieLogAttribute
 }
 
 fun interface DiagnosticsLogSink {
     fun offer(renderedJsonLine: String)
 }
 
-object SiloLog {
+object PrairieLog {
     private val sink = AtomicReference<DiagnosticsLogSink?>()
 
     fun installSink(value: DiagnosticsLogSink?) = sink.set(value)
@@ -316,7 +316,7 @@ object SiloLog {
         category: DiagnosticsLogCategory,
         tag: String,
         message: String,
-        attrs: Map<String, SiloLogAttribute> = emptyMap(),
+        attrs: Map<String, PrairieLogAttribute> = emptyMap(),
     ) {
         Log.i(tag, message)
         DiagnosticsLogRenderer.render(INFO, category, tag, message, attrs)
@@ -330,7 +330,7 @@ Implement stable host hashing, loopback preservation, JWT/email/cookie/header sc
 - [x] **Step 4: Verify GREEN**
 
 ~~~bash
-./gradlew :android-shared:testDebugUnitTest --tests '*DiagnosticsRedactorTest' --tests '*SiloLogTest'
+./gradlew :android-shared:testDebugUnitTest --tests '*DiagnosticsRedactorTest' --tests '*PrairieLogTest'
 ~~~
 
 - [x] **Step 5: Commit**
@@ -345,10 +345,10 @@ git commit -m "feat(diagnostics): add safe structured logging"
 ### Task 4: Implement the ring and rotating persistent logger
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/LogRing.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsFileLogger.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/LogRingTest.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsFileLoggerTest.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/LogRing.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsFileLogger.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/LogRingTest.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsFileLoggerTest.kt
 
 **Interfaces:**
 - LogRing.offer, snapshot, rotateGeneration, clear.
@@ -415,19 +415,19 @@ git commit -m "feat(diagnostics): add bounded log capture"
 ### Task 5: Implement consent, identity resolution, and run correlation
 
 **Files:**
-- Create: shared/src/commonMain/kotlin/org/siloserver/silo/network/IdentityTransitionBarrier.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/network/TokenManager.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/network/TokenManagerImpl.kt
-- Modify: shared/src/androidMain/kotlin/org/siloserver/silo/network/EncryptedTokenManagerImpl.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/network/ServerRegistry.kt
-- Modify: shared/src/androidMain/kotlin/org/siloserver/silo/network/AndroidServerRegistry.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/repository/ProfileRepository.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsSettingsStore.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsIdentityResolver.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsRunLedger.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsSettingsStoreTest.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsIdentityResolverTest.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsRunLedgerTest.kt
+- Create: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/IdentityTransitionBarrier.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/TokenManager.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/TokenManagerImpl.kt
+- Modify: shared/src/androidMain/kotlin/org/prairieserver/prairie/network/EncryptedTokenManagerImpl.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/ServerRegistry.kt
+- Modify: shared/src/androidMain/kotlin/org/prairieserver/prairie/network/AndroidServerRegistry.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/repository/ProfileRepository.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsSettingsStore.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsIdentityResolver.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsRunLedger.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsSettingsStoreTest.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsIdentityResolverTest.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsRunLedgerTest.kt
 
 **Interfaces:**
 - Settings store observes consent/debug/history and performs binding purges.
@@ -549,8 +549,8 @@ git commit -m "feat(diagnostics): isolate consent and identity"
 ### Task 6: Build atomic pending-report storage
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/PendingReportStore.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/PendingReportStoreTest.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/PendingReportStore.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/PendingReportStoreTest.kt
 
 **Interfaces:**
 - save, list, load, delete, purge, markState, hasSeenFingerprint, and throttle APIs.
@@ -627,8 +627,8 @@ git commit -m "feat(diagnostics): add pending report storage"
 ### Task 7: Implement canonical tar/gzip bundle construction
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsBundleBuilder.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsBundleBuilderTest.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsBundleBuilder.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsBundleBuilderTest.kt
 
 **Interfaces:**
 - build(report, redactionTokens) returns finalized external manifest bytes and transmitted gzip bytes.
@@ -696,12 +696,12 @@ git commit -m "feat(diagnostics): build canonical report bundles"
 ### Task 8: Export truthful Android device snapshots
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DeviceSnapshotCollector.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DeviceSnapshotCollectorTest.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/DisplayHdrProbe.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/AudioCapabilityManager.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/audio/PassthroughSuppressionRegistry.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/MediaCodecCapabilitiesProbe.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DeviceSnapshotCollector.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DeviceSnapshotCollectorTest.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/DisplayHdrProbe.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/AudioCapabilityManager.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/audio/PassthroughSuppressionRegistry.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/MediaCodecCapabilitiesProbe.kt
 
 **Interfaces:**
 - Read-only existing-probe snapshots; diagnostics never mutates player state.
@@ -738,7 +738,7 @@ interface DiagnosticsDeviceProbe {
 class DeviceSnapshotCache {
     private val bytes = AtomicReference<ByteArray?>(null)
     fun update(snapshot: DeviceSnapshot) {
-        bytes.set(SiloJson.encodeToString(snapshot).encodeToByteArray())
+        bytes.set(PrairieJson.encodeToString(snapshot).encodeToByteArray())
     }
     fun currentBytes(): ByteArray? = bytes.get()?.copyOf()
 }
@@ -764,10 +764,10 @@ git commit -m "feat(diagnostics): capture Android device evidence"
 ### Task 9: Install bounded JVM crash capture before Koin
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/CrashCapture.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/CrashCaptureTest.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/SiloApplication.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/SiloTvApplication.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/CrashCapture.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/CrashCaptureTest.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/PrairieApplication.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/PrairieTvApplication.kt
 
 **Interfaces:**
 - CrashCapture.install(context) is pre-Koin and idempotent.
@@ -826,14 +826,14 @@ override fun onCreate() {
     super.onCreate()
     CrashCapture.install(this)
     val koinApp = startKoin {
-        androidContext(this@SiloApplication)
+        androidContext(this@PrairieApplication)
         modules(sharedModules() + playerModule + playerInfraModule + diagnosticsModule + androidModule)
     }
     koinApp.koin.get<DiagnosticsCoordinator>().start()
 }
 ~~~
 
-Apply the equivalent ordering in SiloTvApplication, using androidTvModule in place of androidModule. Preserve all existing modules and initialization work in both applications.
+Apply the equivalent ordering in PrairieTvApplication, using androidTvModule in place of androidModule. Preserve all existing modules and initialization work in both applications.
 
 ~~~bash
 ./gradlew :android-shared:testDebugUnitTest --tests '*CrashCaptureTest' :androidApp:compileDebugKotlinAndroid :androidTvApp:compileDebugKotlinAndroid
@@ -851,8 +851,8 @@ git commit -m "feat(diagnostics): capture JVM crashes"
 ### Task 10: Convert ApplicationExitInfo into deduplicated reports
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/ExitInfoCollector.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/ExitInfoCollectorTest.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/ExitInfoCollector.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/ExitInfoCollectorTest.kt
 
 **Interfaces:**
 - AndroidExitInfoSource abstracts framework access.
@@ -922,14 +922,14 @@ git commit -m "feat(diagnostics): collect Android exit evidence"
 ### Task 11: Implement guarded upload, WorkManager, and DI
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsUploader.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsUploadWorker.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsModule.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsUploaderTest.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/downloads/AppWorkerFactory.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/watchnext/TvWorkerFactory.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/di/AndroidTvModule.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsUploader.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsUploadWorker.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsModule.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsUploaderTest.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/downloads/AppWorkerFactory.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/watchnext/TvWorkerFactory.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/di/AndroidTvModule.kt
 
 **Interfaces:**
 - DiagnosticsUploader.upload(reportId) returns DiagnosticsUploadDecision.
@@ -998,9 +998,9 @@ git commit -m "feat(diagnostics): upload reports safely"
 ### Task 12: Build coordinator and manual capture state machine
 
 **Files:**
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsCoordinator.kt
-- Create: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsPresentationModels.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsCoordinatorTest.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsCoordinator.kt
+- Create: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsPresentationModels.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsCoordinatorTest.kt
 
 **Interfaces:**
 - StateFlow exposes availability, consent, pending reports, prompt, timed capture, and sent history.
@@ -1075,15 +1075,15 @@ git commit -m "feat(diagnostics): coordinate capture and consent"
 ### Task 13: Add complete phone UI
 
 **Files:**
-- Create: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/settings/diagnostics/DiagnosticsViewModel.kt
-- Create: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/settings/diagnostics/DiagnosticsSettingsScreen.kt
-- Create: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/settings/diagnostics/DiagnosticsReportScreen.kt
-- Create: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/settings/diagnostics/DiagnosticsPrompt.kt
-- Create: androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/settings/diagnostics/DiagnosticsPhoneStateTest.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/settings/SettingsScreen.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/navigation/Routes.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/navigation/AppNavigation.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/di/AndroidModule.kt
+- Create: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/diagnostics/DiagnosticsViewModel.kt
+- Create: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/diagnostics/DiagnosticsSettingsScreen.kt
+- Create: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/diagnostics/DiagnosticsReportScreen.kt
+- Create: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/diagnostics/DiagnosticsPrompt.kt
+- Create: androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/screens/settings/diagnostics/DiagnosticsPhoneStateTest.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/SettingsScreen.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/Routes.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt
 
 **Interfaces:**
 - ViewModel delegates to coordinator and owns no diagnostics rule.
@@ -1150,15 +1150,15 @@ git commit -m "feat(diagnostics): add phone report experience"
 ### Task 14: Add complete Android TV UI
 
 **Files:**
-- Create: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/TvDiagnosticsViewModel.kt
-- Create: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/TvDiagnosticsSettingsScreen.kt
-- Create: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/TvDiagnosticsReportScreen.kt
-- Create: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/TvDiagnosticsPromptScreen.kt
-- Create: androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/TvDiagnosticsStateTest.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/TvSettingsScreen.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/navigation/TvRoute.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/navigation/TvAppNavigation.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/di/AndroidTvModule.kt
+- Create: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/diagnostics/TvDiagnosticsViewModel.kt
+- Create: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/diagnostics/TvDiagnosticsSettingsScreen.kt
+- Create: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/diagnostics/TvDiagnosticsReportScreen.kt
+- Create: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/diagnostics/TvDiagnosticsPromptScreen.kt
+- Create: androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/diagnostics/TvDiagnosticsStateTest.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/TvSettingsScreen.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvRoute.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvAppNavigation.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/di/AndroidTvModule.kt
 
 **Interfaces:**
 - Same coordinator semantics as phone, mapped into remote-friendly focus models.
@@ -1227,20 +1227,20 @@ git commit -m "feat(diagnostics): add TV report experience"
 ### Task 15: Curate playback, network, focus, cast, download, and lifecycle evidence
 
 **Files:**
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/PlaybackAnalyticsListener.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/PlayerStatsSnapshot.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/PlaybackSessionLifecycle.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/player/video/VideoPlaybackSessionCoordinator.kt
-- Modify: android-shared/src/androidMain/kotlin/org/siloserver/silo/common/downloads/DownloadWorker.kt
-- Modify: androidApp/src/androidMain/kotlin/org/siloserver/silo/android/cast/SiloCastSessionManager.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/cast/TvSiloCastReceiver.kt
-- Modify: androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvShellFocusState.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/network/SiloHttpClientImpl.kt
-- Modify: shared/src/commonMain/kotlin/org/siloserver/silo/network/AuthInterceptorImpl.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsInstrumentationTest.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlaybackAnalyticsListener.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlayerStatsSnapshot.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlaybackSessionLifecycle.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/video/VideoPlaybackSessionCoordinator.kt
+- Modify: android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/downloads/DownloadWorker.kt
+- Modify: androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/cast/PrairieCastSessionManager.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/cast/TvPrairieCastReceiver.kt
+- Modify: androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvShellFocusState.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/PrairieHttpClientImpl.kt
+- Modify: shared/src/commonMain/kotlin/org/prairieserver/prairie/network/AuthInterceptorImpl.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsInstrumentationTest.kt
 
 **Interfaces:**
-- Instrumentation calls only SiloLog.
+- Instrumentation calls only PrairieLog.
 - Five-second stats snapshots run only for debug/timed capture.
 
 - [x] **Step 1: Write failing safety tests**
@@ -1269,13 +1269,13 @@ fun subtitleCueTextIsNeverCaptured() {
 - [x] **Step 3: Add only contract-safe events**
 
 ~~~kotlin
-SiloLog.i(
+PrairieLog.i(
     DiagnosticsLogCategory.PLAYBACK,
     "Media3Analytics",
     "video decoder initialized",
     mapOf(
-        "decoder" to SiloLogAttribute.Text(decoderName),
-        "duration_ms" to SiloLogAttribute.Integer(initializationDurationMs),
+        "decoder" to PrairieLogAttribute.Text(decoderName),
+        "duration_ms" to PrairieLogAttribute.Integer(initializationDurationMs),
     ),
 )
 ~~~
@@ -1300,8 +1300,8 @@ git commit -m "feat(diagnostics): add curated client evidence"
 ### Task 16: Cross-layer privacy tests and final verification
 
 **Files:**
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsPrivacyIntegrationTest.kt
-- Create: android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/diagnostics/DiagnosticsStartupRobolectricTest.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsPrivacyIntegrationTest.kt
+- Create: android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/diagnostics/DiagnosticsStartupRobolectricTest.kt
 - Modify: README.md
 - Modify: docs/README.md
 - Update the design spec only if implementation facts changed

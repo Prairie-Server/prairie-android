@@ -21,8 +21,8 @@
 ### Task 1: Preserve meaningful audio qualifiers
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleChoiceLabels.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleChoiceLabelsTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleChoiceLabels.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleChoiceLabelsTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun meaningfulAudioTrackTitle(displayLabel: String, language: String?, codec: String?, layout: String?): String?`.
@@ -69,15 +69,15 @@ Expected: all audio formatter tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleChoiceLabels.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleChoiceLabelsTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleChoiceLabels.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvSubtitleChoiceLabelsTest.kt
 git commit -m "fix(tv): preserve audio track qualifiers"
 ```
 
 ### Task 2: Enforce exactly-one audio selection
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormattingTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormattingTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun isAudioSelectorOptionSelected(optionIndex: Int?, selectedAudioTrackIndex: Int?): Boolean` where `null` option means Auto.
@@ -123,15 +123,15 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormattingTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormattingTest.kt
 git commit -m "fix(tv): show one audio selection checkmark"
 ```
 
 ### Task 3: Correct marquee quality badges
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModel.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModelTest.kt`
 
 **Interfaces:**
 - Expose `internal fun qualityBadges(summary: OverlaySummary?): List<String>` for direct testing.
@@ -164,16 +164,16 @@ Expected: badge and state tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModel.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/components/TvFocusMarqueeModelTest.kt
 git commit -m "fix(tv): preserve dolby marquee badges"
 ```
 
 ### Task 4: Apply semantic subtitle ordering
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormattingTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormatting.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormattingTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun orderedSubtitleSelectionIndexes(subtitles, externalSubtitles, preferredLanguage): List<Int>` returning combined-space indexes.
@@ -201,16 +201,16 @@ Expected: ordering, fingerprint, and selector tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormattingTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormatting.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormattingTest.kt
 git commit -m "fix(tv): order subtitle selector choices"
 ```
 
 ### Task 5: Align compact copy and single-option behavior
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormattingTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormatting.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormattingTest.kt`
 
 **Interfaces:**
 - Produces: `internal fun selectorIsInteractive(optionCount: Int): Boolean = optionCount > 1`.
@@ -258,16 +258,16 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormatting.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackFormattingTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormatting.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackFormattingTest.kt
 git commit -m "fix(tv): align selector copy and interaction"
 ```
 
 ### Task 6: Constrain selector rows and menus
 
 **Files:**
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
-- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvAnchoredSelectorMenu.kt`
-- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvAnchoredSelectorMenu.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt`
 
 **Interfaces:**
 - Trigger text and option text use `maxLines = 1` and `TextOverflow.Ellipsis`.
@@ -296,7 +296,7 @@ Expected: tests and compilation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvAnchoredSelectorMenu.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
+git add androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/detail/TvPlaybackSelectorRow.kt androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvAnchoredSelectorMenu.kt androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerControlsUsabilityTest.kt
 git commit -m "fix(tv): constrain playback selector text"
 ```
 

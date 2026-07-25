@@ -6,7 +6,7 @@
 
 ## Background
 
-silo-server serves 9 ebook formats. The Android reader already renders epub, pdf, cbz, fb2, fbz in-app. Four are routed to `External` (download + "open in another app"): **cbr, mobi, azw, azw3**. CBR is the only one of the four that is a pure image-sequence comic — it is CBZ with a RAR container instead of ZIP. Everything the comic engine needs (page list, per-page image bytes, natural-order sort, page progress) already exists; only the container reader differs.
+prairie-server serves 9 ebook formats. The Android reader already renders epub, pdf, cbz, fb2, fbz in-app. Four are routed to `External` (download + "open in another app"): **cbr, mobi, azw, azw3**. CBR is the only one of the four that is a pure image-sequence comic — it is CBZ with a RAR container instead of ZIP. Everything the comic engine needs (page list, per-page image bytes, natural-order sort, page progress) already exists; only the container reader differs.
 
 Deep-dived by Claude + Codex (independent convergence): keep the per-format reader model; add CBR client-side via libarchive; do **not** add junrar (RAR4-only, no RAR5, nonstandard UnRAR license).
 

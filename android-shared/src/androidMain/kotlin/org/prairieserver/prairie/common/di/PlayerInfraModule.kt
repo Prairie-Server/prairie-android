@@ -1,0 +1,173 @@
+package org.prairieserver.prairie.common.di
+
+import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
+import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
+import org.prairieserver.prairie.common.player.ActivePlayerHolder
+import org.prairieserver.prairie.common.player.AudiobookSettingsStore
+import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsPlaybackSessionTracker
+import org.prairieserver.prairie.common.player.SleepTimerController
+import org.prairieserver.prairie.common.settings.AndroidPlayerSettingsStore
+import org.prairieserver.prairie.common.settings.DefaultLibraryPlaybackPrefsStore
+import org.prairieserver.prairie.common.settings.DefaultOverlayPrefsStore
+import org.prairieserver.prairie.common.settings.DefaultServerSettingsFlusher
+import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
+import org.prairieserver.prairie.common.settings.OverlayPrefsStore
+import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.common.settings.ServerDrivenConfigRefresher
+import org.prairieserver.prairie.common.settings.ServerSettingsFlusher
+import org.prairieserver.prairie.domain.player.IntroAutoSkipController
+import org.prairieserver.prairie.network.DeviceMetadataProvider
+import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.repository.LibraryPlaybackPrefsRepository
+import org.prairieserver.prairie.repository.ProfileRepository
+import org.prairieserver.prairie.repository.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import org.koin.android.ext.koin.androidContext
+import org.koin.dsl.module
+
+/**
+ * Phase 0 player infrastructure DI module.
+ *
+ * Sibling of [playerModule] (which owns OkHttp + interceptors). This module
+ * registers the new per-profile settings store, server-settings flusher, and
+ * playback session lifecycle. ViewModels in Phase 0 still consume the legacy
+ * [org.prairieserver.prairie.common.player.PlaybackSessionManager] directly; the
+ * lifecycle here is wired but unused until Phase 1+ migrations.
+ */
+val playerInfraModule = module {
+    // Shares the active session Player with the in-process UI so the video
+    single { ActivePlayerHolder() }
+
+    single { PrairiePictureInPictureCoordinator() }
+
+    // Long-lived application-scope flusher: debounced server writes survive
+    // ViewModel teardown. Uses Dispatchers.IO since flushOne does network work.
+    single<ServerSettingsFlusher> {
+        DefaultServerSettingsFlusher(
+            settingsApi = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        )
+    }
+
+    // Per-profile DataStore-backed settings store with legacy SharedPreferences
+    // migration. We resolve the active profile on demand via ProfileRepository,
+    // and the current server URL via TokenManager — both of which the auth
+    // flow keeps up to date (TokenManager.setServerUrl on connect, profile id
+    // saved on profile selection).
+    single<PlayerSettingsStore> {
+        val registry = get<ServerRegistry>()
+        val profileChangeSignal = registry.activeEntry
+            .map { it?.profileId }
+            .distinctUntilChanged()
+            .map { Unit }
+        val serverChangeSignal = registry.activeEntry
+            .map { it?.url }
+            .distinctUntilChanged()
+            .map { Unit }
+        AndroidPlayerSettingsStore(
+            context = androidContext(),
+            legacyCache = get(),
+            getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
+            getServerUrl = { get<TokenManager>().getServerUrl() },
+            serverSettingsFlusher = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            profileChangeSignal = profileChangeSignal,
+            serverChangeSignal = serverChangeSignal,
+            settingsRepository = get<SettingsRepository>(),
+            // Reuse the same device id the rest of the app sends to the
+            // server so settings scope stays in lockstep with what the
+            // server records as `device_id` for each override.
+            getDeviceId = { get<DeviceMetadataProvider>().current()?.id },
+        )
+    }
+
+    single<LibraryPlaybackPrefsStore> {
+        DefaultLibraryPlaybackPrefsStore(
+            repository = get<LibraryPlaybackPrefsRepository>(),
+        )
+    }
+
+    // Cached card-overlay configuration (admin enable flag + resolved prefs).
+    // Long-lived application scope so its coalesced writes survive view
+    // teardown, matching the other settings stores in this module.
+    single<OverlayPrefsStore> {
+        DefaultOverlayPrefsStore(
+            repository = get<SettingsRepository>(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+        )
+    }
+
+    single {
+        ServerDrivenConfigRefresher(
+            overlayPrefsStore = get(),
+            libraryPlaybackPrefsStore = get(),
+            playerSettingsStore = get(),
+            hasAuthenticatedProfile = {
+                !get<ProfileRepository>().getActiveProfileId().isNullOrBlank()
+            },
+        )
+    }
+
+    single {
+        ServerReachabilityMonitor(
+            healthApi = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            onServerReconnected = {
+                get<ServerDrivenConfigRefresher>().forceRefresh()
+            },
+        )
+    }
+
+    // Local, per-profile audiobook playback preferences (skip interval,
+    // default speed, audio-processing toggles). Device-local — no server
+    // flush — so it only needs the active profile and a profile-change signal.
+    single {
+        val registry = get<ServerRegistry>()
+        val profileChangeSignal = registry.activeEntry
+            .map { it?.profileId }
+            .distinctUntilChanged()
+            .map { Unit }
+        AudiobookSettingsStore(
+            context = androidContext(),
+            getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
+            profileChangeSignal = profileChangeSignal,
+        )
+    }
+
+    // Singleton lifecycle. v1 trade-off: there is only ever one active player
+    // session at a time, and start()/stop() handle cleanup between sessions.
+    // ViewModels can `get<PlaybackSessionLifecycle>()` once Phase 1+ migrates
+    // them; for now this binding is registered but unobserved.
+    single<PlaybackSessionLifecycle> {
+        PlaybackSessionLifecycle(
+            sessionManager = get(),
+            profileRepository = get(),
+            healthApi = get(),
+            personalDataRepository = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            playbackSessions = get<DiagnosticsPlaybackSessionTracker>(),
+        )
+    }
+
+    // Phase 2 sleep timer. Pinned to Main.immediate so the on-fire callback
+    // (typically `_uiState.update { isPaused = true }`) lands on the same
+    // thread the player VM and MediaController already use, avoiding an extra
+    // dispatch hop.
+    single<SleepTimerController> {
+        SleepTimerController(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+        )
+    }
+
+    factory<IntroAutoSkipController> {
+        IntroAutoSkipController(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+        )
+    }
+}

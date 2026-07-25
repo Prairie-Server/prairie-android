@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Synchronized playback rooms (create/join/lobby/suggestions/voting/synced playback/invite) on mobile AND TV, per docs/superpowers/specs/2026-06-12-watch-together-design.md. Built against silo-server origin/main.
+**Goal:** Synchronized playback rooms (create/join/lobby/suggestions/voting/synced playback/invite) on mobile AND TV, per docs/superpowers/specs/2026-06-12-watch-together-design.md. Built against prairie-server origin/main.
 
 **Architecture:** Realtime-only. Shared KMP layer = models + WatchTogetherApi (REST, room-token query auth) + a per-room WebSocket client (query-param auth, ping/pong clock sync) + a PURE RoomSyncEngine (the timing brain: NTP offset, scheduled command application, drift/dedupe/gating) + a singleton WatchTogetherRepository. Each app binds its existing player to the room via a RoomSyncController that feeds the engine and applies its decisions onto the player's seek/play-pause seams. Each member streams their own normal playback session; the room only syncs position/state.
 
@@ -19,12 +19,12 @@ I have all contracts confirmed. The server uses 201 on create suggestion (not ju
 ### Task S1: Watch Together shared models + serialization
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModels.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModelsSerializationTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModels.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModelsSerializationTest.kt`
 
 - [ ] **Step 1: Write the failing test** (full code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModelsSerializationTest.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModelsSerializationTest.kt`
 ```kotlin
 package com.continuum.app.model.watchtogether
 
@@ -408,7 +408,7 @@ Expected: compilation failure — `WatchTogetherModels.kt` and `WatchTogetherRea
 
 - [ ] **Step 3: Implementation** (complete code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModels.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/model/watchtogether/WatchTogetherModels.kt`
 ```kotlin
 package com.continuum.app.model.watchtogether
 
@@ -422,7 +422,7 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
 /**
- * Watch Together shared wire models. Mirrors silo-server `origin/main`
+ * Watch Together shared wire models. Mirrors prairie-server `origin/main`
  * `internal/watchtogether/types.go` (Snapshot, Suggestion, TransportCommand)
  * and `internal/api/handlers/watch_together.go` (request/response wrappers,
  * WS client/server frames).
@@ -734,7 +734,7 @@ data class WsError(
 )
 ```
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/WatchTogetherRealtimeEvent.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/WatchTogetherRealtimeEvent.kt`
 ```kotlin
 package com.continuum.app.network
 
@@ -796,13 +796,13 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S2: WatchTogetherApi (REST)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/WatchTogetherApi.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/WatchTogetherApiTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/WatchTogetherApi.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/WatchTogetherApiTest.kt`
 
 - [ ] **Step 1: Write the failing test** (full code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/WatchTogetherApiTest.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/api/WatchTogetherApiTest.kt`
 ```kotlin
 package com.continuum.app.network.api
 
@@ -1030,7 +1030,7 @@ Expected: compilation failure — `WatchTogetherApi` / `DefaultWatchTogetherApi`
 
 - [ ] **Step 3: Implementation** (complete code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/WatchTogetherApi.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/api/WatchTogetherApi.kt`
 ```kotlin
 package com.continuum.app.network.api
 
@@ -1251,7 +1251,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
 }
 ```
 
-Modify `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt` — add inside the `module { … }` block after the AdminApi line:
+Modify `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/NetworkModule.kt` — add inside the `module { … }` block after the AdminApi line:
 ```kotlin
     single<AdminApi> { DefaultAdminApi(get()) }
     single<WatchTogetherApi> { DefaultWatchTogetherApi(get()) }
@@ -1278,12 +1278,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S3: WatchTogetherRealtimeClient + decodeRoomFrame
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/WatchTogetherRealtimeClient.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/RoomFrameDecoderTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/WatchTogetherRealtimeClient.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/RoomFrameDecoderTest.kt`
 
 - [ ] **Step 1: Write the failing test** (full code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/network/RoomFrameDecoderTest.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/network/RoomFrameDecoderTest.kt`
 ```kotlin
 package com.continuum.app.network
 
@@ -1404,7 +1404,7 @@ Expected: compilation failure — `decodeRoomFrame` and `WatchTogetherRealtimeCl
 
 - [ ] **Step 3: Implementation** (complete code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/network/WatchTogetherRealtimeClient.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/network/WatchTogetherRealtimeClient.kt`
 ```kotlin
 package com.continuum.app.network
 
@@ -1650,12 +1650,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S4: RoomSyncEngine (pure timing brain)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/RoomSyncEngine.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/RoomSyncEngineTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/RoomSyncEngine.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/RoomSyncEngineTest.kt`
 
 - [ ] **Step 1: Write the failing test** (full code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/RoomSyncEngineTest.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/RoomSyncEngineTest.kt`
 ```kotlin
 package com.continuum.app
 
@@ -1919,7 +1919,7 @@ Expected: compilation failure — `RoomSyncEngine` does not exist (unresolved re
 
 - [ ] **Step 3: Implementation** (complete code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/RoomSyncEngine.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/RoomSyncEngine.kt`
 ```kotlin
 package com.continuum.app
 
@@ -2074,13 +2074,13 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task S5: WatchTogetherRepository (singleton)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/repository/WatchTogetherRepository.kt`
-- Modify: `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt`
-- Test: `/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/repository/WatchTogetherRepositoryTest.kt`
+- Create: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/repository/WatchTogetherRepository.kt`
+- Modify: `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt`
+- Test: `/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/repository/WatchTogetherRepositoryTest.kt`
 
 - [ ] **Step 1: Write the failing test** (full code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonTest/kotlin/com/continuum/app/repository/WatchTogetherRepositoryTest.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonTest/kotlin/com/continuum/app/repository/WatchTogetherRepositoryTest.kt`
 ```kotlin
 package com.continuum.app.repository
 
@@ -2319,7 +2319,7 @@ Expected: compilation failure — `WatchTogetherRepository` does not exist (unre
 
 - [ ] **Step 3: Implementation** (complete code)
 
-`/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/repository/WatchTogetherRepository.kt`
+`/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/repository/WatchTogetherRepository.kt`
 ```kotlin
 package com.continuum.app.repository
 
@@ -2591,7 +2591,7 @@ class WatchTogetherRepository(
 }
 ```
 
-Modify `/Users/dev/projects/silo/silo-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt` — add the import and the singleton. Add to the imports block:
+Modify `/Users/dev/projects/silo/prairie-android/shared/src/commonMain/kotlin/com/continuum/app/di/RepositoryModule.kt` — add the import and the singleton. Add to the imports block:
 ```kotlin
 import com.continuum.app.repository.WatchTogetherRepository
 ```

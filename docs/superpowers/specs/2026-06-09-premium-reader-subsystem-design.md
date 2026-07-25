@@ -2,7 +2,7 @@
 
 ## Goal
 
-Rebuild the mobile reader as a premium dedicated reading app inside Silo, not a basic file viewer.
+Rebuild the mobile reader as a premium dedicated reading app inside Prairie, not a basic file viewer.
 
 The reader must support every ebook/comic format the server exposes on mobile. EPUB, PDF, and CBZ are native in-app engines in this pass; MOBI, AZW/AZW3, CBR, FB2/FBZ, TXT, Markdown, and other recognized original ebook files must remain selectable, downloadable, and openable through Android's external app flow until native engines are added. Android TV remains ebook-free.
 

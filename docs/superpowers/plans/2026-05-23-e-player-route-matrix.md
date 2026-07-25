@@ -20,7 +20,7 @@
 **Tech stack:** Kotlin 2.1.20, Media3 1.10.0, existing `AndroidPlayerSettingsStore` per-profile DataStore (D), existing `PlaybackAnalyticsListener` + `PlayerStatsSnapshot` (A.3c).
 
 **Reference:**
-- Apple matrix: `/opt/silo-apple/docs/tvos-player/05-route-capability-matrix.md`.
+- Apple matrix: `/opt/prairie-apple/docs/tvos-player/05-route-capability-matrix.md`.
 - Audit: `ContinuumPlayerFactory.kt` at `android-shared/.../player/` already takes `preferFfmpegAudio: Boolean` constructor-time, uses `DefaultMediaSourceFactory` for MIME-driven routing, uses `EXTENSION_RENDERER_MODE_PREFER` when FFmpeg enabled. No audio processor chain wired today.
 
 **KEY DECISION: Reuse `PlaybackSettingsKeys.AudioSyncMs` for the delay value.** It already exists as a per-profile preference with ±500ms range and per-server flush. Adding a new `AudioDelayMs` key would be redundant and would confuse the existing `audioSyncMsFlow`/`setAudioSyncMs()` API.
@@ -32,10 +32,10 @@
 ### Task 1: `PlaybackRoute` taxonomy + `RouteCapability` matrix + tests
 
 **Files:**
-- Create: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/route/PlaybackRoute.kt`
-- Create: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/route/RouteCapability.kt`
-- Create: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/route/RouteCapabilityMatrix.kt`
-- Create: `/opt/silo-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/route/RouteCapabilityMatrixTest.kt`
+- Create: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/route/PlaybackRoute.kt`
+- Create: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/route/RouteCapability.kt`
+- Create: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/route/RouteCapabilityMatrix.kt`
+- Create: `/opt/prairie-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/route/RouteCapabilityMatrixTest.kt`
 
 **Why:** The architecture lives here. Pure code; no Media3 dependency; easy to test on JVM.
 
@@ -46,7 +46,7 @@ package com.continuum.app.common.player.route
 
 /**
  * What kind of playback engine + media source combination is in use.
- * Mirrors Apple's tvOS route taxonomy (see `/opt/silo-apple/docs/tvos-player/05-route-capability-matrix.md`).
+ * Mirrors Apple's tvOS route taxonomy (see `/opt/prairie-apple/docs/tvos-player/05-route-capability-matrix.md`).
  *
  * Today's Android player decides MIME-driven via DefaultMediaSourceFactory.
  * This enum is observational — it labels what's actually running so the HUD
@@ -229,8 +229,8 @@ class RouteCapabilityMatrixTest {
 - [ ] **Step 5: Build + run tests**
 
 ```bash
-cd /opt/silo-android && ./gradlew :android-shared:compileDebugKotlin
-cd /opt/silo-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.route.RouteCapabilityMatrixTest"
+cd /opt/prairie-android && ./gradlew :android-shared:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.route.RouteCapabilityMatrixTest"
 ```
 
 Expected: BUILD SUCCESSFUL + 6 tests pass.
@@ -238,11 +238,11 @@ Expected: BUILD SUCCESSFUL + 6 tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/route/ \
   android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/route/
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(player-route): PlaybackRoute taxonomy + RouteCapabilityMatrix (E)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(player-route): PlaybackRoute taxonomy + RouteCapabilityMatrix (E)
 
 Mirrors Apple's tvos-player/05-route-capability-matrix.md vocabulary
 in pure Kotlin: PlaybackRoute (Compatibility/NativeDirect/Hls),
@@ -259,9 +259,9 @@ Stats pane in a later commit; client-side route selector deferred."
 ### Task 2: `DelayAudioProcessor` + Koin singleton
 
 **Files:**
-- Create: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/audio/DelayAudioProcessor.kt`
-- Create: `/opt/silo-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/audio/DelayAudioProcessorTest.kt`
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt` (Koin reg)
+- Create: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/audio/DelayAudioProcessor.kt`
+- Create: `/opt/prairie-android/android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/audio/DelayAudioProcessorTest.kt`
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt` (Koin reg)
 
 **Why:** The audio delay primitive. Pure Media3 `AudioProcessor`; tested in isolation.
 
@@ -487,7 +487,7 @@ class DelayAudioProcessorTest {
 
 - [ ] **Step 3: Register in Koin**
 
-In `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt`:
+In `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt`:
 
 ```kotlin
 import com.continuum.app.common.player.audio.DelayAudioProcessor
@@ -499,8 +499,8 @@ single { DelayAudioProcessor() }
 - [ ] **Step 4: Build + run tests**
 
 ```bash
-cd /opt/silo-android && ./gradlew :android-shared:compileDebugKotlin
-cd /opt/silo-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.audio.DelayAudioProcessorTest"
+cd /opt/prairie-android && ./gradlew :android-shared:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.player.audio.DelayAudioProcessorTest"
 ```
 
 Expected: BUILD SUCCESSFUL + 6 tests pass. If `BaseAudioProcessor`'s constructor or `replaceOutputBuffer` shape is different in Media3 1.10.0, adapt.
@@ -508,12 +508,12 @@ Expected: BUILD SUCCESSFUL + 6 tests pass. If `BaseAudioProcessor`'s constructor
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/audio/ \
   android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/player/audio/ \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(player-audio): DelayAudioProcessor for ±500ms audio delay (E)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(player-audio): DelayAudioProcessor for ±500ms audio delay (E)
 
 Media3 BaseAudioProcessor subclass that prepends silence (positive
 delay) or drops initial frames (negative delay) at each flush.
@@ -530,8 +530,8 @@ audio sink uses. Audio-sink wiring + HUD slider land in T3."
 ### Task 3: Wire `DelayAudioProcessor` into `ContinuumPlayerFactory` + bind to `AudioSyncMs` flow
 
 **Files:**
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`
-- Modify: `/opt/silo-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt` (or wherever the player's lifecycle hooks let us bind the flow)
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt`
+- Modify: `/opt/prairie-android/android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt` (or wherever the player's lifecycle hooks let us bind the flow)
 
 **Why:** Plumb the processor into the audio sink, then subscribe to `PlayerSettingsStore.audioSyncMsFlow` to push slider changes into `processor.setDelayMs()` reactively.
 
@@ -617,7 +617,7 @@ Use the existing service `serviceScope` (Koin-injected `CoroutineScope` or one c
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :android-shared:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :android-shared:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. If the audio sink override signature is off, the compiler tells you — adapt.
@@ -625,12 +625,12 @@ Expected: BUILD SUCCESSFUL. If the audio sink override signature is off, the com
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlayerFactory.kt \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/player/ContinuumPlaybackService.kt \
   android-shared/src/androidMain/kotlin/com/continuum/app/common/di/PlayerModule.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(player-audio): wire DelayAudioProcessor into ExoPlayer audio sink (E)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(player-audio): wire DelayAudioProcessor into ExoPlayer audio sink (E)
 
 ContinuumPlayerFactory now constructs a DefaultAudioSink with a
 single-processor chain containing the injected DelayAudioProcessor,
@@ -651,9 +651,9 @@ HUD Audio pane slider lands in T4."
 ### Task 4: HUD Audio pane slider — replace empty-state with working delay control
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt` (call-site update)
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt` (call-site update)
 
 **Why:** Surface the delay slider in the HUD. Read + write via `PlayerSettingsStore.audioSyncMsFlow` / `setAudioSyncMs`. After T3 the change propagates automatically into the processor.
 
@@ -807,7 +807,7 @@ TvPlayerHud(
 - [ ] **Step 4: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL.
@@ -815,12 +815,12 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-player): audio delay slider in HUD Audio pane (E)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-player): audio delay slider in HUD Audio pane (E)
 
 Replaces A.3a's audio-tab fallback with a HudAudioPane that combines
 the existing track picker (when >1 track) with a 5-button stepper row

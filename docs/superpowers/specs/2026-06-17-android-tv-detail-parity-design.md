@@ -1,8 +1,8 @@
-# Android TV Detail Screen — silo-apple tvOS Parity ("Squared Skyline") — Design
+# Android TV Detail Screen — prairie-apple tvOS Parity ("Squared Skyline") — Design
 
 > **For agentic workers:** Design spec. Implementation plan follows via the writing-plans skill.
 
-**Goal:** Rebuild the silo-android **TV** detail screen (`androidTvApp`; movie / series / season / episode) to **exactly** match the silo-apple **tvOS** detail (`feature/playback-ux-redesign`). Match the layout, metrics, focus behavior, and action inventory of the Apple source — do not preserve Android-only deviations.
+**Goal:** Rebuild the prairie-android **TV** detail screen (`androidTvApp`; movie / series / season / episode) to **exactly** match the prairie-apple **tvOS** detail (`feature/playback-ux-redesign`). Match the layout, metrics, focus behavior, and action inventory of the Apple source — do not preserve Android-only deviations.
 
 **Fidelity:** Pixel-faithful. Apple Swift source = exact values; the screenshots in `docs/superpowers/reference/tvos-detail/` = visual ground-truth. Tune on the Android-TV **emulator** (the Shield `screencap` returns black).
 
@@ -14,7 +14,7 @@
 
 ## 0. Apple source map (the contract)
 
-Branch `feature/playback-ux-redesign` at `/Users/jimcole/projects/silo/silo-apple`, all under `iosApp/iosApp/tvOS/Screens/Detail/`:
+Branch `feature/playback-ux-redesign` at `/Users/jimcole/projects/silo/prairie-apple`, all under `iosApp/iosApp/tvOS/Screens/Detail/`:
 - `TVMovieDetailView.swift` — movie/episode page composition (action row, More menu, body order, focus).
 - `TVSeriesDetailView.swift`, `TVSeasonDetailView.swift` — series/season page composition (read these for season-chip + episode-rail placement and the next-up-driven selector).
 - `TVDetailHero.swift` — hero (heroHeight 980, scrim stops, editorial column, title treatments, eyebrow, source row, facts row, starring overlay, `TVHeroMetadata`).
@@ -22,7 +22,7 @@ Branch `feature/playback-ux-redesign` at `/Users/jimcole/projects/silo/silo-appl
 - `TVPlaybackSelectorRow.swift` + `…/Screens/Detail/DetailPlaybackFormatting.swift` + `PlaybackEditions.swift` — the selector row, the `Menu` picker, value/label/badge logic, edition grouping.
 - `TVExpandableSynopsis.swift`, `TVEpisodeRail.swift`, `TVSeasonChip.swift`, `TVDetailCastRail.swift`, `TVSimilarRail.swift`, `TVSectionHeader.swift`, `TVDetailFactsSection.swift`.
 
-> `Silo.xcodeproj` is git-ignored + XcodeGen-generated from `iosApp/project.yml`. To rebuild/run: `cd iosApp && xcodegen generate`, then build `SiloTV`.
+> `Prairie.xcodeproj` is git-ignored + XcodeGen-generated from `iosApp/project.yml`. To rebuild/run: `cd iosApp && xcodegen generate`, then build `PrairieTV`.
 
 **Android target** (`androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/`):
 - Rebuild: `ui/screens/detail/{TvItemDetailScreen,TvDetailHero,TvSeasonPicker}.kt`.

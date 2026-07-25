@@ -8,7 +8,7 @@
 
 **Tech Stack:** Kotlin Multiplatform (shared), Jetpack Compose + TV Compose, Ktor client, kotlinx.serialization, Koin, Media3. Tests: kotlin-test in `commonTest`/`androidUnitTest`, `./gradlew :<module>:testDebugUnitTest`.
 
-**Server contracts:** verified against silo-server `origin/main` — `PUT/GET/DELETE /api/v1/ratings/{item_id}` (integer 1–5; `user_rating` embedded in item detail) and `GET /api/v1/calendar?start&end&filter&library_id&timezone` (day-grouped events, ≤31-day span).
+**Server contracts:** verified against prairie-server `origin/main` — `PUT/GET/DELETE /api/v1/ratings/{item_id}` (integer 1–5; `user_rating` embedded in item detail) and `GET /api/v1/calendar?start&end&filter&library_id&timezone` (day-grouped events, ≤31-day span).
 
 **Task sections:** R = ratings, C = calendar. Section P (picture-in-picture) was DROPPED by user decision on 2026-06-12 — tasks P1/P2 below are retained for reference but must not be executed.
 

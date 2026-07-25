@@ -7,8 +7,8 @@ SDK="${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}"
 NDK="${ANDROID_NDK_HOME:-$SDK/ndk/26.3.11579264}"
 TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/darwin-x86_64"
 WORK="$ROOT/android-shared/build/dovi-aar"
-OUT="$ROOT/android-shared/libs/silo-dovi-bridge-$VERSION.aar"
-SOURCE="$ROOT/android-shared/src/native/dovi/silo_dovi.cpp"
+OUT="$ROOT/android-shared/libs/prairie-dovi-bridge-$VERSION.aar"
+SOURCE="$ROOT/android-shared/src/native/dovi/prairie_dovi.cpp"
 BASE="https://github.com/edde746/libdovi-builds/releases/download/v$VERSION"
 
 if [[ ! -x "$TOOLCHAIN/bin/clang++" ]]; then
@@ -19,9 +19,9 @@ fi
 rm -rf "$WORK"
 mkdir -p "$WORK/aar/jni"
 mkdir -p "$WORK/aar/META-INF"
-printf '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.siloserver.silo.dovi" />\n' > "$WORK/aar/AndroidManifest.xml"
+printf '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.prairieserver.prairie.dovi" />\n' > "$WORK/aar/AndroidManifest.xml"
 cp "$ROOT/android-shared/src/native/dovi/THIRD_PARTY_NOTICES.txt" \
-  "$WORK/aar/META-INF/SILO_DOVI_NOTICES.txt"
+  "$WORK/aar/META-INF/PRAIRIE_DOVI_NOTICES.txt"
 
 build_abi() {
   local abi="$1" triple="$2" target="$3" checksum="$4"
@@ -36,9 +36,9 @@ build_abi() {
     -std=c++17 -O2 -fPIC -fvisibility=hidden -shared -static-libstdc++ \
     -Wl,--no-undefined -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384 \
     "$SOURCE" "$libdir/libdovi.a" -llog -ldl -lm \
-    -o "$WORK/aar/jni/$abi/libsilo_dovi.so"
-  "$TOOLCHAIN/bin/llvm-strip" "$WORK/aar/jni/$abi/libsilo_dovi.so"
-  if "$TOOLCHAIN/bin/llvm-readelf" -d "$WORK/aar/jni/$abi/libsilo_dovi.so" | grep -q 'libc++_shared.so'; then
+    -o "$WORK/aar/jni/$abi/libprairie_dovi.so"
+  "$TOOLCHAIN/bin/llvm-strip" "$WORK/aar/jni/$abi/libprairie_dovi.so"
+  if "$TOOLCHAIN/bin/llvm-readelf" -d "$WORK/aar/jni/$abi/libprairie_dovi.so" | grep -q 'libc++_shared.so'; then
     echo "Unexpected libc++_shared.so dependency for $abi" >&2
     exit 1
   fi

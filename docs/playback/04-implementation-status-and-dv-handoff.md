@@ -7,7 +7,7 @@ architecture or migration contract in documents 01 and 02.
 
 ## Implemented in Android
 
-- One Media3 `ExoPlayer` is owned by `SiloPlaybackService`; the UI uses a
+- One Media3 `ExoPlayer` is owned by `PrairiePlaybackService`; the UI uses a
   `MediaController` and has no engine-switch command.
 - MPV source, dependencies, JNI/R8/manifest configuration, preferences,
   controls, and runtime construction are removed. Legacy engine enum values are
@@ -62,7 +62,7 @@ architecture or migration contract in documents 01 and 02.
 Device: NVIDIA Shield `darcy`, Android 11 / API 30, arm64-v8a, reached through
 wireless ADB.
 
-- The arm64 TV APK installs and launches as `org.siloserver.silo` version
+- The arm64 TV APK installs and launches as `org.prairieserver.prairie` version
   `0.2.6` (`versionCode=15`).
 - Logcat confirms `AndroidXMedia3/1.10.1` initializes and releases cleanly.
 - During app launch, logcat tied the bundled startup-splash playback window to

@@ -4,7 +4,7 @@
 
 **Goal:** Land the P0 correctness quick-wins and the Reading-phase upgrades (ebook typography/locator/reading-time, comic/manga reader rework, PDF memory + zoom), borrowing patterns from the reference apps per the borrow map.
 
-**Architecture:** Four independently-shippable parts in one document. Part 0 is small, cross-subsystem bug fixes (several close confirmed branch-review bugs). Parts A/B/C upgrade the three mobile reading engines, keeping Silo's existing `ReaderEngineHost` dispatch, WebView reflow engine, and per-(server,profile) settings store. TDD rigor lands on the pure-logic seams (sort, scale math, progress math, CSS generation, version selection); Compose/Android-graphics wiring uses the repo's established source-assertion tests plus mandatory device QA.
+**Architecture:** Four independently-shippable parts in one document. Part 0 is small, cross-subsystem bug fixes (several close confirmed branch-review bugs). Parts A/B/C upgrade the three mobile reading engines, keeping Prairie's existing `ReaderEngineHost` dispatch, WebView reflow engine, and per-(server,profile) settings store. TDD rigor lands on the pure-logic seams (sort, scale math, progress math, CSS generation, version selection); Compose/Android-graphics wiring uses the repo's established source-assertion tests plus mandatory device QA.
 
 **Tech Stack:** Kotlin Multiplatform (single `androidTarget`), Jetpack Compose 1.7.x, Media3 1.10, `kotlin.test` + JUnit4 runner, Robolectric 4.13 (for `android.graphics`/`PdfRenderer` tests), kotlinx-coroutines-test. Android 7 / API 24 floor.
 

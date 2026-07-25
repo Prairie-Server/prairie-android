@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository contains only the Silo Android clients. Shared Kotlin logic lives in `shared/`, Android-only playback and UI helpers live in `android-shared/`, the phone app lives in `androidApp/`, and the TV app lives in `androidTvApp/`. Android playback notes live in `docs/playback/`; utility scripts live in `scripts/`.
+This repository contains only the Prairie Android clients. Shared Kotlin logic lives in `shared/`, Android-only playback and UI helpers live in `android-shared/`, the phone app lives in `androidApp/`, and the TV app lives in `androidTvApp/`. Android playback notes live in `docs/playback/`; utility scripts live in `scripts/`.
 
 ## Current Product Exposure
 
@@ -21,7 +21,7 @@ This repository contains only the Silo Android clients. Shared Kotlin logic live
 
 ## Coding Style & Naming Conventions
 
-Use Kotlin 2.1, Java 21 targets, and Compose idioms. The Silo package root is `org.siloserver.silo`. Both the phone and TV apps share a single `applicationId`, `org.siloserver.silo`, so they publish as one Google Play listing (Play routes each build by manifest feature filtering — the phone build requires `android.hardware.touchscreen`; the TV build requires `android.software.leanback`). The Gradle `namespace` stays distinct per module (`org.siloserver.silo.android`, `org.siloserver.silo.tv`) so generated `R`/`BuildConfig` classes don't collide. The two artifacts use distinct versionCodes (`base*2` for phone, `base*2+1` for TV), so each release bumps both by 2 with no reuse; bump `siloVersionCode` per release. This repo is on the full Silo namespace cut, so do not add legacy package IDs, legacy storage names, or old-brand symbols. Kotlin classes and composables use `PascalCase`; functions and properties use `camelCase`.
+Use Kotlin 2.1, Java 21 targets, and Compose idioms. The Prairie package root is `org.prairieserver.prairie`. Both the phone and TV apps share a single `applicationId`, `org.prairieserver.prairie`, so they publish as one Google Play listing (Play routes each build by manifest feature filtering — the phone build requires `android.hardware.touchscreen`; the TV build requires `android.software.leanback`). The Gradle `namespace` stays distinct per module (`org.prairieserver.prairie.android`, `org.prairieserver.prairie.tv`) so generated `R`/`BuildConfig` classes don't collide. The two artifacts use distinct versionCodes (`base*2` for phone, `base*2+1` for TV), so each release bumps both by 2 with no reuse; bump `prairieVersionCode` per release. This repo is on the full Prairie namespace cut, so do not add legacy package IDs, legacy storage names, or old-brand symbols. Kotlin classes and composables use `PascalCase`; functions and properties use `camelCase`.
 
 ## Testing Guidelines
 
@@ -29,4 +29,4 @@ Android tests use Kotlin test/JUnit where present, especially under `android-sha
 
 ## Security & Configuration Tips
 
-Do not commit local SDK overrides, signing material, logs, tool state, generated build output, or media fixtures. A running Silo server is required for realistic auth, browsing, and playback validation.
+Do not commit local SDK overrides, signing material, logs, tool state, generated build output, or media fixtures. A running Prairie server is required for realistic auth, browsing, and playback validation.

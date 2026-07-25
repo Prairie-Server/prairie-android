@@ -2,11 +2,11 @@
 
 **Date:** 2026-06-16
 **Status:** Design approved (brainstorm). Spec for the first phase of a multi-phase project.
-**Repos:** client `silo-android` (this repo); server/web `silo-server` @ `origin/main 203d9be7` (read-only reference).
+**Repos:** client `prairie-android` (this repo); server/web `prairie-server` @ `origin/main 203d9be7` (read-only reference).
 
 ## Why (decisions locked during brainstorming)
 
-The web reader (`silo-server` `web/src/reader/FoliateBookReader.tsx`) is built on **foliate-js** and persists reading position/bookmarks as **EPUB CFI** (and `fraction:<n>`) in the server's `ebook` `location`/`cfi_range` fields. The Android reflow reader writes its own `ReflowLocator` JSON into the same `location` field, so **web ↔ Android position/bookmarks don't interoperate today**.
+The web reader (`prairie-server` `web/src/reader/FoliateBookReader.tsx`) is built on **foliate-js** and persists reading position/bookmarks as **EPUB CFI** (and `fraction:<n>`) in the server's `ebook` `location`/`cfi_range` fields. The Android reflow reader writes its own `ReflowLocator` JSON into the same `location` field, so **web ↔ Android position/bookmarks don't interoperate today**.
 
 Goal of the overall project: **precise cross-client (web ↔ Android) reading position + bookmarks via EPUB CFI**. To guarantee CFI compatibility rather than hand-matching the spec, Android will **adopt the same foliate-js engine in its WebView** (Path 3b), as a **capability-gated primary engine with the existing reflow engine as fallback** for WebViews that can't run foliate-js.
 
@@ -30,7 +30,7 @@ This spec covers **Phase 1 only: a feasibility spike.** It does not touch the pr
 
 ## Architecture (all new, isolated)
 
-1. **Foliate bundle** — `androidApp/src/androidMain/assets/reader/foliate/foliate-bundle.js`: the vendored `silo-server/web/vendor/foliate-js` (`view.js` + its deps incl. `fflate`) bundled into one file by **esbuild** (or rollup), transpiled to a conservative ES target (start at `es2017`; the spike confirms the needed target). Committed asset **plus** a checked-in regen script (`scripts/build-foliate-bundle.*`) documenting source commit + build command. Also a tiny **host HTML** (`foliate-host.html`) that imports the bundle and the glue.
+1. **Foliate bundle** — `androidApp/src/androidMain/assets/reader/foliate/foliate-bundle.js`: the vendored `prairie-server/web/vendor/foliate-js` (`view.js` + its deps incl. `fflate`) bundled into one file by **esbuild** (or rollup), transpiled to a conservative ES target (start at `es2017`; the spike confirms the needed target). Committed asset **plus** a checked-in regen script (`scripts/build-foliate-bundle.*`) documenting source commit + build command. Also a tiny **host HTML** (`foliate-host.html`) that imports the bundle and the glue.
 
 2. **Host glue JS** (`foliate-host.js`) — runs in the WebView: feature-detects capabilities (Custom Elements, Shadow DOM, `adoptedStyleSheets`, ResizeObserver) and reports via the bridge; on `load(url)` fetches the `.epub` bytes → `new File([blob], name)` → creates `<foliate-view>` → `view.open(book)`; forwards `relocate` (CFI + fraction) to the bridge; implements `goToCfi(cfi)` and `goToFraction(f)`.
 

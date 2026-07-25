@@ -1,6 +1,6 @@
 ---
 name: test-shield-playback
-description: Operate and diagnose Silo Android TV playback on a network-accessible NVIDIA Shield. Use for ADB connection and build installation, silo:// item and play links, title-to-content-ID lookup on a configured Silo dev server, Playback V3 plan inspection, focused logs, screenshots, and verification of Dolby Vision or HDR, audio passthrough, decoder choice, fallbacks, and frame-rate matching. Do not use for phones, production servers, or generic Android UI work.
+description: Operate and diagnose Prairie Android TV playback on a network-accessible NVIDIA Shield. Use for ADB connection and build installation, prairie:// item and play links, title-to-content-ID lookup on a configured Prairie dev server, Playback V3 plan inspection, focused logs, screenshots, and verification of Dolby Vision or HDR, audio passthrough, decoder choice, fallbacks, and frame-rate matching. Do not use for phones, production servers, or generic Android UI work.
 ---
 
 # Test Shield Playback
@@ -35,7 +35,7 @@ For a manually composed link, print it with `link`, or open a full app-owned URI
 
 ```bash
 .agents/skills/test-shield-playback/scripts/shield-test link <content-id> movie
-.agents/skills/test-shield-playback/scripts/shield-test open 'silo://play/<content-id>?type=movie&fileId=123&quality=original&audioTrackIndex=2'
+.agents/skills/test-shield-playback/scripts/shield-test open 'prairie://play/<content-id>?type=movie&fileId=123&quality=original&audioTrackIndex=2'
 ```
 
 Supported playback query fields are `fileId` (positive integer), `quality`, `audioTrackIndex` (zero-based), and `subtitleTrackIndex` (zero-based). Omit track selectors to use the profile/default selection; do not use `subtitleTrackIndex=-1` in a diagnostic link because the current playback request contract rejects it. The TV link additionally uses `type=audiobook` to choose its audiobook player; movie and episode links use the video player.
@@ -68,11 +68,11 @@ connect                         Connect to the configured ADB serial
 status                          Show device identity, package version, PID, and foreground activity
 find <title>                    Find playable dev-server items and print play links
 find-hdr <range>                Find exact HLG, HDR10, HDR10+, or Dolby Vision files
-link <content-id> [type]        Print a silo://play link without launching it
+link <content-id> [type]        Print a prairie://play link without launching it
 play <content-id> [type]        Launch a generated play link on the Shield
 item <content-id>               Open item detail on the Shield
-open <silo-uri>                 Open an advanced item/play URI
-logs [line-count]               Print focused Silo/player logs; default 500
+open <prairie-uri>                 Open an advanced item/play URI
+logs [line-count]               Print focused Prairie/player logs; default 500
 clear-logs                      Clear logcat immediately before a controlled reproduction
 display                         Print the active display mode, requested mode, and HDR capability line
 audio                           Print active AudioFlinger output-thread evidence
@@ -102,12 +102,12 @@ Installation preserves app data. Relaunch explicitly with `restart`, or launch t
 If server code changed and the user asked to update the dev server, load the private config, inspect that checkout, and deploy from it:
 
 ```bash
-CONFIG="${SILO_SHIELD_TEST_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/silo/shield-playback.env}"
+CONFIG="${PRAIRIE_SHIELD_TEST_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/prairie/shield-playback.env}"
 set -a
 source "$CONFIG"
 set +a
-git -C "$SILO_SERVER_REPO" status --short
-cd "$SILO_SERVER_REPO"
+git -C "$PRAIRIE_SERVER_REPO" status --short
+cd "$PRAIRIE_SERVER_REPO"
 make dev-deploy
 ```
 

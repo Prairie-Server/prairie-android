@@ -8,7 +8,7 @@
 
 **Tech stack:** Kotlin 2.1.20, Compose-for-TV 1.0.1, existing infrastructure (Material 3 OutlinedTextField, `TvHeroActionPill`, `TvAnimatedMeshBackground`, theme tokens).
 
-**Reference:** Spec section A.4 at `/opt/silo-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Apple sibling: split-panel login on `TVLoginView` (left form, right QR pane).
+**Reference:** Spec section A.4 at `/opt/prairie-android/docs/superpowers/specs/2026-05-23-android-tv-parity-rework-design.md`. Apple sibling: split-panel login on `TVLoginView` (left form, right QR pane).
 
 **Testing posture:** Per `AGENTS.md`, no UI test for visual restructure.
 
@@ -17,7 +17,7 @@
 ### Task 1: Restructure `TvLoginScreen` into split-panel layout
 
 **Files:**
-- Modify: `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt`
+- Modify: `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt`
 
 **Why:** This is the entire A.4 change. The brand header stays on top. Below it: a `Row` with two equal-ish panels — the existing form card on the left, a new QR placeholder card on the right.
 
@@ -26,7 +26,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                             │
-│                  [Silo wordmark]                            │
+│                  [Prairie wordmark]                            │
 │                                                             │
 │   ┌─────────────────────────┐  ┌────────────────────────┐  │
 │   │ Sign in                 │  │ Sign in with your phone│  │
@@ -43,7 +43,7 @@
 
 - [ ] **Step 1: Read the current file to know structure**
 
-The full file is at `/opt/silo-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt` (244 lines). Key structure:
+The full file is at `/opt/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt` (244 lines). Key structure:
 - `Box { TvAnimatedMeshBackground(); Column(width=620dp, TopCenter) { BrandHeader; form card } }`
 - Form card is a `Column` with header text, two `OutlinedTextField`s, error text, and `TvHeroActionPill` for sign-in.
 
@@ -202,7 +202,7 @@ Confirm the `verticalScroll` modifier on the outer `Column` is still in place �
 - [ ] **Step 6: Build**
 
 ```bash
-cd /opt/silo-android && ./gradlew :androidTvApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :androidTvApp:compileDebugKotlin
 ```
 
 Expected: BUILD SUCCESSFUL. The only new imports likely needed are already present (`Row`, `Box`, `size`, `Modifier.size`, `BringIntoViewRequester`, `kotlinx.coroutines.CoroutineScope`) — but verify and add anything missing.
@@ -210,10 +210,10 @@ Expected: BUILD SUCCESSFUL. The only new imports likely needed are already prese
 - [ ] **Step 7: Commit**
 
 ```bash
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android add \
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android add \
   androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/auth/TvLoginScreen.kt
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(tv-auth): split-panel login layout with QR placeholder (A.4)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(tv-auth): split-panel login layout with QR placeholder (A.4)
 
 Existing credential form extracted to private CredentialFormCard.
 New QrPlaceholderCard renders a 320×320 dp neutral panel on the right

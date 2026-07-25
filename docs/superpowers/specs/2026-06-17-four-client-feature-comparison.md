@@ -1,6 +1,6 @@
 # Four-client feature comparison — iOS / tvOS / Android mobile / Android TV (2026-06-17)
 
-Feature parity across all four Silo clients. Inventories: Apple (iOS + tvOS) via Codex reads of `silo-apple`; Android (mobile + TV) from the TV parity review + screen maps. UI/visual styling is a *separate* axis (see the tvOS-UI-match sizing work) — this doc is **features only**.
+Feature parity across all four Prairie clients. Inventories: Apple (iOS + tvOS) via Codex reads of `prairie-apple`; Android (mobile + TV) from the TV parity review + screen maps. UI/visual styling is a *separate* axis (see the tvOS-UI-match sizing work) — this doc is **features only**.
 
 ✅ Full · 🟡 Partial · ❌ Absent
 

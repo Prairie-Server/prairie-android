@@ -2,15 +2,15 @@
 
 **Date:** 2026-06-12
 **Status:** Approved
-**Scope:** Sub-project 6 of the feature-parity push. Adds server-configured OIDC provider sign-in ("Sign in with &lt;Provider&gt;") to the **mobile** login screen, alongside the existing username/password. Server: silo-server `origin/main`. **Mobile only** — TV keeps its existing device-code QR sign-in.
+**Scope:** Sub-project 6 of the feature-parity push. Adds server-configured OIDC provider sign-in ("Sign in with &lt;Provider&gt;") to the **mobile** login screen, alongside the existing username/password. Server: prairie-server `origin/main`. **Mobile only** — TV keeps its existing device-code QR sign-in.
 
 ## Goal
 
 Let a mobile user sign in with a server-configured OIDC provider, reusing the same access/refresh token + session model that password login already produces, and degrading silently to password-only when the server exposes no OAuth providers.
 
-## Server contract (verified against silo-server origin/main)
+## Server contract (verified against prairie-server origin/main)
 
-OAuth on silo-server is **plugin-driven generic OIDC** — there are no built-in Google/Apple/Plex sign-in providers; any installed plugin exposing an `auth_provider.v1` capability with `auth_modes: ["oauth2"]` becomes a provider. The flow is **browser/redirect-based with a server-mediated one-time completion code** — there is **no PKCE, no custom URL scheme, and no native redirect**. All flows mint the same `{access_token, refresh_token, expires_in}` pair as password login.
+OAuth on prairie-server is **plugin-driven generic OIDC** — there are no built-in Google/Apple/Plex sign-in providers; any installed plugin exposing an `auth_provider.v1` capability with `auth_modes: ["oauth2"]` becomes a provider. The flow is **browser/redirect-based with a server-mediated one-time completion code** — there is **no PKCE, no custom URL scheme, and no native redirect**. All flows mint the same `{access_token, refresh_token, expires_in}` pair as password login.
 
 - **Discovery:** `GET /api/v1/auth/providers` → array of `{id, display_name, mode("credentials"|"oauth"), default, icon_url?, installation_id?}`. OAuth-mode entries appear **only** when OAuth routes are mounted (server has `PublicURL` configured + DB). The client detects OAuth availability by the presence of `mode == "oauth"` entries.
 - **Init:** `POST /api/v1/auth/oauth/{installId}/init?next=/path` → signs server-side state, stores an `oauth_session`, and returns a **302 redirect to the IdP authorize URL** (in the `Location` header). `next` is sanitized server-side to a path beginning with `/`.

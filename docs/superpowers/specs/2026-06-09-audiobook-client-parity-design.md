@@ -4,7 +4,7 @@
 
 Android mobile and Android TV already have audiobook foundations: mobile has a dedicated Media3 audiobook player with offline fallback, local resume, bookmarks, speed controls, sleep timer, and chapters; TV treats audiobooks as playable media through the standard TV detail and player path. Download storage now preserves original downloaded files in public Android collections instead of private `.bin` files.
 
-This design finishes the audiobook parity pass by closing the remaining client gaps: external app access for downloaded audiobooks, richer mobile detail metadata from the current Silo server contract, and focused hardening around version/offline behavior.
+This design finishes the audiobook parity pass by closing the remaining client gaps: external app access for downloaded audiobooks, richer mobile detail metadata from the current Prairie server contract, and focused hardening around version/offline behavior.
 
 ## Goals
 
@@ -33,7 +33,7 @@ Keep the existing audiobook architecture and improve the edges around it:
 - `DownloadOpenTarget` becomes media-aware enough for audiobook/audio originals instead of defaulting to ebook-shaped names and MIME handling.
 - TV continues using the standard TV detail/player path for audiobooks.
 
-The download rule is explicit: completed audiobooks are public MediaStore audio entries in their original file format. Silo may play them internally, but other apps must be able to discover and open them through Android's normal content URI flow.
+The download rule is explicit: completed audiobooks are public MediaStore audio entries in their original file format. Prairie may play them internally, but other apps must be able to discover and open them through Android's normal content URI flow.
 
 ## Download And Open-With Behavior
 

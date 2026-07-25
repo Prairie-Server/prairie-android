@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path
-        name="silo_downloads"
-        path="Download/Silo/" />
+        name="prairie_downloads"
+        path="Download/Prairie/" />
     <external-path
-        name="silo_movies"
-        path="Movies/Silo/" />
+        name="prairie_movies"
+        path="Movies/Prairie/" />
     <external-path
-        name="silo_music"
-        path="Music/Silo/" />
+        name="prairie_music"
+        path="Music/Prairie/" />
 </paths>

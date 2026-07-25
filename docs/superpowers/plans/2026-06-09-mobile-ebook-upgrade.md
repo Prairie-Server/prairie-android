@@ -647,7 +647,7 @@ After the `Read` button, add unsupported copy:
 ```kotlin
 if (selectedVersion == null) {
     Text(
-        text = "Silo can read EPUB, PDF, and CBZ in-app. Download this file to open other ebook formats in another reader.",
+        text = "Prairie can read EPUB, PDF, and CBZ in-app. Download this file to open other ebook formats in another reader.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -978,14 +978,14 @@ Create `androidApp/src/androidMain/res/xml/file_paths.xml`:
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path
-        name="silo_downloads"
-        path="Download/Silo/" />
+        name="prairie_downloads"
+        path="Download/Prairie/" />
     <external-path
-        name="silo_movies"
-        path="Movies/Silo/" />
+        name="prairie_movies"
+        path="Movies/Prairie/" />
     <external-path
-        name="silo_music"
-        path="Music/Silo/" />
+        name="prairie_music"
+        path="Music/Prairie/" />
 </paths>
 ```
 

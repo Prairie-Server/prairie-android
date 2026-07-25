@@ -118,9 +118,9 @@
 - [ ] **Step 9: Build + commit.**
 
 ```bash
-cd /opt/silo-android && ./gradlew :shared:compileDebugKotlinAndroid :android-shared:compileDebugKotlinAndroid :androidApp:compileDebugKotlin
+cd /opt/prairie-android && ./gradlew :shared:compileDebugKotlinAndroid :android-shared:compileDebugKotlinAndroid :androidApp:compileDebugKotlin
 
-git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/silo-android commit -m "feat(downloads): disk-as-truth — sidecar always-write + backfill + merge refresh (T1)
+git -c user.name="rxwatcher" -c user.email="rxwatcher@users.noreply.github.com" -C /opt/prairie-android commit -m "feat(downloads): disk-as-truth — sidecar always-write + backfill + merge refresh (T1)
 
 (message body summarising the design + which bugs from the deep-dive
 this closes)"

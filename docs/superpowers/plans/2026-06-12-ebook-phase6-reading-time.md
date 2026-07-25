@@ -8,7 +8,7 @@
 
 **Tech Stack:** Kotlin (KMP `commonMain`/`commonTest`), kotlinx.coroutines (VM only — the estimator itself is pure), JUnit via `kotlin.test` (`./gradlew :shared:testDebugUnitTest`).
 
-This plan assumes Phase 1 (`ReaderLocator` + generic progress) and Phase 2 (epub.js with accurate locations/word counts) shipped, per the design spec §8. Where Phase 2 word counts are not yet wired for a given format, the estimator degrades gracefully to a page-based estimate. Commands assume the repository root (`silo-android`) is the cwd.
+This plan assumes Phase 1 (`ReaderLocator` + generic progress) and Phase 2 (epub.js with accurate locations/word counts) shipped, per the design spec §8. Where Phase 2 word counts are not yet wired for a given format, the estimator degrades gracefully to a page-based estimate. Commands assume the repository root (`prairie-android`) is the cwd.
 
 ---
 

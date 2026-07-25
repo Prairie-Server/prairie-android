@@ -41,7 +41,7 @@ Remove the redundant explicit focus target and let the existing `clickable` modi
 - Add a TV HUD regression test that prevents color swatches from reintroducing a separate non-activating focus target.
 - Run shared, Android-shared, TV, and phone unit tests.
 - Build both TV debug and release APKs locally.
-- Defer on-device visual validation until explicitly requested; do not install or launch Silo on the Shield as part of this calibration.
+- Defer on-device visual validation until explicitly requested; do not install or launch Prairie on the Shield as part of this calibration.
 
 ## Scope
 

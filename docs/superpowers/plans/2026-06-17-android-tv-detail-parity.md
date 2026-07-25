@@ -1,8 +1,8 @@
-# Android TV Detail Parity (match silo-apple tvOS) — Implementation Plan
+# Android TV Detail Parity (match prairie-apple tvOS) — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Rebuild the silo-android `androidTvApp` detail screen (movie / series / season / episode) to pixel-match the silo-apple **tvOS** detail (`feature/playback-ux-redesign`).
+**Goal:** Rebuild the prairie-android `androidTvApp` detail screen (movie / series / season / episode) to pixel-match the prairie-apple **tvOS** detail (`feature/playback-ux-redesign`).
 
 **Architecture:** Mirror Apple's component decomposition in Compose-for-TV. Build the squared control kit + anchored selector popover first, then the hero, synopsis, selector wiring, and screen assembly. The **design spec is the source of exact values** — `docs/superpowers/specs/2026-06-17-android-tv-detail-parity-design.md` (cited per task as **SPEC §N**). The Apple Swift files (cited as **APPLE: …**) and the reference frames (`docs/superpowers/reference/tvos-detail/`) are the ground truth.
 
@@ -11,7 +11,7 @@
 **Per-task loop (every task):** implement → `./gradlew :androidTvApp:compileDebugKotlinAndroid` clean → run any unit tests → **Codex review of the diff** → commit (author `rxwatcher`, `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`, no push). Visual parity is verified on the **Android-TV emulator** against the reference frames (the physical Shield `screencap` returns black).
 
 **Conventions:**
-- Apple repo lives at `/Users/jimcole/projects/silo/silo-apple` (branch `feature/playback-ux-redesign`; `cd iosApp && xcodegen generate` before building `SiloTV`). Read the cited Swift file for exact pt/opacity/scale values; translate per SPEC "Architecture" (unitless 1:1; radii face value; sizes → existing Android TV token scale, tuned on emulator).
+- Apple repo lives at `/Users/jimcole/projects/silo/prairie-apple` (branch `feature/playback-ux-redesign`; `cd iosApp && xcodegen generate` before building `PrairieTV`). Read the cited Swift file for exact pt/opacity/scale values; translate per SPEC "Architecture" (unitless 1:1; radii face value; sizes → existing Android TV token scale, tuned on emulator).
 - Add a dedicated control radius token `TvControlCorner = 8.dp` (do NOT reuse `small = 12.dp`).
 - Commit author: every commit uses `git -c user.name=rxwatcher commit …`.
 

@@ -2,18 +2,18 @@
 
 **Status:** Implemented on `feat/android-client-diagnostics`, pending review
 **Date:** 2026-07-22
-**Repository:** `Silo-Server/silo-android`
+**Repository:** `Prairie-Server/prairie-android`
 **Delivery:** One comprehensive pull request with ordered internal commits
 
 ## Purpose
 
-Build the Android and Android TV implementation of Silo's self-hosted client-diagnostics protocol. The implementation follows the Apple client's product behavior and the canonical server contract while using Android-native crash, exit, storage, lifecycle, and device-probe APIs.
+Build the Android and Android TV implementation of Prairie's self-hosted client-diagnostics protocol. The implementation follows the Apple client's product behavior and the canonical server contract while using Android-native crash, exit, storage, lifecycle, and device-probe APIs.
 
-This is a support and debugging feature, not analytics or a general telemetry platform. Reports go only to the authenticated user's own Silo server after destination-bound consent.
+This is a support and debugging feature, not analytics or a general telemetry platform. Reports go only to the authenticated user's own Prairie server after destination-bound consent.
 
 ## Canonical contract
 
-The implementation targets schema version 1 and the server endpoints already merged in `Silo-Server/silo-server#445`:
+The implementation targets schema version 1 and the server endpoints already merged in `Prairie-Server/prairie-server#445`:
 
 - `GET /api/v1/diagnostics/status`
 - `POST /api/v1/diagnostics/reports`
@@ -57,22 +57,22 @@ Owns platform-neutral wire models, schema validation helpers, `DiagnosticsApi`, 
 
 Owns Android-native diagnostics infrastructure under:
 
-`android-shared/src/androidMain/kotlin/org/siloserver/silo/common/diagnostics/`
+`android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/diagnostics/`
 
 This package contains structured logging, redaction, ring/file storage, consent state, identity resolution, crash and exit capture, pending reports, device snapshots, bundle construction, upload orchestration, and lifecycle coordination. Framework-facing code is hidden behind narrow interfaces so core behavior can be unit-tested.
 
 ### `androidApp`
 
-Owns phone Compose settings, report prompts and review screens, timed-capture controls, navigation integration, and `SiloApplication` startup wiring.
+Owns phone Compose settings, report prompts and review screens, timed-capture controls, navigation integration, and `PrairieApplication` startup wiring.
 
 ### `androidTvApp`
 
-Owns remote-first TV settings, full-screen prompt/review flows, timed-capture controls, focus behavior, and `SiloTvApplication` startup wiring.
+Owns remote-first TV settings, full-screen prompt/review flows, timed-capture controls, focus behavior, and `PrairieTvApplication` startup wiring.
 
 ## Runtime data flow
 
 1. Both `Application` classes install crash capture before Koin starts.
-2. `SiloLog` continues forwarding to Logcat and also offers a sanitized JSONL entry to the in-memory ring.
+2. `PrairieLog` continues forwarding to Logcat and also offers a sanitized JSONL entry to the in-memory ring.
 3. If debug logging or timed manual capture is active, a single writer drains entries into bounded append-only segments.
 4. A lightweight coordinator maintains the active diagnostics binding, profile eligibility, foreground state, playback-session IDs, and a pre-rendered device snapshot cache.
 5. A JVM crash writes one bounded marker and chains to the previous exception handler.
@@ -84,9 +84,9 @@ Owns remote-first TV settings, full-screen prompt/review flows, timed-capture co
 
 ## Structured logging
 
-### `SiloLog`
+### `PrairieLog`
 
-`SiloLog` exposes verbose, debug, info, warning, and error functions accepting:
+`PrairieLog` exposes verbose, debug, info, warning, and error functions accepting:
 
 - A registered diagnostics category.
 - A bounded tag.
@@ -125,7 +125,7 @@ A `DiagnosticsBinding` is `(server_instance_id, account_user_id)`. Consent also 
 
 `DiagnosticsIdentityResolver` establishes that binding from the authenticated status response plus `AuthRepository.getCurrentUser()`. It persists only the last positively validated binding for the active saved server, along with the active profile's last positively resolved child status. Missing, stale, mid-transition, or contradictory identity data fails closed. The cache is invalidated before sign-out, server removal, account replacement, or token invalidation becomes externally visible.
 
-Process-only `TemporaryAuthScope` sessions do not replace the saved diagnostics binding. Entering a temporary scope closes persistent capture and rotates the log generation; leaving it resolves the saved identity again before persistent capture resumes. This prevents SiloCast or remote-playback credentials from retargeting local reports.
+Process-only `TemporaryAuthScope` sessions do not replace the saved diagnostics binding. Entering a temporary scope closes persistent capture and rotates the log generation; leaving it resolves the saved identity again before persistent capture resumes. This prevents PrairieCast or remote-playback credentials from retargeting local reports.
 
 Rules:
 
