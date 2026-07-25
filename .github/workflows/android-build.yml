@@ -1,8 +1,10 @@
 name: Android Builds
 
-# CI gate: unit tests on main pushes and pull requests. Release artifacts
-# (Play Store bundles, sideload APKs, GitHub releases) are owned by
-# release.yml — triggered by v* tags or its workflow_dispatch.
+# CI gate: unit tests + Kover 75% line coverage verify on :shared (KMP commonTest).
+# :android-shared has substantial androidUnitTest coverage but a large Media3/player
+# surface; it is not included in the gate until it can meet 75% without lowering it.
+# Release artifacts (Play Store bundles, sideload APKs, GitHub releases) are owned
+# by release.yml — triggered by v* tags or its workflow_dispatch.
 
 on:
   push:
@@ -38,14 +40,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Run unit tests
+      - name: Run unit tests and coverage gate
         shell: bash
         run: |
           set -euo pipefail
 
+          # All modules' unit tests first, then :shared Kover report + 75% verify
+          # (commonTest runs under the androidTarget JVM test task).
           ./gradlew \
             -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
             test \
+            :shared:koverXmlReport \
+            :shared:koverVerify \
             --max-workers=2
 
       - name: Upload test reports
@@ -55,4 +61,13 @@ jobs:
           name: unit-test-reports
           path: |
             **/build/reports/tests/**
+          if-no-files-found: ignore
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: kover-coverage-reports
+          path: |
+            **/build/reports/kover/**
           if-no-files-found: ignore

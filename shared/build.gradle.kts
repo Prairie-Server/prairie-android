@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.library)
+    alias(libs.plugins.kover)
 }
 
 kotlin {
@@ -56,4 +57,29 @@ android {
 
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+}
+
+// Unit-test line coverage gate for the primary KMP module. Kover instruments the
+// androidTarget JVM tests (which execute commonTest). Default CoverageUnit is LINE;
+// minBound uses COVERED_PERCENTAGE aggregation. Exclude only generated artifacts.
+kover {
+    reports {
+        filters {
+            excludes {
+                classes(
+                    "*.BuildConfig",
+                    "*.R",
+                    "*.R$*",
+                    // kotlinx.serialization codegen
+                    "*.*\$serializer",
+                    "*.*\$\$serializer",
+                )
+            }
+        }
+        verify {
+            rule {
+                minBound(75)
+            }
+        }
+    }
 }
