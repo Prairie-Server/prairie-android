@@ -1,0 +1,7 @@
+**/build/**
+**/.gradle/**
+**/generated/**
+**/pnpm-lock.yaml
+docs/superpowers/**
+*.aar
+gradle/wrapper/gradle-wrapper.jar
