@@ -46,11 +46,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # All modules' unit tests first, then :shared Kover report + verify
-          # (commonTest runs under the androidTarget JVM test task).
+          # Debug-variant unit tests only. The release variant compiles and runs
+          # the exact same sources for no extra signal, and doubles CI time.
+          # Then :shared Kover report + verify (commonTest runs under the
+          # androidTarget JVM test task).
           ./gradlew \
             -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
-            test \
+            testDebugUnitTest \
             :shared:koverXmlReport \
             :shared:koverVerify \
             --max-workers=2
