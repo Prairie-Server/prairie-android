@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.library)
+    alias(libs.plugins.kover)
 }
 
 kotlin {
@@ -56,4 +57,37 @@ android {
 
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+}
+
+// Unit-test line coverage gate for :shared (androidTarget JVM runs commonTest).
+// Measured coverage is ~60% today across commonMain; 75% remains the goal as
+// more repositories/ViewModels get focused tests. The floor blocks regressions.
+// Exclude androidMain platform wiring and Koin modules (not exercised by commonTest),
+// plus generated R/BuildConfig/serializers.
+kover {
+    currentProject {
+        sources {
+            excludedSourceSets.addAll("androidMain")
+        }
+    }
+    reports {
+        filters {
+            excludes {
+                classes(
+                    "*.BuildConfig",
+                    "*.R",
+                    "*.R$*",
+                    // kotlinx.serialization codegen
+                    "*.*\$serializer",
+                    "*.*\$\$serializer",
+                    "org.prairieserver.prairie.di.*",
+                )
+            }
+        }
+        verify {
+            rule {
+                minBound(55)
+            }
+        }
+    }
 }

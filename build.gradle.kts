@@ -12,4 +12,9 @@ plugins {
     alias(libs.plugins.android.test) apply false
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.androidx.baselineprofile) apply false
+    // Version-only at root. Coverage verify lives on :shared (KMP commonTest via
+    // androidTarget unit tests). Avoid root kover(project(":shared")) aggregation —
+    // root koverVerify would not inherit :shared verify rules, and KMP report wiring
+    // is more reliable when CI invokes :shared:koverXmlReport / :shared:koverVerify.
+    alias(libs.plugins.kover) apply false
 }
