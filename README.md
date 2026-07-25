@@ -55,7 +55,9 @@ Latest debug APKs are published on each tagged release.
 | Android | `1051382` | <http://aftv.news/1051382> | <https://github.com/Prairie-Server/prairie-android/releases/latest/download/prairie-android-latest-universal-debug.apk> |
 | Android TV | `1636227` | <http://aftv.news/1636227> | <https://github.com/Prairie-Server/prairie-android/releases/latest/download/prairie-android-tv-latest-universal-debug.apk> |
 
-Install **Downloader by AFTVnews** on Android TV / Google TV, enter the code for the app you want, then allow APK installs from Downloader when prompted.
+Install **Downloader by AFTVnews** on Android TV / Google TV / Fire TV, enter the code for the app you want, then allow APK installs from Downloader when prompted.
+
+**Fire TV:** use the Android TV APK (same application ID — no separate Fire package). Sideloaded Fire OS tiles use the square launcher icon; Amazon’s full-bleed tile requires the Appstore listing asset under [`docs/store/amazon/`](docs/store/amazon/). After installing or updating, clear the Fire launcher cache or reinstall so the tile artwork refreshes.
 
 ---
 
