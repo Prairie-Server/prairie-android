@@ -85,6 +85,7 @@ class PlaybackApiTest {
                 "client_video_transformations_v1",
                 "device_quirks_v1",
                 "seek_reanchor_v1",
+                "direct_stream_resume_v1",
             ),
             body["client_features"]!!.jsonArray.map { it.jsonPrimitive.content },
         )
