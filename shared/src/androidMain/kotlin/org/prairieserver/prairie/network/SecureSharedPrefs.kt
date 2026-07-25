@@ -10,6 +10,11 @@ import androidx.security.crypto.MasterKey
  * and [EncryptedTokenManagerImpl]. Wired as a Koin singleton so both classes
  * see the same handle — opening the file twice on cold start would mean two
  * separate Keystore lookups + decryption passes for the same content.
+ *
+ * [SECURE_PREFS_NAME] must never change (nor may the Play `applicationId`
+ * `org.prairieserver.prairie`) without an explicit migration — renaming either
+ * orphans on-disk tokens and forces every user to log in again. See AGENTS.md
+ * "Auth / secure prefs stability".
  */
 const val SECURE_PREFS_NAME = "prairie_secure_tokens"
 
