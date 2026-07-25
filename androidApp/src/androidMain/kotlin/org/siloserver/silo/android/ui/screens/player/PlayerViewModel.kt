@@ -3141,6 +3141,11 @@ class PlayerViewModel(
     /** Called when the user exits the player. */
     fun onExit() {
         if (!exitPrepared.compareAndSet(false, true)) return
+        // Before anything else: a running Up Next countdown that fires after the
+        // user has left starts an episode behind a dismissed screen, and the
+        // session it creates outlives the exit that was supposed to end it.
+        cancelUpNextCountdown()
+        _uiState.update { it.copy(showUpNext = false) }
         resetPlaybackRecoveryState()
         val state = _uiState.value
         val cid = state.contentId.takeIf { it.isNotBlank() }

@@ -1,6 +1,7 @@
 package org.siloserver.silo.common.player
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.siloserver.silo.network.AuthScopeSnapshot
@@ -33,6 +34,65 @@ class FinalPlaybackPositionWriterTest {
         assertTrue(started.isCompleted)
         assertFalse(release.isCompleted)
         release.complete(Unit)
+    }
+
+    @Test
+    fun aFailedWriteIsRetriedInsteadOfDiscarded() = runTest {
+        // The drain removes the batch from `pending` before writing, so a
+        // swallowed failure lost the user's final position outright — and this
+        // queue is the durable record that survives a server-side session reset.
+        val written = mutableListOf<FinalPlaybackPosition>()
+        var failuresLeft = 1
+        val writer = FinalPlaybackPositionWriter(
+            scope = backgroundScope,
+            scopeProvider = { null },
+            write = {
+                if (failuresLeft > 0) {
+                    failuresLeft--
+                    error("room write failed")
+                }
+                written += it
+            },
+        )
+
+        assertTrue(writer.submit(FinalPlaybackPosition(scopeA, "movie", 7, 42.0, 100.0)))
+        runCurrent()
+        assertEquals(emptyList(), written, "first attempt fails")
+
+        advanceTimeBy(6_000)
+        runCurrent()
+        assertEquals(1, written.size, "the position must be rewritten, not dropped")
+        assertEquals(42.0, written.single().positionSeconds)
+    }
+
+    @Test
+    fun aNewerSubmissionWinsOverARequeuedFailure() = runTest {
+        val written = mutableListOf<FinalPlaybackPosition>()
+        var failuresLeft = 1
+        val writer = FinalPlaybackPositionWriter(
+            scope = backgroundScope,
+            scopeProvider = { null },
+            write = {
+                if (failuresLeft > 0) {
+                    failuresLeft--
+                    error("room write failed")
+                }
+                written += it
+            },
+        )
+
+        assertTrue(writer.submit(FinalPlaybackPosition(scopeA, "movie", 7, 42.0, 100.0)))
+        runCurrent()
+        // The user kept watching while that write was failing.
+        assertTrue(writer.submit(FinalPlaybackPosition(scopeA, "movie", 7, 90.0, 100.0)))
+        advanceTimeBy(6_000)
+        runCurrent()
+
+        assertEquals(
+            listOf(90.0),
+            written.map { it.positionSeconds },
+            "the retry must not resurrect a position older than the newest intent",
+        )
     }
 
     @Test

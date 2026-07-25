@@ -1,7 +1,9 @@
 package org.siloserver.silo.common.player
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.repository.port.PlaybackWriteScope
@@ -45,7 +47,32 @@ class FinalPlaybackPositionWriter(
                         }
                     }
                     if (batch.isEmpty()) break
-                    batch.forEach { snapshot -> runCatching { write(snapshot) } }
+                    var requeued = false
+                    batch.forEach { snapshot ->
+                        try {
+                            write(snapshot)
+                        } catch (cancellation: CancellationException) {
+                            // Put it back before unwinding: a cancelled drain must
+                            // not be the reason a position disappears.
+                            requeue(snapshot)
+                            throw cancellation
+                        } catch (_: Throwable) {
+                            // The batch was removed from `pending` before the
+                            // write, so swallowing a failure here dropped the
+                            // user's final position outright — no retry, no
+                            // re-queue, and this is the durable record that
+                            // survives a server-side session reset.
+                            requeue(snapshot)
+                            requeued = true
+                        }
+                    }
+                    if (requeued) {
+                        // Back off rather than spinning the drain loop against a
+                        // failing write. A later submit() also wakes us earlier.
+                        delay(RETRY_DELAY_MS)
+                        wakeUp.trySend(Unit)
+                        break
+                    }
                 }
             }
         }
@@ -62,6 +89,23 @@ class FinalPlaybackPositionWriter(
         )
     }
 
+    /**
+     * Returns a failed write to the queue without displacing a newer intent.
+     *
+     * `putIfAbsent`, not `put`: while the write was in flight the user may have
+     * submitted a later position for the same content, and that one is the
+     * truth. Losing the older snapshot in that case is correct — losing it
+     * because the write failed is not.
+     */
+    private fun requeue(snapshot: FinalPlaybackPosition) {
+        synchronized(lock) {
+            pending.putIfAbsent(
+                Key(snapshot.scope, snapshot.contentId, snapshot.fileId),
+                snapshot,
+            )
+        }
+    }
+
     fun submit(snapshot: FinalPlaybackPosition): Boolean {
         if (!snapshot.isValid()) return false
         synchronized(lock) {
@@ -71,6 +115,8 @@ class FinalPlaybackPositionWriter(
         return true
     }
 }
+
+private const val RETRY_DELAY_MS = 5_000L
 
 private fun FinalPlaybackPosition.isValid(): Boolean =
     contentId.isNotBlank() &&
