@@ -92,6 +92,26 @@ sealed class Route(val route: String) {
         }
     }
 
+    // --- Live TV (profile-menu entry, not a bottom-nav tab) ---
+    data object LiveTv : Route("livetv")
+    data class LiveTvPlayer(
+        val channelId: String,
+        val channelName: String = "",
+    ) : Route(
+        buildString {
+            append("livetv/player/${Uri.encode(channelId)}")
+            if (channelName.isNotBlank()) {
+                append("?name=${Uri.encode(channelName)}")
+            }
+        },
+    ) {
+        companion object {
+            const val ROUTE = "livetv/player/{channelId}?name={name}"
+            const val ARG_CHANNEL_ID = "channelId"
+            const val ARG_NAME = "name"
+        }
+    }
+
     // --- Detail screens (back navigation, no bottom nav) ---
     data class ItemDetail(
         val contentId: String,

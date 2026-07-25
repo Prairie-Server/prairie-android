@@ -63,4 +63,21 @@ class ClientSurfaceVisibilitySourceTest {
         assertTrue(itemDetailScreen.contains("CLIENT_WATCH_TOGETHER_SURFACE_ENABLED"))
         assertTrue(itemDetailScreen.contains("onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED)"))
     }
+
+    @Test
+    fun liveTvIsFeatureGatedInMobileProfileMenus() {
+        assertTrue(mainScreen.contains("LiveTvFeatureStore"))
+        assertTrue(mainScreen.contains("liveTvFeatureStore.reset()"))
+        assertTrue(mainScreen.contains("liveTvFeatureStore.refresh()"))
+        assertTrue(appNavigation.contains("Route.LiveTv.route"))
+        assertTrue(mainScreen.contains("val liveTvMenuAction: (() -> Unit)? = if (liveTvEnabled)"))
+        assertTrue(mainScreen.contains("navController.navigate(Route.LiveTv.route)"))
+        assertTrue(homeScreen.contains("if (onLiveTvClick != null)"))
+        assertTrue(librariesScreen.contains("if (onLiveTvClick != null)"))
+        assertTrue(mainAppTopBar.contains("if (onLiveTvClick != null)"))
+        assertTrue(homeScreen.contains("Text(\"Live TV\")"))
+        assertTrue(librariesScreen.contains("Text(\"Live TV\")"))
+        assertTrue(mainAppTopBar.contains("Text(\"Live TV\")"))
+        assertFalse(settingsScreen.contains("onNavigateToLiveTv"))
+    }
 }

@@ -32,4 +32,19 @@ class TvClientSurfaceVisibilitySourceTest {
         assertFalse(settingsScreen.contains("CLIENT_REQUESTS_SURFACE_ENABLED"))
         assertFalse(settingsScreen.contains("SettingsActionRow(label = \"Requests\""))
     }
+
+    @Test
+    fun liveTvIsFeatureGatedInTvProfileMenu() {
+        assertTrue(shell.contains("LiveTvFeatureStore"))
+        assertTrue(shell.contains("liveTvFeatureStore.reset()"))
+        assertTrue(shell.contains("liveTvFeatureStore.refresh()"))
+        assertTrue(shell.contains("TvMainRoute.LiveTv.route"))
+        assertTrue(shell.contains("showLiveTv = liveTvEnabled"))
+        assertTrue(shell.contains("onLiveTv = closeMenuAnd"))
+        assertTrue(shell.contains("if (showLiveTv) {"))
+        assertTrue(shell.contains("label = \"Live TV\""))
+        assertTrue(shell.contains("icon = Icons.Filled.LiveTv"))
+        assertTrue(shell.contains("onClick = onLiveTv"))
+        assertFalse(settingsScreen.contains("SettingsActionRow(label = \"Live TV\""))
+    }
 }

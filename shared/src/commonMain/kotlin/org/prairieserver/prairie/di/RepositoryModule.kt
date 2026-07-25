@@ -3,8 +3,10 @@ package org.prairieserver.prairie.di
 import org.prairieserver.prairie.domain.GetHomeDataUseCase
 import org.prairieserver.prairie.domain.ManagePlaybackUseCase
 import org.prairieserver.prairie.domain.MediaActionsCoordinator
+import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.repository.AdminRepository
+import org.prairieserver.prairie.repository.LiveTvRepository
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.CalendarRepository
 import org.prairieserver.prairie.repository.DeviceLoginRepository
@@ -62,6 +64,8 @@ val repositoryModule = module {
     single { RecommendationRepository(get()) }
     single { RequestsRepository(get()) }
     single { RequestsFeatureStore(get()) }
+    single { LiveTvRepository(get()) }
+    single { LiveTvFeatureStore(get()) }
     single { org.prairieserver.prairie.repository.MetadataAiRepository(get()) }
     single { org.prairieserver.prairie.model.feature.MetadataAiFeatureStore(get()) }
     single { org.prairieserver.prairie.repository.HomeRealtimeCoordinator(get(), get()) }

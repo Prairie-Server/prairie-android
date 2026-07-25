@@ -40,6 +40,8 @@ import org.prairieserver.prairie.tv.ui.screens.detail.TvItemDetailViewModel
 import org.prairieserver.prairie.viewmodel.HomeViewModel
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvViewModel
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
 import org.prairieserver.prairie.tv.ui.screens.libraries.TvLibrariesViewModel
@@ -361,6 +363,13 @@ val androidTvModule = module {
     viewModel { RequestSearchViewModel(get()) }
     viewModel { MyRequestsViewModel(get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsViewModel(get()) }
+    viewModel {
+        LiveTvViewModel(
+            repository = get(),
+            nowMillisProvider = { System.currentTimeMillis() },
+        )
+    }
+    viewModel { LiveTvPlayerViewModel(get()) }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {

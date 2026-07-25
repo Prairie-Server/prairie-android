@@ -64,6 +64,8 @@ import org.prairieserver.prairie.android.ui.screens.profiles.EditProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionScreen
 import org.prairieserver.prairie.android.ui.screens.requests.MyRequestsScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDetailScreen
+import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvPlayerScreen
+import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestsScreen
 import org.prairieserver.prairie.android.ui.screens.search.MobileSearchMediaType
 import org.prairieserver.prairie.android.ui.screens.search.SearchScreen
@@ -501,6 +503,37 @@ fun AppNavigation(
                         navController.navigate(Route.ItemDetail(contentId).route)
                     } ?: navController.navigate(Route.RequestDetail(request.mediaType, request.tmdbId).route)
                 },
+            )
+        }
+
+        // ---- Live TV ----
+        composable(Route.LiveTv.route) {
+            LiveTvScreen(
+                onBackClick = { navController.popBackStack() },
+                onChannelClick = { channel ->
+                    navController.navigate(
+                        Route.LiveTvPlayer(channel.id, channel.displayName).route,
+                    )
+                },
+            )
+        }
+        composable(
+            route = Route.LiveTvPlayer.ROUTE,
+            arguments = listOf(
+                navArgument(Route.LiveTvPlayer.ARG_CHANNEL_ID) { type = NavType.StringType },
+                navArgument(Route.LiveTvPlayer.ARG_NAME) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+            ),
+        ) { backStackEntry ->
+            val channelId = backStackEntry.arguments?.getString(Route.LiveTvPlayer.ARG_CHANNEL_ID).orEmpty()
+            val channelName = backStackEntry.arguments?.getString(Route.LiveTvPlayer.ARG_NAME).orEmpty()
+            LiveTvPlayerScreen(
+                channelId = channelId,
+                channelName = channelName,
+                onBackClick = { navController.popBackStack() },
             )
         }
         composable(

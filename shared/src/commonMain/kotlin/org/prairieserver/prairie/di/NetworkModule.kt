@@ -22,6 +22,7 @@ val networkModule = module {
     single { SectionApi(get()) }
     single { RecommendationApi(get()) }
     single<RequestsApi> { DefaultRequestsApi(get()) }
+    single<LiveTvApi> { DefaultLiveTvApi(get()) }
     single<org.prairieserver.prairie.network.api.MetadataAiApi> { org.prairieserver.prairie.network.api.DefaultMetadataAiApi(get()) }
     single<org.prairieserver.prairie.network.HomeRealtimeClient> { org.prairieserver.prairie.network.DefaultHomeRealtimeClient(get(), get()) }
     single<CalendarApi> { DefaultCalendarApi(get()) }
