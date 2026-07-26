@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.browse
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesSubtab
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.android.ui.screens.reading.ReadingHubViewModel
@@ -22,6 +23,7 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -39,10 +41,10 @@ class CatalogLetterIndexViewModelTest {
     fun browseLetterSelectionUsesServerNamePrefixAndResetsPagination() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
-        val viewModel = BrowseViewModel(
+        val viewModel = track(BrowseViewModel(
             catalogRepository = repositories.catalog,
             savedStateHandle = SavedStateHandle(mapOf("libraryId" to "1")),
-        )
+        ))
         awaitState { viewModel.uiState.value.items.map { it.contentId } == listOf("all-1") }
 
         viewModel.loadMore()
@@ -61,10 +63,10 @@ class CatalogLetterIndexViewModelTest {
     fun browseDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
-        val viewModel = BrowseViewModel(
+        val viewModel = track(BrowseViewModel(
             catalogRepository = repositories.catalog,
             savedStateHandle = SavedStateHandle(mapOf("libraryId" to "1")),
-        )
+        ))
         awaitState { viewModel.uiState.value.items.map { it.contentId } == listOf("all-1") }
         val catalogRequestCount = requests.catalogRequestCount()
 
@@ -78,11 +80,11 @@ class CatalogLetterIndexViewModelTest {
     fun librariesBrowseLetterSelectionUsesServerNamePrefix() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
-        val viewModel = LibrariesViewModel(
+        val viewModel = track(LibrariesViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        )
+        ))
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
 
         viewModel.selectTab(LibrariesSubtab.Browse)
@@ -99,11 +101,11 @@ class CatalogLetterIndexViewModelTest {
     fun librariesDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
-        val viewModel = LibrariesViewModel(
+        val viewModel = track(LibrariesViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        )
+        ))
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
         viewModel.selectTab(LibrariesSubtab.Browse)
         awaitState { viewModel.uiState.value.catalogItems.map { it.contentId } == listOf("all-1") }
@@ -119,11 +121,11 @@ class CatalogLetterIndexViewModelTest {
     fun readingBrowseLetterSelectionUsesServerNamePrefix() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
-        val viewModel = ReadingHubViewModel(
+        val viewModel = track(ReadingHubViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        )
+        ))
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
 
         viewModel.selectTab(LibrariesSubtab.Browse)
@@ -140,11 +142,11 @@ class CatalogLetterIndexViewModelTest {
     fun readingDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
         val repositories = repositoriesFor(requests)
-        val viewModel = ReadingHubViewModel(
+        val viewModel = track(ReadingHubViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        )
+        ))
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
         viewModel.selectTab(LibrariesSubtab.Browse)
         awaitState { viewModel.uiState.value.catalogItems.map { it.contentId } == listOf("all-1") }
@@ -156,11 +158,23 @@ class CatalogLetterIndexViewModelTest {
         assertEquals(catalogRequestCount, requests.catalogRequestCount())
     }
 
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
     private fun runCatalogTest(block: suspend () -> Unit) = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             block()
         } finally {
+            createdViewModels.forEach { it.viewModelScope.cancel() }
+            createdViewModels.clear()
             Dispatchers.resetMain()
         }
     }

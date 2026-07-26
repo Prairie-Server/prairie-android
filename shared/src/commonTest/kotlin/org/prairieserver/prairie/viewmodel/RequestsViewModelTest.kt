@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.request.CreateMediaRequest
 import org.prairieserver.prairie.model.request.MediaRequest
 import org.prairieserver.prairie.model.request.RequestAvailability
@@ -18,6 +19,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.RequestsApi
 import org.prairieserver.prairie.repository.RequestsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -44,8 +46,21 @@ class RequestsViewModelTest {
 
     @AfterTest
     fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
         Dispatchers.resetMain()
     }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     @Test
     fun `requests view model loads status then discover sections`() = runTest(dispatcher) {
@@ -61,7 +76,7 @@ class RequestsViewModelTest {
             discoverResult = ApiResult.Success(RequestsDiscoverResponse(listOf(section))),
         )
 
-        val viewModel = RequestsViewModel(RequestsRepository(api))
+        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
         val state = viewModel.uiState.value
 
         assertFalse(state.isLoading)
@@ -79,7 +94,7 @@ class RequestsViewModelTest {
             statusResult = ApiResult.Success(RequestsFeatureStatus(requestsEnabled = false)),
         )
 
-        val viewModel = RequestsViewModel(RequestsRepository(api))
+        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
         val state = viewModel.uiState.value
 
         assertFalse(state.isLoading)
@@ -98,7 +113,7 @@ class RequestsViewModelTest {
             results = listOf(stubResult(tmdbId = 22, title = "Moonbase")),
         )
         val api = FakeRequestsApi(searchResult = ApiResult.Success(page))
-        val viewModel = RequestSearchViewModel(RequestsRepository(api))
+        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
 
         viewModel.onQueryChanged("moon")
         viewModel.onMediaTypeChanged(RequestMediaType.Series)
@@ -117,7 +132,7 @@ class RequestsViewModelTest {
     @Test
     fun `search view model treats all media type as no media type filter`() = runTest(dispatcher) {
         val api = FakeRequestsApi(searchResult = ApiResult.Success(RequestMediaPage()))
-        val viewModel = RequestSearchViewModel(RequestsRepository(api))
+        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
 
         viewModel.onQueryChanged("alien")
         viewModel.onMediaTypeChanged(RequestMediaType.All)
@@ -129,7 +144,7 @@ class RequestsViewModelTest {
     @Test
     fun `search view model separates typed query from submitted query`() = runTest(dispatcher) {
         val api = FakeRequestsApi(searchResult = ApiResult.Success(RequestMediaPage()))
-        val viewModel = RequestSearchViewModel(RequestsRepository(api))
+        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
 
         viewModel.onQueryChanged("blade")
 
@@ -151,7 +166,7 @@ class RequestsViewModelTest {
                 ApiResult.Success(RequestMediaPage())
             },
         )
-        val viewModel = RequestSearchViewModel(RequestsRepository(api))
+        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
 
         viewModel.onQueryChanged("blade")
         viewModel.search()
@@ -177,7 +192,7 @@ class RequestsViewModelTest {
                 }
             },
         )
-        val viewModel = RequestSearchViewModel(RequestsRepository(api))
+        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
 
         viewModel.onQueryChanged("moon")
         viewModel.search()
@@ -224,11 +239,11 @@ class RequestsViewModelTest {
             ),
             createResult = ApiResult.Success(created),
         )
-        val viewModel = RequestDetailViewModel(
+        val viewModel = track(RequestDetailViewModel(
             repository = RequestsRepository(api),
             mediaType = RequestMediaType.Movie,
             tmdbId = 33,
-        )
+        ))
 
         viewModel.submitRequest()
         val state = viewModel.uiState.value
@@ -264,7 +279,7 @@ class RequestsViewModelTest {
             discoverResult = ApiResult.Error(code = 500, error = "internal", message = ""),
         )
 
-        val viewModel = RequestsViewModel(RequestsRepository(api))
+        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
 
         assertEquals("Failed to load requests", viewModel.uiState.value.error)
     }
@@ -273,7 +288,7 @@ class RequestsViewModelTest {
     fun `requests view model shows network copy when status request cannot reach the server`() = runTest(dispatcher) {
         val api = FakeRequestsApi(statusResult = ApiResult.NetworkError(IllegalStateException("offline")))
 
-        val viewModel = RequestsViewModel(RequestsRepository(api))
+        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
 
         assertEquals("Network error. Check your connection.", viewModel.uiState.value.error)
     }
@@ -297,7 +312,7 @@ class RequestsViewModelTest {
                 }
             },
         )
-        val viewModel = MyRequestsViewModel(RequestsRepository(api))
+        val viewModel = track(MyRequestsViewModel(RequestsRepository(api)))
 
         // At this point the init load() is in-flight (slow, call #1).
         // Kick off a second refresh() immediately — it finishes first (call #2).
@@ -324,7 +339,7 @@ class RequestsViewModelTest {
             mineResult = ApiResult.Success(RequestsListResponse(listOf(pending))),
             cancelResult = ApiResult.Success(cancelled),
         )
-        val viewModel = MyRequestsViewModel(RequestsRepository(api))
+        val viewModel = track(MyRequestsViewModel(RequestsRepository(api)))
 
         assertEquals(listOf(pending), viewModel.uiState.value.requests)
 

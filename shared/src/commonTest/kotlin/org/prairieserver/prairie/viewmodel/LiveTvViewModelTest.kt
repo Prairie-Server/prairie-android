@@ -1,6 +1,8 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -36,8 +38,21 @@ class LiveTvViewModelTest {
 
     @AfterTest
     fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
         Dispatchers.resetMain()
     }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     @Test
     fun loadsEnabledChannelsAndNowPlaying() = runTest {
@@ -64,10 +79,10 @@ class LiveTvViewModelTest {
                 ),
             ),
         )
-        val viewModel = LiveTvViewModel(
+        val viewModel = track(LiveTvViewModel(
             repository = LiveTvRepository(api),
             nowMillisProvider = { parseFixedNow() },
-        )
+        ))
         advanceUntilIdle()
 
         assertFalse(viewModel.uiState.value.isLoading)
@@ -77,13 +92,13 @@ class LiveTvViewModelTest {
 
     @Test
     fun loadErrorSurfacesMessage() = runTest {
-        val viewModel = LiveTvViewModel(
+        val viewModel = track(LiveTvViewModel(
             LiveTvRepository(
                 FakeLiveTvApi(
                     channelsResult = ApiResult.Error(500, "internal", "boom"),
                 ),
             ),
-        )
+        ))
         advanceUntilIdle()
         assertEquals("boom", viewModel.uiState.value.error)
         assertTrue(viewModel.uiState.value.channels.isEmpty())
@@ -100,7 +115,7 @@ class LiveTvViewModelTest {
             ),
             releaseResult = ApiResult.Success(LiveTvSession(id = "s1", status = "released")),
         )
-        val viewModel = LiveTvPlayerViewModel(LiveTvRepository(api))
+        val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
 
         viewModel.start("ch-1", "KRON")
         advanceUntilIdle()
@@ -124,7 +139,7 @@ class LiveTvViewModelTest {
             ),
             releaseResult = ApiResult.Success(LiveTvSession(id = "s1", status = "released")),
         )
-        val viewModel = LiveTvPlayerViewModel(LiveTvRepository(api))
+        val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
         viewModel.start("ch-1")
         advanceUntilIdle()
 
@@ -135,13 +150,13 @@ class LiveTvViewModelTest {
 
     @Test
     fun playerStartFailureSurfacesError() = runTest {
-        val viewModel = LiveTvPlayerViewModel(
+        val viewModel = track(LiveTvPlayerViewModel(
             LiveTvRepository(
                 FakeLiveTvApi(
                     startResult = ApiResult.Error(409, "no_tuner", "No tuner available"),
                 ),
             ),
-        )
+        ))
         viewModel.start("ch-1")
         advanceUntilIdle()
         assertEquals("No tuner available", viewModel.uiState.value.error)
@@ -151,7 +166,7 @@ class LiveTvViewModelTest {
     @Test
     fun playerIgnoresBlankChannelId() = runTest {
         val api = FakeLiveTvApi()
-        val viewModel = LiveTvPlayerViewModel(LiveTvRepository(api))
+        val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
         viewModel.start("")
         advanceUntilIdle()
         assertEquals(0, api.startCalls)

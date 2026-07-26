@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.api.RecommendationApi
 import org.prairieserver.prairie.repository.RecommendationRepository
@@ -12,6 +13,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -30,14 +32,30 @@ import kotlin.test.assertTrue
 class RecommendationsViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     private fun vm(discover: String, taste: String = """{"top_genres":["scifi"]}""", status: HttpStatusCode = HttpStatusCode.OK): RecommendationsViewModel {
         val client = HttpClient(MockEngine { req ->
             val body = if (req.url.encodedPath.contains("taste")) taste else discover
             respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
         }) { install(ContentNegotiation) { json(PrairieJson) } }
-        return RecommendationsViewModel(RecommendationRepository(RecommendationApi(client)))
+        return track(RecommendationsViewModel(RecommendationRepository(RecommendationApi(client))))
     }
 
     private suspend fun RecommendationsViewModel.awaitIdle() =
@@ -62,7 +80,7 @@ class RecommendationsViewModelTest {
         val client = HttpClient(MockEngine { throw IllegalStateException("x") }) {
             install(ContentNegotiation) { json(PrairieJson) }
         }
-        val state = RecommendationsViewModel(RecommendationRepository(RecommendationApi(client))).awaitIdle()
+        val state = track(RecommendationsViewModel(RecommendationRepository(RecommendationApi(client)))).awaitIdle()
         assertTrue(state.error!!.contains("Network"))
     }
 

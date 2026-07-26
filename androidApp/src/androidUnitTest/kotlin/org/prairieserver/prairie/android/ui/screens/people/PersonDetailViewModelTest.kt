@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.people
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.api.CatalogApi
 import org.prairieserver.prairie.repository.CatalogRepository
@@ -15,6 +16,7 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -34,7 +36,7 @@ class PersonDetailViewModelTest {
     fun loadMoreAppendsSecondPageUsingSnapshot() = runPersonTest {
         val queries = mutableListOf<Map<String, String?>>()
         val repository = repositoryFor(queries)
-        val viewModel = PersonDetailViewModel(repository, SavedStateHandle(mapOf("personId" to 7)))
+        val viewModel = track(PersonDetailViewModel(repository, SavedStateHandle(mapOf("personId" to 7))))
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems && it.items.size == 60 }
 
         viewModel.loadMoreIfNeeded()
@@ -55,7 +57,7 @@ class PersonDetailViewModelTest {
     fun filterChangeResetsItemsSnapshotAndOffset() = runPersonTest {
         val queries = mutableListOf<Map<String, String?>>()
         val repository = repositoryFor(queries)
-        val viewModel = PersonDetailViewModel(repository, SavedStateHandle(mapOf("personId" to 7)))
+        val viewModel = track(PersonDetailViewModel(repository, SavedStateHandle(mapOf("personId" to 7))))
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems && it.items.size == 60 }
 
         viewModel.loadMoreIfNeeded()
@@ -81,7 +83,7 @@ class PersonDetailViewModelTest {
     fun readingFilterKeepsOnlyReadingItems() = runPersonTest {
         val queries = mutableListOf<Map<String, String?>>()
         val repository = repositoryFor(queries)
-        val viewModel = PersonDetailViewModel(repository, SavedStateHandle(mapOf("personId" to 7)))
+        val viewModel = track(PersonDetailViewModel(repository, SavedStateHandle(mapOf("personId" to 7))))
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems && it.items.size == 60 }
 
         viewModel.applyFilter(PersonMediaFilter.Reading)
@@ -102,10 +104,10 @@ class PersonDetailViewModelTest {
 
     @Test
     fun mobileFiltersIncludeAllClientSurfaces() = runPersonTest {
-        val viewModel = PersonDetailViewModel(
+        val viewModel = track(PersonDetailViewModel(
             catalogRepository = repositoryFor(mutableListOf()),
             savedStateHandle = SavedStateHandle(mapOf("personId" to 7)),
-        )
+        ))
         awaitState(viewModel) { !it.isLoading && !it.isLoadingItems }
 
         assertEquals(
@@ -114,11 +116,23 @@ class PersonDetailViewModelTest {
         )
     }
 
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
     private fun runPersonTest(block: suspend () -> Unit) = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             block()
         } finally {
+            createdViewModels.forEach { it.viewModelScope.cancel() }
+            createdViewModels.clear()
             Dispatchers.resetMain()
         }
     }

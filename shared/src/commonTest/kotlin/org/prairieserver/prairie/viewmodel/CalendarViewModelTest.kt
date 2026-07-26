@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.calendar.CalendarDay
 import org.prairieserver.prairie.model.calendar.CalendarFilter
 import org.prairieserver.prairie.model.calendar.CalendarItem
@@ -10,6 +11,7 @@ import org.prairieserver.prairie.network.api.CalendarApi
 import org.prairieserver.prairie.repository.CalendarRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -35,14 +37,27 @@ class CalendarViewModelTest {
 
     @AfterTest
     fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
         Dispatchers.resetMain()
     }
 
-    private fun viewModel(api: FakeCalendarApi, today: String = "2026-06-12") = CalendarViewModel(
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
+
+    private fun viewModel(api: FakeCalendarApi, today: String = "2026-06-12") = track(CalendarViewModel(
         repository = CalendarRepository(api),
         timezoneId = "Europe/Amsterdam",
         todayProvider = { today },
-    )
+    ))
 
     @Test
     fun `loads the monday-anchored week containing today on init`() = runTest(dispatcher) {
@@ -165,11 +180,11 @@ class CalendarViewModelTest {
             immediateResult = ApiResult.Success(CalendarResponse(listOf(weekBItem))),
         )
 
-        val vm = CalendarViewModel(
+        val vm = track(CalendarViewModel(
             repository = CalendarRepository(gatedApi),
             timezoneId = "Europe/Amsterdam",
             todayProvider = { "2026-06-12" },
-        )
+        ))
         // vm.init triggers load for week A — it is now blocked on weekAGate
 
         // Advance to week B; its response returns immediately

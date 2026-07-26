@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.admin.AdminAuditPage
 import org.prairieserver.prairie.model.admin.AdminLogPage
 import org.prairieserver.prairie.model.admin.AdminSession
@@ -18,6 +19,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.AdminApi
 import org.prairieserver.prairie.repository.AdminRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -36,11 +38,27 @@ class AdminUserEditViewModelTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     @Test fun `create validates required fields before calling api`() = runTest(dispatcher) {
         val api = FakeEditApi()
-        val vm = AdminUserEditViewModel(AdminRepository(api))
+        val vm = track(AdminUserEditViewModel(AdminRepository(api)))
         vm.load(null)
         vm.onUsernameChange("u")
         vm.onEmailChange("bad")
@@ -52,7 +70,7 @@ class AdminUserEditViewModelTest {
 
     @Test fun `create submits a CreateUserRequest and signals success`() = runTest(dispatcher) {
         val api = FakeEditApi()
-        val vm = AdminUserEditViewModel(AdminRepository(api))
+        val vm = track(AdminUserEditViewModel(AdminRepository(api)))
         vm.load(null)
         vm.onUsernameChange("alice")
         vm.onEmailChange("alice@x.io")
@@ -75,7 +93,7 @@ class AdminUserEditViewModelTest {
             enabled = true, maxStreams = 2,
         )
         val api = FakeEditApi(user = existing)
-        val vm = AdminUserEditViewModel(AdminRepository(api))
+        val vm = track(AdminUserEditViewModel(AdminRepository(api)))
         vm.load(7)
         assertEquals("bob", vm.uiState.value.username)
         assertEquals("2", vm.uiState.value.maxStreamsText)
@@ -89,7 +107,7 @@ class AdminUserEditViewModelTest {
 
     @Test fun `edit rejects a too-short password reset`() = runTest(dispatcher) {
         val api = FakeEditApi(user = AdminUser(id = 7, username = "bob", email = "b@x.io", role = "user"))
-        val vm = AdminUserEditViewModel(AdminRepository(api))
+        val vm = track(AdminUserEditViewModel(AdminRepository(api)))
         vm.load(7)
         vm.onPasswordChange("123")
         vm.submit()
@@ -104,7 +122,7 @@ class AdminUserEditViewModelTest {
             enabled = true, libraryIds = listOf(3, 4),
         )
         val api = FakeEditApi(user = existing)
-        val vm = AdminUserEditViewModel(AdminRepository(api))
+        val vm = track(AdminUserEditViewModel(AdminRepository(api)))
         vm.load(5)
         vm.onLibraryIdsChange("")
         vm.submit()

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.domain.MediaActionsCoordinator
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.model.section.SectionItem
@@ -19,6 +20,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -38,7 +40,23 @@ class HomeViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
 
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     private fun section(id: String) = ResolvedSection(
         id = id,
@@ -72,11 +90,11 @@ class HomeViewModelTest {
                 )
             },
         ) { install(ContentNegotiation) { json(PrairieJson) } }
-        return HomeViewModel(
+        return track(HomeViewModel(
             sectionRepository = SectionRepository(SectionApi(client)),
             mediaActions = MediaActionsCoordinator(PersonalDataRepository(PersonalDataApi(personalClient))),
             homeCache = cache,
-        )
+        ))
     }
 
     private suspend fun HomeViewModel.awaitIdle(): HomeUiState =
@@ -112,10 +130,10 @@ class HomeViewModelTest {
         val personal = HttpClient(MockEngine { respond("", HttpStatusCode.NoContent) }) {
             install(ContentNegotiation) { json(PrairieJson) }
         }
-        val state = HomeViewModel(
+        val state = track(HomeViewModel(
             SectionRepository(SectionApi(client)),
             MediaActionsCoordinator(PersonalDataRepository(PersonalDataApi(personal))),
-        ).awaitIdle()
+        )).awaitIdle()
         assertTrue(state.error!!.contains("Network"))
     }
 

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.api.PersonalDataApi
 import org.prairieserver.prairie.repository.PersonalDataRepository
@@ -12,6 +13,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -29,7 +31,23 @@ import kotlin.test.assertTrue
 class PersonalListViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     private fun repo(body: String, status: HttpStatusCode = HttpStatusCode.OK): PersonalDataRepository {
         val client = HttpClient(
@@ -59,7 +77,7 @@ class PersonalListViewModelTest {
             val status = if (isMutation) HttpStatusCode.NoContent else HttpStatusCode.OK
             respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
         }) { install(ContentNegotiation) { json(PrairieJson) } }
-        val vm = FavoritesViewModel(PersonalDataRepository(PersonalDataApi(client)))
+        val vm = track(FavoritesViewModel(PersonalDataRepository(PersonalDataApi(client))))
         vm.awaitIdle()
         assertEquals(2, vm.uiState.value.items.size)
         assertTrue(vm.hasLoadedOnce)
@@ -91,13 +109,13 @@ class PersonalListViewModelTest {
                 headersOf(HttpHeaders.ContentType, "application/json"),
             )
         }) { install(ContentNegotiation) { json(PrairieJson) } }
-        val watch = WatchlistViewModel(PersonalDataRepository(PersonalDataApi(watchClient)))
+        val watch = track(WatchlistViewModel(PersonalDataRepository(PersonalDataApi(watchClient))))
         watch.awaitIdle()
         assertEquals(1, watch.uiState.value.items.size)
         watch.removeFromWatchlist("m1")
         watch.uiState.first { it.items.isEmpty() }
 
-        val err = FavoritesViewModel(repo("{}", HttpStatusCode.BadRequest))
+        val err = track(FavoritesViewModel(repo("{}", HttpStatusCode.BadRequest)))
         err.awaitIdle()
         assertFalse(err.uiState.value.isLoading)
         assertTrue(err.uiState.value.error != null)
@@ -105,7 +123,7 @@ class PersonalListViewModelTest {
         val netClient = HttpClient(MockEngine { throw IllegalStateException("down") }) {
             install(ContentNegotiation) { json(PrairieJson) }
         }
-        val net = HistoryViewModel(PersonalDataRepository(PersonalDataApi(netClient)))
+        val net = track(HistoryViewModel(PersonalDataRepository(PersonalDataApi(netClient))))
         net.awaitIdle()
         assertTrue(net.uiState.value.error!!.contains("Network"))
     }
