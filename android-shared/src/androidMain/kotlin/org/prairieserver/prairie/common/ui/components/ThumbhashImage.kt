@@ -1,13 +1,17 @@
 package org.prairieserver.prairie.common.ui.components
 
+import android.os.Build
 import android.util.Base64
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -18,6 +22,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.prairieserver.prairie.util.ArtworkUrl
 
 private val DefaultPlaceholderColor = Color(0xFF1A1D27)
 
@@ -41,6 +46,9 @@ private fun decodeThumbhashPainter(hash: String): BitmapPainter? =
  * shows it immediately, crossfading to the full network image as it loads — so
  * posters/backdrops blur up instead of popping in from a flat color. Falls back
  * to a neutral placeholder when no thumbhash is supplied or decoding fails.
+ *
+ * Prefers AVIF siblings of canonical `.webp` artwork on API 31+ (platform AVIF
+ * decode), then WebP, then PNG when earlier formats are missing or fail.
  *
  * @param url The remote image URL to load.
  * @param thumbhash Base64-encoded ThumbHash for the instant blurred preview.
@@ -101,9 +109,22 @@ fun ThumbhashImage(
         return
     }
 
-    val model = remember(url, decodeSizePx, crossfadeMillis) {
+    val candidates = remember(url) {
+        val all = ArtworkUrl.candidates(url)
+        if (Build.VERSION.SDK_INT >= 31) {
+            all
+        } else {
+            // Pre-API 31: skip AVIF (no platform decode); keep WebP → PNG.
+            all.filterNot { it.endsWith(".avif", ignoreCase = true) }
+                .ifEmpty { listOf(url) }
+        }
+    }
+    var failedCount by remember(url) { mutableStateOf(0) }
+    val current = candidates[failedCount.coerceIn(0, (candidates.size - 1).coerceAtLeast(0))]
+
+    val model = remember(current, decodeSizePx, crossfadeMillis) {
         ImageRequest.Builder(context)
-            .data(url)
+            .data(current)
             .apply {
                 if (crossfadeMillis > 0) crossfade(crossfadeMillis) else crossfade(false)
             }
@@ -117,6 +138,11 @@ fun ThumbhashImage(
         contentScale = contentScale,
         placeholder = placeholder,
         onSuccess = { onSuccess?.invoke() },
+        onError = {
+            if (failedCount < candidates.lastIndex) {
+                failedCount += 1
+            }
+        },
         modifier = when {
             transparent || placeholder != null -> modifier
             else -> modifier.background(DefaultPlaceholderColor)
