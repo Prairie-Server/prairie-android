@@ -56,30 +56,38 @@ class LiveTvViewModel(
         }
     }
 
+    private val schedulingProgramIds = mutableSetOf<String>()
+
     fun scheduleRecording(program: LiveTvProgram) {
-        if (program.id.isBlank()) return
+        val programId = program.id.trim()
+        if (programId.isEmpty() || !schedulingProgramIds.add(programId)) return
         viewModelScope.launch {
-            when (
-                val result = repository.scheduleRecording(
-                    LiveTvScheduleRecordingRequest(
-                        programId = program.id,
-                        channelId = program.channelId.takeIf { it.isNotBlank() },
-                        start = program.start.takeIf { it.isNotBlank() },
-                        stop = program.stop.takeIf { it.isNotBlank() },
-                        title = program.title.takeIf { it.isNotBlank() },
-                    ),
-                )
-            ) {
-                is ApiResult.Success -> {
-                    _uiState.update { it.copy(recordingMessage = "Recording scheduled") }
-                }
-                is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update {
-                        it.copy(
-                            recordingMessage = result.errorMessage("Failed to schedule recording"),
-                        )
+            try {
+                when (
+                    val result = repository.scheduleRecording(
+                        LiveTvScheduleRecordingRequest(programId = programId),
+                    )
+                ) {
+                    is ApiResult.Success -> {
+                        _uiState.update { it.copy(recordingMessage = "Recording scheduled") }
+                    }
+                    is ApiResult.Error -> {
+                        val message = when (result.code) {
+                            403 -> "Not allowed to schedule recordings"
+                            404 -> "Program not found"
+                            409 -> "Recording already scheduled"
+                            else -> "Could not schedule recording"
+                        }
+                        _uiState.update { it.copy(recordingMessage = message) }
+                    }
+                    is ApiResult.NetworkError -> {
+                        _uiState.update {
+                            it.copy(recordingMessage = "Could not schedule recording")
+                        }
                     }
                 }
+            } finally {
+                schedulingProgramIds.remove(programId)
             }
         }
     }

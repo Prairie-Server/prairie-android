@@ -8,6 +8,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 import org.prairieserver.prairie.model.livetv.LiveTvChannelsResponse
 import org.prairieserver.prairie.model.livetv.LiveTvGuideResponse
 import org.prairieserver.prairie.model.livetv.LiveTvProgram
@@ -76,16 +77,16 @@ class DefaultLiveTvApi(private val client: HttpClient) : LiveTvApi {
     }
 
     override suspend fun program(programId: String): ApiResult<LiveTvProgram> = safeApiCall {
-        client.get("/api/v1/livetv/programs/$programId")
+        client.get("/api/v1/livetv/programs/${programId.encodeURLPathPart()}")
     }
 
     override suspend fun startSession(channelId: String): ApiResult<LiveTvSessionStartResponse> =
         safeApiCall {
-            client.post("/api/v1/livetv/channels/$channelId/session")
+            client.post("/api/v1/livetv/channels/${channelId.encodeURLPathPart()}/session")
         }
 
     override suspend fun releaseSession(sessionId: String): ApiResult<LiveTvSession> = safeApiCall {
-        client.delete("/api/v1/livetv/sessions/$sessionId")
+        client.delete("/api/v1/livetv/sessions/${sessionId.encodeURLPathPart()}")
     }
 
     override suspend fun recordings(status: String?): ApiResult<LiveTvRecordingsResponse> = safeApiCall {
@@ -99,14 +100,17 @@ class DefaultLiveTvApi(private val client: HttpClient) : LiveTvApi {
     override suspend fun scheduleRecording(
         request: LiveTvScheduleRecordingRequest,
     ): ApiResult<LiveTvRecording> = safeApiCall {
+        val programId = request.programId?.trim().orEmpty()
+        require(programId.isNotEmpty()) { "program_id is required" }
         client.post("/api/v1/livetv/recordings") {
             contentType(ContentType.Application.Json)
-            setBody(request)
+            // Guide-based schedule: server fills channel/window/title from program_id.
+            setBody(LiveTvScheduleRecordingRequest(programId = programId))
         }
     }
 
     override suspend fun cancelRecording(recordingId: String): ApiResult<LiveTvRecording> =
         safeApiCall {
-            client.delete("/api/v1/livetv/recordings/$recordingId")
+            client.delete("/api/v1/livetv/recordings/${recordingId.encodeURLPathPart()}")
         }
 }
