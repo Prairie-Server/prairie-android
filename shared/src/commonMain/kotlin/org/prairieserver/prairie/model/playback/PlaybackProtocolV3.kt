@@ -148,7 +148,7 @@ data class PlaybackSourceDescriptorV3(
     /**
      * Full runtime of the source, or null when the server does not know it.
      *
-     * Null must survive as null: `SiloJson` sets `coerceInputValues`, so a
+     * Null must survive as null: `PrairieJson` sets `coerceInputValues`, so a
      * non-nullable `Double` here would silently become 0.0 — the very value
      * this field exists to stop the player inventing.
      *
