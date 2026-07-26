@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.reader.reflow
 
 import android.annotation.SuppressLint
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.GestureDetector
@@ -8,7 +9,10 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
@@ -20,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
+import java.io.File
+import java.net.URLConnection
 
 /**
  * Thin wrapper around the reflow [WebView] exposing the JS paginator API.
@@ -46,6 +52,45 @@ class ReflowController(private val web: WebView) {
     private fun jsString(s: String): String = JSONObject.quote(s)
 }
 
+/**
+ * Serves EPUB chapter CSS/images from the unpacked readers cache without
+ * enabling [android.webkit.WebSettings.allowFileAccessFromFileURLs].
+ *
+ * Only paths under [readersRoot] (typically `cacheDir/readers/`) are returned;
+ * `file:///android_asset/...` and anything outside that tree are left to the
+ * WebView default handler.
+ */
+internal fun interceptEpubCacheRequest(
+    url: Uri,
+    readersRoot: File,
+): WebResourceResponse? {
+    if (url.scheme != "file") return null
+    val path = url.path ?: return null
+    if (path.startsWith("/android_asset/")) return null
+
+    val file = try {
+        File(path).canonicalFile
+    } catch (_: Exception) {
+        return null
+    }
+    val root = try {
+        readersRoot.canonicalFile
+    } catch (_: Exception) {
+        return null
+    }
+    val rootPath = root.path
+    if (file.path != rootPath && !file.path.startsWith(rootPath + File.separator)) {
+        return null
+    }
+    if (!file.isFile) return null
+
+    val mime = MimeTypeMap.getSingleton()
+        .getMimeTypeFromExtension(file.extension.lowercase())
+        ?: URLConnection.guessContentTypeFromName(file.name)
+        ?: "application/octet-stream"
+    return WebResourceResponse(mime, /* encoding = */ null, file.inputStream())
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ReflowWebView(
@@ -69,13 +114,13 @@ fun ReflowWebView(
         WebView(context).apply {
             @Suppress("SetJavaScriptEnabled")
             settings.javaScriptEnabled = true
+            // Needed so the shell can load from file:///android_asset/...
             settings.allowFileAccess = true
             settings.allowContentAccess = true
-            // The shell page is loaded from android_asset, but EPUB CSS/images
-            // live under the app-private extracted EPUB cache. Once paginator.js
-            // installs the EPUB directory as <base>, these flags let relative
-            // chapter resources render instead of falling back to broken alt text.
-            settings.allowFileAccessFromFileURLs = true
+            // EPUB CSS/images live under the app-private extracted cache. With
+            // allowFileAccessFromFileURLs disabled, those file:// subresources
+            // are served only via shouldInterceptRequest (see below).
+            settings.allowFileAccessFromFileURLs = false
             settings.allowUniversalAccessFromFileURLs = false
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             isVerticalScrollBarEnabled = false
@@ -88,6 +133,7 @@ fun ReflowWebView(
         var disposed = false
         var readyDelivered = false
         val density = context.resources.displayMetrics.density
+        val readersRoot = File(context.cacheDir, "readers")
         val tapDetector = GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {
@@ -151,6 +197,14 @@ fun ReflowWebView(
 
         webView.addJavascriptInterface(bridge, "AndroidReflow")
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?,
+            ): WebResourceResponse? {
+                val url = request?.url ?: return null
+                return interceptEpubCacheRequest(url, readersRoot)
+            }
+
             override fun onRenderProcessGone(
                 view: WebView?,
                 detail: RenderProcessGoneDetail?,

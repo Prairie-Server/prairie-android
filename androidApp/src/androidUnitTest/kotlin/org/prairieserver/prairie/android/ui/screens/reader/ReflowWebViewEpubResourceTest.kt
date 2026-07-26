@@ -1,9 +1,20 @@
 package org.prairieserver.prairie.android.ui.screens.reader
 
+import android.net.Uri
+import org.junit.runner.RunWith
+import org.prairieserver.prairie.android.ui.screens.reader.reflow.interceptEpubCacheRequest
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = android.app.Application::class)
 class ReflowWebViewEpubResourceTest {
     private val webView = File(
         "src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/reader/reflow/ReflowWebView.kt",
@@ -18,9 +29,46 @@ class ReflowWebViewEpubResourceTest {
             "The reflow page must install the EPUB directory as the document base URL.",
         )
         assertTrue(
-            webView.contains("settings.allowFileAccessFromFileURLs = true") &&
+            webView.contains("settings.allowFileAccessFromFileURLs = false") &&
                 webView.contains("settings.allowUniversalAccessFromFileURLs = false"),
-            "The asset-backed reflow WebView may load EPUB CSS/images from the app cache, but must not grant universal file-origin access.",
+            "The asset-backed reflow WebView must not grant file-origin or universal file access.",
         )
+        assertTrue(
+            webView.contains("shouldInterceptRequest") &&
+                webView.contains("interceptEpubCacheRequest"),
+            "EPUB CSS/images under the readers cache must be served via shouldInterceptRequest.",
+        )
+    }
+
+    @Test
+    fun interceptServesOnlyFilesUnderReadersRoot() {
+        val root = createTempDirectory("readers-root-").toFile()
+        try {
+            val allowed = File(root, "epub-abc/OEBPS/images/cover.jpg").apply {
+                parentFile!!.mkdirs()
+                writeBytes(byteArrayOf(1, 2, 3))
+            }
+            val outside = File(root.parentFile!!, "outside.jpg").apply {
+                writeBytes(byteArrayOf(9))
+            }
+
+            val served = interceptEpubCacheRequest(Uri.fromFile(allowed), root)
+            assertNotNull(served)
+            assertEquals("image/jpeg", served.mimeType)
+            assertEquals(listOf(1.toByte(), 2.toByte(), 3.toByte()), served.data.readBytes().toList())
+            served.data.close()
+
+            assertNull(interceptEpubCacheRequest(Uri.fromFile(outside), root))
+            assertNull(
+                interceptEpubCacheRequest(
+                    Uri.parse("file:///android_asset/reader/reflow/reader.html"),
+                    root,
+                ),
+            )
+            assertNull(interceptEpubCacheRequest(Uri.parse("https://example.test/x"), root))
+        } finally {
+            root.deleteRecursively()
+            File(root.parentFile, "outside.jpg").delete()
+        }
     }
 }
