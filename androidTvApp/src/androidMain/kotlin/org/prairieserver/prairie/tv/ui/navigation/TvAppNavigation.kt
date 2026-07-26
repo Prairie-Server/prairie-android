@@ -92,7 +92,7 @@ private val preMainAuthRoutes: Set<String> = setOf(
     TvRoute.Setup.route,
     TvRoute.Signup.route,
     TvRoute.Login.ROUTE,
-    TvRoute.ServerList.route,
+    TvRoute.ServerList.ROUTE,
     TvRoute.ProfileSelection.route,
     TvRoute.CreateProfile.route,
     TvRoute.EditProfile.ROUTE,
@@ -351,8 +351,21 @@ fun TvAppNavigation(
             )
         }
 
-        composable(TvRoute.ServerList.route) {
+        composable(
+            route = TvRoute.ServerList.ROUTE,
+            arguments = listOf(
+                navArgument(TvRoute.ServerList.ARG_AUTO_SCAN) {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
+        ) { backStackEntry ->
+            val autoScan = backStackEntry.arguments
+                ?.getBoolean(TvRoute.ServerList.ARG_AUTO_SCAN)
+                ?: false
+            val canGoBack = navController.previousBackStackEntry != null
             TvServerListScreen(
+                autoScan = autoScan,
                 onAddServer = {
                     navController.navigate(TvRoute.ServerSetup.route)
                 },
@@ -365,6 +378,7 @@ fun TvAppNavigation(
                         TvServerSwitchDestination.ProfileSelection ->
                             TvRoute.ProfileSelection.route
                         TvServerSwitchDestination.Login -> TvRoute.Login().route
+                        TvServerSwitchDestination.Setup -> TvRoute.Setup.route
                     }
                     // Landing straight on Home means the target server is already
                     // authenticated, so no Login/ProfileSelection callback fires to
@@ -385,7 +399,11 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
-                onBack = { navController.popBackStack() },
+                onBack = if (canGoBack) {
+                    { navController.popBackStack() }
+                } else {
+                    null
+                },
             )
         }
 
@@ -405,7 +423,7 @@ fun TvAppNavigation(
                 // Point this TV at a different server — drop Login so Back from
                 // setup can't return to a credential form with no server bound.
                 onChangeServer = {
-                    navController.navigate(TvRoute.ServerSetup.route) {
+                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = true)) {
                         popUpTo(TvRoute.Login.ROUTE) { inclusive = true }
                         launchSingleTop = true
                     }
@@ -440,13 +458,13 @@ fun TvAppNavigation(
                     navController.navigate(TvRoute.EditProfile(profileId).route)
                 },
                 onChangeServer = {
-                    navController.navigate(TvRoute.ServerList.route)
+                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = true))
                 },
                 onSignOut = {
                     scope.launch {
                         authRepository.logout()
                         watchNextSeeder.clear()
-                        navController.navigate(TvRoute.ServerSetup.route) {
+                        navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = true)) {
                             popUpTo(0) { inclusive = true }
                             launchSingleTop = true
                         }
@@ -486,7 +504,7 @@ fun TvAppNavigation(
                 },
                 onManageServers = {
                     mainEntry.savedStateHandle[RETURN_TO_MANAGE_SERVERS_KEY] = true
-                    navController.navigate(TvRoute.ServerList.route)
+                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = false))
                 },
                 onOpenDiagnostics = {
                     navController.navigate(TvRoute.Diagnostics.route)
@@ -563,7 +581,7 @@ fun TvAppNavigation(
                 // Server" opens the server list; the user picks an existing
                 // saved server or chooses Add to enter a new URL.
                 onSwitchServer = {
-                    navController.navigate(TvRoute.ServerList.route)
+                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = false))
                 },
                 onPairDevice = {
                     navController.navigate(TvRoute.PairDevice().route) {

@@ -227,7 +227,8 @@ class MainActivity : ComponentActivity() {
      * for the active entry — both are loaded from EncryptedSharedPreferences
      * during DI construction, so by the time we run we just consult them.
      *
-     *  - No active server → `ServerSetup` (registry is empty)
+     *  - No active server → `ServerList` (LAN scan / saved + discover; manual
+     *    URL entry is a secondary path from the list)
      *  - Active server but no access token → `Login`
      *  - Tokens but no profile selected for THIS server → `ProfileSelection`
      *  - All set → `Home`
@@ -239,7 +240,7 @@ class MainActivity : ComponentActivity() {
         val tokenManager = get<TokenManager>(TokenManager::class.java)
 
         val activeEntry = registry.activeEntry.value
-            ?: return Route.ServerSetup.route
+            ?: return Route.ServerList.START
 
         val accessToken = tokenManager.getAccessToken()
         if (accessToken.isNullOrBlank()) return Route.Login.route

@@ -139,7 +139,7 @@ fun AppNavigation(
             val authRoutes = setOf(
                 Route.Login.route,
                 Route.ServerSetup.route,
-                Route.ServerList.route,
+                Route.ServerList.ROUTE,
                 Route.Setup.route,
                 Route.Signup.route,
                 Route.ProfileSelection.route,
@@ -226,8 +226,9 @@ fun AppNavigation(
                     }
                 },
                 onChangeServer = {
-                    navController.navigate(Route.ServerSetup.route) {
+                    navController.navigate(Route.ServerList.autoScanRoute(autoScan = true)) {
                         popUpTo(Route.Login.route) { inclusive = true }
+                        launchSingleTop = true
                     }
                 },
             )
@@ -290,9 +291,22 @@ fun AppNavigation(
             )
         }
 
-        // ---- Server list (multi-server management) ----
-        composable(Route.ServerList.route) {
+        // ---- Server list (first-run connect + multi-server management) ----
+        composable(
+            route = Route.ServerList.ROUTE,
+            arguments = listOf(
+                navArgument(Route.ServerList.ARG_AUTO_SCAN) {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
+        ) { backStackEntry ->
+            val autoScan = backStackEntry.arguments
+                ?.getBoolean(Route.ServerList.ARG_AUTO_SCAN)
+                ?: false
+            val canGoBack = navController.previousBackStackEntry != null
             ServerListScreen(
+                autoScan = autoScan,
                 onAddServer = {
                     navController.navigate(Route.ServerSetup.route)
                 },
@@ -300,18 +314,23 @@ fun AppNavigation(
                     // Route to whichever screen the new server's stored
                     // credentials can support — Home if a token+profile
                     // already exist (so the user stays signed in), else
-                    // ProfileSelection or Login as appropriate.
+                    // ProfileSelection, Login, or Setup as appropriate.
                     val target = when (destination) {
                         ServerSwitchDestination.Home -> Route.Home.route
                         ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
                         ServerSwitchDestination.Login -> Route.Login.route
+                        ServerSwitchDestination.Setup -> Route.Setup.route
                     }
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
                         launchSingleTop = true
                     }
                 },
-                onBack = { navController.popBackStack() },
+                onBack = if (canGoBack) {
+                    { navController.popBackStack() }
+                } else {
+                    null
+                },
             )
         }
 
@@ -399,7 +418,7 @@ fun AppNavigation(
         composable(Route.Settings.route) {
             SettingsScreen(
                 onNavigateToServers = {
-                    navController.navigate(Route.ServerList.route)
+                    navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
                 },
                 onPairDevice = {
                     navController.navigate(Route.PairDevice().route)

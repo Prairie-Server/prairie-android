@@ -309,7 +309,7 @@ fun MainScreen(
                                 navController.navigate(Route.ProfileSelection.route)
                             },
                             onSwitchServerClick = {
-                                navController.navigate(Route.ServerList.route)
+                                navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
                             },
                             onSignOutClick = ::signOutFromProfileMenu,
                         )
@@ -336,7 +336,7 @@ fun MainScreen(
                                 navController.navigate(Route.ProfileSelection.route)
                             },
                             onSwitchServerClick = {
-                                navController.navigate(Route.ServerList.route)
+                                navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
                             },
                             onSignOutClick = ::signOutFromProfileMenu,
                         )
@@ -412,7 +412,7 @@ fun MainScreen(
                         navController.navigate(Route.ProfileSelection.route)
                     },
                     onSwitchServerClick = {
-                        navController.navigate(Route.ServerList.route)
+                        navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
                     },
                     onSignOutClick = ::signOutFromProfileMenu,
                     leadingContent = {
