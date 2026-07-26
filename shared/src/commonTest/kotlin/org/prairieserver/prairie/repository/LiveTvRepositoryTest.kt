@@ -131,4 +131,14 @@ internal class FakeLiveTvApi(
         releaseCalls += sessionId
         return releaseResult
     }
+
+    override suspend fun recordings(status: String?) =
+        ApiResult.Success(org.prairieserver.prairie.model.livetv.LiveTvRecordingsResponse())
+
+    override suspend fun scheduleRecording(
+        request: org.prairieserver.prairie.model.livetv.LiveTvScheduleRecordingRequest,
+    ) = ApiResult.NetworkError(IllegalStateException("unused"))
+
+    override suspend fun cancelRecording(recordingId: String) =
+        ApiResult.NetworkError(IllegalStateException("unused"))
 }
