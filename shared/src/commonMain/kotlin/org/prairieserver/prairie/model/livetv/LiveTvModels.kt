@@ -98,12 +98,11 @@ data class LiveTvRecording(
     @SerialName("channel_id") val channelId: String = "",
     @SerialName("series_rule_id") val seriesRuleId: String? = null,
     val status: String = "",
-    val path: String? = null,
+    // Intentionally omit server filesystem `path` from the client model.
     @SerialName("library_item_id") val libraryItemId: String? = null,
     val start: String = "",
     val stop: String = "",
     val title: String = "",
-    @SerialName("last_error") val lastError: String? = null,
 )
 
 @Serializable
@@ -111,11 +110,8 @@ data class LiveTvRecordingsResponse(
     val recordings: List<LiveTvRecording> = emptyList(),
 )
 
+/** Guide-based schedule body — server fills channel/window/title from program_id. */
 @Serializable
 data class LiveTvScheduleRecordingRequest(
     @SerialName("program_id") val programId: String? = null,
-    @SerialName("channel_id") val channelId: String? = null,
-    val start: String? = null,
-    val stop: String? = null,
-    val title: String? = null,
 )
