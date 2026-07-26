@@ -60,6 +60,7 @@ open class EbookReaderApi(private val client: HttpClient) {
         request: SaveEbookReaderConfigRequest,
     ): ApiResult<EbookReaderConfig> = safeApiCall {
         client.put("/api/v1/ebooks/${contentId.encodeURLPathPart()}/reader-config") {
+            contentType(ContentType.Application.Json)
             setBody(request)
         }
     }
@@ -73,6 +74,7 @@ open class EbookReaderApi(private val client: HttpClient) {
         request: SaveEbookAnnotationRequest,
     ): ApiResult<EbookAnnotation> = safeApiCall {
         client.post("/api/v1/ebooks/${contentId.encodeURLPathPart()}/annotations") {
+            contentType(ContentType.Application.Json)
             setBody(request)
         }
     }
@@ -83,6 +85,7 @@ open class EbookReaderApi(private val client: HttpClient) {
         request: SaveEbookAnnotationRequest,
     ): ApiResult<EbookAnnotation> = safeApiCall {
         client.patch("/api/v1/ebooks/${contentId.encodeURLPathPart()}/annotations/${annotationId.encodeURLPathPart()}") {
+            contentType(ContentType.Application.Json)
             setBody(request)
         }
     }

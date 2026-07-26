@@ -48,21 +48,25 @@ class EbookReaderApiTest {
             ),
         )
         assertOk(newApi("""{"config":{}}""").getReaderConfig("b1"))
-        // POST bodies with JsonObject config hit MockEngine Content-Type limits;
-        // invoke for coverage without requiring Success.
-        newApi("""{"config":{}}""").saveReaderConfig(
-            "b1",
-            SaveEbookReaderConfigRequest(config = buildJsonObject { put("a", "1") }),
+        assertOk(
+            newApi("""{"config":{}}""").saveReaderConfig(
+                "b1",
+                SaveEbookReaderConfigRequest(config = buildJsonObject { put("a", "1") }),
+            ),
         )
         assertOk(newApi("""{"items":[]}""").listAnnotations("b1"))
-        newApi("""{"id":"a1","content_id":"b1","kind":"note"}""").createAnnotation(
-            "b1",
-            SaveEbookAnnotationRequest(kind = "note", note = "hi"),
+        assertOk(
+            newApi("""{"id":"a1","content_id":"b1","kind":"note"}""").createAnnotation(
+                "b1",
+                SaveEbookAnnotationRequest(kind = "note", note = "hi"),
+            ),
         )
-        newApi("""{"id":"a1","content_id":"b1","kind":"note"}""").updateAnnotation(
-            "b1",
-            "a1",
-            SaveEbookAnnotationRequest(kind = "note", note = "yo"),
+        assertOk(
+            newApi("""{"id":"a1","content_id":"b1","kind":"note"}""").updateAnnotation(
+                "b1",
+                "a1",
+                SaveEbookAnnotationRequest(kind = "note", note = "yo"),
+            ),
         )
         assertOk(newApi(status = HttpStatusCode.NoContent, body = "").deleteAnnotation("b1", "a1"))
     }
