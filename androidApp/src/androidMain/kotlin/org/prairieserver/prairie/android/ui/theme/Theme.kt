@@ -9,7 +9,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 // iOS pins .preferredColorScheme(.dark) in ContentView.swift, so Android matches by
-// always emitting the Plezy OLED scheme regardless of system or preference toggles.
+// always emitting the Prairie Dusk scheme regardless of system or preference toggles.
 private val PrairieDarkColorScheme = darkColorScheme(
     primary = PrairiePrimary,
     onPrimary = PrairieBackground,

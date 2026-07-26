@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.model.livetv.LiveTvChannel
 import org.prairieserver.prairie.model.livetv.LiveTvProgram
+import org.prairieserver.prairie.model.livetv.LiveTvScheduleRecordingRequest
 import org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.errorMessage
@@ -24,6 +25,7 @@ data class LiveTvUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val channels: List<LiveTvChannelRow> = emptyList(),
+    val recordingMessage: String? = null,
     val error: String? = null,
 )
 
@@ -48,10 +50,42 @@ class LiveTvViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshing = true, error = null) }
+            _uiState.update { it.copy(isRefreshing = true, error = null, recordingMessage = null) }
             fetchChannels()
             _uiState.update { it.copy(isRefreshing = false) }
         }
+    }
+
+    fun scheduleRecording(program: LiveTvProgram) {
+        if (program.id.isBlank()) return
+        viewModelScope.launch {
+            when (
+                val result = repository.scheduleRecording(
+                    LiveTvScheduleRecordingRequest(
+                        programId = program.id,
+                        channelId = program.channelId.takeIf { it.isNotBlank() },
+                        start = program.start.takeIf { it.isNotBlank() },
+                        stop = program.stop.takeIf { it.isNotBlank() },
+                        title = program.title.takeIf { it.isNotBlank() },
+                    ),
+                )
+            ) {
+                is ApiResult.Success -> {
+                    _uiState.update { it.copy(recordingMessage = "Recording scheduled") }
+                }
+                is ApiResult.Error, is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(
+                            recordingMessage = result.errorMessage("Failed to schedule recording"),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun clearRecordingMessage() {
+        _uiState.update { it.copy(recordingMessage = null) }
     }
 
     private suspend fun fetchChannels() {

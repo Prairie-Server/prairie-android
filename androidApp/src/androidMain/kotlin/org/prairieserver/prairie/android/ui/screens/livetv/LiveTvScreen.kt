@@ -16,17 +16,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FiberManualRecord
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +45,7 @@ import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
 import org.prairieserver.prairie.model.livetv.LiveTvChannel
+import org.prairieserver.prairie.model.livetv.LiveTvProgram
 import org.prairieserver.prairie.viewmodel.LiveTvChannelRow
 import org.prairieserver.prairie.viewmodel.LiveTvViewModel
 
@@ -51,6 +57,13 @@ fun LiveTvScreen(
     viewModel: LiveTvViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.recordingMessage) {
+        val message = state.recordingMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearRecordingMessage()
+    }
 
     Scaffold(
         topBar = {
@@ -59,6 +72,7 @@ fun LiveTvScreen(
                 onBackClick = onBackClick,
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         when {
@@ -83,7 +97,7 @@ fun LiveTvScreen(
                         title = "Live TV unavailable",
                         subtitle = state.error ?: "Could not load channels.",
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     TextButton(onClick = viewModel::load) {
                         Text("Retry")
                     }
@@ -116,6 +130,7 @@ fun LiveTvScreen(
                             LiveTvChannelListItem(
                                 row = row,
                                 onClick = { onChannelClick(row.channel) },
+                                onRecord = { program -> viewModel.scheduleRecording(program) },
                             )
                         }
                     }
@@ -129,6 +144,7 @@ fun LiveTvScreen(
 private fun LiveTvChannelListItem(
     row: LiveTvChannelRow,
     onClick: () -> Unit,
+    onRecord: (LiveTvProgram) -> Unit,
 ) {
     val channel = row.channel
     Row(
@@ -156,7 +172,7 @@ private fun LiveTvChannelListItem(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (channel.displayNumber.isNotBlank()) {
@@ -166,7 +182,7 @@ private fun LiveTvChannelListItem(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
                     text = channel.displayName,
@@ -176,7 +192,7 @@ private fun LiveTvChannelListItem(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (channel.hd) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "HD",
                         style = MaterialTheme.typography.labelSmall,
@@ -193,6 +209,18 @@ private fun LiveTvChannelListItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+        }
+        val nowProgram = row.nowPlaying
+        if (nowProgram != null && nowProgram.id.isNotBlank()) {
+            TextButton(onClick = { onRecord(nowProgram) }) {
+                Icon(
+                    imageVector = Icons.Outlined.FiberManualRecord,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Record")
             }
         }
     }

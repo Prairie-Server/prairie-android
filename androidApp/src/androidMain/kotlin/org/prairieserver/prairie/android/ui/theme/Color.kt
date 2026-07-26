@@ -2,29 +2,29 @@ package org.prairieserver.prairie.android.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Plezy OLED Dark palette — mirrors iosApp/iosApp/Theme/Colors.swift exactly.
-// Pure-black backgrounds, EDEDED primary text, white-at-opacity for everything else.
+// Prairie Dusk palette — mirrors prairie-server Phase 3 / prairie-smarttv / iOS Theme/Colors.swift.
+// Deep slate surfaces + amber wheat accent (#E0A84A).
 
-val PrairieBackground = Color(0xFF000000)
-val PrairieSurface = Color(0xFF0A0A0A)
-val PrairieSurfaceVariant = Color(0xFF0E0F12)
-val PrairieSurfaceElevated = Color(0xFF15171C)
-val PrairiePrimary = Color(0xFFEDEDED)
-val PrairieOnSurface = Color(0xFFEDEDED)
-val PrairieSecondaryText = Color(0xFFEDEDED).copy(alpha = 0.60f)
+val PrairieBackground = Color(0xFF141820)
+val PrairieSurface = Color(0xFF1C222C)
+val PrairieSurfaceVariant = Color(0xFF0E1116)
+val PrairieSurfaceElevated = Color(0xFF222B38)
+/** Brand / Material primary — amber wheat */
+val PrairiePrimary = Color(0xFFE0A84A)
+val PrairieOnSurface = Color(0xFFF2EEE6)
+val PrairieSecondaryText = Color(0xFF9AA3B2)
 val PrairieDisabled = Color(0xFF4B5563)
 
-val PrairieOutline = Color.White.copy(alpha = 0.12f)
-val PrairieDivider = Color.White.copy(alpha = 0.12f)
-val PrairieOverlay = Color.Black.copy(alpha = 0.60f)
+val PrairieOutline = PrairieOnSurface.copy(alpha = 0.12f)
+val PrairieDivider = PrairieOnSurface.copy(alpha = 0.12f)
+val PrairieOverlay = PrairieBackground.copy(alpha = 0.72f)
 
 val PrairieError = Color(0xFFB00020)
 val PrairieOnError = Color(0xFFFFFFFF)
-val PrairieSuccess = Color(0xFF34C759) // SwiftUI .green on dark
+val PrairieSuccess = Color(0xFF34C759)
 val PrairieWarning = Color(0xFFFFC107)
 
-// Backwards-compatible aliases preserved so downstream code keeps compiling.
-// They now resolve to the iOS Plezy values rather than the legacy cream palette.
+// Backwards-compatible aliases.
 val PrairieWhite = PrairieOnSurface
 val PrairieWhiteSoft = PrairieOnSurface
 val PrairieWhiteMuted = PrairieSecondaryText

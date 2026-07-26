@@ -121,4 +121,23 @@ class LiveTvApiTest {
         assertEquals(HttpMethod.Get, captured.method)
         assertEquals("/api/v1/livetv/programs/p1", captured.path)
     }
+
+    @Test
+    fun scheduleRecordingPostsProgramId() = runTest {
+        val captured = Captured()
+        val result = api(
+            captured,
+            body = """{"id":"r1","channel_id":"ch-1","status":"scheduled","start":"","stop":"","title":"News"}""",
+            status = HttpStatusCode.Created,
+        ).scheduleRecording(
+            org.prairieserver.prairie.model.livetv.LiveTvScheduleRecordingRequest(programId = "p1"),
+        )
+
+        assertEquals(HttpMethod.Post, captured.method)
+        assertEquals("/api/v1/livetv/recordings", captured.path)
+        assertTrue(captured.body.contains("program_id"))
+        val success = assertIs<ApiResult.Success<*>>(result)
+        val recording = success.data as org.prairieserver.prairie.model.livetv.LiveTvRecording
+        assertEquals("r1", recording.id)
+    }
 }

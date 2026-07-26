@@ -5,9 +5,15 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import org.prairieserver.prairie.model.livetv.LiveTvChannelsResponse
 import org.prairieserver.prairie.model.livetv.LiveTvGuideResponse
 import org.prairieserver.prairie.model.livetv.LiveTvProgram
+import org.prairieserver.prairie.model.livetv.LiveTvRecording
+import org.prairieserver.prairie.model.livetv.LiveTvRecordingsResponse
+import org.prairieserver.prairie.model.livetv.LiveTvScheduleRecordingRequest
 import org.prairieserver.prairie.model.livetv.LiveTvSession
 import org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
 import org.prairieserver.prairie.network.ApiResult
@@ -33,6 +39,12 @@ interface LiveTvApi {
     suspend fun startSession(channelId: String): ApiResult<LiveTvSessionStartResponse>
 
     suspend fun releaseSession(sessionId: String): ApiResult<LiveTvSession>
+
+    suspend fun recordings(status: String? = null): ApiResult<LiveTvRecordingsResponse>
+
+    suspend fun scheduleRecording(request: LiveTvScheduleRecordingRequest): ApiResult<LiveTvRecording>
+
+    suspend fun cancelRecording(recordingId: String): ApiResult<LiveTvRecording>
 }
 
 class DefaultLiveTvApi(private val client: HttpClient) : LiveTvApi {
@@ -75,4 +87,26 @@ class DefaultLiveTvApi(private val client: HttpClient) : LiveTvApi {
     override suspend fun releaseSession(sessionId: String): ApiResult<LiveTvSession> = safeApiCall {
         client.delete("/api/v1/livetv/sessions/$sessionId")
     }
+
+    override suspend fun recordings(status: String?): ApiResult<LiveTvRecordingsResponse> = safeApiCall {
+        client.get("/api/v1/livetv/recordings") {
+            if (!status.isNullOrBlank()) {
+                parameter("status", status)
+            }
+        }
+    }
+
+    override suspend fun scheduleRecording(
+        request: LiveTvScheduleRecordingRequest,
+    ): ApiResult<LiveTvRecording> = safeApiCall {
+        client.post("/api/v1/livetv/recordings") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }
+
+    override suspend fun cancelRecording(recordingId: String): ApiResult<LiveTvRecording> =
+        safeApiCall {
+            client.delete("/api/v1/livetv/recordings/$recordingId")
+        }
 }
