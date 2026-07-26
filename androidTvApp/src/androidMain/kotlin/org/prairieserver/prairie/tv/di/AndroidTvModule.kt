@@ -333,7 +333,7 @@ val androidTvModule = module {
             profileId = params.get(),
         )
     }
-    viewModel { TvServerListViewModel(get(), get(), get()) }
+    viewModel { TvServerListViewModel(get(), get(), get(), get()) }
 
     // Admin ViewModels
     viewModel { AdminStatsViewModel(get()) }

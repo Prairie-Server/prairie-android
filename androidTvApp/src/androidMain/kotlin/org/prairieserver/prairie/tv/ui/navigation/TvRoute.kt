@@ -18,7 +18,19 @@ sealed class TvRoute(val route: String) {
 
     // --- Auth flow (no drawer) ---
     data object ServerSetup : TvRoute("server_setup")
-    data object ServerList : TvRoute("server_list")
+
+    /**
+     * Multi-server picker / first-run LAN discovery.
+     * Use [autoScanRoute] from cold start / change-server; bare [route] from settings.
+     */
+    data object ServerList : TvRoute("server_list") {
+        const val ROUTE = "server_list?autoScan={autoScan}"
+        const val ARG_AUTO_SCAN = "autoScan"
+        const val START = "server_list?autoScan=true"
+
+        fun autoScanRoute(autoScan: Boolean = true): String =
+            "server_list?autoScan=$autoScan"
+    }
 
     /** First-time server setup (first-admin creation) when the server isn't set up yet. */
     data object Setup : TvRoute("server_first_setup")

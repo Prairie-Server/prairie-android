@@ -2,9 +2,17 @@ package org.prairieserver.prairie.android.ui.screens.servers
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.discovery.DiscoveryHit
+import org.prairieserver.prairie.discovery.LanDiscovery
+import org.prairieserver.prairie.discovery.LanScanOptions
+import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
+import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.repository.AuthRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,23 +21,28 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Where to land after a successful server switch. The list view emits this
- * once the new server's tokens are loaded so the navigator can route to the
- * deepest screen the credentials allow — Login only when the target server
- * has no stored auth.
+ * Where to land after a successful server switch or discovery connect. The list
+ * view emits this once the new server's tokens (or setup probe) resolve so the
+ * navigator can route to the deepest screen the credentials allow — Login /
+ * Setup when the target has no stored auth.
  */
-enum class ServerSwitchDestination { Home, ProfileSelection, Login }
+enum class ServerSwitchDestination { Home, ProfileSelection, Login, Setup }
 
 data class ServerListUiState(
     val servers: List<ServerEntry> = emptyList(),
     val activeId: String? = null,
     val pendingSwitchToId: String? = null,
     val switchedTo: ServerSwitchDestination? = null,
+    val discovered: List<DiscoveryHit> = emptyList(),
+    val isScanning: Boolean = false,
+    val scanStatus: String? = null,
+    val scanError: String? = null,
+    val isConnecting: Boolean = false,
 )
 
 /**
  * Drives [ServerListScreen]. Owns no auth state itself — every action
- * round-trips through [ServerRegistry] / [TokenManager].
+ * round-trips through [ServerRegistry] / [TokenManager] / [AuthRepository].
  *
  * Server entries are surfaced sorted with the active one first, then
  * most-recently-used; the screen renders this list directly.
@@ -37,10 +50,15 @@ data class ServerListUiState(
 class ServerListViewModel(
     private val serverRegistry: ServerRegistry,
     private val tokenManager: TokenManager,
+    private val authRepository: AuthRepository,
+    private val lanDiscovery: LanDiscovery,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServerListUiState())
     val uiState: StateFlow<ServerListUiState> = _uiState.asStateFlow()
+
+    private var scanJob: Job? = null
+    private var didAutoScan = false
 
     init {
         viewModelScope.launch {
@@ -55,6 +73,86 @@ class ServerListViewModel(
                 sorted to activeId
             }.collect { (sorted, activeId) ->
                 _uiState.update { it.copy(servers = sorted, activeId = activeId) }
+            }
+        }
+    }
+
+    /** Kick off a LAN scan once when landing from cold start / change-server. */
+    fun maybeAutoScan() {
+        if (didAutoScan) return
+        didAutoScan = true
+        startScan(includeDeep = true)
+    }
+
+    fun startScan(includeDeep: Boolean = true) {
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanning = true,
+                    scanError = null,
+                    discovered = emptyList(),
+                    scanStatus = "Looking for Prairie servers on your network…",
+                )
+            }
+
+            try {
+                var hits = lanDiscovery.scan(
+                    LanScanOptions(
+                        deepScan = false,
+                        onHit = { next ->
+                            _uiState.update { state -> state.copy(discovered = next) }
+                        },
+                        onProgress = { done, total ->
+                            _uiState.update {
+                                it.copy(scanStatus = "Quick scan $done/$total…")
+                            }
+                        },
+                    ),
+                )
+                _uiState.update { it.copy(discovered = hits) }
+
+                if (includeDeep) {
+                    _uiState.update { it.copy(scanStatus = "Deep LAN scan…") }
+                    val deepHits = lanDiscovery.scan(
+                        LanScanOptions(
+                            deepScan = true,
+                            onHit = { next ->
+                                val merged = mergeDiscoveryLists(hits, next)
+                                _uiState.update { state -> state.copy(discovered = merged) }
+                            },
+                            onProgress = { done, total ->
+                                _uiState.update {
+                                    it.copy(scanStatus = "Deep scan $done/$total…")
+                                }
+                            },
+                        ),
+                    )
+                    hits = mergeDiscoveryLists(hits, deepHits)
+                    _uiState.update { it.copy(discovered = hits) }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        scanStatus = if (hits.isEmpty()) {
+                            "No Prairie servers found — add one manually or scan again"
+                        } else {
+                            "Found ${hits.size} server(s)"
+                        },
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        scanStatus = null,
+                        scanError = error.message?.takeIf { msg -> msg.isNotBlank() }
+                            ?: "Scan failed",
+                    )
+                }
             }
         }
     }
@@ -91,6 +189,70 @@ class ServerListViewModel(
         }
     }
 
+    /**
+     * Connect to a LAN-discovered server: persist URL, probe setup status,
+     * then navigate to Login or first-time Setup (credentials only).
+     */
+    fun selectDiscovered(url: String, serverName: String) {
+        if (_uiState.value.isConnecting || _uiState.value.isScanning) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isConnecting = true, scanError = null) }
+            val normalized = normalizeDiscoveryUrl(url)
+            when (val setupResult = authRepository.getSetupStatus(normalized)) {
+                is ApiResult.Success -> {
+                    if (setupResult.data.needsSetup) {
+                        authRepository.setServerUrl(normalized)
+                        applyFetchedName(serverName)
+                        _uiState.update {
+                            it.copy(
+                                isConnecting = false,
+                                switchedTo = ServerSwitchDestination.Setup,
+                            )
+                        }
+                        return@launch
+                    }
+                }
+                is ApiResult.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isConnecting = false,
+                            scanError = setupResult.message
+                                ?.takeIf { msg -> msg.isNotBlank() }
+                                ?.let { msg -> "Could not connect: $msg" }
+                                ?: "Could not reach a Prairie server at that address.",
+                        )
+                    }
+                    return@launch
+                }
+                is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(
+                            isConnecting = false,
+                            scanError = "Could not reach a Prairie server at that address.",
+                        )
+                    }
+                    return@launch
+                }
+            }
+
+            authRepository.setServerUrl(normalized)
+            applyFetchedName(serverName)
+            _uiState.update {
+                it.copy(
+                    isConnecting = false,
+                    switchedTo = ServerSwitchDestination.Login,
+                )
+            }
+        }
+    }
+
+    private suspend fun applyFetchedName(serverName: String) {
+        val trimmed = serverName.trim()
+        if (trimmed.isEmpty()) return
+        val activeId = serverRegistry.activeServerId.value ?: return
+        serverRegistry.setFetchedName(activeId, trimmed)
+    }
+
     fun onSwitchConsumed() {
         _uiState.update { it.copy(switchedTo = null) }
     }
@@ -106,4 +268,14 @@ class ServerListViewModel(
             serverRegistry.remove(serverId)
         }
     }
+}
+
+internal fun mergeDiscoveryLists(
+    base: List<DiscoveryHit>,
+    extra: List<DiscoveryHit>,
+): List<DiscoveryHit> {
+    val map = LinkedHashMap<String, DiscoveryHit>()
+    for (hit in base) map[hit.url] = hit
+    for (hit in extra) map[hit.url] = hit
+    return map.values.toList()
 }

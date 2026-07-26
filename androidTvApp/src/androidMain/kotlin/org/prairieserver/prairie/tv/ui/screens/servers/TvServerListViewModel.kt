@@ -2,10 +2,17 @@ package org.prairieserver.prairie.tv.ui.screens.servers
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.discovery.DiscoveryHit
+import org.prairieserver.prairie.discovery.LanDiscovery
+import org.prairieserver.prairie.discovery.LanScanOptions
+import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
+import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,7 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class TvServerSwitchDestination { Home, ProfileSelection, Login }
+enum class TvServerSwitchDestination { Home, ProfileSelection, Login, Setup }
 
 data class TvServerListUiState(
     val servers: List<ServerEntry> = emptyList(),
@@ -22,25 +29,33 @@ data class TvServerListUiState(
     val switchedTo: TvServerSwitchDestination? = null,
     /**
      * Set once when the *active* server was removed and no server remains to
-     * fall back to — there is nothing to sign into, so the navigator must send
-     * the user back to server setup. One-shot; cleared by [onServerSetupConsumed].
+     * fall back to — stay on the list (first-run / empty) rather than bouncing
+     * to manual URL entry. One-shot; cleared by [onEmptyRegistryConsumed].
      */
-    val needsServerSetup: Boolean = false,
+    val emptyRegistry: Boolean = false,
+    val discovered: List<DiscoveryHit> = emptyList(),
+    val isScanning: Boolean = false,
+    val scanStatus: String? = null,
+    val scanError: String? = null,
+    val isConnecting: Boolean = false,
 )
 
 /**
  * TV-side counterpart of [org.prairieserver.prairie.android.ui.screens.servers.ServerListViewModel].
- * Shares the same wire-up against [ServerRegistry] / [TokenManager]; only the
- * presentation differs.
+ * Shares the same wire-up against [ServerRegistry] / [TokenManager] / LAN discovery.
  */
 class TvServerListViewModel(
     private val serverRegistry: ServerRegistry,
     private val tokenManager: TokenManager,
     private val authRepository: AuthRepository,
+    private val lanDiscovery: LanDiscovery,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvServerListUiState())
     val uiState: StateFlow<TvServerListUiState> = _uiState.asStateFlow()
+
+    private var scanJob: Job? = null
+    private var didAutoScan = false
 
     init {
         viewModelScope.launch { authRepository.refreshActiveServerName() }
@@ -60,6 +75,84 @@ class TvServerListViewModel(
         }
     }
 
+    fun maybeAutoScan() {
+        if (didAutoScan) return
+        didAutoScan = true
+        startScan(includeDeep = true)
+    }
+
+    fun startScan(includeDeep: Boolean = true) {
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanning = true,
+                    scanError = null,
+                    discovered = emptyList(),
+                    scanStatus = "Looking for Prairie servers on your network…",
+                )
+            }
+            try {
+                var hits = lanDiscovery.scan(
+                    LanScanOptions(
+                        deepScan = false,
+                        onHit = { next ->
+                            _uiState.update { state -> state.copy(discovered = next) }
+                        },
+                        onProgress = { done, total ->
+                            _uiState.update {
+                                it.copy(scanStatus = "Quick scan $done/$total…")
+                            }
+                        },
+                    ),
+                )
+                _uiState.update { it.copy(discovered = hits) }
+
+                if (includeDeep) {
+                    _uiState.update { it.copy(scanStatus = "Deep LAN scan…") }
+                    val deepHits = lanDiscovery.scan(
+                        LanScanOptions(
+                            deepScan = true,
+                            onHit = { next ->
+                                val merged = mergeDiscoveryLists(hits, next)
+                                _uiState.update { state -> state.copy(discovered = merged) }
+                            },
+                            onProgress = { done, total ->
+                                _uiState.update {
+                                    it.copy(scanStatus = "Deep scan $done/$total…")
+                                }
+                            },
+                        ),
+                    )
+                    hits = mergeDiscoveryLists(hits, deepHits)
+                    _uiState.update { it.copy(discovered = hits) }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        scanStatus = if (hits.isEmpty()) {
+                            "No Prairie servers found — add one manually or scan again"
+                        } else {
+                            "Found ${hits.size} server(s)"
+                        },
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        scanStatus = null,
+                        scanError = error.message?.takeIf { msg -> msg.isNotBlank() }
+                            ?: "Scan failed",
+                    )
+                }
+            }
+        }
+    }
+
     fun onSelect(serverId: String) {
         if (_uiState.value.activeId == serverId) return
         _uiState.update { it.copy(pendingSwitchToId = serverId) }
@@ -67,8 +160,6 @@ class TvServerListViewModel(
             serverRegistry.switchTo(serverId)
             tokenManager.switchActiveServer(serverId)
 
-            // Land on the deepest screen the new server's stored credentials
-            // can reach — preserves the signed-in user when tokens are present.
             val accessToken = tokenManager.getAccessToken()
             val activeEntry = serverRegistry.activeEntry.value
             val profileId = activeEntry?.profileId ?: tokenManager.getProfileId()
@@ -84,12 +175,72 @@ class TvServerListViewModel(
         }
     }
 
+    fun selectDiscovered(url: String, serverName: String) {
+        if (_uiState.value.isConnecting || _uiState.value.isScanning) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isConnecting = true, scanError = null) }
+            val normalized = normalizeDiscoveryUrl(url)
+            when (val setupResult = authRepository.getSetupStatus(normalized)) {
+                is ApiResult.Success -> {
+                    if (setupResult.data.needsSetup) {
+                        authRepository.setServerUrl(normalized)
+                        applyFetchedName(serverName)
+                        _uiState.update {
+                            it.copy(
+                                isConnecting = false,
+                                switchedTo = TvServerSwitchDestination.Setup,
+                            )
+                        }
+                        return@launch
+                    }
+                }
+                is ApiResult.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isConnecting = false,
+                            scanError = setupResult.message
+                                ?.takeIf { msg -> msg.isNotBlank() }
+                                ?.let { msg -> "Could not connect: $msg" }
+                                ?: "Could not reach a Prairie server at that address.",
+                        )
+                    }
+                    return@launch
+                }
+                is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(
+                            isConnecting = false,
+                            scanError = "Could not reach a Prairie server at that address.",
+                        )
+                    }
+                    return@launch
+                }
+            }
+
+            authRepository.setServerUrl(normalized)
+            applyFetchedName(serverName)
+            _uiState.update {
+                it.copy(
+                    isConnecting = false,
+                    switchedTo = TvServerSwitchDestination.Login,
+                )
+            }
+        }
+    }
+
+    private suspend fun applyFetchedName(serverName: String) {
+        val trimmed = serverName.trim()
+        if (trimmed.isEmpty()) return
+        val activeId = serverRegistry.activeServerId.value ?: return
+        serverRegistry.setFetchedName(activeId, trimmed)
+    }
+
     fun onSwitchConsumed() {
         _uiState.update { it.copy(switchedTo = null) }
     }
 
-    fun onServerSetupConsumed() {
-        _uiState.update { it.copy(needsServerSetup = false) }
+    fun onEmptyRegistryConsumed() {
+        _uiState.update { it.copy(emptyRegistry = false) }
     }
 
     fun onRemove(serverId: String) {
@@ -97,28 +248,17 @@ class TvServerListViewModel(
             val wasActive = serverRegistry.activeServerId.value == serverId
             serverRegistry.remove(serverId)
 
-            // Removing a *non-active* server is a passive list edit — the shell
-            // behind us is unaffected, so leave navigation exactly as before.
             if (!wasActive) return@launch
 
-            // Removing the ACTIVE server is a session change. The registry has
-            // just promoted the next-MRU server (or none) and wiped the removed
-            // server's tokens; the Main shell behind this list is still rendering
-            // the removed server. Re-resolve like onSelect so the navigator tears
-            // that shell down instead of leaking API calls onto whatever server
-            // got promoted (or a now-empty baseUrl).
             val promotedId = serverRegistry.activeServerId.value
             if (promotedId == null) {
-                // No server left to sign into — route back to server setup.
-                _uiState.update { it.copy(needsServerSetup = true) }
+                // No server left — stay on the list (scan / add manually).
+                _uiState.update { it.copy(emptyRegistry = true) }
                 return@launch
             }
 
             tokenManager.switchActiveServer(promotedId)
 
-            // Land on the deepest screen the promoted server's stored
-            // credentials can reach — preserves that server's session if tokens
-            // are present, otherwise falls back to Login.
             val accessToken = tokenManager.getAccessToken()
             val activeEntry = serverRegistry.activeEntry.value
             val profileId = activeEntry?.profileId ?: tokenManager.getProfileId()
@@ -131,5 +271,14 @@ class TvServerListViewModel(
             _uiState.update { it.copy(switchedTo = destination) }
         }
     }
+}
 
+internal fun mergeDiscoveryLists(
+    base: List<DiscoveryHit>,
+    extra: List<DiscoveryHit>,
+): List<DiscoveryHit> {
+    val map = LinkedHashMap<String, DiscoveryHit>()
+    for (hit in base) map[hit.url] = hit
+    for (hit in extra) map[hit.url] = hit
+    return map.values.toList()
 }

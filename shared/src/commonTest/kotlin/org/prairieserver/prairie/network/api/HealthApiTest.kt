@@ -2,6 +2,7 @@ package org.prairieserver.prairie.network.api
 
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.PrairieJson
+import org.prairieserver.prairie.network.SkipPrairieAuthAttributeKey
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -14,6 +15,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class HealthApiTest {
 
@@ -62,6 +64,34 @@ class HealthApiTest {
 
         val error = assertIs<ApiResult.Error>(result)
         assertEquals(503, error.code)
+    }
+
+    @Test
+    fun `checkHealth absolute url skips auth and hits candidate host`() = runTest {
+        var sawSkipAuth = false
+        var requestUrl = ""
+        val api = HealthApi(
+            HttpClient(
+                MockEngine { request ->
+                    requestUrl = request.url.toString()
+                    sawSkipAuth = request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true
+                    respond(
+                        content = """{"status":"ok","server_name":"LAN","server_id":"lan-1"}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                },
+            ) {
+                install(ContentNegotiation) { json(PrairieJson) }
+            },
+        )
+
+        val result = api.checkHealth("https://candidate.example/")
+
+        val success = assertIs<ApiResult.Success<HealthStatus>>(result)
+        assertEquals("LAN", success.data.serverName)
+        assertTrue(sawSkipAuth)
+        assertTrue(requestUrl.contains("https://candidate.example/api/v1/health"))
     }
 
     private fun client(

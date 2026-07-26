@@ -259,16 +259,16 @@ class MainTvActivity : ComponentActivity() {
     /**
      * Mirrors the phone app's [org.prairieserver.prairie.android.MainActivity] startup
      * flow on top of the multi-server [ServerRegistry]. See that file for the
-     * routing rules — they're identical: registry empty ⇒ ServerSetup,
-     * tokens missing ⇒ Login, no active profile header scope ⇒
-     * ProfileSelection, else Main.
+     * routing rules — they're identical: registry empty ⇒ ServerList
+     * (LAN scan; manual URL is secondary), tokens missing ⇒ Login, no
+     * active profile header scope ⇒ ProfileSelection, else Main.
      */
     private suspend fun resolveStartDestination(): String {
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
 
         val activeEntry = registry.activeEntry.value
-            ?: return TvRoute.ServerSetup.route
+            ?: return TvRoute.ServerList.START
 
         val accessToken = tokenManager.getAccessToken()
         if (accessToken.isNullOrBlank()) return TvRoute.Login().route

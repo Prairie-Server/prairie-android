@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.di
 
+import org.prairieserver.prairie.discovery.LanDiscovery
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.TokenManagerImpl
 import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
@@ -27,6 +28,7 @@ val networkModule = module {
     single<org.prairieserver.prairie.network.HomeRealtimeClient> { org.prairieserver.prairie.network.DefaultHomeRealtimeClient(get(), get()) }
     single<CalendarApi> { DefaultCalendarApi(get()) }
     single { HealthApi(get()) }
+    single { LanDiscovery(get()) }
     single { SettingsApi(get()) }
     single { LibraryPlaybackPrefsApi(get()) }
     single { DownloadsApi(get()) }

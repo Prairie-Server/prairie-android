@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.servers
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -25,8 +26,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,33 +52,42 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.discovery.DiscoveryHit
+import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Server list — manage the multi-server registry on phone.
+ * Server list — first-run connect (scan + branding) and multi-server management.
  *
- * Visual parity with iOS `ServerListView` (phone): an inset-grouped list with a
- * "Saved servers" header, surface-elevated row cards carrying a leading status
- * icon (filled check circle when active, otherwise a server-rack glyph), and a
- * trailing "Add Server" row in its own group. Rename/Remove live behind a
- * long-press context menu, exactly as the iOS swipe/context actions do.
+ * First-run (`onBack == null`): hero with Prairie wordmark, Saved + Discovered
+ * sections, Scan again + Add manually. Management mode keeps rename/remove and
+ * a back affordance when opened from settings.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServerListScreen(
     onAddServer: () -> Unit,
     onSwitched: (ServerSwitchDestination) -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
+    autoScan: Boolean = false,
     viewModel: ServerListViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val isFirstRun = onBack == null
 
     var renameTarget by remember { mutableStateOf<ServerEntry?>(null) }
     var removeTarget by remember { mutableStateOf<ServerEntry?>(null) }
+
+    LaunchedEffect(autoScan) {
+        if (autoScan) viewModel.maybeAutoScan()
+    }
 
     LaunchedEffect(state.switchedTo) {
         val destination = state.switchedTo
@@ -85,48 +97,84 @@ fun ServerListScreen(
         }
     }
 
+    val savedUrls = remember(state.servers) {
+        state.servers.map { normalizeDiscoveryUrl(it.url) }.toSet()
+    }
+    val freshHits = remember(state.discovered, savedUrls) {
+        state.discovered.filter { it.url !in savedUrls }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Servers",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
+            if (!isFirstRun) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Servers",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { onBack?.invoke() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        if (state.servers.isEmpty()) {
-            EmptyState(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                onAddServer = onAddServer,
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            ) {
-                // Section: Saved servers
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        ) {
+            if (isFirstRun) {
                 item {
-                    SectionHeader(text = "Saved servers")
+                    FirstRunHero()
+                    Spacer(Modifier.height(20.dp))
                 }
+            }
+
+            item {
+                ScanActionsRow(
+                    isScanning = state.isScanning || state.isConnecting,
+                    onScanAgain = { viewModel.startScan(includeDeep = true) },
+                    onAddManually = onAddServer,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
+            state.scanStatus?.takeIf { it.isNotBlank() }?.let { status ->
+                item {
+                    Text(
+                        text = status,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+            }
+            state.scanError?.takeIf { it.isNotBlank() }?.let { error ->
+                item {
+                    Text(
+                        text = error,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+            }
+
+            if (state.servers.isNotEmpty()) {
+                item { SectionHeader(text = "Saved") }
                 item {
                     Column(
                         modifier = Modifier
@@ -138,7 +186,8 @@ fun ServerListScreen(
                             ServerRow(
                                 entry = entry,
                                 isActive = entry.id == state.activeId,
-                                isPending = entry.id == state.pendingSwitchToId,
+                                isPending = entry.id == state.pendingSwitchToId || state.isConnecting,
+                                showActions = !isFirstRun,
                                 onClick = { viewModel.onSelect(entry.id) },
                                 onRename = { renameTarget = entry },
                                 onRemove = { removeTarget = entry },
@@ -146,18 +195,59 @@ fun ServerListScreen(
                         }
                     }
                 }
+                item { Spacer(Modifier.height(24.dp)) }
+            }
 
-                // Section: Add Server
+            if (freshHits.isNotEmpty() || state.isScanning) {
+                item { SectionHeader(text = "Discovered") }
                 item {
-                    Spacer(Modifier.height(24.dp))
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(MaterialTheme.shapes.medium)
                             .background(MaterialTheme.colorScheme.primaryContainer),
                     ) {
-                        AddServerRow(onClick = onAddServer)
+                        if (freshHits.isEmpty() && state.isScanning) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Text(
+                                    text = "Scanning your network for Prairie…",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            freshHits.forEach { hit ->
+                                DiscoveredRow(
+                                    hit = hit,
+                                    enabled = !state.isScanning && !state.isConnecting,
+                                    onClick = {
+                                        viewModel.selectDiscovered(hit.url, hit.serverName)
+                                    },
+                                )
+                            }
+                        }
                     }
+                }
+            }
+
+            if (!state.isScanning && state.servers.isEmpty() && freshHits.isEmpty()) {
+                item {
+                    Spacer(Modifier.height(24.dp))
+                    Text(
+                        text = "No servers yet — wait for the scan, or add a URL manually.",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -199,6 +289,93 @@ fun ServerListScreen(
 }
 
 @Composable
+private fun FirstRunHero() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.prairie_wordmark),
+            contentDescription = "Prairie",
+            modifier = Modifier
+                .width(160.dp)
+                .height(48.dp),
+            contentScale = ContentScale.Fit,
+        )
+        Text(
+            text = "Connect to your server",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+            text = "Choose a saved server or one found on your LAN. Sign-in comes next.",
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ScanActionsRow(
+    isScanning: Boolean,
+    onScanAgain: () -> Unit,
+    onAddManually: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        ActionChip(
+            label = if (isScanning) "Scanning…" else "Scan again",
+            icon = Icons.Default.Refresh,
+            enabled = !isScanning,
+            onClick = onScanAgain,
+            modifier = Modifier.weight(1f),
+        )
+        ActionChip(
+            label = "Add manually",
+            icon = Icons.Default.Add,
+            enabled = !isScanning,
+            onClick = onAddManually,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ActionChip(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
 private fun SectionHeader(text: String) {
     Text(
         text = text,
@@ -214,6 +391,7 @@ private fun ServerRow(
     entry: ServerEntry,
     isActive: Boolean,
     isPending: Boolean,
+    showActions: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onRemove: () -> Unit,
@@ -226,7 +404,7 @@ private fun ServerRow(
             .combinedClickable(
                 enabled = !isPending,
                 onClick = onClick,
-                onLongClick = { menuExpanded = true },
+                onLongClick = { if (showActions) menuExpanded = true },
             )
             .padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -264,55 +442,61 @@ private fun ServerRow(
             )
         }
 
-        Box {
-            IconButton(
-                enabled = !isPending,
-                onClick = { menuExpanded = true },
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Server actions",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    onClick = {
-                        menuExpanded = false
-                        onRename()
-                    },
-                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Remove Server") },
-                    onClick = {
-                        menuExpanded = false
-                        onRemove()
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    },
-                )
+        if (showActions) {
+            Box {
+                IconButton(
+                    enabled = !isPending,
+                    onClick = { menuExpanded = true },
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Server actions",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        onClick = {
+                            menuExpanded = false
+                            onRename()
+                        },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Remove Server") },
+                        onClick = {
+                            menuExpanded = false
+                            onRemove()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AddServerRow(onClick: () -> Unit) {
+private fun DiscoveredRow(
+    hit: DiscoveryHit,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -322,17 +506,30 @@ private fun AddServerRow(onClick: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Default.Add,
+                imageVector = Icons.Default.Storage,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(20.dp),
             )
         }
-        Text(
-            text = "Add Server",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = hit.serverName.trim().ifBlank { hit.url },
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            Text(
+                text = "Found · ${hit.url}",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -382,51 +579,4 @@ private fun RenameDialog(
         },
         containerColor = MaterialTheme.colorScheme.primaryContainer,
     )
-}
-
-@Composable
-private fun EmptyState(
-    modifier: Modifier = Modifier,
-    onAddServer: () -> Unit,
-) {
-    Column(
-        modifier = modifier.padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = "No saved servers",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Add your first Prairie server to get started.",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(24.dp))
-        Row(
-            modifier = Modifier
-                .clip(MaterialTheme.shapes.medium)
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .clickable(onClick = onAddServer)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                Icons.Default.Add,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(20.dp),
-            )
-            Text(
-                text = "Add Server",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
 }

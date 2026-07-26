@@ -14,7 +14,23 @@ sealed class Route(val route: String) {
 
     // --- Auth flow (no bottom nav) ---
     data object ServerSetup : Route("server_setup")
-    data object ServerList : Route("server_list")
+
+    /**
+     * Multi-server picker / first-run LAN discovery.
+     *
+     * Navigate with [autoScanRoute] when landing from cold start or
+     * "Change server" so the list kicks off a LAN health scan. Management
+     * from settings can use the bare [route] (autoScan defaults false).
+     */
+    data object ServerList : Route("server_list") {
+        const val ROUTE = "server_list?autoScan={autoScan}"
+        const val ARG_AUTO_SCAN = "autoScan"
+        /** Cold-start destination: server list with auto LAN scan. */
+        const val START = "server_list?autoScan=true"
+
+        fun autoScanRoute(autoScan: Boolean = true): String =
+            "server_list?autoScan=$autoScan"
+    }
     data object Login : Route("login")
     data object Setup : Route("setup")
     data object Signup : Route("signup")
