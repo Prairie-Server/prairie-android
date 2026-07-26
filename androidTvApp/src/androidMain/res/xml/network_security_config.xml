@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Self-hosted LAN media requires cleartext HTTP. Domain-config cannot express
+  private IP ranges, so cleartext stays permitted on the base config.
+
+  Release trust anchors are system CAs only (no user-installed CAs), which
+  mitigates MITM via user certs. Debug builds also trust user CAs for local
+  proxy / Charles-style debugging.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

@@ -27,6 +27,10 @@ Use Kotlin 2.1, Java 21 targets, and Compose idioms. The Prairie package root is
 
 Android tests use Kotlin test/JUnit where present, especially under `android-shared/src/androidUnitTest`. Do not add tests for small changes or UI changes unless requested. For shared logic changes, add focused tests only for critical or high-risk behavior.
 
+## Auth / secure prefs stability
+
+The Play `applicationId` `org.prairieserver.prairie` and the encrypted prefs file name `prairie_secure_tokens` (see `SECURE_PREFS_NAME` in `shared/…/SecureSharedPrefs.kt`) are durable upgrade identity. Changing either without a migration wipes saved servers/tokens and forces every user to log in again. Never clear that prefs file on version bump.
+
 ## Security & Configuration Tips
 
 Do not commit local SDK overrides, signing material, logs, tool state, generated build output, or media fixtures. A running Prairie server is required for realistic auth, browsing, and playback validation.

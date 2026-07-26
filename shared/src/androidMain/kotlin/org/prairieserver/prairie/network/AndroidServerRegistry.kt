@@ -210,10 +210,6 @@ class AndroidServerRegistry(
         if (prefs.getBoolean(KEY_MIGRATED, false)) {
             return loaded
         }
-        if (loaded.entries.isNotEmpty()) {
-            prefs.edit().putBoolean(KEY_MIGRATED, true).apply()
-            return loaded
-        }
 
         // Legacy unprefixed values written by EncryptedTokenManagerImpl pre-multi-server.
         val legacyAccess = prefs.getString(EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN, null)
@@ -226,10 +222,23 @@ class AndroidServerRegistry(
         val legacyProfileToken = prefs.getString(EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN, null)
         val legacyServerUrl = prefs.getString(EncryptedTokenManagerImpl.KEY_SERVER_URL, null)
 
+        if (loaded.entries.isNotEmpty()) {
+            // Registry already exists (partial upgrade). Strip any leftover
+            // unprefixed secrets so they cannot be read outside a scoped slot.
+            val editor = prefs.edit().putBoolean(KEY_MIGRATED, true)
+            clearLegacyUnprefixedKeys(editor)
+            editor.apply()
+            return loaded
+        }
+
         val urlForMigration = legacyServerUrl?.takeIf { it.isNotBlank() }
         if (urlForMigration == null || urlForMigration == DEFAULT_SERVER_URL_PLACEHOLDER) {
             // Nothing to migrate — first install, or only the placeholder default.
-            prefs.edit().putBoolean(KEY_MIGRATED, true).apply()
+            // Always drop orphan unprefixed keys (including profile_id / expiry)
+            // so a missing URL cannot leave them on disk after KEY_MIGRATED.
+            val editor = prefs.edit().putBoolean(KEY_MIGRATED, true)
+            clearLegacyUnprefixedKeys(editor)
+            editor.apply()
             return loaded
         }
 
@@ -260,12 +269,7 @@ class AndroidServerRegistry(
             editor.putString(serverScopedKey(id, EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN), it)
         }
         // Drop legacy unprefixed keys — their values are now per-server.
-        editor.remove(EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN)
-        editor.remove(EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN)
-        editor.remove(EncryptedTokenManagerImpl.KEY_TOKEN_EXPIRY)
-        editor.remove(EncryptedTokenManagerImpl.KEY_PROFILE_ID)
-        editor.remove(EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN)
-        editor.remove(EncryptedTokenManagerImpl.KEY_SERVER_URL)
+        clearLegacyUnprefixedKeys(editor)
         editor.putBoolean(KEY_MIGRATED, true)
         // Persist the new state in the same edit so the migration is atomic-ish.
         val migrated = RegistryState(entries = listOf(entry), activeServerId = id)
@@ -273,6 +277,15 @@ class AndroidServerRegistry(
         editor.apply()
 
         return migrated
+    }
+
+    private fun clearLegacyUnprefixedKeys(editor: android.content.SharedPreferences.Editor) {
+        editor.remove(EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN)
+        editor.remove(EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN)
+        editor.remove(EncryptedTokenManagerImpl.KEY_TOKEN_EXPIRY)
+        editor.remove(EncryptedTokenManagerImpl.KEY_PROFILE_ID)
+        editor.remove(EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN)
+        editor.remove(EncryptedTokenManagerImpl.KEY_SERVER_URL)
     }
 
     companion object {

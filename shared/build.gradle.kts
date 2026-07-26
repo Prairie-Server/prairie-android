@@ -60,10 +60,9 @@ dependencies {
 }
 
 // Unit-test line coverage gate for :shared (androidTarget JVM runs commonTest).
-// Measured coverage is ~60% today across commonMain; 75% remains the goal as
-// more repositories/ViewModels get focused tests. The floor blocks regressions.
-// Exclude androidMain platform wiring and Koin modules (not exercised by commonTest),
-// plus generated R/BuildConfig/serializers.
+// Floor is 75% line coverage across commonMain. Exclude androidMain platform
+// wiring and Koin modules (not exercised by commonTest), plus generated
+// R/BuildConfig/serializers.
 kover {
     currentProject {
         sources {
@@ -86,7 +85,7 @@ kover {
         }
         verify {
             rule {
-                minBound(55)
+                minBound(75)
             }
         }
     }

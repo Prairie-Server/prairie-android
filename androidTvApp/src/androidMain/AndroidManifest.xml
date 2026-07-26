@@ -26,7 +26,9 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.PrairieTv"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="true">
+
 
         <!-- singleTask: warm launcher clicks (Watch Next tiles, pairing links)
              re-deliver their Uri to the live Activity via onNewIntent instead
@@ -50,10 +52,13 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- Device-pairing links from the `prairie` scheme (e.g.
-                     prairie://device?token=…) so a QR/login flow on another
-                     device can hand off to this TV for approval. -->
+                <!-- Device-pairing / deep-link hosts from the `prairie` scheme
+                     (mirror phone app host allowlist). -->
                 <data android:scheme="prairie" />
+                <data android:host="device" />
+                <data android:host="item" />
+                <data android:host="play" />
+                <data android:host="downloads" />
             </intent-filter>
         </activity>
 
