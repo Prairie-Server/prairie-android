@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.net.URLConnection
 
@@ -56,33 +57,36 @@ class ReflowController(private val web: WebView) {
  * Serves EPUB chapter CSS/images from the unpacked readers cache without
  * enabling [android.webkit.WebSettings.allowFileAccessFromFileURLs].
  *
- * Only paths under [readersRoot] (typically `cacheDir/readers/`) are returned;
- * `file:///android_asset/...` and anything outside that tree are left to the
- * WebView default handler.
+ * Only paths under [readersRoot] (typically `cacheDir/readers/`) are returned.
+ * `file:///android_asset/...` / `android_res` pass through to WebView (they do
+ * not require [android.webkit.WebSettings.allowFileAccess]). Other rejected
+ * `file://` URLs get an explicit empty response so WebView cannot fall back to
+ * the filesystem loader.
  */
 internal fun interceptEpubCacheRequest(
     url: Uri,
     readersRoot: File,
 ): WebResourceResponse? {
     if (url.scheme != "file") return null
-    val path = url.path ?: return null
-    if (path.startsWith("/android_asset/")) return null
+    val path = url.path ?: return blockedFileResponse()
+    // Asset/res schemes remain accessible with allowFileAccess=false.
+    if (path.startsWith("/android_asset/") || path.startsWith("/android_res/")) return null
 
     val file = try {
         File(path).canonicalFile
     } catch (_: Exception) {
-        return null
+        return blockedFileResponse()
     }
     val root = try {
         readersRoot.canonicalFile
     } catch (_: Exception) {
-        return null
+        return blockedFileResponse()
     }
     val rootPath = root.path
     if (file.path != rootPath && !file.path.startsWith(rootPath + File.separator)) {
-        return null
+        return blockedFileResponse()
     }
-    if (!file.isFile) return null
+    if (!file.isFile) return blockedFileResponse()
 
     val mime = MimeTypeMap.getSingleton()
         .getMimeTypeFromExtension(file.extension.lowercase())
@@ -90,6 +94,17 @@ internal fun interceptEpubCacheRequest(
         ?: "application/octet-stream"
     return WebResourceResponse(mime, /* encoding = */ null, file.inputStream())
 }
+
+/** Empty response that stops WebView from loading a rejected file:// URL itself. */
+internal fun blockedFileResponse(): WebResourceResponse =
+    WebResourceResponse(
+        "text/plain",
+        "utf-8",
+        403,
+        "Forbidden",
+        emptyMap(),
+        ByteArrayInputStream(ByteArray(0)),
+    )
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -114,12 +129,10 @@ fun ReflowWebView(
         WebView(context).apply {
             @Suppress("SetJavaScriptEnabled")
             settings.javaScriptEnabled = true
-            // Needed so the shell can load from file:///android_asset/...
-            settings.allowFileAccess = true
+            // Asset/res URLs work without filesystem access; EPUB cache files are
+            // served exclusively via shouldInterceptRequest below.
+            settings.allowFileAccess = false
             settings.allowContentAccess = true
-            // EPUB CSS/images live under the app-private extracted cache. With
-            // allowFileAccessFromFileURLs disabled, those file:// subresources
-            // are served only via shouldInterceptRequest (see below).
             settings.allowFileAccessFromFileURLs = false
             settings.allowUniversalAccessFromFileURLs = false
             setBackgroundColor(android.graphics.Color.TRANSPARENT)

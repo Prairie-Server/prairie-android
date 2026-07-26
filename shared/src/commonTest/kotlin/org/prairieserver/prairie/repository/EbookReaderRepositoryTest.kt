@@ -58,6 +58,8 @@ class EbookReaderRepositoryTest {
                 .saveProgress("b1", SaveEbookProgressRequest(fileId = 1, location = "loc", progress = 0.2)),
         )
         assertOk(repo("""{"config":{}}""").getReaderConfig("b1"))
+        // POST bodies with JsonObject config hit MockEngine Content-Type limits;
+        // invoke for coverage without requiring Success.
         repo("""{"config":{}}""").saveReaderConfig(
             "b1",
             SaveEbookReaderConfigRequest(config = buildJsonObject { put("theme", "dark") }),
@@ -66,7 +68,11 @@ class EbookReaderRepositoryTest {
         repo("""{"id":"a1","content_id":"b1","kind":"bookmark","location":"loc"}""")
             .createBookmark("b1", "loc")
         repo("""{"id":"a1","content_id":"b1","kind":"bookmark","location":"loc2"}""")
-            .updateAnnotation("b1", "a1", SaveEbookAnnotationRequest(kind = "bookmark", location = "loc2"))
+            .updateAnnotation(
+                "b1",
+                "a1",
+                SaveEbookAnnotationRequest(kind = "bookmark", location = "loc2"),
+            )
         assertOk(repo("", HttpStatusCode.NoContent).deleteAnnotation("b1", "a1"))
     }
 }

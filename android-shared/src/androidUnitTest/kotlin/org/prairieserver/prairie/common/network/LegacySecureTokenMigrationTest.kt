@@ -97,10 +97,13 @@ class LegacySecureTokenMigrationTest {
 
         // Tokens exist but server_url is missing — previously stamped migrated
         // and left secrets on disk while EncryptedTokenManagerImpl only reads scoped keys.
+        // Also seed non-secret legacy keys that must still be wiped.
         prefs.edit()
             .putString("access_token", "orphan-access")
             .putString("refresh_token", "orphan-refresh")
             .putString("profile_token", "orphan-profile")
+            .putString("profile_id", "orphan-profile-id")
+            .putLong("token_expiry_epoch_ms", 1_700_000_000_000L)
             .commit()
 
         val registry = AndroidServerRegistry(prefs)
@@ -109,5 +112,7 @@ class LegacySecureTokenMigrationTest {
         assertNull(prefs.getString("access_token", null))
         assertNull(prefs.getString("refresh_token", null))
         assertNull(prefs.getString("profile_token", null))
+        assertNull(prefs.getString("profile_id", null))
+        assertFalse(prefs.contains("token_expiry_epoch_ms"))
     }
 }

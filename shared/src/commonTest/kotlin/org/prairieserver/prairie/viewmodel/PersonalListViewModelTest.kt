@@ -43,16 +43,18 @@ class PersonalListViewModelTest {
 
     @Test
     fun favoritesLoadsPaginatesAndRemoves() = runTest(dispatcher) {
+        val requestedOffsets = mutableListOf<Int>()
         val client = HttpClient(MockEngine { req ->
             val path = req.url.encodedPath
-            val offset = req.url.parameters["offset"]
+            val offset = req.url.parameters["offset"]?.toIntOrNull() ?: 0
             val isMutation = path.contains("/favorites/") && req.method.value != "GET"
+            if (!isMutation) requestedOffsets += offset
             val body = when {
                 isMutation -> ""
-                offset == "0" || offset == null ->
-                    """{"total":2,"has_more":true,"items":[{"content_id":"m1","type":"movie","title":"A"},{"content_id":"m2","type":"movie","title":"B"}]}"""
+                offset <= 0 ->
+                    """{"total":3,"has_more":true,"items":[{"content_id":"m1","type":"movie","title":"A"},{"content_id":"m2","type":"movie","title":"B"}]}"""
                 else ->
-                    """{"total":2,"has_more":false,"items":[{"content_id":"m3","type":"movie","title":"C"}]}"""
+                    """{"total":3,"has_more":false,"items":[{"content_id":"m3","type":"movie","title":"C"}]}"""
             }
             val status = if (isMutation) HttpStatusCode.NoContent else HttpStatusCode.OK
             respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
@@ -62,17 +64,21 @@ class PersonalListViewModelTest {
         assertEquals(2, vm.uiState.value.items.size)
         assertTrue(vm.hasLoadedOnce)
         assertTrue(vm.uiState.value.hasMore)
+        // Pagination path: loadMore should append when hasMore is true.
+        val beforeLoadMore = vm.uiState.value.items.size
+        vm.loadMore()
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.uiState.first { !it.isLoadingMore && it.items.size > beforeLoadMore }
+        assertTrue(vm.uiState.value.items.size > beforeLoadMore)
+        assertTrue(requestedOffsets.any { it > 0 }, "loadMore should request offset > 0, got $requestedOffsets")
         vm.toggleFavorite("m1")
         vm.uiState.first { it.items.none { item -> item.contentId == "m1" } }
-        assertEquals(1, vm.uiState.value.items.size)
+        assertTrue(vm.uiState.value.items.none { it.contentId == "m1" })
         vm.refresh()
         vm.awaitIdle()
         vm.retry()
         vm.awaitIdle()
-        // Pagination path: loadMore should append when hasMore is true.
-        vm.loadMore()
-        vm.awaitIdle()
-        assertTrue(vm.uiState.value.items.size >= 1)
+        assertTrue(vm.hasLoadedOnce)
     }
 
     @Test

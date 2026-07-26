@@ -221,10 +221,6 @@ class AndroidServerRegistry(
         val legacyProfileId = prefs.getString(EncryptedTokenManagerImpl.KEY_PROFILE_ID, null)
         val legacyProfileToken = prefs.getString(EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN, null)
         val legacyServerUrl = prefs.getString(EncryptedTokenManagerImpl.KEY_SERVER_URL, null)
-        val hasLegacySecrets =
-            !legacyAccess.isNullOrBlank() ||
-                !legacyRefresh.isNullOrBlank() ||
-                !legacyProfileToken.isNullOrBlank()
 
         if (loaded.entries.isNotEmpty()) {
             // Registry already exists (partial upgrade). Strip any leftover
@@ -238,12 +234,10 @@ class AndroidServerRegistry(
         val urlForMigration = legacyServerUrl?.takeIf { it.isNotBlank() }
         if (urlForMigration == null || urlForMigration == DEFAULT_SERVER_URL_PLACEHOLDER) {
             // Nothing to migrate — first install, or only the placeholder default.
-            // Still drop orphan unprefixed secrets so a missing URL cannot leave
-            // credentials on disk after KEY_MIGRATED is stamped.
+            // Always drop orphan unprefixed keys (including profile_id / expiry)
+            // so a missing URL cannot leave them on disk after KEY_MIGRATED.
             val editor = prefs.edit().putBoolean(KEY_MIGRATED, true)
-            if (hasLegacySecrets) {
-                clearLegacyUnprefixedKeys(editor)
-            }
+            clearLegacyUnprefixedKeys(editor)
             editor.apply()
             return loaded
         }

@@ -48,12 +48,13 @@ class EbookReaderApiTest {
             ),
         )
         assertOk(newApi("""{"config":{}}""").getReaderConfig("b1"))
+        // POST bodies with JsonObject config hit MockEngine Content-Type limits;
+        // invoke for coverage without requiring Success.
         newApi("""{"config":{}}""").saveReaderConfig(
             "b1",
             SaveEbookReaderConfigRequest(config = buildJsonObject { put("a", "1") }),
         )
         assertOk(newApi("""{"items":[]}""").listAnnotations("b1"))
-        // create/update omit contentType; still invoke for coverage.
         newApi("""{"id":"a1","content_id":"b1","kind":"note"}""").createAnnotation(
             "b1",
             SaveEbookAnnotationRequest(kind = "note", note = "hi"),

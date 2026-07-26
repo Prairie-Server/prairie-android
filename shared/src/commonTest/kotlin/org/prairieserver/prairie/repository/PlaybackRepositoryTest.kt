@@ -97,24 +97,26 @@ class PlaybackRepositoryTest {
             capabilities = ClientCodecCapabilities(),
             clientPlaybackContext = context(),
         )
-        // Response body may fail decode; repository still executes.
-        repo("{}").startPlaybackV3(start)
-        repo("{}").replanPlaybackV3(
-            "s1",
-            PlaybackReplanRequestV3(
-                playbackAttemptId = "a",
-                replanRequestId = "r",
-                failedPlanId = "fp",
-                planAttemptId = "pa",
-                planAttemptKey = "pak",
-                attemptedPlanKeys = listOf("pak"),
-                attemptCount = 1,
-                positionSeconds = 1.0,
-                outputRouteGeneration = 1,
-                selectedTracks = SelectedPlaybackTracksV3(),
-                failure = PlaybackFailureV3("decode", message = "boom"),
-                capabilities = ClientCodecCapabilities(),
-                clientPlaybackContext = context(),
+        // Empty/minimal bodies exercise the call path; result type is still Success/Error.
+        assertIs<ApiResult.Success<*>>(repo("{}").startPlaybackV3(start))
+        assertIs<ApiResult.Success<*>>(
+            repo("{}").replanPlaybackV3(
+                "s1",
+                PlaybackReplanRequestV3(
+                    playbackAttemptId = "a",
+                    replanRequestId = "r",
+                    failedPlanId = "fp",
+                    planAttemptId = "pa",
+                    planAttemptKey = "pak",
+                    attemptedPlanKeys = listOf("pak"),
+                    attemptCount = 1,
+                    positionSeconds = 1.0,
+                    outputRouteGeneration = 1,
+                    selectedTracks = SelectedPlaybackTracksV3(),
+                    failure = PlaybackFailureV3("decode", message = "boom"),
+                    capabilities = ClientCodecCapabilities(),
+                    clientPlaybackContext = context(),
+                ),
             ),
         )
         assertIs<ApiResult.Success<*>>(
