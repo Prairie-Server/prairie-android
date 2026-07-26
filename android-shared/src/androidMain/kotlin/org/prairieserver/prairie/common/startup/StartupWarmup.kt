@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.common.startup
 
 import android.content.Context
+import android.os.Build
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
@@ -12,6 +13,7 @@ import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
+import org.prairieserver.prairie.util.ArtworkUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -179,8 +181,12 @@ private suspend fun warmHomeArtwork(
 
     fun append(urlString: String?, widthPx: Int, heightPx: Int) {
         if (requests.size >= plan.maxUrls) return
-        val url = urlString?.trim().orEmpty()
-        if (url.isEmpty() || !seen.add(url)) return
+        val raw = urlString?.trim().orEmpty()
+        if (raw.isEmpty()) return
+        // Warm AVIF when the platform can decode it so ThumbhashImage's first
+        // request hits the Coil disk/memory cache.
+        val url = if (Build.VERSION.SDK_INT >= 31) ArtworkUrl.preferred(raw) else raw
+        if (!seen.add(url)) return
         requests.add(
             ImageRequest.Builder(context)
                 .data(url)
