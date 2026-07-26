@@ -3,6 +3,7 @@ package org.prairieserver.prairie.common.player
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
 import org.prairieserver.prairie.model.playback.PlaybackEngineKind
 import org.prairieserver.prairie.model.playback.PlaybackPlanV3
+import org.prairieserver.prairie.model.playback.PlaybackSourceDescriptorV3
 import org.prairieserver.prairie.model.playback.PlaybackStreamProtocol
 import org.prairieserver.prairie.model.playback.PlaybackStreamV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleArtifactV3
@@ -11,8 +12,10 @@ import org.prairieserver.prairie.model.playback.PlaybackSubtitleModeV3
 import org.prairieserver.prairie.model.playback.PlaybackTimelineV3
 import org.prairieserver.prairie.model.playback.PlaybackTrackIdentityV3
 import org.prairieserver.prairie.model.playback.SelectedPlaybackTracksV3
+import org.prairieserver.prairie.network.PrairieJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class PlaybackV3SessionTest {
     @Test
@@ -75,12 +78,61 @@ class PlaybackV3SessionTest {
         assertEquals(timeline.seekRestoration, converted.seekRestoration)
     }
 
+    @Test
+    fun sourceRuntimeReachesTheSessionResponse() {
+        val response = plan(
+            mode = PlaybackSubtitleModeV3.OFF,
+            format = "",
+            url = "",
+            source = PlaybackSourceDescriptorV3(mediaFileId = 482, durationSeconds = 5400.0),
+        ).toSessionResponse("session", "profile", 482)
+
+        assertEquals(5400.0, response.durationSeconds)
+    }
+
+    // A server that does not know the runtime must leave the client knowing it
+    // does not know. Substituting 0.0 here is what let the playback engine's
+    // growing-HLS-window duration win and show a feature film as a minute.
+    @Test
+    fun unknownSourceRuntimeStaysUnknown() {
+        val response = plan(
+            mode = PlaybackSubtitleModeV3.OFF,
+            format = "",
+            url = "",
+            source = PlaybackSourceDescriptorV3(mediaFileId = 482),
+        ).toSessionResponse("session", "profile", 482)
+
+        assertNull(response.durationSeconds)
+    }
+
+    // Servers predating the descriptor omit it entirely; decoding must not fail
+    // and the runtime must read as unknown rather than zero.
+    @Test
+    fun planWithoutASourceDescriptorDecodesWithAnUnknownRuntime() {
+        val decoded = PrairieJson.decodeFromString<PlaybackPlanV3>(
+            """
+            {
+              "plan_id": "plan",
+              "delivery": "original_http",
+              "engine": "media3_direct",
+              "stream": {"url": "/stream/session", "protocol": "http_progressive"},
+              "decision_reason": "test"
+            }
+            """.trimIndent(),
+        )
+
+        assertNull(decoded.source.durationSeconds)
+        assertNull(decoded.toSessionResponse("session", "profile", 482).durationSeconds)
+    }
+
     private fun plan(
         mode: PlaybackSubtitleModeV3,
         format: String,
         url: String,
         timeline: PlaybackTimelineV3 = PlaybackTimelineV3(),
+        source: PlaybackSourceDescriptorV3 = PlaybackSourceDescriptorV3(),
     ) = PlaybackPlanV3(
+        source = source,
         planId = "plan",
         delivery = PlaybackDelivery.ORIGINAL_HTTP,
         engine = PlaybackEngineKind.MEDIA3_DIRECT,
