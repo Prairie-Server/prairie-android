@@ -181,7 +181,7 @@ jobs:
 
     steps:
       - name: Check out sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -206,7 +206,7 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: unit-test-reports
           path: |
@@ -224,7 +224,7 @@ jobs:
 
     steps:
       - name: Check out sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -286,7 +286,7 @@ jobs:
 
     steps:
       - name: Check out sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -378,7 +378,7 @@ jobs:
           done
 
       - name: Upload release APKs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact-name }}
           path: release-artifacts/${{ matrix.artifact-name }}/*.apk
@@ -398,7 +398,7 @@ jobs:
 
     steps:
       - name: Download APK artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: android-*-release-apks
           path: release-artifacts
