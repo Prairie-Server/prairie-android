@@ -81,6 +81,10 @@ OkHttp/MockWebServer, Koin, Android Compose, Gradle, ADB/emulator tooling.
 - Snapshot plus 30 seconds of stable connection resets the failure window.
 - Cancellation/obsolete generation cannot clear or fold into a replacement.
 - Room A's late REST/socket completion cannot use or mutate room B.
+- Blank room tokens and mismatched room responses fail closed instead of
+  retaining an earlier room token.
+- Every room-scoped REST completion revalidates its captured lease before
+  publishing state.
 - Missing room fails fast.
 - Attach/readiness/user transport sends report actual delivery.
 
@@ -110,10 +114,18 @@ OkHttp/MockWebServer, Koin, Android Compose, Gradle, ADB/emulator tooling.
 - Concurrent enters serialize deterministically.
 - Leave cancels and joins before reset.
 - Server/profile/logout/credential-generation change ends the lease.
+- `IdentityTransitionBarrier` WILL_CHANGE hides room state and cancels the
+  lease before the new identity is published; old WS/REST completions cannot
+  repopulate state after profile/server/sign-out/temporary-scope transitions.
+- A terminal room close tombstones that room-binding generation. Recreation
+  cannot reconnect it; only a fresh successful create/join response can mint a
+  new live binding.
 
 **Implementation:**
 - Port the intent of `864de27e`/`79b4278d`, replacing cancel-only behavior with
   cancel-and-join and immutable generation ownership.
+- Bind the session to `TokenManager.snapshotCurrentScope()` and the existing
+  `IdentityTransitionBarrier`, rather than relying on screen logout callbacks.
 - Register one session per app process with an application coroutine scope.
 
 - [ ] Establish RED.
@@ -133,6 +145,9 @@ OkHttp/MockWebServer, Koin, Android Compose, Gradle, ADB/emulator tooling.
 - Failed ready/buffering does not advance the local latch and retries.
 - Failed user transport is surfaced/deferred rather than silently dropped.
 - Player leave calls `RoomSession.leave`; screen disposal does not.
+- `leave`/`closeAndLeave` is owned by the application session, completes close
+  at most once, joins the socket, and resets even if the initiating screen or
+  ViewModel scope is canceled immediately after navigation.
 - Attach/readiness state is keyed by connection epoch plus playback session id,
   including equal initial snapshots and unchanged buffering after reconnect.
 - A command accepted for playback session A is revalidated after its
