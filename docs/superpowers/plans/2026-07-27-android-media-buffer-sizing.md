@@ -289,8 +289,8 @@ Expected: `BUILD SUCCESSFUL`.
 
 ```bash
 ./gradlew \
-  :android-app:compileDebugKotlin \
-  :android-app-tv:compileDebugKotlin \
+  :androidApp:compileDebugKotlin \
+  :androidTvApp:compileDebugKotlin \
   --max-workers=2
 ```
 
@@ -300,8 +300,8 @@ Expected: `BUILD SUCCESSFUL`.
 
 ```bash
 ./gradlew \
-  :android-app:assembleRelease \
-  :android-app-tv:assembleRelease \
+  :androidApp:assembleRelease \
+  :androidTvApp:assembleRelease \
   --max-workers=2
 ```
 
@@ -355,10 +355,10 @@ From a clean worktree, rerun:
 ```bash
 ./gradlew \
   :android-shared:testDebugUnitTest \
-  :android-app:compileDebugKotlin \
-  :android-app-tv:compileDebugKotlin \
-  :android-app:assembleRelease \
-  :android-app-tv:assembleRelease \
+  :androidApp:compileDebugKotlin \
+  :androidTvApp:compileDebugKotlin \
+  :androidApp:assembleRelease \
+  :androidTvApp:assembleRelease \
   --max-workers=2
 git diff --check
 git status --short
