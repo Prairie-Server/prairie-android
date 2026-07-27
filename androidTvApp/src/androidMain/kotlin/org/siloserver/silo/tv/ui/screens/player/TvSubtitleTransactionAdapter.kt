@@ -157,7 +157,7 @@ internal interface TvSubtitlePersistencePort {
     suspend fun persist(
         committed: CommittedSubtitle,
         context: TvSubtitlePlaybackContext,
-    )
+    ): Boolean
 }
 
 /**
@@ -172,6 +172,11 @@ private object TvSubtitleDurablePersistenceOwner {
 internal object TvSubtitleSettlementOwner {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 }
+
+internal class TvSubtitleDurablePersistenceReservation internal constructor(
+    internal val ticket: PlaybackTrackSelectionWriteCoordinator.Ticket,
+    internal val context: TvSubtitlePlaybackContext,
+)
 
 internal data class TvSubtitleTransactionSnapshot(
     val transition: SubtitleTransitionState,
@@ -413,8 +418,14 @@ internal class TvSubtitleTransactionAdapter(
                 for (request in persistenceRequests) {
                     try {
                         val success = writePersistenceRequest(request)
+                        if (!success && request.completion == null) {
+                            persistenceCoordinator.abandon(request.ticket)
+                        }
                         request.completion?.complete(success)
                     } catch (cancellation: CancellationException) {
+                        if (request.completion == null) {
+                            persistenceCoordinator.abandon(request.ticket)
+                        }
                         request.completion?.completeExceptionally(cancellation)
                         throw cancellation
                     }
@@ -428,6 +439,9 @@ internal class TvSubtitleTransactionAdapter(
                 persistenceRequests.close(cause)
                 while (true) {
                     val queued = persistenceRequests.tryReceive().getOrNull() ?: break
+                    if (queued.completion == null) {
+                        persistenceCoordinator.abandon(queued.ticket)
+                    }
                     queued.completion?.completeExceptionally(cause)
                 }
             }
@@ -762,15 +776,42 @@ internal class TvSubtitleTransactionAdapter(
             false
         }
         if (primarySucceeded) return true
-        return awaitBoundedDurablePersistence(request)
+        val durableSucceeded = awaitBoundedDurablePersistence(request)
+        if (!durableSucceeded) persistenceCoordinator.abandon(request.ticket)
+        return durableSucceeded
     }
 
     fun requestDurableFinalPersistence() {
-        val request = capturePersistenceRequest() ?: return
+        val reservation = reserveDurableFinalPersistence() ?: return
+        requestDurableFinalPersistence(reservation)
+    }
+
+    fun reserveDurableFinalPersistence(): TvSubtitleDurablePersistenceReservation? {
+        val committedContext = context ?: return null
+        val writeScope = committedContext.writeScope ?: return null
+        return TvSubtitleDurablePersistenceReservation(
+            ticket = persistenceCoordinator.capture(
+                scope = writeScope,
+                contentId = committedContext.contentId,
+                fileId = committedContext.mediaFileId,
+            ),
+            context = committedContext,
+        )
+    }
+
+    fun requestDurableFinalPersistence(
+        reservation: TvSubtitleDurablePersistenceReservation,
+    ) {
+        val request = PersistenceRequest(
+            ticket = reservation.ticket,
+            committed = transition.committed,
+            context = reservation.context,
+        )
         durablePersistenceScope.launch {
-            withTimeoutOrNull(DURABLE_PERSISTENCE_TIMEOUT_MS) {
-                runCatching { writePersistenceRequest(request) }
-            }
+            val success = withTimeoutOrNull(DURABLE_PERSISTENCE_TIMEOUT_MS) {
+                runCatching { writePersistenceRequest(request) }.getOrDefault(false)
+            } ?: false
+            if (!success) persistenceCoordinator.abandon(request.ticket)
         }
     }
 
@@ -2148,7 +2189,9 @@ internal class TvSubtitleTransactionAdapter(
             committed = committed,
             context = committedContext,
         )?.let { request ->
-            persistenceRequests.trySend(request)
+            if (persistenceRequests.trySend(request).isFailure) {
+                persistenceCoordinator.abandon(request.ticket)
+            }
         }
     }
 
@@ -2185,8 +2228,9 @@ internal class TvSubtitleTransactionAdapter(
         persistenceCoordinator.write(request.ticket) {
             repeat(PERSISTENCE_ATTEMPTS) {
                 try {
-                    persistencePort.persist(request.committed, request.context)
-                    return@write true
+                    if (persistencePort.persist(request.committed, request.context)) {
+                        return@write true
+                    }
                 } catch (cancellation: CancellationException) {
                     if (!currentCoroutineContext().isActive) throw cancellation
                 } catch (_: Exception) {

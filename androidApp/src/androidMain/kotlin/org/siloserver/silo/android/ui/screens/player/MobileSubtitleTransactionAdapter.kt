@@ -94,7 +94,7 @@ internal interface MobileSubtitlePersistencePort {
     suspend fun persist(
         committed: CommittedSubtitle,
         context: MobileSubtitlePlaybackContext,
-    )
+    ): Boolean
 }
 
 /**
@@ -238,8 +238,14 @@ internal class MobileSubtitleTransactionAdapter(
                 for (request in persistenceRequests) {
                     try {
                         val success = writePersistenceRequest(request)
+                        if (!success && request.completion == null) {
+                            persistenceCoordinator.abandon(request.ticket)
+                        }
                         request.completion?.complete(success)
                     } catch (cancellation: CancellationException) {
+                        if (request.completion == null) {
+                            persistenceCoordinator.abandon(request.ticket)
+                        }
                         request.completion?.completeExceptionally(cancellation)
                         throw cancellation
                     }
@@ -253,6 +259,9 @@ internal class MobileSubtitleTransactionAdapter(
                 persistenceRequests.close(cause)
                 while (true) {
                     val queued = persistenceRequests.tryReceive().getOrNull() ?: break
+                    if (queued.completion == null) {
+                        persistenceCoordinator.abandon(queued.ticket)
+                    }
                     queued.completion?.completeExceptionally(cause)
                 }
             }
@@ -388,15 +397,18 @@ internal class MobileSubtitleTransactionAdapter(
             false
         }
         if (primarySucceeded) return true
-        return awaitBoundedDurablePersistence(request)
+        val durableSucceeded = awaitBoundedDurablePersistence(request)
+        if (!durableSucceeded) persistenceCoordinator.abandon(request.ticket)
+        return durableSucceeded
     }
 
     fun requestDurableFinalPersistence() {
         val request = capturePersistenceRequest() ?: return
         durablePersistenceScope.launch {
-            withTimeoutOrNull(DURABLE_PERSISTENCE_TIMEOUT_MS) {
-                runCatching { writePersistenceRequest(request) }
-            }
+            val success = withTimeoutOrNull(DURABLE_PERSISTENCE_TIMEOUT_MS) {
+                runCatching { writePersistenceRequest(request) }.getOrDefault(false)
+            } ?: false
+            if (!success) persistenceCoordinator.abandon(request.ticket)
         }
     }
 
@@ -995,9 +1007,9 @@ internal class MobileSubtitleTransactionAdapter(
             committed = committed,
             context = committedContext,
         )?.let { request ->
-            persistenceRequests.trySend(
-                request,
-            )
+            if (persistenceRequests.trySend(request).isFailure) {
+                persistenceCoordinator.abandon(request.ticket)
+            }
         }
     }
 
@@ -1034,8 +1046,9 @@ internal class MobileSubtitleTransactionAdapter(
         persistenceCoordinator.write(request.ticket) {
             repeat(PERSISTENCE_ATTEMPTS) {
                 try {
-                    persistencePort.persist(request.committed, request.context)
-                    return@write true
+                    if (persistencePort.persist(request.committed, request.context)) {
+                        return@write true
+                    }
                 } catch (cancellation: CancellationException) {
                     if (!currentCoroutineContext().isActive) throw cancellation
                 } catch (_: Exception) {

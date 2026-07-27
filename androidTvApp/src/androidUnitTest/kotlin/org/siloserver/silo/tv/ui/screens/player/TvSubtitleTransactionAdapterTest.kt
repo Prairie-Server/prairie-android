@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.screens.player
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -18,6 +19,7 @@ import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
 import org.siloserver.silo.model.playback.SubtitleMediaIdentity
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.common.player.PlaybackTrackSelectionWriteCoordinator
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -1311,6 +1313,79 @@ class TvSubtitleTransactionAdapterTest {
     }
 
     @Test
+    fun `false persistence result is not reported durable after bounded flush attempts`() = runTest {
+        val harness = harness(
+            scope = backgroundScope,
+            sessionId = null,
+            durablePersistenceScope = backgroundScope,
+        )
+        harness.persistence.rejectionsRemaining = 4
+
+        val flushed = async { harness.adapter.persistCommittedSelectionAndFlush() }
+        runCurrent()
+
+        assertFalse(flushed.await())
+        assertEquals(4, harness.persistence.attempts)
+        assertTrue(harness.persistence.persisted.isEmpty())
+    }
+
+    @Test
+    fun `false persistence result retries until an accepted durable write`() = runTest {
+        val harness = harness(
+            scope = backgroundScope,
+            sessionId = null,
+            durablePersistenceScope = backgroundScope,
+        )
+        harness.persistence.rejectionsRemaining = 3
+
+        val flushed = async { harness.adapter.persistCommittedSelectionAndFlush() }
+        runCurrent()
+
+        assertTrue(flushed.await())
+        assertEquals(4, harness.persistence.attempts)
+        assertEquals(listOf(sidecar(3)), harness.persistence.persisted.map { it.identity })
+    }
+
+    @Test
+    fun `retirement ticket reserved before settlement cannot overwrite replacement adapter`() = runTest {
+        val coordinator = PlaybackTrackSelectionWriteCoordinator()
+        val persistence = RecordingPersistence()
+        val old = harness(
+            scope = backgroundScope,
+            sessionId = null,
+            durablePersistenceScope = backgroundScope,
+            persistenceCoordinator = coordinator,
+            persistence = persistence,
+        )
+        old.adapter.select(sidecar(4))
+        runCurrent()
+        persistence.persisted.clear()
+        persistence.persistedContexts.clear()
+
+        val reservation = requireNotNull(old.adapter.reserveDurableFinalPersistence())
+        val releaseSettlement = CompletableDeferred<Unit>()
+        old.adapter.invalidateAndSettleAsync(restoreUi = false) {
+            releaseSettlement.await()
+            old.adapter.requestDurableFinalPersistence(reservation)
+        }
+        runCurrent()
+
+        val replacement = harness(
+            scope = backgroundScope,
+            sessionId = null,
+            durablePersistenceScope = backgroundScope,
+            persistenceCoordinator = coordinator,
+            persistence = persistence,
+        )
+        replacement.adapter.select(sidecar(5))
+        runCurrent()
+        releaseSettlement.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf(sidecar(5)), persistence.persisted.map { it.identity })
+    }
+
+    @Test
     fun `durable write leapfrogging another content key does not suppress older valid write`() = runTest {
         val durableJob = Job()
         val durableScope = CoroutineScope(
@@ -1971,15 +2046,18 @@ class TvSubtitleTransactionAdapterTest {
         adoption: AdoptionControl = AdoptionControl(),
         durablePersistenceScope: CoroutineScope = scope,
         isLocallyMountable: (SubtitleIdentity) -> Boolean = { true },
+        persistenceCoordinator: PlaybackTrackSelectionWriteCoordinator =
+            PlaybackTrackSelectionWriteCoordinator(),
+        persistence: RecordingPersistence = RecordingPersistence(),
     ): Harness {
         val port = FakeStagedPort()
-        val persistence = RecordingPersistence()
         val committedPlaybacks = mutableListOf<TvSubtitleCommittedPlayback>()
         val adapter = TvSubtitleTransactionAdapter(
             scope = scope,
             stagedPort = port,
             persistencePort = persistence,
             durablePersistenceScope = durablePersistenceScope,
+            persistenceCoordinator = persistenceCoordinator,
             onCommittedPlayback = { adoptionRequest ->
                 adoption.started += 1
                 if (adoption.suspendAdoption) adoption.completions.receive()
@@ -2279,16 +2357,18 @@ class TvSubtitleTransactionAdapterTest {
         var throwFirst = false
         var cancelFirst = false
         var failuresRemaining = 0
+        var rejectionsRemaining = 0
         var cancelledWrites = 0
-        private var calls = 0
+        var attempts = 0
+            private set
         private val firstStarted = Channel<Unit>(Channel.CONFLATED)
         private val firstRelease = Channel<Unit>(Channel.CONFLATED)
 
         override suspend fun persist(
             committed: CommittedSubtitle,
             context: TvSubtitlePlaybackContext,
-        ) {
-            val call = calls++
+        ): Boolean {
+            val call = attempts++
             if (cancelFirst && call == 0) {
                 throw CancellationException("persistence request cancelled locally")
             }
@@ -2298,6 +2378,10 @@ class TvSubtitleTransactionAdapterTest {
             if (failuresRemaining > 0) {
                 failuresRemaining -= 1
                 throw IllegalStateException("persistence write failed")
+            }
+            if (rejectionsRemaining > 0) {
+                rejectionsRemaining -= 1
+                return false
             }
             if (suspendFirst && call == 0) {
                 firstStarted.send(Unit)
@@ -2312,6 +2396,7 @@ class TvSubtitleTransactionAdapterTest {
             }
             persisted += committed
             persistedContexts += context.contentId to context.mediaFileId
+            return true
         }
 
         suspend fun awaitFirstStarted() {

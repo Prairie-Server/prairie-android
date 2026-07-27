@@ -77,9 +77,32 @@ class PlaybackTrackSelectionWriteCoordinatorTest {
             val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
             assertEquals("new-audio", row?.audioFingerprint)
             assertEquals("new-subtitle", row?.subtitleFingerprint)
+            assertEquals(0, coordinator.activeKeyCount)
         } finally {
             db.close()
         }
+    }
+
+    @Test
+    fun completedTicketsReleaseCoordinatorStateAcrossManyPlaybackKeys() = runTest {
+        val coordinator = PlaybackTrackSelectionWriteCoordinator()
+        val scope = PlaybackWriteScope(
+            serverId = "s1",
+            profileId = "p1",
+            credentialGenerationId = null,
+            identityGeneration = 4L,
+        )
+
+        repeat(2_000) { index ->
+            val ticket = coordinator.capture(
+                scope = scope,
+                contentId = "content-$index",
+                fileId = index + 1,
+            )
+            assertTrue(coordinator.write(ticket) { true })
+        }
+
+        assertEquals(0, coordinator.activeKeyCount)
     }
 
     private class AdapterWriter(

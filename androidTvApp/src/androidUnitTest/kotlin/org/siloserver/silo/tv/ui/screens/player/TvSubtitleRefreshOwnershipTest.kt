@@ -308,6 +308,6 @@ class TvSubtitleRefreshOwnershipTest {
         override suspend fun persist(
             committed: CommittedSubtitle,
             context: TvSubtitlePlaybackContext,
-        ) = Unit
+        ) = true
     }
 }

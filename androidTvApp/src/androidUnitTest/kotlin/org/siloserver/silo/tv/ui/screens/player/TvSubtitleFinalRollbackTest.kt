@@ -401,7 +401,8 @@ private class FinalRollbackPersistence : TvSubtitlePersistencePort {
     override suspend fun persist(
         committed: CommittedSubtitle,
         context: TvSubtitlePlaybackContext,
-    ) {
+    ): Boolean {
         persisted += committed
+        return true
     }
 }

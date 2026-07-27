@@ -15,7 +15,23 @@ class PlaybackTrackSelectionWriteCoordinator {
     class Ticket internal constructor(
         internal val key: Key,
         internal val sequence: Long,
-    )
+        internal val state: State,
+    ) {
+        internal var resolved: Boolean = false
+        internal var resolvedSuccess: Boolean = false
+    }
+
+    internal class State {
+        val mutex = Mutex()
+        var latestStartedSequence = 0L
+        var latestDurableSequence = 0L
+        var outstandingTickets = 0
+    }
+
+    internal val activeKeyCount: Int
+        get() = synchronized(states) {
+            states.size
+        }
 
     internal data class Key(
         val scope: PlaybackWriteScope,
@@ -26,37 +42,64 @@ class PlaybackTrackSelectionWriteCoordinator {
     private val sequence = AtomicLong(0L)
     private val states = mutableMapOf<Key, State>()
 
-    private class State {
-        val mutex = Mutex()
-        var latestStartedSequence = 0L
-        var latestDurableSequence = 0L
-    }
-
     fun capture(
         scope: PlaybackWriteScope,
         contentId: String,
         fileId: Int,
-    ): Ticket = Ticket(
-        key = Key(scope, contentId, fileId),
-        sequence = sequence.incrementAndGet(),
-    )
+    ): Ticket {
+        val key = Key(scope, contentId, fileId)
+        val state = synchronized(states) {
+            states.getOrPut(key, ::State).also {
+                it.outstandingTickets += 1
+            }
+        }
+        return Ticket(
+            key = key,
+            sequence = sequence.incrementAndGet(),
+            state = state,
+        )
+    }
 
     suspend fun write(
         ticket: Ticket,
         persist: suspend () -> Boolean,
     ): Boolean {
-        val state = synchronized(states) {
-            states.getOrPut(ticket.key, ::State)
+        synchronized(ticket) {
+            if (ticket.resolved) return ticket.resolvedSuccess
         }
+        val state = ticket.state
         return state.mutex.withLock {
-            if (ticket.sequence < state.latestStartedSequence) {
-                return@withLock state.latestDurableSequence >= ticket.sequence
+            synchronized(ticket) {
+                if (ticket.resolved) return@withLock ticket.resolvedSuccess
             }
-            state.latestStartedSequence = ticket.sequence
+            val success = if (ticket.sequence < state.latestStartedSequence) {
+                state.latestDurableSequence >= ticket.sequence
+            } else {
+                state.latestStartedSequence = ticket.sequence
+                persist().also { durable ->
+                    if (durable) state.latestDurableSequence = ticket.sequence
+                }
+            }
+            if (success) resolve(ticket, success = true)
+            success
+        }
+    }
 
-            if (!persist()) return@withLock false
-            state.latestDurableSequence = ticket.sequence
-            true
+    fun abandon(ticket: Ticket) {
+        resolve(ticket, success = false)
+    }
+
+    private fun resolve(ticket: Ticket, success: Boolean) {
+        synchronized(ticket) {
+            if (ticket.resolved) return
+            ticket.resolved = true
+            ticket.resolvedSuccess = success
+        }
+        synchronized(states) {
+            ticket.state.outstandingTickets -= 1
+            if (ticket.state.outstandingTickets == 0) {
+                states.remove(ticket.key, ticket.state)
+            }
         }
     }
 

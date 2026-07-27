@@ -156,12 +156,91 @@ BUILD SUCCESSFUL in 26s
 
 Total focused result: 170 tests, 0 failures, 0 errors.
 
+## Round 2 review fixes
+
+### Status and design
+
+- Phone and TV persistence ports now return the scoped Room write result.
+  A coordinator ticket becomes durable only when Room returns `true`; `false`
+  results are retried by the existing bounded adapter policy and remain
+  non-durable when every attempt is rejected.
+- TV teardown now reserves its ordering ticket synchronously before
+  `invalidateAndSettleAsync`. The callback pairs that reserved ticket and
+  captured playback context with the exact committed subtitle identity visible
+  after settlement, preventing a retired TV adapter from overwriting a newer
+  replacement adapter.
+- Coordinator state is retained only while tickets for a key remain
+  outstanding. Successful, suppressed, rejected, cancelled, and unqueued
+  requests resolve or abandon their ticket, allowing the per-key state to be
+  removed without weakening stale-write suppression.
+
+Deterministic tests cover rejected scoped writes, bounded retry/flush behavior,
+two real TV adapters separated by a gated teardown callback, and reclamation
+across 2,000 distinct coordinator keys.
+
+### RED evidence
+
+Command:
+
+```text
+./gradlew \
+  :android-shared:testDebugUnitTest \
+    --tests 'org.siloserver.silo.common.player.PlaybackTrackSelectionWriteCoordinatorTest' \
+  :androidApp:testDebugUnitTest \
+    --tests 'org.siloserver.silo.android.ui.screens.player.MobileSubtitleTransactionAdapterTest' \
+  :androidTvApp:testDebugUnitTest \
+    --tests 'org.siloserver.silo.tv.ui.screens.player.TvSubtitleTransactionAdapterTest'
+```
+
+Observed compile RED:
+
+```text
+PlaybackTrackSelectionWriteCoordinatorTest: unresolved reference activeKeyCount
+Mobile/TV test persistence implementations returning Boolean were incompatible
+  with the Unit-returning persistence ports
+TvSubtitleTransactionAdapterTest: unresolved durable reservation API
+BUILD FAILED
+```
+
+### GREEN evidence
+
+Fresh focused verification command:
+
+```text
+./gradlew \
+  :android-shared:testDebugUnitTest \
+    --tests 'org.siloserver.silo.common.data.repository.RoomUserItemStateRepositoryTest' \
+    --tests 'org.siloserver.silo.common.player.PlaybackTrackSelectionWriteCoordinatorTest' \
+    --tests 'org.siloserver.silo.common.player.subtitle.PgsSupExtractorTest' \
+  :androidApp:testDebugUnitTest \
+    --tests 'org.siloserver.silo.android.ui.screens.player.MobileSubtitleTransactionAdapterTest' \
+  :androidTvApp:testDebugUnitTest \
+    --tests 'org.siloserver.silo.tv.ui.screens.player.TvSubtitleTransactionAdapterTest' \
+    --tests 'org.siloserver.silo.tv.ui.screens.player.TvSubtitleSettlementOwnershipTest' \
+  --rerun-tasks
+```
+
+Observed:
+
+```text
+RoomUserItemStateRepositoryTest: 33 tests, 0 failures/errors
+PlaybackTrackSelectionWriteCoordinatorTest: 2 tests, 0 failures/errors
+PgsSupExtractorTest: 8 tests, 0 failures/errors
+MobileSubtitleTransactionAdapterTest: 51 tests, 0 failures/errors
+TvSubtitleTransactionAdapterTest: 82 tests, 0 failures/errors
+TvSubtitleSettlementOwnershipTest: 32 tests, 0 failures/errors
+BUILD SUCCESSFUL in 24s
+118 actionable tasks: 118 executed
+```
+
+Round 2 focused result: 208 tests, 0 failures, 0 errors.
+
 ## Concerns
 
-- The coordinator intentionally keeps one small ordering record per
-  scope/content/file key for the life of the process. Removing old entries
-  eagerly would allow a very delayed retired-adapter ticket to become eligible
-  again.
+- Coordinator memory is now bounded by unresolved tickets rather than all keys
+  seen during the process. A genuinely outstanding persistence request keeps
+  its small per-key ordering record until it succeeds or is explicitly
+  abandoned.
 - Existing Gradle/Kotlin deprecation and opt-in warnings remain; the focused
   run introduced no new warning from the changed production/test files.
 - No push, merge, or PR action was performed.

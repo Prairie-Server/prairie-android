@@ -843,9 +843,9 @@ class TvPlayerViewModel(
             override suspend fun persist(
                 committed: org.siloserver.silo.model.playback.CommittedSubtitle,
                 context: TvSubtitlePlaybackContext,
-            ) {
-                val writeScope = context.writeScope ?: return
-                userItemStatePort.recordTrackSelection(
+            ): Boolean {
+                val writeScope = context.writeScope ?: return false
+                return userItemStatePort.recordTrackSelection(
                     scope = writeScope,
                     contentId = context.contentId,
                     fileId = context.mediaFileId,
@@ -3961,8 +3961,12 @@ class TvPlayerViewModel(
 
     override fun onCleared() {
         val teardownSessionId = exitSessionId
+        val subtitlePersistenceReservation =
+            subtitleTransactions.reserveDurableFinalPersistence()
         subtitleTransactions.invalidateAndSettleAsync(restoreUi = false) {
-            subtitleTransactions.requestDurableFinalPersistence()
+            subtitlePersistenceReservation?.let(
+                subtitleTransactions::requestDurableFinalPersistence,
+            )
             playbackMutationFence.invalidateAll()
             sessionLifecycle.stop(expectedSessionId = teardownSessionId)
         }

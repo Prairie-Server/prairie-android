@@ -1153,6 +1153,40 @@ class MobileSubtitleTransactionAdapterTest {
     }
 
     @Test
+    fun `false persistence result is not reported durable after bounded flush attempts`() = runTest {
+        val harness = harness(
+            scope = backgroundScope,
+            sessionId = null,
+            durablePersistenceScope = backgroundScope,
+        )
+        harness.persistence.rejectionsRemaining = 4
+
+        val flushed = async { harness.adapter.persistCommittedSelectionAndFlush() }
+        runCurrent()
+
+        assertFalse(flushed.await())
+        assertEquals(4, harness.persistence.attempts)
+        assertTrue(harness.persistence.persisted.isEmpty())
+    }
+
+    @Test
+    fun `false persistence result retries until an accepted durable write`() = runTest {
+        val harness = harness(
+            scope = backgroundScope,
+            sessionId = null,
+            durablePersistenceScope = backgroundScope,
+        )
+        harness.persistence.rejectionsRemaining = 3
+
+        val flushed = async { harness.adapter.persistCommittedSelectionAndFlush() }
+        runCurrent()
+
+        assertTrue(flushed.await())
+        assertEquals(4, harness.persistence.attempts)
+        assertEquals(listOf(sidecar(3)), harness.persistence.persisted.map { it.identity })
+    }
+
+    @Test
     fun `durable write leapfrogging another content key does not suppress older valid write`() = runTest {
         val durableJob = Job()
         val durableScope = CoroutineScope(
@@ -1589,16 +1623,18 @@ class MobileSubtitleTransactionAdapterTest {
         var throwFirst = false
         var cancelFirst = false
         var failuresRemaining = 0
+        var rejectionsRemaining = 0
         var cancelledWrites = 0
-        private var calls = 0
+        var attempts = 0
+            private set
         private val firstStarted = Channel<Unit>(Channel.CONFLATED)
         private val firstRelease = Channel<Unit>(Channel.CONFLATED)
 
         override suspend fun persist(
             committed: CommittedSubtitle,
             context: MobileSubtitlePlaybackContext,
-        ) {
-            val call = calls++
+        ): Boolean {
+            val call = attempts++
             if (cancelFirst && call == 0) {
                 throw CancellationException("persistence request cancelled locally")
             }
@@ -1608,6 +1644,10 @@ class MobileSubtitleTransactionAdapterTest {
             if (failuresRemaining > 0) {
                 failuresRemaining -= 1
                 throw IllegalStateException("persistence write failed")
+            }
+            if (rejectionsRemaining > 0) {
+                rejectionsRemaining -= 1
+                return false
             }
             if (suspendFirst && call == 0) {
                 firstStarted.send(Unit)
@@ -1622,6 +1662,7 @@ class MobileSubtitleTransactionAdapterTest {
             }
             persisted += committed
             persistedContexts += context.contentId to context.mediaFileId
+            return true
         }
 
         suspend fun awaitFirstStarted() {

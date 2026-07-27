@@ -488,9 +488,10 @@ class SubtitleTransactionIntegrationTest {
                     override suspend fun persist(
                         committed: CommittedSubtitle,
                         context: TvSubtitlePlaybackContext,
-                    ) {
+                    ): Boolean {
                         persistence += committed to context
                         persistenceEvents.send(Unit)
+                        return true
                     }
                 },
                 durablePersistenceScope = scope,

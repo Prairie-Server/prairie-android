@@ -181,5 +181,5 @@ private class DeadlinePersistence : TvSubtitlePersistencePort {
     override suspend fun persist(
         committed: CommittedSubtitle,
         context: TvSubtitlePlaybackContext,
-    ) = Unit
+    ) = true
 }

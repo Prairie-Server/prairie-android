@@ -427,8 +427,8 @@ class PlayerViewModel(
             override suspend fun persist(
                 committed: CommittedSubtitle,
                 context: MobileSubtitlePlaybackContext,
-            ) {
-                val writeScope = context.writeScope ?: return
+            ): Boolean {
+                val writeScope = context.writeScope ?: return false
                 val audioFingerprint = committed.audioTrackIndex
                     ?.let { serverIndex ->
                         context.audioTracks.firstOrNull { it.index == serverIndex }
@@ -437,7 +437,7 @@ class PlayerViewModel(
                 val audioUpdate = audioFingerprint
                     ?.let(TrackSelectionFingerprintUpdate::Set)
                     ?: TrackSelectionFingerprintUpdate.Preserve
-                userItemStatePort.recordTrackSelection(
+                return userItemStatePort.recordTrackSelection(
                     scope = writeScope,
                     contentId = context.contentId,
                     fileId = context.mediaFileId,

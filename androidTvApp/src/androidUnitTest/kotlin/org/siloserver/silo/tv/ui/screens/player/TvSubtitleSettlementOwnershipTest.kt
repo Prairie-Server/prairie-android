@@ -821,17 +821,22 @@ class TvSubtitleSettlementOwnershipTest {
         assertTrue(exitBody.contains("sessionLifecycle.stop(expectedSessionId = exitSessionId)"))
         assertBefore(
             clearBody,
+            "subtitleTransactions.reserveDurableFinalPersistence()",
+            "subtitleTransactions.invalidateAndSettleAsync",
+        )
+        assertBefore(
+            clearBody,
             "subtitleTransactions.invalidateAndSettleAsync",
             "playbackMutationFence.invalidateAll()",
         )
         assertBefore(
             clearBody,
-            "subtitleTransactions.requestDurableFinalPersistence()",
+            "subtitleTransactions::requestDurableFinalPersistence",
             "playbackMutationFence.invalidateAll()",
         )
         assertBefore(
             clearBody,
-            "subtitleTransactions.requestDurableFinalPersistence()",
+            "subtitleTransactions::requestDurableFinalPersistence",
             "sessionLifecycle.stop(",
         )
         // stop(expectedSessionId = …) is still stop(): teardown is deferred
@@ -899,10 +904,11 @@ class TvSubtitleSettlementOwnershipTest {
                 override suspend fun persist(
                     committed: CommittedSubtitle,
                     context: TvSubtitlePlaybackContext,
-                ) {
+                ): Boolean {
                     events += "persist:${committed.identity}"
                     persistence += committed
                     persistedSessionIds += context.sessionId
+                    return true
                 }
             },
             durablePersistenceScope = durableScope,
