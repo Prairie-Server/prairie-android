@@ -34,12 +34,35 @@ class EncryptedTokenManagerScopeGenerationTest {
         assertEquals("new-refresh", manager.getRefreshToken())
     }
 
+    @Test
+    fun registryFirstSwitchInvalidatesSnapshotBeforeManagerSwitchCall() = runTest {
+        val registry = FakeServerRegistry()
+        val manager = EncryptedTokenManagerImpl(
+            prefs = inMemoryPreferences(),
+            registry = registry,
+        )
+        manager.saveTokens("server-a-access", "server-a-refresh", 3600)
+        val staleScope = checkNotNull(manager.snapshotCurrentScope())
+
+        registry.switchExternally("server-b")
+        manager.getAccessToken()
+        manager.switchActiveServer("server-b")
+
+        assertNull(manager.getAccessTokenForScope(staleScope))
+        manager.saveTokensForScope(staleScope, "stale-access", "stale-refresh", 3600)
+        assertNull(manager.getAccessTokenForScope(staleScope))
+    }
+
     private class FakeServerRegistry : ServerRegistry {
-        private val entry = ServerEntry(id = "server-a", url = "https://server-a.example")
-        override val entries: StateFlow<List<ServerEntry>> = MutableStateFlow(listOf(entry))
-        override val activeServerId: StateFlow<String?> = MutableStateFlow(entry.id)
-        override val activeEntry: StateFlow<ServerEntry?> = MutableStateFlow(entry)
-        override suspend fun addOrUpdate(url: String, fetchedName: String?): String = entry.id
+        private val serverA = ServerEntry(id = "server-a", url = "https://server-a.example")
+        private val serverB = ServerEntry(id = "server-b", url = "https://server-b.example")
+        private val entriesFlow = MutableStateFlow(listOf(serverA, serverB))
+        private val activeServerIdFlow = MutableStateFlow<String?>(serverA.id)
+        private val activeEntryFlow = MutableStateFlow<ServerEntry?>(serverA)
+        override val entries: StateFlow<List<ServerEntry>> = entriesFlow
+        override val activeServerId: StateFlow<String?> = activeServerIdFlow
+        override val activeEntry: StateFlow<ServerEntry?> = activeEntryFlow
+        override suspend fun addOrUpdate(url: String, fetchedName: String?): String = serverA.id
         override suspend fun rename(serverId: String, userOverrideName: String?) = Unit
         override suspend fun setFetchedName(serverId: String, fetchedName: String?) = Unit
         override suspend fun setProfileId(serverId: String, profileId: String?) = Unit
@@ -47,6 +70,11 @@ class EncryptedTokenManagerScopeGenerationTest {
         override suspend fun signOut(serverId: String) = Unit
         override suspend fun switchTo(serverId: String) = Unit
         override suspend fun touchActive() = Unit
+
+        fun switchExternally(serverId: String) {
+            activeServerIdFlow.value = serverId
+            activeEntryFlow.value = entriesFlow.value.first { it.id == serverId }
+        }
     }
 
     private fun inMemoryPreferences(): SharedPreferences {

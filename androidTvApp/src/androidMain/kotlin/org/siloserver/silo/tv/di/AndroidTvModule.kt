@@ -7,6 +7,8 @@ import org.siloserver.silo.repository.SettingsRepository
 import org.siloserver.silo.tv.data.preferences.LegacyTvPrefsMigration
 import org.siloserver.silo.tv.data.preferences.TvLibrarySelectionStore
 import org.siloserver.silo.common.network.AndroidDeviceMetadataProvider
+import org.siloserver.silo.common.network.CleartextConsentStore
+import org.siloserver.silo.common.network.DataStoreCleartextConsentStore
 import org.siloserver.silo.common.settings.AndroidServerSettingsCache
 import android.content.SharedPreferences
 import org.siloserver.silo.network.AndroidServerRegistry
@@ -71,6 +73,7 @@ import org.koin.dsl.module
  * [org.siloserver.silo.tv.SiloTvApplication].
  */
 val androidTvModule = module {
+    single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
     // Single encrypted prefs handle shared between the server registry and
     // the token manager — see the phone module for rationale.
     single<SharedPreferences> { createSecureSharedPrefs(androidContext()) }
@@ -319,7 +322,7 @@ val androidTvModule = module {
     }
 
     // Auth ViewModels
-    viewModel { TvServerSetupViewModel(get()) }
+    viewModel { TvServerSetupViewModel(get(), get()) }
     viewModel { org.siloserver.silo.tv.ui.screens.auth.TvSetupViewModel(get()) }
     viewModel { org.siloserver.silo.tv.ui.screens.auth.TvSignupViewModel(get()) }
     viewModel { TvLoginViewModel(get(), get(), get()) }

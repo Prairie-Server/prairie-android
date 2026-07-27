@@ -29,6 +29,8 @@ import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStarter
 import org.siloserver.silo.common.network.AndroidDeviceMetadataProvider
+import org.siloserver.silo.common.network.CleartextConsentStore
+import org.siloserver.silo.common.network.DataStoreCleartextConsentStore
 import org.siloserver.silo.common.settings.AndroidServerSettingsCache
 import android.content.SharedPreferences
 import org.siloserver.silo.network.AndroidServerRegistry
@@ -100,6 +102,7 @@ import org.koin.dsl.module
  * the viewModel DSL for proper lifecycle integration.
  */
 val androidModule = module {
+    single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
     // Single encrypted prefs handle shared between the server registry and the
     // token manager — opening it twice means two MasterKey lookups + decryption
     // passes on cold start.
@@ -402,7 +405,7 @@ val androidModule = module {
     viewModel { AdminScansViewModel(get(), get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { org.siloserver.silo.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
-    viewModel { ServerSetupViewModel(get()) }
+    viewModel { ServerSetupViewModel(get(), get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }
     viewModel { SignupViewModel(get()) }

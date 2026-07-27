@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -87,6 +88,36 @@ fun ServerSetupScreen(
     }
 
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
+
+    state.pendingCleartextUrl?.let { origin ->
+        AlertDialog(
+            onDismissRequest = viewModel::cancelCleartextConnection,
+            title = { Text("Use unencrypted HTTP?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(origin, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "This connection is not encrypted. Anyone on the network may see or change " +
+                            "traffic, including your sign-in. Continue only on a network you trust.",
+                    )
+                }
+            },
+            confirmButton = {
+                AuroraPrimaryButton(
+                    label = "Use HTTP",
+                    onClick = viewModel::confirmCleartextConnection,
+                    modifier = Modifier.width(140.dp),
+                    isLoading = state.isLoading,
+                )
+            },
+            dismissButton = {
+                AuroraGhostButton(
+                    label = "Cancel",
+                    onClick = viewModel::cancelCleartextConnection,
+                )
+            },
+        )
+    }
 
     AuroraScreen(variant = AuroraVariant.Server) {
         // Silo wordmark (iOS width 132).

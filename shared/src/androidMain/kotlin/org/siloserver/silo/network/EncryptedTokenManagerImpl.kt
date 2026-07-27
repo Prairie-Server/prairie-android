@@ -51,7 +51,8 @@ class EncryptedTokenManagerImpl(
     private var temporaryScope: TemporaryAuthScope? = null
 
     /**
-     * Incremented whenever this manager writes or clears PERSISTENT credentials.
+     * Incremented whenever the persistent identity moves: writing or clearing
+     * persistent credentials, and switching the active server.
      * Stamped onto snapshots so a scope captured before a sign-out cannot read or
      * overwrite the credentials of the login that replaced it. Overlay begin/end
      * deliberately does not move it — see [AuthScopeSnapshot.credentialEpoch].
@@ -79,6 +80,7 @@ class EncryptedTokenManagerImpl(
                 mutex.withLock {
                     if (id != activeServerId) {
                         activeServerId = id
+                        persistentCredentialEpoch += 1
                         reloadCacheUnsynchronized()
                     }
                 }
@@ -110,6 +112,7 @@ class EncryptedTokenManagerImpl(
         val liveId = registry.activeServerId.value
         if (liveId != activeServerId) {
             activeServerId = liveId
+            persistentCredentialEpoch += 1
             reloadCacheUnsynchronized()
         }
     }
@@ -275,6 +278,7 @@ class EncryptedTokenManagerImpl(
             mutex.withLock {
                 if (activeServerId == serverId) return@withLock
                 activeServerId = serverId
+                persistentCredentialEpoch += 1
                 reloadCacheUnsynchronized()
             }
         }
