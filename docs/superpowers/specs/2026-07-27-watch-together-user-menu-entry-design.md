@@ -95,6 +95,28 @@ or add a server-side “my active room” lookup. A successful create or join ma
 replace the current room through the existing generation/lease and
 `RoomSession` replacement rules.
 
+## Host ownership and continuity
+
+Current server host semantics remain authoritative. The room creator remains
+the host; the clients do not automatically transfer ownership or elect a new
+host.
+
+Normal navigation and backgrounding preserve the process-scoped room while the
+app process and authenticated profile remain alive. A temporary transport loss
+uses the existing server grace period and repository reconnect behavior; a
+successful reconnect within that behavior resumes the same room and host
+authority.
+
+Logout, profile or server switch, and process death clear the client's local,
+profile-scoped room state. After the host disconnects, the server may close the
+room when its existing host-disconnect timeout expires. The clients do not
+extend that timeout, transfer the host role, or reclaim a room after the server
+has closed it.
+
+Accordingly, **Resume current room** is intentionally limited to the same
+running app process, server, and authenticated profile. It is not account-level
+room recovery.
+
 ## Routing and lifecycle
 
 - Empty vote-room creation always routes to the existing lobby with its
@@ -152,6 +174,10 @@ Focused automated coverage must establish:
 - **Resume routing:** Resume appears only for valid current-session state,
   routes through existing snapshot rules without a create/join call, and
   disappears after room termination or an identity change.
+- **Host continuity:** navigation/backgrounding retains the same process-scoped
+  room; a temporary disconnect follows existing grace/reconnect behavior; and
+  logout, profile/server switch, or process death removes Resume and
+  local room state without transferring host ownership.
 - **Parity:** the phone and TV entry surfaces expose the same action set and
   state-dependent behavior, with platform-appropriate presentation.
 - **Regression:** title-detail Watch Together remains visible under its current
@@ -167,6 +193,7 @@ focus/back behavior; they do not replace the automated routing tests.
 
 - A title picker before room creation.
 - A new full Watch Together home, room browser, or room history.
+- Automatic host transfer, ownership election, or original-host reclaim.
 - Cross-process room restoration or a new server endpoint.
 - Changes to room protocol, websocket ownership, voting rules, player sync,
   cleartext policy, or authentication.
