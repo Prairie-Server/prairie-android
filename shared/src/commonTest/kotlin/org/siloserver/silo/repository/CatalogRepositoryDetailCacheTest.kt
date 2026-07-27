@@ -75,6 +75,22 @@ class CatalogRepositoryDetailCacheTest {
     }
 
     @Test
+    fun prefetchUsesCachedDetailWithoutNetwork() = runTest {
+        val cache = FakeCache(preset = ItemDetail(contentId = "c1", type = "movie", title = "Cached"))
+        val result = repoThatFailsOnNetwork(cache).getItemDetailForPrefetch("c1")
+        assertEquals("Cached", (result as ApiResult.Success).data.title)
+    }
+
+    @Test
+    fun prefetchFetchesAndCachesWhenDetailIsAbsent() = runTest {
+        val cache = FakeCache()
+        val result = repo(HttpStatusCode.OK, """{"content_id":"c2","type":"movie","title":"Fresh"}""", cache)
+            .getItemDetailForPrefetch("c2")
+        assertEquals("Fresh", (result as ApiResult.Success).data.title)
+        assertEquals("c2", cache.cachedId)
+    }
+
+    @Test
     fun doesNotServeCacheOn4xx() = runTest {
         val cache = FakeCache(preset = ItemDetail(contentId = "c1", type = "movie", title = "Cached"))
         val result = repo(HttpStatusCode.NotFound, "{}", cache).getItemDetail("c1")

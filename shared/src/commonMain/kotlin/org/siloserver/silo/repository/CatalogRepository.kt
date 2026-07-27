@@ -124,6 +124,15 @@ class CatalogRepository(
     suspend fun getCachedItemDetail(contentId: String): ItemDetail? =
         catalogCache.getCachedItemDetail(contentId)
 
+    /**
+     * Cache-first detail for speculative UI enrichment. Unlike a detail screen,
+     * prefetch must not re-download metadata that is already durable locally.
+     */
+    suspend fun getItemDetailForPrefetch(contentId: String): ApiResult<ItemDetail> {
+        catalogCache.getCachedItemDetail(contentId)?.let { return ApiResult.Success(it) }
+        return getItemDetail(contentId)
+    }
+
     /** Fetches playback-oriented detail (versions, user progress, intro/credits markers). */
     suspend fun getWatchDetail(contentId: String): ApiResult<WatchDetail> =
         catalogApi.getWatchDetail(contentId)
