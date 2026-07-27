@@ -26,6 +26,7 @@ class PlaybackTrackSelectionWriteCoordinator {
         var latestStartedSequence = 0L
         var latestDurableSequence = 0L
         var outstandingTickets = 0
+        var activeWrites = 0
     }
 
     internal val activeKeyCount: Int
@@ -66,22 +67,32 @@ class PlaybackTrackSelectionWriteCoordinator {
     ): Boolean {
         synchronized(ticket) {
             if (ticket.resolved) return ticket.resolvedSuccess
+            synchronized(states) {
+                ticket.state.activeWrites += 1
+            }
         }
         val state = ticket.state
-        return state.mutex.withLock {
-            synchronized(ticket) {
-                if (ticket.resolved) return@withLock ticket.resolvedSuccess
-            }
-            val success = if (ticket.sequence < state.latestStartedSequence) {
-                state.latestDurableSequence >= ticket.sequence
-            } else {
-                state.latestStartedSequence = ticket.sequence
-                persist().also { durable ->
-                    if (durable) state.latestDurableSequence = ticket.sequence
+        try {
+            return state.mutex.withLock {
+                synchronized(ticket) {
+                    if (ticket.resolved) return@withLock ticket.resolvedSuccess
                 }
+                val success = if (ticket.sequence < state.latestStartedSequence) {
+                    state.latestDurableSequence >= ticket.sequence
+                } else {
+                    state.latestStartedSequence = ticket.sequence
+                    persist().also { durable ->
+                        if (durable) state.latestDurableSequence = ticket.sequence
+                    }
+                }
+                if (success) resolve(ticket, success = true)
+                success
             }
-            if (success) resolve(ticket, success = true)
-            success
+        } finally {
+            synchronized(states) {
+                state.activeWrites -= 1
+                removeIfUnused(ticket.key, state)
+            }
         }
     }
 
@@ -97,9 +108,13 @@ class PlaybackTrackSelectionWriteCoordinator {
         }
         synchronized(states) {
             ticket.state.outstandingTickets -= 1
-            if (ticket.state.outstandingTickets == 0) {
-                states.remove(ticket.key, ticket.state)
-            }
+            removeIfUnused(ticket.key, ticket.state)
+        }
+    }
+
+    private fun removeIfUnused(key: Key, state: State) {
+        if (state.outstandingTickets == 0 && state.activeWrites == 0) {
+            states.remove(key, state)
         }
     }
 

@@ -235,12 +235,68 @@ BUILD SUCCESSFUL in 24s
 
 Round 2 focused result: 208 tests, 0 failures, 0 errors.
 
+## Round 3 review fix
+
+### Status and design
+
+The coordinator now counts every active or mutex-waiting `write` invocation
+for a key. Registration is atomic with the ticket's unresolved check, and
+unregistration runs in an exception/cancellation-safe `finally` block. The
+key's state and mutex are removed only after both its outstanding-ticket count
+and write-invocation count reach zero. A replacement capture therefore reuses
+the old mutex until every abandoned primary/fallback invocation has exited.
+
+The deterministic regression test gates an old primary inside persistence,
+queues a same-ticket fallback, abandons the ticket twice, and begins a
+replacement write. It verifies the replacement cannot enter persistence before
+the primary is released, the abandoned fallback never persists, the final
+durable value is the replacement's `B`, and the state is reclaimed afterward.
+
+### RED evidence
+
+Command:
+
+```text
+./gradlew :android-shared:testDebugUnitTest \
+  --tests 'org.siloserver.silo.common.player.PlaybackTrackSelectionWriteCoordinatorTest'
+```
+
+Observed:
+
+```text
+PlaybackTrackSelectionWriteCoordinatorTest >
+  abandonedBlockedWriteKeepsReplacementSerializedUntilOldWriteExits FAILED
+3 tests completed, 1 failed
+BUILD FAILED in 2s
+```
+
+The replacement entered persistence while the old primary was still gated,
+demonstrating that abandonment had created a second mutex for the same key.
+
+### GREEN evidence
+
+Fresh focused verification command:
+
+```text
+./gradlew :android-shared:testDebugUnitTest \
+  --tests 'org.siloserver.silo.common.player.PlaybackTrackSelectionWriteCoordinatorTest' \
+  --rerun-tasks
+```
+
+Observed:
+
+```text
+PlaybackTrackSelectionWriteCoordinatorTest: 3 tests, 0 failures/errors
+BUILD SUCCESSFUL in 15s
+65 actionable tasks: 65 executed
+```
+
 ## Concerns
 
-- Coordinator memory is now bounded by unresolved tickets rather than all keys
-  seen during the process. A genuinely outstanding persistence request keeps
-  its small per-key ordering record until it succeeds or is explicitly
-  abandoned.
+- Coordinator memory is bounded by unresolved tickets and active/waiting write
+  invocations rather than all keys seen during the process. A genuinely
+  outstanding request keeps its small per-key ordering record until the ticket
+  is resolved and every invocation using its mutex has exited.
 - Existing Gradle/Kotlin deprecation and opt-in warnings remain; the focused
   run introduced no new warning from the changed production/test files.
 - No push, merge, or PR action was performed.
