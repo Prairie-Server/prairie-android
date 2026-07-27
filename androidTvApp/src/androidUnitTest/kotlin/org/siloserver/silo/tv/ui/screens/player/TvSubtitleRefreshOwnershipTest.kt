@@ -247,6 +247,7 @@ class TvSubtitleRefreshOwnershipTest {
         qualityPreference = "auto",
         subtitleTracks = tracks,
         outputRouteGeneration = 0,
+        writeScope = tvTestPlaybackWriteScope,
     )
 
     private fun server(index: Int): PlayerSubtitleInfo = PlayerSubtitleInfo(

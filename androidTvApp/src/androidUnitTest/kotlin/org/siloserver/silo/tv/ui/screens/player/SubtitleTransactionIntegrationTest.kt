@@ -593,6 +593,7 @@ class SubtitleTransactionIntegrationTest {
             outputRouteGeneration = OUTPUT_GENERATION,
             capabilities = capabilities,
             clientPlaybackContext = playbackContext,
+            writeScope = tvTestPlaybackWriteScope,
         )
 
         fun mountPending(

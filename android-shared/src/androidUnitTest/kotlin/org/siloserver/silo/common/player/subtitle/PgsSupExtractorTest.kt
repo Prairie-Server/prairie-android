@@ -127,6 +127,40 @@ class PgsSupExtractorTest {
         assertEquals(1, factory.parsed.size)
     }
 
+    @Test
+    fun anOversizedDisplaySetWithoutEndFailsClosedBeforeConsumingTheStream() {
+        val factory = RecordingParserFactory()
+        val extractor = PgsSupExtractor(factory, { 0L }, pgsFormat())
+        extractor.init(FakeExtractorOutput())
+        val oversized = missingEndStream(
+            segmentCount = 300,
+            payloadSize = 65_535,
+        )
+        val input = FakeExtractorInput.Builder().setData(oversized).build()
+
+        drain(extractor, input)
+
+        assertTrue(input.position < oversized.size)
+        assertTrue(factory.parsed.isEmpty())
+    }
+
+    @Test
+    fun tooManySegmentsWithoutEndFailClosedBeforeConsumingTheStream() {
+        val factory = RecordingParserFactory()
+        val extractor = PgsSupExtractor(factory, { 0L }, pgsFormat())
+        extractor.init(FakeExtractorOutput())
+        val oversized = missingEndStream(
+            segmentCount = 3_000,
+            payloadSize = 0,
+        )
+        val input = FakeExtractorInput.Builder().setData(oversized).build()
+
+        drain(extractor, input)
+
+        assertTrue(input.position < oversized.size)
+        assertTrue(factory.parsed.isEmpty())
+    }
+
     private fun pgsFormat(): Format = Format.Builder()
         .setId("silo-subtitle:8")
         .setSampleMimeType("application/pgs")
@@ -149,6 +183,19 @@ class PgsSupExtractorTest {
         out.writeSegment(pts90kHz = 90_000, type = PgsSupExtractor.SEGMENT_TYPE_END, payload = ByteArray(0))
         out.writeSegment(pts90kHz = 270_000, type = SEGMENT_TYPE_PCS, payload = byteArrayOf(0xCC.toByte()))
         out.writeSegment(pts90kHz = 270_000, type = PgsSupExtractor.SEGMENT_TYPE_END, payload = ByteArray(0))
+        return out.toByteArray()
+    }
+
+    private fun missingEndStream(segmentCount: Int, payloadSize: Int): ByteArray {
+        val out = ByteArrayOutputStream()
+        val payload = ByteArray(payloadSize) { 0x5A }
+        repeat(segmentCount) {
+            out.writeSegment(
+                pts90kHz = 90_000,
+                type = SEGMENT_TYPE_PCS,
+                payload = payload,
+            )
+        }
         return out.toByteArray()
     }
 

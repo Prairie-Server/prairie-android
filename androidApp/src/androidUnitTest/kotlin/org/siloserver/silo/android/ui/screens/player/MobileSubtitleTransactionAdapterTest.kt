@@ -18,6 +18,7 @@ import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
 import org.siloserver.silo.model.playback.SubtitleMediaIdentity
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.repository.port.PlaybackWriteScope
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -1405,6 +1406,12 @@ class MobileSubtitleTransactionAdapterTest {
         audioTrackIndex = 2,
         qualityPreference = "auto",
         subtitleTracks = tracks,
+        writeScope = PlaybackWriteScope(
+            serverId = "server-test",
+            profileId = "profile-test",
+            credentialGenerationId = null,
+            identityGeneration = 1L,
+        ),
     )
 
     private fun candidate(

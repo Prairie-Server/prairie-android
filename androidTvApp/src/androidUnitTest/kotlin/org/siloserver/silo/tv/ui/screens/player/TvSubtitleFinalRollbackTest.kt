@@ -310,6 +310,7 @@ class TvSubtitleFinalRollbackTest {
         audioTrackIndex = 2,
         qualityPreference = "auto",
         subtitleTracks = emptyList(),
+        writeScope = tvTestPlaybackWriteScope,
     )
 
     private fun sidecarCandidate(): TvStagedSubtitleCandidate = TvStagedSubtitleCandidate(

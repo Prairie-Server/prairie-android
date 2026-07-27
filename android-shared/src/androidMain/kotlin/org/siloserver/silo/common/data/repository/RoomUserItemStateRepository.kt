@@ -251,6 +251,49 @@ class RoomUserItemStateRepository(
         val snapshot = snapshotProvider() ?: return
         val serverId = snapshot.serverId
         val profileId = snapshot.profileId ?: return
+        recordTrackSelectionOwned(
+            serverId = serverId,
+            profileId = profileId,
+            contentId = contentId,
+            fileId = fileId,
+            audioUpdate = audioUpdate,
+            subtitleUpdate = subtitleUpdate,
+        )
+    }
+
+    override suspend fun recordTrackSelection(
+        scope: PlaybackWriteScope,
+        contentId: String,
+        fileId: Int,
+        audioUpdate: TrackSelectionFingerprintUpdate,
+        subtitleUpdate: TrackSelectionFingerprintUpdate,
+    ): Boolean {
+        val current = snapshotProvider() ?: return false
+        if (current.serverId != scope.serverId ||
+            current.profileId != scope.profileId ||
+            current.credentialGenerationId != scope.credentialGenerationId ||
+            current.identityGeneration != scope.identityGeneration
+        ) return false
+
+        return recordTrackSelectionOwned(
+            serverId = scope.serverId,
+            profileId = scope.profileId,
+            contentId = contentId,
+            fileId = fileId,
+            audioUpdate = audioUpdate,
+            subtitleUpdate = subtitleUpdate,
+        )
+    }
+
+    private suspend fun recordTrackSelectionOwned(
+        serverId: String,
+        profileId: String,
+        contentId: String,
+        fileId: Int,
+        audioUpdate: TrackSelectionFingerprintUpdate,
+        subtitleUpdate: TrackSelectionFingerprintUpdate,
+    ): Boolean {
+        if (contentId.isBlank()) return false
         val nowMs = now()
 
         db.withTransaction {
@@ -277,6 +320,7 @@ class RoomUserItemStateRepository(
                 ),
             )
         }
+        return true
     }
 
     override suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? {

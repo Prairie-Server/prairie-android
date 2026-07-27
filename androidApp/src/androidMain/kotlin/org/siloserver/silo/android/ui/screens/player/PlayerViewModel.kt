@@ -428,6 +428,7 @@ class PlayerViewModel(
                 committed: CommittedSubtitle,
                 context: MobileSubtitlePlaybackContext,
             ) {
+                val writeScope = context.writeScope ?: return
                 val audioFingerprint = committed.audioTrackIndex
                     ?.let { serverIndex ->
                         context.audioTracks.firstOrNull { it.index == serverIndex }
@@ -437,6 +438,7 @@ class PlayerViewModel(
                     ?.let(TrackSelectionFingerprintUpdate::Set)
                     ?: TrackSelectionFingerprintUpdate.Preserve
                 userItemStatePort.recordTrackSelection(
+                    scope = writeScope,
                     contentId = context.contentId,
                     fileId = context.mediaFileId,
                     audioUpdate = audioUpdate,
@@ -2596,6 +2598,7 @@ class PlayerViewModel(
             qualityPreference = null,
             subtitleTracks = state.subtitleTracks,
             audioTracks = state.audioTracks,
+            writeScope = finalPositionScope,
         )
 
     private fun applyMobileSubtitleSnapshot(snapshot: MobileSubtitleTransactionSnapshot) {

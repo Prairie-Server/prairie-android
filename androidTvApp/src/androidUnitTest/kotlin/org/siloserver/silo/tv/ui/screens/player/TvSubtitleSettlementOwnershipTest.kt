@@ -958,6 +958,7 @@ class TvSubtitleSettlementOwnershipTest {
             subtitleTracks = emptyList(),
             outputRouteGeneration = outputRouteGeneration,
             clientPlaybackContext = playbackContext,
+            writeScope = tvTestPlaybackWriteScope,
         )
     }
 

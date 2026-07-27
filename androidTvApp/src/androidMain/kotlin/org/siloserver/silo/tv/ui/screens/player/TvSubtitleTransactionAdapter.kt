@@ -12,13 +12,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicLong
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
+import org.siloserver.silo.common.player.PlaybackTrackSelectionWriteCoordinator
 import org.siloserver.silo.common.player.StagedVideoReplan
 import org.siloserver.silo.common.player.VideoSessionStartV3
 import org.siloserver.silo.common.player.downloadedSubtitleArtifactTrackId
@@ -44,6 +42,7 @@ import org.siloserver.silo.model.playback.UpdateQualityPreference
 import org.siloserver.silo.model.playback.rebaseDownloadedSubtitleUrl
 import org.siloserver.silo.model.playback.reduceSubtitleTransition
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.repository.port.PlaybackWriteScope
 
 internal data class TvSubtitlePlaybackContext(
     val contentId: String,
@@ -61,6 +60,7 @@ internal data class TvSubtitlePlaybackContext(
         formFactor = "tv",
         appVersion = "unknown",
     ),
+    val writeScope: PlaybackWriteScope? = null,
 )
 
 private fun TvSubtitlePlaybackContext.withLatestPlanningEvidence(
@@ -237,6 +237,8 @@ internal class TvSubtitleTransactionAdapter(
     private val persistencePort: TvSubtitlePersistencePort,
     private val durablePersistenceScope: CoroutineScope =
         TvSubtitleDurablePersistenceOwner.scope,
+    private val persistenceCoordinator: PlaybackTrackSelectionWriteCoordinator =
+        PlaybackTrackSelectionWriteCoordinator.Process,
     private val settlementScope: CoroutineScope = scope,
     private val onSnapshotChanged: (TvSubtitleTransactionSnapshot) -> Unit = {},
     private val onCommittedPlayback: suspend (
@@ -316,28 +318,16 @@ internal class TvSubtitleTransactionAdapter(
     )
 
     private data class PersistenceRequest(
-        val sequence: Long,
+        val ticket: PlaybackTrackSelectionWriteCoordinator.Ticket,
         val committed: CommittedSubtitle,
         val context: TvSubtitlePlaybackContext,
         val completion: CompletableDeferred<Boolean>? = null,
-    ) {
-        val key: PersistenceKey
-            get() = PersistenceKey(context.contentId, context.mediaFileId)
-    }
-
-    private data class PersistenceKey(
-        val contentId: String,
-        val mediaFileId: Int,
     )
 
     private val stagedRequests = Channel<org.siloserver.silo.model.playback.PendingSubtitle>(
         capacity = Channel.CONFLATED,
     )
     private val persistenceRequests = Channel<PersistenceRequest>(capacity = Channel.UNLIMITED)
-    private val persistenceSequence = AtomicLong(0L)
-    private val persistenceWriteMutex = Mutex()
-    private val latestStartedPersistenceSequence = mutableMapOf<PersistenceKey, Long>()
-    private val latestDurablePersistenceSequence = mutableMapOf<PersistenceKey, Long>()
 
     private var transition = SubtitleTransitionState.committed(SubtitleIdentity.Off)
     private var context: TvSubtitlePlaybackContext? = null
@@ -2154,12 +2144,12 @@ internal class TvSubtitleTransactionAdapter(
         committed: CommittedSubtitle,
         committedContext: TvSubtitlePlaybackContext,
     ) {
-        persistenceRequests.trySend(
-            newPersistenceRequest(
-                committed = committed,
-                context = committedContext,
-            ),
-        )
+        newPersistenceRequest(
+            committed = committed,
+            context = committedContext,
+        )?.let { request ->
+            persistenceRequests.trySend(request)
+        }
     }
 
     private fun capturePersistenceRequest(
@@ -2177,28 +2167,26 @@ internal class TvSubtitleTransactionAdapter(
         committed: CommittedSubtitle,
         context: TvSubtitlePlaybackContext,
         completion: CompletableDeferred<Boolean>? = null,
-    ): PersistenceRequest = PersistenceRequest(
-        sequence = persistenceSequence.incrementAndGet(),
-        committed = committed,
-        context = context,
-        completion = completion,
-    )
+    ): PersistenceRequest? {
+        val writeScope = context.writeScope ?: return null
+        return PersistenceRequest(
+            ticket = persistenceCoordinator.capture(
+                scope = writeScope,
+                contentId = context.contentId,
+                fileId = context.mediaFileId,
+            ),
+            committed = committed,
+            context = context,
+            completion = completion,
+        )
+    }
 
     private suspend fun writePersistenceRequest(request: PersistenceRequest): Boolean =
-        persistenceWriteMutex.withLock {
-            val latestStarted = latestStartedPersistenceSequence[request.key] ?: 0L
-            if (request.sequence < latestStarted) {
-                return@withLock (
-                    latestDurablePersistenceSequence[request.key] ?: 0L
-                    ) >= request.sequence
-            }
-            latestStartedPersistenceSequence[request.key] = request.sequence
-
+        persistenceCoordinator.write(request.ticket) {
             repeat(PERSISTENCE_ATTEMPTS) {
                 try {
                     persistencePort.persist(request.committed, request.context)
-                    latestDurablePersistenceSequence[request.key] = request.sequence
-                    return@withLock true
+                    return@write true
                 } catch (cancellation: CancellationException) {
                     if (!currentCoroutineContext().isActive) throw cancellation
                 } catch (_: Exception) {

@@ -407,6 +407,52 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun delayedTrackSelectionIsRejectedAfterProfileSwitch() = runTest {
+        val playbackScope = PlaybackWriteScope(
+            serverId = "s1",
+            profileId = "p1",
+            credentialGenerationId = null,
+            identityGeneration = 0L,
+        )
+        currentSnapshot = AuthScopeSnapshot("s1", "p2", "https://s1.example", "p2-token")
+
+        val accepted = repo.recordTrackSelection(
+            scope = playbackScope,
+            contentId = "c1",
+            fileId = 7,
+            audioUpdate = TrackSelectionFingerprintUpdate.Set("old-audio"),
+            subtitleUpdate = TrackSelectionFingerprintUpdate.Set("old-subtitle"),
+        )
+
+        assertFalse(accepted)
+        assertNull(db.userItemStateDao().get("s1", "p1", "c1", 7))
+        assertNull(db.userItemStateDao().get("s1", "p2", "c1", 7))
+    }
+
+    @Test
+    fun delayedTrackSelectionIsRejectedAfterServerSwitch() = runTest {
+        val playbackScope = PlaybackWriteScope(
+            serverId = "s1",
+            profileId = "p1",
+            credentialGenerationId = null,
+            identityGeneration = 0L,
+        )
+        currentSnapshot = AuthScopeSnapshot("s2", "p1", "https://s2.example", "p1-token")
+
+        val accepted = repo.recordTrackSelection(
+            scope = playbackScope,
+            contentId = "c1",
+            fileId = 7,
+            audioUpdate = TrackSelectionFingerprintUpdate.Set("old-audio"),
+            subtitleUpdate = TrackSelectionFingerprintUpdate.Set("old-subtitle"),
+        )
+
+        assertFalse(accepted)
+        assertNull(db.userItemStateDao().get("s1", "p1", "c1", 7))
+        assertNull(db.userItemStateDao().get("s2", "p1", "c1", 7))
+    }
+
+    @Test
     fun recordTrackSelectionRollsBackBothFingerprintsWhenCombinedUpsertFails() = runTest {
         repo.recordAudioTrackSelection("c1", fileId = 7, audioFingerprint = "old-audio")
         repo.recordSubtitleTrackSelection("c1", fileId = 7, subtitleFingerprint = "old-subtitle")

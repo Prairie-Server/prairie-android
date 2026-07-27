@@ -2086,6 +2086,7 @@ class TvSubtitleTransactionAdapterTest {
         qualityPreference = "auto",
         subtitleTracks = tracks,
         outputRouteGeneration = outputRouteGeneration,
+        writeScope = tvTestPlaybackWriteScope,
     )
 
     private fun candidate(

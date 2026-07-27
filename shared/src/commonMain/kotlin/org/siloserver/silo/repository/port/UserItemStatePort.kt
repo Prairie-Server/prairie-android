@@ -143,6 +143,18 @@ interface UserItemStatePort {
         }
     }
 
+    /**
+     * Records a final track selection only while the auth identity captured for
+     * this playback remains current. Returns true when the write was accepted.
+     */
+    suspend fun recordTrackSelection(
+        scope: PlaybackWriteScope,
+        contentId: String,
+        fileId: Int,
+        audioUpdate: TrackSelectionFingerprintUpdate,
+        subtitleUpdate: TrackSelectionFingerprintUpdate,
+    ): Boolean = false
+
     suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? = null
 
     /**

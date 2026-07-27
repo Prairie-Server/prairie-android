@@ -62,6 +62,8 @@ class PgsSupExtractor(
     /** Segments of the display set being accumulated, already prefix-stripped. */
     private var displaySet = ByteArrayBuilder()
     private var displaySetTimeUs = C.TIME_UNSET
+    private var displaySetSegmentCount = 0
+    private var failedClosed = false
     private var emittedSets = 0
     private var emittedCues = 0
 
@@ -97,6 +99,7 @@ class PgsSupExtractor(
     }
 
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
+        if (failedClosed) return Extractor.RESULT_END_OF_INPUT
         val output = trackOutput ?: return Extractor.RESULT_END_OF_INPUT
         try {
             input.readFully(headerScratch, 0, SEGMENT_HEADER_SIZE)
@@ -116,6 +119,13 @@ class PgsSupExtractor(
         header.skipBytes(4) // DTS: unused, presentation time is what cues need.
         val segmentType = header.readUnsignedByte()
         val segmentLength = header.readUnsignedShort()
+
+        if (displaySetSegmentCount >= MAX_DISPLAY_SET_SEGMENTS ||
+            displaySet.size + CONTAINER_SEGMENT_HEADER_SIZE + segmentLength > MAX_DISPLAY_SET_BYTES
+        ) {
+            failClosed()
+            return Extractor.RESULT_END_OF_INPUT
+        }
 
         val payload = ByteArray(segmentLength)
         if (segmentLength > 0) {
@@ -151,6 +161,7 @@ class PgsSupExtractor(
         displaySet.append((segmentLength shr 8 and 0xFF).toByte())
         displaySet.append((segmentLength and 0xFF).toByte())
         displaySet.append(payload)
+        displaySetSegmentCount += 1
     }
 
     /**
@@ -161,6 +172,12 @@ class PgsSupExtractor(
     private fun discardPendingDisplaySet() {
         displaySet = ByteArrayBuilder()
         displaySetTimeUs = C.TIME_UNSET
+        displaySetSegmentCount = 0
+    }
+
+    private fun failClosed() {
+        discardPendingDisplaySet()
+        failedClosed = true
     }
 
     private fun flushDisplaySet(output: TrackOutput) {
@@ -169,6 +186,7 @@ class PgsSupExtractor(
         val timeUs = displaySetTimeUs
         displaySet = ByteArrayBuilder()
         displaySetTimeUs = C.TIME_UNSET
+        displaySetSegmentCount = 0
         val activeParser = parser ?: return
         if (timeUs == C.TIME_UNSET) return
 
@@ -209,6 +227,8 @@ class PgsSupExtractor(
     override fun seek(position: Long, timeUs: Long) {
         displaySet = ByteArrayBuilder()
         displaySetTimeUs = C.TIME_UNSET
+        displaySetSegmentCount = 0
+        failedClosed = false
         parser?.reset()
     }
 
@@ -219,7 +239,8 @@ class PgsSupExtractor(
     /** Grow-on-append byte buffer; a display set is a handful of small segments. */
     private class ByteArrayBuilder {
         private var buffer = ByteArray(INITIAL_CAPACITY)
-        private var size = 0
+        var size = 0
+            private set
 
         fun isEmpty(): Boolean = size == 0
 
@@ -253,6 +274,9 @@ class PgsSupExtractor(
         /** `PG` magic, 4-byte PTS, 4-byte DTS, type, 2-byte length. */
         const val SEGMENT_HEADER_SIZE = 13
         const val SEGMENT_TYPE_END = 0x80
+        private const val CONTAINER_SEGMENT_HEADER_SIZE = 3
+        private const val MAX_DISPLAY_SET_BYTES = 16 * 1024 * 1024
+        private const val MAX_DISPLAY_SET_SEGMENTS = 512
         private const val PTS_CLOCK_HZ = 90_000L
         private const val MAGIC_P_INT = 0x50
         private const val MAGIC_G_INT = 0x47

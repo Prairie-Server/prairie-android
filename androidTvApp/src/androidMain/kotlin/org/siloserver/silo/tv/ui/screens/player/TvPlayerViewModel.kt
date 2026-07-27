@@ -844,7 +844,9 @@ class TvPlayerViewModel(
                 committed: org.siloserver.silo.model.playback.CommittedSubtitle,
                 context: TvSubtitlePlaybackContext,
             ) {
+                val writeScope = context.writeScope ?: return
                 userItemStatePort.recordTrackSelection(
+                    scope = writeScope,
                     contentId = context.contentId,
                     fileId = context.mediaFileId,
                     audioUpdate = tvAudioTrackPersistenceUpdate(
@@ -1218,6 +1220,7 @@ class TvPlayerViewModel(
                 appVersion = BuildConfig.VERSION_NAME,
                 dolbyVision = dolbyVision,
             ),
+            writeScope = finalPositionScope,
         )
     }
 

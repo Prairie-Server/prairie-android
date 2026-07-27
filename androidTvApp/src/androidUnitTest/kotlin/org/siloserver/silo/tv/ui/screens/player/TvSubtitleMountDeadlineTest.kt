@@ -135,6 +135,7 @@ class TvSubtitleMountDeadlineTest {
         audioTrackIndex = 1,
         qualityPreference = "auto",
         subtitleTracks = emptyList(),
+        writeScope = tvTestPlaybackWriteScope,
     )
 
     private fun deadlineCandidate(index: Int): TvStagedSubtitleCandidate =
