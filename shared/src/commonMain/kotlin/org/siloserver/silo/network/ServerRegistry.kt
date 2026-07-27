@@ -23,6 +23,17 @@ interface ServerRegistry {
     /** Convenience: the [ServerEntry] for [activeServerId], or null. */
     val activeEntry: StateFlow<ServerEntry?>
 
+    /**
+     * True when persisted state existed but could not be read back, so
+     * [entries] is empty for a reason other than "the user has no servers".
+     *
+     * Callers that delete data derived from registry absence — see
+     * `OrphanedServerDataPurger` — must treat an empty registry as
+     * untrustworthy while this is set, or a single unreadable blob erases
+     * every download and resume position on the device.
+     */
+    val stateLoadFailed: Boolean get() = false
+
     /** Insert-or-update a server by url. Returns the id of the resulting entry. */
     suspend fun addOrUpdate(
         url: String,

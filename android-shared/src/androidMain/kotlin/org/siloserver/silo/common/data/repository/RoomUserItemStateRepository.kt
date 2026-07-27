@@ -125,7 +125,7 @@ class RoomUserItemStateRepository(
             // Content-level outbox op: syncProgress is keyed by content id, so the
             // coalesce key omits fileId — all pending positions for the item
             // collapse to the latest.
-            outboxDao.enqueueCoalescing(
+            outboxDao.enqueueCoalescingRestoringItemOrder(
                 DirtyOperationEntity(
                     opKind = OutboxOperation.SET_POSITION,
                     serverId = serverId,
@@ -138,6 +138,7 @@ class RoomUserItemStateRepository(
                     createdAtMs = nowMs,
                     nextAttemptAtMs = nowMs,
                 ),
+                nowMs = nowMs,
             )
         }
     }

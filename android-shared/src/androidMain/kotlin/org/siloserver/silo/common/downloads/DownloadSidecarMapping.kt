@@ -10,9 +10,9 @@ import kotlinx.serialization.json.Json
 /**
  * Maps between the on-the-wire-ish [DownloadSidecar] (the download's full local
  * picture) and the Room [DownloadEntity] projection. Chapters serialize to a JSON
- * column (no TypeConverter). `episodeId`/`batchId` on [DownloadRecord] have no
- * entity column and aren't read anywhere in the download/playback paths, so they
- * round-trip as null.
+ * column (no TypeConverter). `episodeId`/`batchId`/`deliveryFormat`/
+ * `targetBitrateKbps` on [DownloadRecord] have no entity column and aren't read
+ * anywhere in the download/playback paths, so they round-trip as null.
  */
 private val mappingJson = Json { ignoreUnknownKeys = true }
 
@@ -49,6 +49,8 @@ fun DownloadSidecar.toEntity(serverId: String, profileId: String): DownloadEntit
         createdAt = record.createdAt,
         completedAt = record.completedAt,
         updatedAtMs = updatedAtMs,
+        quality = record.quality,
+        effectiveQuality = record.effectiveQuality,
     )
 
 fun DownloadEntity.toSidecar(): DownloadSidecar =
@@ -65,6 +67,8 @@ fun DownloadEntity.toSidecar(): DownloadSidecar =
             status = status,
             createdAt = createdAt,
             completedAt = completedAt,
+            quality = quality,
+            effectiveQuality = effectiveQuality,
         ),
         title = title,
         subtitle = subtitle,

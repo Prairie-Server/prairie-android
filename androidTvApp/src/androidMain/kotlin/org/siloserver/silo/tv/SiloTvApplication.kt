@@ -70,6 +70,21 @@ class SiloTvApplication : Application(), Configuration.Provider, SingletonImageL
         }.onFailure {
             android.util.Log.w("SiloTvApplication", "Outbox sync starter init failed", it)
         }
+        // Reclaim the disk and Room rows of servers the user has removed.
+        // Derived from "rows with no registry entry", so it is idempotent, also
+        // cleans installs that removed servers before this existed, and cannot
+        // strand anything if a pass is interrupted. Guarded — never load-bearing
+        // for cold start.
+        runCatching {
+            org.siloserver.silo.common.downloads.installOrphanedServerDataPurge(
+                context = this@SiloTvApplication,
+                registry = koinApp.koin.get(),
+                database = koinApp.koin.get(),
+                storage = koinApp.koin.get(),
+            )
+        }.onFailure {
+            android.util.Log.w("SiloTvApplication", "Orphaned server purge init failed", it)
+        }
         // One-time migration: drain the legacy .record.json download sidecar tree
         // into Room so pre-cutover downloads keep their metadata. Guarded — runs
         // off the main thread, never load-bearing for cold start.

@@ -29,11 +29,14 @@ class AudiobookBookmarksStore(baseDir: File) {
         contentId: String,
         bookmark: AudiobookBookmark,
     ): List<AudiobookBookmark> {
-        val updated = (list(serverId, profileId, contentId) + bookmark)
-            .distinctBy { it.id }
-            .sortedBy { it.positionSeconds }
-        write(serverId, profileId, contentId, updated)
-        return updated
+        val target = store.fileFor(serverId, profileId, contentId)
+        return store.withTargetLock(target) {
+            val updated = (store.read<List<AudiobookBookmark>>(target).orEmpty() + bookmark)
+                .distinctBy { it.id }
+                .sortedBy { it.positionSeconds }
+            store.write(target, updated)
+            updated
+        }
     }
 
     /** Remove a bookmark by id. No-op if missing. */
@@ -43,9 +46,14 @@ class AudiobookBookmarksStore(baseDir: File) {
         contentId: String,
         bookmarkId: String,
     ): List<AudiobookBookmark> {
-        val updated = list(serverId, profileId, contentId).filterNot { it.id == bookmarkId }
-        write(serverId, profileId, contentId, updated)
-        return updated
+        val target = store.fileFor(serverId, profileId, contentId)
+        return store.withTargetLock(target) {
+            val updated = store.read<List<AudiobookBookmark>>(target)
+                .orEmpty()
+                .filterNot { it.id == bookmarkId }
+            store.write(target, updated)
+            updated
+        }
     }
 
     /** Replace the bookmark with matching [id]'s note. */
@@ -56,20 +64,14 @@ class AudiobookBookmarksStore(baseDir: File) {
         bookmarkId: String,
         note: String?,
     ): List<AudiobookBookmark> {
-        val updated = list(serverId, profileId, contentId).map {
-            if (it.id == bookmarkId) it.copy(note = note?.takeIf { n -> n.isNotBlank() }) else it
+        val target = store.fileFor(serverId, profileId, contentId)
+        return store.withTargetLock(target) {
+            val updated = store.read<List<AudiobookBookmark>>(target).orEmpty().map {
+                if (it.id == bookmarkId) it.copy(note = note?.takeIf { n -> n.isNotBlank() }) else it
+            }
+            store.write(target, updated)
+            updated
         }
-        write(serverId, profileId, contentId, updated)
-        return updated
-    }
-
-    private fun write(
-        serverId: String,
-        profileId: String,
-        contentId: String,
-        bookmarks: List<AudiobookBookmark>,
-    ) {
-        store.write(store.fileFor(serverId, profileId, contentId), bookmarks)
     }
 
     companion object { private const val TAG = "AudiobookBookmarksStore" }

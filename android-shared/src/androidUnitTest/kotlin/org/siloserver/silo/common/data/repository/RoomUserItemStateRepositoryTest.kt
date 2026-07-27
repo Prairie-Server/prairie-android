@@ -51,6 +51,35 @@ class RoomUserItemStateRepositoryTest {
     }
 
     @Test
+    fun aRetriedWatchedStillDrainsBeforeAPositionRecordedAfterIt() = runTest {
+        // Mark watched while the server is flaky, then resume the episode.
+        // dueBatch orders by nextAttemptAtMs, and a failed op is pushed 30s+ into
+        // the future — so the position drains first and the retried watched lands
+        // afterwards and clears it. The episode disappears from Continue Watching
+        // on every device while the user is ten minutes in, and local and server
+        // diverge permanently. Deterministic, not a race.
+        val watched = repo.recordWatched("c1", watched = true)
+        db.dirtyOperationDao().recordFailure(
+            id = watched.opId,
+            nowMs = 1000L,
+            nextAttemptAtMs = 31_000L,
+            error = "offline",
+        )
+
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 456.0, durationSeconds = 3600.0)
+
+        val drained = db.dirtyOperationDao().dueBatch("s1", "p1", nowMs = 40_000L, limit = 10)
+        assertEquals(
+            listOf(OutboxOperation.SET_WATCHED, OutboxOperation.SET_POSITION),
+            drained.map { it.opKind },
+            "creation order must survive backoff, or the retry undoes the newer write",
+        )
+        // Clamped, not deleted: dropping the pending SET_WATCHED would strand
+        // watched = true locally with no terminal op to revert it.
+        assertEquals(1, drained.first().attemptCount, "backoff history must be preserved")
+    }
+
+    @Test
     fun watchedChangesClearResumeButPreserveFilePreferencesAndReadingState() = runTest {
         val location = "epubcfi(/6/4!/4)"
         repo.recordPosition("c1", fileId = 7, positionSeconds = 456.0, durationSeconds = 3600.0)
