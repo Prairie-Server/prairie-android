@@ -683,7 +683,7 @@ class SubtitleTransactionIntegrationTest {
         suspend fun awaitReplans(count: Int) {
             while (replanBodies.size < count) {
                 withContext(Dispatchers.Default) {
-                    withTimeout(EVENT_TIMEOUT_MS) { replanEvents.receive() }
+                    withTimeout(5_000) { replanEvents.receive() }
                 }
             }
         }
@@ -691,7 +691,7 @@ class SubtitleTransactionIntegrationTest {
         suspend fun awaitAdopted(sessionId: String) {
             if (lifecycle.activeSessionId() == sessionId) return
             withContext(Dispatchers.Default) {
-                withTimeout(EVENT_TIMEOUT_MS) {
+                withTimeout(5_000) {
                     while (adoptedEvents.receive() != sessionId) {
                         // Drain unrelated adoption completions.
                     }
@@ -702,7 +702,7 @@ class SubtitleTransactionIntegrationTest {
         suspend fun awaitPersistence(count: Int) {
             while (persistence.size < count) {
                 withContext(Dispatchers.Default) {
-                    withTimeout(EVENT_TIMEOUT_MS) { persistenceEvents.receive() }
+                    withTimeout(5_000) { persistenceEvents.receive() }
                 }
             }
         }
@@ -733,12 +733,11 @@ class SubtitleTransactionIntegrationTest {
     }
 
     private companion object {
-        // These waits deliberately hop to Dispatchers.Default because the
-        // manager's publication cleanup also uses real dispatchers. The budget
-        // is a deadlock backstop, not a performance assertion: five seconds
-        // starved under the hosted two-worker full suite. Keep it comfortably
-        // below runTest's own 60-second ceiling so a real deadlock still names
-        // the wait that failed.
+        // Manager publication cleanup and orphan drainage use real IO
+        // dispatchers. This budget is their deadlock backstop, not a performance
+        // assertion: five seconds starved under the hosted two-worker full
+        // suite. Test-scope replan/adoption/persistence waits keep the tighter
+        // guard above.
         const val EVENT_TIMEOUT_MS = 30_000L
 
         const val CONTENT_ID = "content-1"

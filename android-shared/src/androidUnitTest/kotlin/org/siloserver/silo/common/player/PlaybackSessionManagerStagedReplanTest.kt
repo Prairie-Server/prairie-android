@@ -925,9 +925,18 @@ class PlaybackSessionManagerStagedReplanTest {
         harness.start(fileId = 43)
 
         assertEquals("s9", harness.manager.activeSessionIdForTest())
-        assertTrue(
-            "s2" in harness.stoppedSessions,
-            "the abandoned publication should be rolled back, not left running",
+        assertEquals(
+            mapOf("s2" to 1),
+            harness.stoppedSessions.groupingBy { it }.eachCount(),
+            "the abandoned publication should be rolled back exactly once",
+        )
+        assertFalse(harness.manager.rollbackUnpublishedVideoSession("s2"))
+        assertFalse(harness.manager.confirmVideoSessionPublication("s2"))
+        assertTrue(harness.manager.rollbackCurrentPendingVideoPublication())
+        assertEquals(
+            mapOf("s2" to 1),
+            harness.stoppedSessions.groupingBy { it }.eachCount(),
+            "late settlement must not issue a second stop",
         )
     }
 

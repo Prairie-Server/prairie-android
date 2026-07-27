@@ -64,9 +64,9 @@ Media3 mount, with 602 tests complete and one failure.
 
 - [ ] **Step 2: Replace five-second cross-dispatcher guards**
 
-Define `EVENT_TIMEOUT_MS = 30_000L` and use it for stop, replan, adoption,
-persistence, and orphan-drain waits. Keep the waits on `Dispatchers.Default`;
-do not alter adapter or manager production logic.
+Define `EVENT_TIMEOUT_MS = 30_000L` and use it only for manager IO stop and
+orphan-drain waits. Keep test-scope replan, adoption, and persistence waits at
+five seconds; do not alter adapter or manager production logic.
 
 - [ ] **Step 3: Run the focused integration class**
 
