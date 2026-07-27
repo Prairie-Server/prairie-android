@@ -16,11 +16,15 @@ import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.PlaybackRepository
 import org.siloserver.silo.repository.ProfileRepository
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -276,7 +280,7 @@ class PlaybackSessionLifecycleTest {
     fun `adoption captured before stop is rejected and server session is closed`() = runTest {
         val sessionMgr = FakeSessionManager()
         val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
-        val ownershipEpoch = lifecycle.captureOwnershipEpoch()
+        val ownershipEpoch = lifecycle.acquireOwnershipEpoch()
 
         lifecycle.stop()
         val adopted = lifecycle.adoptActiveSessionIfCurrent(
@@ -288,6 +292,78 @@ class PlaybackSessionLifecycleTest {
         assertFalse(adopted)
         assertEquals(SessionState.Idle, lifecycle.state.value)
         assertEquals("sess-late-adopt", sessionMgr.lastStoppedSessionId)
+    }
+
+    @Test
+    fun `ownership acquisition waits for queued stop before accepting a new start`() = runTest {
+        val oldStopEntered = CompletableDeferred<Unit>()
+        val releaseOldStop = CompletableDeferred<Unit>()
+        val stopped = mutableListOf<String>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun stopSession(sessionId: String): ApiResult<Unit> {
+                stopped += sessionId
+                if (sessionId == "sess-old") {
+                    oldStopEntered.complete(Unit)
+                    releaseOldStop.await()
+                }
+                return ApiResult.Success(Unit)
+            }
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        lifecycle.adoptActiveSession(defaultStartParams(), makeSession("sess-old"))
+
+        lifecycle.stopAsync()
+        oldStopEntered.await()
+        val epoch = async { lifecycle.acquireOwnershipEpoch() }
+        assertFalse(epoch.isCompleted)
+
+        releaseOldStop.complete(Unit)
+        val acquired = epoch.await()
+        assertTrue(
+            lifecycle.adoptActiveSessionIfCurrent(
+                params = defaultStartParams(),
+                session = makeSession("sess-new"),
+                expectedOwnershipEpoch = acquired,
+            ),
+        )
+        assertEquals("sess-new", (lifecycle.state.value as SessionState.Active).session.sessionId)
+        assertEquals(listOf("sess-old"), stopped)
+    }
+
+    @Test
+    fun `cancelled adoption closes the allocated server session`() = runTest {
+        val oldStopEntered = CompletableDeferred<Unit>()
+        val releaseOldStop = CompletableDeferred<Unit>()
+        val candidateStopped = CompletableDeferred<Unit>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun stopSession(sessionId: String): ApiResult<Unit> {
+                when (sessionId) {
+                    "sess-old" -> {
+                        oldStopEntered.complete(Unit)
+                        releaseOldStop.await()
+                    }
+                    "sess-candidate" -> candidateStopped.complete(Unit)
+                }
+                return ApiResult.Success(Unit)
+            }
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        lifecycle.adoptActiveSession(defaultStartParams(), makeSession("sess-old"))
+        lifecycle.stopAsync()
+        oldStopEntered.await()
+
+        val adoption = async {
+            lifecycle.adoptActiveSessionIfCurrent(
+                params = defaultStartParams(),
+                session = makeSession("sess-candidate"),
+                expectedOwnershipEpoch = 0L,
+            )
+        }
+        yield()
+        adoption.cancelAndJoin()
+
+        assertTrue(candidateStopped.isCompleted)
+        releaseOldStop.complete(Unit)
     }
 
     @Test

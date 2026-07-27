@@ -24,6 +24,7 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.ProfileRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 class MobileVideoPlaybackStarter(
@@ -44,7 +45,7 @@ class MobileVideoPlaybackStarter(
         if (!shouldReachServerForPlayback(reachabilityMonitor, request.force)) {
             return VideoPlaybackStartResult.ServerUnreachable(request.contentId)
         }
-        val ownershipEpoch = sessionLifecycle.captureOwnershipEpoch()
+        val ownershipEpoch = sessionLifecycle.acquireOwnershipEpoch()
         return try {
             val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
                 is ApiResult.Success -> r.data
@@ -247,6 +248,8 @@ class MobileVideoPlaybackStarter(
                 seasonNumber = watchDetail.seasonNumber,
                 episodeNumber = watchDetail.episodeNumber,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error loading content", e)
             failure(request.contentId, "Unexpected error: ${e.message}", e, PlaybackDiagnosticsCode.UNEXPECTED)

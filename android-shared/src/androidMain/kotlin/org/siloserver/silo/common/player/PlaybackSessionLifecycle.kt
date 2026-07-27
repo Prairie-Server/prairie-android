@@ -15,10 +15,13 @@ import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -29,6 +32,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Wraps [PlaybackSessionManager] with a unified state machine that handles
@@ -138,8 +142,14 @@ class PlaybackSessionLifecycle(
         )
     }
 
-    /** Captures ownership before an external start request goes on the wire. */
-    fun captureOwnershipEpoch(): Long = stopEpoch
+    /**
+     * Waits for an older screen's queued teardown before granting ownership to
+     * a new external start, then snapshots the epoch under the lifecycle lock.
+     */
+    suspend fun acquireOwnershipEpoch(): Long {
+        awaitPendingStop()
+        return mutex.withLock { stopEpoch }
+    }
 
     /**
      * Adopts an externally-started session only if no teardown has happened
@@ -153,14 +163,22 @@ class PlaybackSessionLifecycle(
         stopSessionOnStop: Boolean = true,
         renewMissingSessionWithLegacyStart: Boolean = true,
         expectedOwnershipEpoch: Long,
-    ): Boolean = adoptActiveSession(
-        params = params,
-        session = session,
-        manageProgress = manageProgress,
-        stopSessionOnStop = stopSessionOnStop,
-        renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart,
-        expectedOwnershipEpoch = expectedOwnershipEpoch,
-    )
+    ): Boolean = try {
+        currentCoroutineContext().ensureActive()
+        adoptActiveSession(
+            params = params,
+            session = session,
+            manageProgress = manageProgress,
+            stopSessionOnStop = stopSessionOnStop,
+            renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart,
+            expectedOwnershipEpoch = expectedOwnershipEpoch,
+        )
+    } catch (cancellation: CancellationException) {
+        withContext(NonCancellable) {
+            sessionManager.stopSession(session.sessionId)
+        }
+        throw cancellation
+    }
 
     private suspend fun adoptActiveSession(
         params: StartParams,
