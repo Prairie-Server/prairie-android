@@ -6,10 +6,6 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import kotlin.test.AfterTest
-import androidx.media3.datasource.DataSource
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.siloserver.silo.common.io.ContentLimitExceeded
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -20,7 +16,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import org.siloserver.silo.network.TokenManagerImpl
+import org.siloserver.silo.common.io.ContentLimitExceeded
+import androidx.media3.datasource.DataSource
 
 @RunWith(RobolectricTestRunner::class)
 class AuthenticatedDataSourceFactoryTest {
@@ -423,8 +423,33 @@ class AuthenticatedDataSourceFactoryTest {
         private val onOpen: (DataSpec) -> Long = { C.LENGTH_UNSET.toLong() },
     ) : HttpDataSource {
         val openedDataSpecs = mutableListOf<DataSpec>()
-    fun subtitleLimitIs32MiB() {
-        assertEquals(32L * 1024 * 1024, MAX_SUBTITLE_BYTES)
+        var closed = false
+
+        override fun addTransferListener(transferListener: TransferListener) = Unit
+
+        override fun open(dataSpec: DataSpec): Long {
+            openedDataSpecs += dataSpec
+            return onOpen(dataSpec)
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            C.RESULT_END_OF_INPUT
+
+        override fun getUri(): Uri? = openedDataSpecs.lastOrNull()?.uri
+
+        override fun getResponseCode(): Int = responseCode
+
+        override fun getResponseHeaders(): Map<String, List<String>> = responseHeaders
+
+        override fun setRequestProperty(name: String, value: String) = Unit
+
+        override fun clearRequestProperty(name: String) = Unit
+
+        override fun clearAllRequestProperties() = Unit
+
+        override fun close() {
+            closed = true
+        }
     }
 
     @Test
@@ -478,25 +503,6 @@ class AuthenticatedDataSourceFactoryTest {
 
         override fun addTransferListener(transferListener: TransferListener) = Unit
 
-        override fun open(dataSpec: DataSpec): Long {
-            openedDataSpecs += dataSpec
-            return onOpen(dataSpec)
-        }
-
-        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-            C.RESULT_END_OF_INPUT
-
-        override fun getUri(): Uri? = openedDataSpecs.lastOrNull()?.uri
-
-        override fun getResponseCode(): Int = responseCode
-
-        override fun getResponseHeaders(): Map<String, List<String>> = responseHeaders
-
-        override fun setRequestProperty(name: String, value: String) = Unit
-
-        override fun clearRequestProperty(name: String) = Unit
-
-        override fun clearAllRequestProperties() = Unit
         override fun open(dataSpec: DataSpec): Long = declaredLength
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
