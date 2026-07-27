@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.watchtogether.CreateRoomRequest
 import org.prairieserver.prairie.model.watchtogether.JoinRoomRequest
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.model.watchtogether.SetSelectionRequest
 import org.prairieserver.prairie.network.ApiResult
@@ -46,12 +47,24 @@ class TvWatchTogetherViewModel(
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     /** Host flow: create a room with this title pre-selected as the room selection. */
-    fun createRoom(contentId: String, fileId: Int?) {
+    fun createRoom(
+        contentId: String,
+        fileId: Int?,
+        selectionMode: RoomSelectionMode = RoomSelectionMode.HostPick,
+    ) {
         if (_uiState.value.isBusy) return
         _uiState.update { it.copy(isBusy = true, error = null) }
         viewModelScope.launch {
-            when (val created = repository.createRoom(CreateRoomRequest())) {
+            when (
+                val created = repository.createRoom(
+                    CreateRoomRequest(selectionMode = selectionMode.wire),
+                )
+            ) {
                 is ApiResult.Success -> {
+                    if (selectionMode == RoomSelectionMode.Vote) {
+                        finish(created.data.room)
+                        return@launch
+                    }
                     // createRoom does NOT auto-select; set this title as the room
                     // selection so the host lands on the synced player. The repo
                     // already stored the snapshot synchronously, so setSelection

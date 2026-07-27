@@ -45,6 +45,48 @@ interface DirtyOperationDao {
     )
     suspend fun getLatestByCoalesceKey(coalesceKey: String): DirtyOperationEntity?
 
+    /**
+     * Enqueues [op] and pulls any backed-off sibling for the same item forward.
+     *
+     * `dueBatch` orders by `nextAttemptAtMs ASC, id ASC`, and `recordFailure`
+     * pushes a failed op 30s·2ⁿ into the future — so an op enqueued now drains
+     * *before* one that was created earlier and failed once. For a single item
+     * that inverts creation order: mark an episode watched while the server is
+     * flaky, then resume it, and the progress syncs first while the retried
+     * watched lands 30s later and clears it. The episode vanishes from Continue
+     * Watching on every device while the user is ten minutes in, and local and
+     * server diverge permanently. Deterministic, not a race.
+     *
+     * Clamping rather than deleting the sibling is deliberate: deleting a
+     * pending `SET_WATCHED` would strand `watched = true` locally with no
+     * terminal op to revert it, and could drop a deliberately-requeued replay.
+     * `attemptCount` is untouched, so backoff still grows on the next failure.
+     */
+    @Transaction
+    suspend fun enqueueCoalescingRestoringItemOrder(op: DirtyOperationEntity, nowMs: Long): Long {
+        clearBackoffForTargetContent(
+            serverId = op.serverId,
+            profileId = op.profileId,
+            contentId = op.targetContentId,
+            nowMs = nowMs,
+        )
+        return enqueueCoalescing(op)
+    }
+
+    @Query(
+        "UPDATE dirty_operations SET nextAttemptAtMs = :nowMs " +
+            "WHERE serverId = :serverId AND profileId = :profileId " +
+            "AND targetContentId = :contentId " +
+            "AND state = '${DirtyOperationEntity.STATE_PENDING}' " +
+            "AND nextAttemptAtMs > :nowMs",
+    )
+    suspend fun clearBackoffForTargetContent(
+        serverId: String,
+        profileId: String,
+        contentId: String,
+        nowMs: Long,
+    )
+
     @Query(
         "DELETE FROM dirty_operations WHERE serverId = :serverId AND profileId = :profileId " +
             "AND targetContentId = :contentId AND opKind = :opKind " +
@@ -82,6 +124,32 @@ interface DirtyOperationDao {
             "ORDER BY nextAttemptAtMs ASC, id ASC LIMIT :limit",
     )
     suspend fun dueBatch(serverId: String, profileId: String, nowMs: Long, limit: Int): List<DirtyOperationEntity>
+
+    /**
+     * Due oldest operation for each content item. The anti-join is evaluated
+     * before LIMIT so an older sibling in backoff cannot fall outside the SQL
+     * page and let a newer operation overtake it.
+     */
+    @Query(
+        "SELECT candidate.* FROM dirty_operations candidate " +
+            "WHERE candidate.state = '${DirtyOperationEntity.STATE_PENDING}' " +
+            "AND candidate.nextAttemptAtMs <= :nowMs " +
+            "AND candidate.serverId = :serverId AND candidate.profileId = :profileId " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM dirty_operations older " +
+            "WHERE older.serverId = candidate.serverId " +
+            "AND older.profileId = candidate.profileId " +
+            "AND older.targetContentId = candidate.targetContentId " +
+            "AND older.state IN ('${DirtyOperationEntity.STATE_PENDING}', '${DirtyOperationEntity.STATE_IN_FLIGHT}') " +
+            "AND older.id < candidate.id" +
+            ") ORDER BY candidate.nextAttemptAtMs ASC, candidate.id ASC LIMIT :limit",
+    )
+    suspend fun dueTargetHeads(
+        serverId: String,
+        profileId: String,
+        nowMs: Long,
+        limit: Int,
+    ): List<DirtyOperationEntity>
 
     /**
      * Atomically claim a pending op for sending. Returns the number of rows

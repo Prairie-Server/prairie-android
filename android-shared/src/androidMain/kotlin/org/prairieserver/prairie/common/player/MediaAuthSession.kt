@@ -10,7 +10,11 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.prairieserver.prairie.model.auth.RefreshRequest
 import org.prairieserver.prairie.model.auth.RefreshResponse
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.CleartextOriginConsent
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.isSameHttpOrigin
+import org.prairieserver.prairie.network.requiresApproval
 import java.io.IOException
 
 /**
@@ -25,17 +29,87 @@ class MediaAuthSession(
     private val tokenManager: TokenManager,
     private val refreshClient: OkHttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true },
+    private val cleartextOriginConsent: CleartextOriginConsent? = null,
 ) {
     private val refreshMutex = Mutex()
 
-    suspend fun snapshot(): MediaAuthSnapshot = MediaAuthSnapshot(
-        accessToken = tokenManager.getAccessToken(),
-        profileId = tokenManager.getProfileId(),
-        profileToken = tokenManager.getProfileToken(),
-        serverId = tokenManager.getCurrentServerId(),
-    )
+    suspend fun isTransportApproved(requestUrl: String): Boolean =
+        cleartextOriginConsent?.requiresApproval(requestUrl) != true
+
+    suspend fun snapshot(): MediaAuthSnapshot {
+        tokenManager.snapshotCurrentScope()?.let { scope ->
+            if (cleartextOriginConsent?.requiresApproval(scope.serverUrl) == true) {
+                return MediaAuthSnapshot(null, null, null, scope.serverId, "", null)
+            }
+            val accessToken = tokenManager.getAccessTokenForScope(scope)
+            val scopeAfter = tokenManager.snapshotCurrentScope()
+            if (scopeAfter != scope || accessToken.isNullOrBlank()) {
+                return MediaAuthSnapshot(
+                    accessToken = null,
+                    profileId = null,
+                    profileToken = null,
+                    serverId = scopeAfter?.serverId,
+                    serverUrl = "",
+                    authScope = null,
+                )
+            }
+            return MediaAuthSnapshot(
+                accessToken = accessToken,
+                profileId = scope.profileId,
+                profileToken = scope.profileToken,
+                serverId = scope.serverId,
+                serverUrl = scope.serverUrl,
+                authScope = scope,
+            )
+        }
+
+        val serverIdBefore = tokenManager.getCurrentServerId()
+        val serverUrl = tokenManager.getServerUrl()
+        if (cleartextOriginConsent?.requiresApproval(serverUrl) == true) {
+            return MediaAuthSnapshot(null, null, null, tokenManager.getCurrentServerId(), "")
+        }
+        val accessToken = tokenManager.getAccessToken()
+        val profileId = tokenManager.getProfileId()
+        val profileToken = tokenManager.getProfileToken()
+        val serverIdAfter = tokenManager.getCurrentServerId()
+        val serverUrlAfter = tokenManager.getServerUrl()
+
+        // TokenManager exposes the active fields separately. If the user
+        // switches servers while they are read, never combine one server's
+        // credentials with another server's URL. An empty URL makes every
+        // transport's origin check fail closed and also suppresses refresh.
+        if (
+            serverIdBefore != serverIdAfter ||
+            !isSameHttpOrigin(serverUrl, serverUrlAfter)
+        ) {
+            return MediaAuthSnapshot(
+                accessToken = null,
+                profileId = null,
+                profileToken = null,
+                serverId = serverIdAfter,
+                serverUrl = "",
+            )
+        }
+        return MediaAuthSnapshot(
+            accessToken = accessToken,
+            profileId = profileId,
+            profileToken = profileToken,
+            serverId = serverIdAfter,
+            serverUrl = serverUrlAfter,
+        )
+    }
 
     suspend fun refreshIfStale(failedSnapshot: MediaAuthSnapshot): Boolean = refreshMutex.withLock {
+        failedSnapshot.authScope?.let { failedScope ->
+            val currentScope = tokenManager.snapshotCurrentScope()
+            if (currentScope != failedScope) return@withLock false
+            val currentAccessToken = tokenManager.getAccessTokenForScope(failedScope)
+            if (!currentAccessToken.isNullOrBlank() && currentAccessToken != failedSnapshot.accessToken) {
+                return@withLock true
+            }
+            return@withLock attemptRefresh(failedScope)
+        }
+
         val current = snapshot()
         if (current.serverId != failedSnapshot.serverId) {
             return@withLock false
@@ -44,6 +118,42 @@ class MediaAuthSession(
             return@withLock true
         }
         attemptRefresh(failedSnapshot.serverId)
+    }
+
+    private suspend fun attemptRefresh(scope: AuthScopeSnapshot): Boolean {
+        val refreshToken = tokenManager.getRefreshTokenForScope(scope) ?: return false
+        if (refreshToken.isBlank() || scope.serverUrl.isBlank()) return false
+        if (tokenManager.snapshotCurrentScope() != scope) return false
+
+        val request = refreshRequest(scope.serverUrl, refreshToken)
+        return try {
+            refreshClient.newCall(request).execute().use { response ->
+                if (tokenManager.snapshotCurrentScope() != scope) return@use false
+                if (tokenManager.getRefreshTokenForScope(scope).isNullOrBlank()) return@use false
+                if (!response.isSuccessful) {
+                    // A temporary remote-playback overlay is process-only. A
+                    // rejected refresh must not remove it and expose the saved
+                    // owner's credentials to the still-running media request.
+                    if (
+                        response.code.shouldInvalidateSessionAfterMediaRefreshFailure() &&
+                        scope.credentialGenerationId == null
+                    ) {
+                        tokenManager.invalidateSessionForScope(scope)
+                    }
+                    return@use false
+                }
+                val tokens = decodeRefresh(response.body?.string().orEmpty()) ?: return@use false
+                tokenManager.saveTokensForScope(
+                    scope = scope,
+                    accessToken = tokens.accessToken,
+                    refreshToken = tokens.refreshToken,
+                    expiresIn = tokens.expiresIn,
+                )
+                tokenManager.getAccessTokenForScope(scope) == tokens.accessToken
+            }
+        } catch (_: IOException) {
+            false
+        }
     }
 
     private suspend fun attemptRefresh(serverIdBeforeRequest: String?): Boolean {
@@ -56,13 +166,7 @@ class MediaAuthSession(
         // reject it.
         if (tokenManager.getCurrentServerId() != serverIdBeforeRequest) return false
 
-        val request = Request.Builder()
-            .url(serverUrl.trimEnd('/') + "/api/v1/auth/refresh")
-            .post(
-                json.encodeToString(RefreshRequest(refreshToken))
-                    .toRequestBody("application/json; charset=utf-8".toMediaType()),
-            )
-            .build()
+        val request = refreshRequest(serverUrl, refreshToken)
 
         return try {
             refreshClient.newCall(request).execute().use { response ->
@@ -80,9 +184,7 @@ class MediaAuthSession(
                     }
                     return@use false
                 }
-                val tokens = runCatching {
-                    json.decodeFromString<RefreshResponse>(response.body?.string().orEmpty())
-                }.getOrNull() ?: return@use false
+                val tokens = decodeRefresh(response.body?.string().orEmpty()) ?: return@use false
                 tokenManager.saveTokens(
                     accessToken = tokens.accessToken,
                     refreshToken = tokens.refreshToken,
@@ -94,6 +196,18 @@ class MediaAuthSession(
             false
         }
     }
+
+    private fun refreshRequest(serverUrl: String, refreshToken: String): Request =
+        Request.Builder()
+            .url(serverUrl.trimEnd('/') + "/api/v1/auth/refresh")
+            .post(
+                json.encodeToString(RefreshRequest(refreshToken))
+                    .toRequestBody("application/json; charset=utf-8".toMediaType()),
+            )
+            .build()
+
+    private fun decodeRefresh(body: String): RefreshResponse? =
+        runCatching { json.decodeFromString<RefreshResponse>(body) }.getOrNull()
 }
 
 data class MediaAuthSnapshot(
@@ -101,6 +215,8 @@ data class MediaAuthSnapshot(
     val profileId: String?,
     val profileToken: String?,
     val serverId: String?,
+    val serverUrl: String,
+    internal val authScope: AuthScopeSnapshot? = null,
 ) {
     fun asRequestHeaders(): Map<String, String> = buildMap {
         accessToken?.takeIf { it.isNotBlank() }?.let { put("Authorization", "Bearer $it") }

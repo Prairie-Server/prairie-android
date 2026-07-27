@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.android.ui.navigation.Route
 import org.prairieserver.prairie.model.watchtogether.PromoteSuggestionRequest
+import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomPhase
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.model.watchtogether.Suggestion
 import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.watchtogether.RoomSession
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -21,7 +23,10 @@ import kotlinx.coroutines.launch
  * shared model uses lenient enums, see WatchTogetherModels.kt.
  */
 fun lobbyPlayerDestinationOrNull(room: RoomSnapshot): String? =
-    if (room.phase == RoomPhase.Playing && !room.selectedContentId.isNullOrBlank()) {
+    if (room.phase == RoomPhase.Playing &&
+        !room.selectedContentId.isNullOrBlank() &&
+        !(room.selfRole == MemberRole.Host && room.memberCount <= 1)
+    ) {
         Route.Player(
             contentId = room.selectedContentId!!,
             fileId = room.selectedFileId,
@@ -38,18 +43,17 @@ fun lobbyPlayerDestinationOrNull(room: RoomSnapshot): String? =
  *
  * The repository owns the room JWT and reads the active roomId from its own
  * snapshot, so the room-scoped ops take only request/id params (not a roomId).
- * [connect] is suspend and runs the reconnect-with-backoff loop until the
- * scope is cancelled, so it is launched in [viewModelScope].
+ * The application-scoped [RoomSession] owns reconnect and survives navigation
+ * from this lobby into the synced player.
  */
 class WatchTogetherLobbyViewModel(
     private val roomId: String,
     private val repository: WatchTogetherRepository,
+    private val roomSession: RoomSession,
 ) : ViewModel() {
 
     init {
-        // The repo owns reconnect/backoff; we just bind on enter. connect()
-        // suspends for the lifetime of the socket, so launch it (don't call bare).
-        viewModelScope.launch { repository.connect(roomId) }
+        roomSession.adopt(roomId)
     }
 
     val room: StateFlow<RoomSnapshot?> = repository.roomSnapshot
@@ -72,7 +76,7 @@ class WatchTogetherLobbyViewModel(
 
     /** Guest/host leave: tear down the WS + clear room state. */
     fun leave() {
-        repository.reset()
+        roomSession.depart()
     }
 
     override fun onCleared() {

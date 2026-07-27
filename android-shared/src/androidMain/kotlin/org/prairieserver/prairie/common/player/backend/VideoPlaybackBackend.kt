@@ -7,6 +7,7 @@ import org.prairieserver.prairie.common.player.video.VideoPlayerTrackEntry
 import org.prairieserver.prairie.model.playback.AudioPassthroughCapabilities
 import org.prairieserver.prairie.model.playback.HdrCapabilities
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
+import org.prairieserver.prairie.model.playback.SubtitleIdentity
 
 @UnstableApi
 interface VideoPlaybackBackend {
@@ -24,6 +25,11 @@ interface VideoPlaybackBackend {
 
     fun selectSubtitle(track: VideoPlayerTrackEntry?): Boolean
 
+    fun selectMountedSubtitle(
+        identity: SubtitleIdentity,
+    ): Boolean
+
+    /** Compatibility bridge until every platform adapter publishes typed identity. */
     fun selectMountedSubtitle(
         subtitles: List<PlayerSubtitleInfo>,
         selectedIndex: Int,

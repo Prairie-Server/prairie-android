@@ -126,6 +126,12 @@ kover {
                     // FramedJSONSession similarly). Exercise via integration tests.
                     "org.prairieserver.prairie.network.DefaultWatchTogetherRealtimeClient",
                     "org.prairieserver.prairie.network.DefaultWatchTogetherRealtimeClient$*",
+                    // Private top-level JVM classes in WatchTogetherRealtimeClient.kt —
+                    // not matched by DefaultWatchTogetherRealtimeClient$*.
+                    "org.prairieserver.prairie.network.KtorWatchTogetherSocketConnection",
+                    "org.prairieserver.prairie.network.KtorWatchTogetherSocketConnection$*",
+                    "org.prairieserver.prairie.network.KtorWatchTogetherSocketConnector",
+                    "org.prairieserver.prairie.network.KtorWatchTogetherSocketConnector$*",
                     "org.prairieserver.prairie.network.DefaultPlaybackRealtimeClient",
                     "org.prairieserver.prairie.network.DefaultPlaybackRealtimeClient$*",
                     "org.prairieserver.prairie.network.DefaultHomeRealtimeClient",

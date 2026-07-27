@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -95,6 +96,7 @@ fun MovieDetailContent(
     onDownloadTapped: (() -> Unit)? = null,
     onPlayOnDevice: (() -> Unit)? = null,
     onWatchTogether: (() -> Unit)? = null,
+    onSuggestToRoom: (() -> Unit)? = null,
     translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -110,7 +112,8 @@ fun MovieDetailContent(
     val subtitleTracks = selectedVersion?.subtitleTracks.orEmpty()
     val hasTrackSelectors = detail.versions.isNotEmpty()
     val hasOverflow = onPlayOnDevice != null ||
-        onSeriesClick != null || onSeasonClick != null || onWatchTogether != null
+        onSeriesClick != null || onSeasonClick != null || onWatchTogether != null ||
+        onSuggestToRoom != null
 
     val eyebrow = if (detail.type == "episode") {
         HeroMetadata.episodeEyebrow(detail)
@@ -180,6 +183,18 @@ fun MovieDetailContent(
                                     onClick = {
                                         dismiss()
                                         onSeriesClick()
+                                    },
+                                )
+                            }
+                            if (onSuggestToRoom != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Suggest to Watch Together") },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Add, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        dismiss()
+                                        onSuggestToRoom()
                                     },
                                 )
                             }

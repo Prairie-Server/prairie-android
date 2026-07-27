@@ -2,10 +2,408 @@ package org.prairieserver.prairie.android.ui.screens.player
 
 import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
+import org.prairieserver.prairie.model.playback.SubtitleIdentity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class MobileSubtitleAutoSelectionTest {
+
+    @Test
+    fun downloadedSelectionUsesPersistentDownloadIdentity() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 9,
+                label = "English",
+                language = "en",
+            ).copy(source = "downloaded", downloadId = 312),
+        )
+
+        assertEquals(
+            SubtitleIdentity.Downloaded::class,
+            identity::class,
+        )
+        assertEquals(312, (identity as SubtitleIdentity.Downloaded).downloadId)
+    }
+
+    @Test
+    fun downloadIdIsAuthoritativeWhenModernRowOmitsSourceStrings() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 9,
+                label = "English",
+                language = "en",
+                codec = "vtt",
+            ).copy(
+                source = null,
+                catalogSource = null,
+                downloadId = 312,
+                url = "/stream/s1/subtitles/9.vtt",
+            ),
+        )
+
+        assertEquals(SubtitleIdentity.Downloaded::class, identity::class)
+        assertEquals(312, (identity as SubtitleIdentity.Downloaded).downloadId)
+    }
+
+    @Test
+    fun downloadedSelectionRestoresByUniqueDomainIdAfterMetadataChanges() {
+        val persisted = SubtitleIdentity.Downloaded(
+            downloadId = 312,
+            media = org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                trackId = "prairie-downloaded-subtitle:312",
+                label = "English",
+                language = "en",
+                codecFamily = "webvtt",
+                forced = false,
+                hearingImpaired = false,
+            ),
+        )
+        val changed = subtitle(
+            index = 8,
+            label = "Français corrigé",
+            language = "fra",
+            codec = "subrip",
+        ).copy(source = "downloaded", downloadId = 312)
+
+        assertEquals(0, resolveMobileSubtitleOrdinal(persisted, listOf(changed)))
+    }
+
+    @Test
+    fun duplicateDownloadedDomainIdSafelyMissesAsAmbiguous() {
+        val persisted = SubtitleIdentity.Downloaded(
+            downloadId = 312,
+            media = org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                label = "English",
+                language = "en",
+                codecFamily = "webvtt",
+            ),
+        )
+        val duplicates = listOf(
+            subtitle(8, "English", "en", codec = "webvtt")
+                .copy(source = "downloaded", downloadId = 312),
+            subtitle(9, "French", "fr", codec = "subrip")
+                .copy(source = "downloaded", downloadId = 312),
+        )
+
+        assertEquals(null, resolveMobileSubtitleOrdinal(persisted, duplicates))
+    }
+
+    @Test
+    fun genericLabelKeepsHearingImpairedMetadataUnknown() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 4,
+                label = "English",
+                language = "en",
+                codec = "vtt",
+            ).copy(source = "downloaded"),
+        ) as SubtitleIdentity.LocalMedia3
+
+        assertEquals(null, identity.media.hearingImpaired)
+    }
+
+    @Test
+    fun authoritativeHearingImpairedTrackDoesNotMatchUnknownMetadata() {
+        val identity = SubtitleIdentity.LocalMedia3(
+            org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                language = "en",
+                codecFamily = "webvtt",
+                forced = false,
+                hearingImpaired = true,
+            ),
+        )
+        val generic = subtitle(4, "English", "en", codec = "vtt").copy(
+            source = "downloaded",
+            downloadId = null,
+        )
+
+        assertEquals(null, resolveMobileSubtitleOrdinal(identity, listOf(generic)))
+    }
+
+    @Test
+    fun embeddedSelectionRetainsCombinedServerIndexAndTypedMetadata() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 7,
+                label = "English Forced",
+                language = "en",
+                forced = true,
+                codec = "hdmv_pgs_subtitle",
+            ).copy(source = "embedded", url = ""),
+        )
+
+        assertEquals(
+            SubtitleIdentity.Embedded(
+                serverIndex = 7,
+                media = identity.let { (it as SubtitleIdentity.Embedded).media },
+            ),
+            identity,
+        )
+        assertEquals("pgs", (identity as SubtitleIdentity.Embedded).media.codecFamily)
+        assertEquals(true, identity.media.forced)
+    }
+
+    @Test
+    fun embeddedBitmapWithoutSidecarRouteRequestsBurnIn() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 6,
+                label = "French VobSub",
+                language = "fr",
+                codec = "dvd_subtitle",
+            ).copy(source = "embedded", url = ""),
+        )
+
+        val burnIn = identity as SubtitleIdentity.ServerBurnIn
+        assertEquals(6, burnIn.serverIndex)
+    }
+
+    @Test
+    fun materializedPgsArtifactUsesServerSidecarTransaction() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 8,
+                label = "English PGS",
+                language = "en",
+                codec = "hdmv_pgs_subtitle",
+            ).copy(source = "server_artifact", url = "/stream/s1/subtitles/8.sup"),
+        )
+
+        val sidecar = identity as SubtitleIdentity.ServerSidecar
+        assertEquals(8, sidecar.serverIndex)
+    }
+
+    @Test
+    fun extractedEmbeddedTextArtifactUsesServerSidecarTransaction() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 7,
+                label = "English",
+                language = "en",
+                codec = "webvtt",
+            ).copy(
+                source = "embedded",
+                url = "/stream/s1/subtitles/7.vtt",
+            ),
+        )
+
+        val sidecar = identity as SubtitleIdentity.ServerSidecar
+        assertEquals(7, sidecar.serverIndex)
+        assertEquals("English", sidecar.media?.label)
+        assertEquals("en", sidecar.media?.language)
+        assertEquals("webvtt", sidecar.media?.codecFamily)
+    }
+
+    @Test
+    fun externalBitmapSelectionRequestsBurnIn() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 8,
+                label = "English PGS",
+                language = "en",
+                codec = "hdmv_pgs_subtitle",
+            ).copy(source = "external", url = ""),
+        )
+
+        val burnIn = identity as SubtitleIdentity.ServerBurnIn
+        assertEquals(8, burnIn.serverIndex)
+        assertEquals("English PGS", burnIn.media?.label)
+        assertEquals("en", burnIn.media?.language)
+        assertEquals("pgs", burnIn.media?.codecFamily)
+    }
+
+    @Test
+    fun persistedServerSidecarFollowsMetadataWhenMountedIndicesReorder() {
+        val persisted = mobileSubtitleIdentity(
+            subtitle(
+                index = 4,
+                label = "English",
+                language = "en",
+                codec = "webvtt",
+            ).copy(source = "external"),
+        )
+        val reordered = listOf(
+            subtitle(4, "Deutsch", "de", codec = "webvtt").copy(source = "external"),
+            subtitle(9, "English", "en", codec = "webvtt").copy(source = "external"),
+        )
+
+        assertEquals(1, resolveMobileSubtitleOrdinal(persisted, reordered))
+    }
+
+    @Test
+    fun persistedServerSidecarDoesNotFallBackToStaleIndexAfterMetadataMismatch() {
+        val persisted = mobileSubtitleIdentity(
+            subtitle(
+                index = 4,
+                label = "English",
+                language = "en",
+                codec = "webvtt",
+            ).copy(source = "external"),
+        )
+        val changed = listOf(
+            subtitle(4, "Deutsch", "de", codec = "webvtt").copy(source = "external"),
+        )
+
+        assertEquals(null, resolveMobileSubtitleOrdinal(persisted, changed))
+    }
+
+    @Test
+    fun persistedServerSidecarRequiresEveryStoredMetadataFieldToMatch() {
+        val persisted = SubtitleIdentity.ServerSidecar(
+            serverIndex = 4,
+            media = org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                trackId = "stable-track",
+                label = "English SDH",
+                language = "en",
+                codecFamily = "webvtt",
+                forced = false,
+                hearingImpaired = true,
+            ),
+        )
+        val mismatched = subtitle(
+            index = 9,
+            label = "English",
+            language = "en",
+            codec = "webvtt",
+        ).copy(
+            source = "external",
+            mediaTrackId = "different-track",
+        )
+
+        assertEquals(null, resolveMobileSubtitleOrdinal(persisted, listOf(mismatched)))
+    }
+
+    @Test
+    fun weakTypedMetadataDoesNotRemapToArbitrarySoleMountedRow() {
+        val persisted = SubtitleIdentity.ServerSidecar(
+            serverIndex = 4,
+            media = org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                forced = false,
+            ),
+        )
+        val soleRow = subtitle(
+            index = 9,
+            label = "Deutsch",
+            language = "de",
+        ).copy(source = "external")
+
+        assertEquals(null, resolveMobileSubtitleOrdinal(persisted, listOf(soleRow)))
+    }
+
+    @Test
+    fun legacyServerIdentityWithoutMediaStillUsesStoredIndex() {
+        val legacy = SubtitleIdentity.ServerSidecar(serverIndex = 4)
+        val rows = listOf(
+            subtitle(9, "English", "en").copy(source = "external"),
+            subtitle(4, "Deutsch", "de").copy(source = "external"),
+        )
+
+        assertEquals(1, resolveMobileSubtitleOrdinal(legacy, rows))
+    }
+
+    @Test
+    fun embeddedIdentityWithoutTrackIdFollowsStrictMetadataAfterReorder() {
+        val persisted = SubtitleIdentity.Embedded(
+            serverIndex = 4,
+            media = org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                label = "English",
+                language = "en",
+                codecFamily = "webvtt",
+                forced = false,
+            ),
+        )
+        val rows = listOf(
+            subtitle(4, "Deutsch", "de", codec = "webvtt").copy(source = "embedded", url = ""),
+            subtitle(9, "English", "en", codec = "webvtt").copy(source = "embedded", url = ""),
+        )
+
+        assertEquals(1, resolveMobileSubtitleOrdinal(persisted, rows))
+    }
+
+    @Test
+    fun typedMobileOrdinalNormalizesVttAndWebvtt() {
+        val identity = SubtitleIdentity.LocalMedia3(
+            org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                label = "English",
+                language = "eng",
+                codecFamily = "webvtt",
+                forced = false,
+                hearingImpaired = null,
+            ),
+        )
+
+        assertEquals(
+            0,
+            resolveMobileSubtitleOrdinal(
+                identity,
+                listOf(
+                    subtitle(4, "English", "en", codec = "vtt").copy(
+                        source = "downloaded",
+                        downloadId = null,
+                    ),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun typedMobileOrdinalUsesTrackIdWhenAllStoredMetadataAlsoMatches() {
+        val identity = SubtitleIdentity.LocalMedia3(
+            org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                trackId = "decoder-text-9",
+                label = "English",
+                language = "en",
+                codecFamily = "webvtt",
+                forced = false,
+                hearingImpaired = null,
+            ),
+        )
+        val rows = listOf(
+            subtitle(4, "English", "en", codec = "webvtt").copy(
+                source = "downloaded",
+                downloadId = null,
+                mediaTrackId = "decoder-text-8",
+            ),
+            subtitle(5, "English", "en", codec = "webvtt").copy(
+                source = "downloaded",
+                downloadId = null,
+                mediaTrackId = "decoder-text-9",
+            ),
+        )
+
+        assertEquals(1, resolveMobileSubtitleOrdinal(identity, rows))
+    }
+
+    @Test
+    fun typedMobileOrdinalSeparatesHearingImpairedDuplicatesAndRejectsAmbiguity() {
+        val hearingIdentity = SubtitleIdentity.LocalMedia3(
+            org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
+                language = "en",
+                codecFamily = "webvtt",
+                forced = false,
+                hearingImpaired = true,
+            ),
+        )
+        val rows = listOf(
+            subtitle(4, "English", "en", codec = "vtt").copy(
+                source = "downloaded",
+                downloadId = null,
+            ),
+            subtitle(5, "English SDH", "en", codec = "webvtt").copy(
+                source = "downloaded",
+                downloadId = null,
+            ),
+        )
+
+        assertEquals(1, resolveMobileSubtitleOrdinal(hearingIdentity, rows))
+        assertEquals(
+            null,
+            resolveMobileSubtitleOrdinal(
+                hearingIdentity.copy(media = hearingIdentity.media.copy(hearingImpaired = null)),
+                rows,
+            ),
+        )
+    }
 
     @Test
     fun autoSubtitlePreferenceDemotesClosedCaptionTitledTracksWhenPlainDialogueExists() {

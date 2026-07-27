@@ -48,6 +48,10 @@ class AndroidServerRegistry(
     private val _activeEntry = MutableStateFlow<ServerEntry?>(null)
     override val activeEntry: StateFlow<ServerEntry?> = _activeEntry.asStateFlow()
 
+    @Volatile
+    override var stateLoadFailed: Boolean = false
+        private set
+
     init {
         // Synchronous load + migration so MainActivity.runBlocking can read state.
         runBlocking {
@@ -118,15 +122,18 @@ class AndroidServerRegistry(
     override suspend fun remove(serverId: String) {
         identityTransitions.changing(IdentityTransitionKind.SERVER_REMOVE) {
             mutex.withLock {
-                // Wipe all per-server token keys before dropping the entry, otherwise
-                // they'd linger encrypted on disk indefinitely.
-                prefs.edit()
-                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN))
-                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN))
-                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_TOKEN_EXPIRY))
-                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_PROFILE_ID))
-                    .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_PROFILE_TOKEN))
-                    .apply()
+                // Wipe every key in this server's "<serverId>." namespace before
+                // dropping the entry, otherwise they'd linger encrypted on disk
+                // indefinitely. Sweeping the prefix rather than a fixed key list
+                // keeps the purge correct as per-server slots are added: ids are
+                // base64url so they never contain the '.' separator, and no other
+                // server's key can match this prefix.
+                val scopePrefix = serverScopedKey(serverId, "")
+                val editor = prefs.edit()
+                prefs.all.keys
+                    .filter { it.startsWith(scopePrefix) }
+                    .forEach { editor.remove(it) }
+                editor.apply()
 
                 val updated = _entries.value.filter { it.id != serverId }
                 val newActive = if (_activeServerId.value == serverId) {
@@ -182,7 +189,23 @@ class AndroidServerRegistry(
 
     private fun loadStateLocked(): RegistryState? {
         val raw = prefs.getString(KEY_REGISTRY_STATE, null) ?: return null
-        return runCatching { json.decodeFromString<RegistryState>(raw) }.getOrNull()
+        val decoded = runCatching { json.decodeFromString<RegistryState>(raw) }.getOrNull()
+        // A blob that exists but will not decode is NOT the same as no blob.
+        // Both used to collapse to an empty registry, which was survivable while
+        // "no servers" only meant "sign in again" — the rows and downloaded
+        // bytes stayed on disk under an id derived from the URL, so re-adding
+        // the server restored them. It stopped being survivable when
+        // OrphanedServerDataPurger started deleting every server present in the
+        // database but absent from the registry: one unparseable blob would
+        // permanently erase downloads, resume positions and queued outbox ops.
+        if (decoded == null) {
+            android.util.Log.e(
+                "AndroidServerRegistry",
+                "registry state failed to decode; suppressing destructive cleanup",
+            )
+            stateLoadFailed = true
+        }
+        return decoded
     }
 
     private fun applyStateLocked(state: RegistryState) {

@@ -6,6 +6,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.network.CleartextOriginConsent
+import org.prairieserver.prairie.network.CleartextOriginNotApprovedException
+import org.prairieserver.prairie.network.requiresApproval
 
 /**
  * Narrow commit seam for the pairing receiver after a candidate server approves device
@@ -31,6 +34,7 @@ interface PairingAuthPort {
 class RegistryPairingAuthPort(
     private val tokenManager: TokenManager,
     private val serverRegistry: ServerRegistry,
+    private val cleartextOriginConsent: CleartextOriginConsent? = null,
 ) : PairingAuthPort {
     private val commitMutex = Mutex()
 
@@ -42,6 +46,9 @@ class RegistryPairingAuthPort(
         expiresIn: Long,
     ) = withContext(NonCancellable) {
         commitMutex.withLock {
+            if (cleartextOriginConsent?.requiresApproval(serverUrl) == true) {
+                throw CleartextOriginNotApprovedException(serverUrl)
+            }
             val previousServerId = serverRegistry.activeServerId.value
             val serverId = serverRegistry.addOrUpdate(serverUrl, fetchedName = serverName)
             try {

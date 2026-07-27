@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackModelsV2SerializationTest {
@@ -89,6 +90,42 @@ class PlaybackModelsV2SerializationTest {
         )
         assertNotNull(v2.playbackPlan)
         assertEquals(PlaybackEngineKind.MPV_DIRECT, v2.playbackPlan?.engine)
+    }
+
+    @Test
+    fun playerSubtitleInfoPreservesRealDownloadedSubtitleId() {
+        val subtitle = PlayerSubtitleInfo(
+            index = 4,
+            language = "en",
+            codec = "webvtt",
+            label = "Downloaded English",
+            source = "downloaded",
+            forced = false,
+            url = "/stream/s1/subtitles/4.vtt",
+            downloadId = 312,
+        )
+
+        val encoded = json.encodeToString(subtitle)
+        val decoded = json.decodeFromString<PlayerSubtitleInfo>(encoded)
+
+        assertTrue(encoded.contains("\"download_id\":312"))
+        assertEquals(312, decoded.downloadId)
+    }
+
+    @Test
+    fun legacyPlayerSubtitleInfoWithoutDownloadIdRemainsDecodable() {
+        val decoded = json.decodeFromString<PlayerSubtitleInfo>(
+            """
+            {
+              "index": 4,
+              "language": "en",
+              "source": "downloaded",
+              "url": "/stream/s1/subtitles/4.vtt"
+            }
+            """.trimIndent(),
+        )
+
+        assertNull(decoded.downloadId)
     }
 
     @Test

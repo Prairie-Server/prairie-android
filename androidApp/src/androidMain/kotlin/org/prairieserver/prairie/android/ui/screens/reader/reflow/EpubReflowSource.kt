@@ -9,9 +9,11 @@ import org.prairieserver.prairie.android.ui.screens.reader.readerDirectoryBaseUr
  * relative resources resolve against the on-disk unpacked root.
  */
 internal class EpubReflowSource(private val book: EpubBook) : ReflowableSource {
+    override val resourceDirectoryName: String = book.unpackedRoot.name
+
     override val sections: List<ReflowSection> =
         book.spine.mapIndexed { i, href ->
-            val html = book.readChapterHtml(href)?.let(::sanitizeEpubChapterHtml)
+            val html = book.readChapterPreview(href)?.let(::sanitizeEpubChapterHtml)
             val text = html?.htmlToReadableText().orEmpty()
             ReflowSection(
                 index = i,

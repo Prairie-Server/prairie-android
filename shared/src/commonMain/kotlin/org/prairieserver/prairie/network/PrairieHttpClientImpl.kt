@@ -39,6 +39,7 @@ fun createPrairieClient(
     tokenManager: TokenManager,
     deviceMetadataProvider: DeviceMetadataProvider? = null,
     diagnosticsObserver: NetworkDiagnosticsObserver? = null,
+    cleartextOriginConsent: CleartextOriginConsent? = null,
 ): HttpClient {
     val platformClient = createPlatformHttpClient()
 
@@ -76,6 +77,7 @@ fun createPrairieClient(
             this.tokenManager = tokenManager
             this.deviceMetadataProvider = deviceMetadataProvider
             this.diagnosticsObserver = diagnosticsObserver
+            this.cleartextOriginConsent = cleartextOriginConsent
         }
 
         install(HttpTimeout) {

@@ -7,21 +7,31 @@ import io.ktor.serialization.kotlinx.json.json
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.prairieserver.prairie.network.PrairieAuthPlugin
 import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.AuthApi
+import org.prairieserver.prairie.common.network.CleartextConsentStore
+import org.prairieserver.prairie.model.auth.SetupStatusResponse
+import org.prairieserver.prairie.model.auth.SignupStatusResponse
 import org.prairieserver.prairie.repository.AuthRepository
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ServerSetupPersistenceTest {
@@ -54,7 +64,7 @@ class ServerSetupPersistenceTest {
             ),
             tokenManager = tokenManager,
         )
-        val viewModel = ServerSetupViewModel(repository)
+        val viewModel = ServerSetupViewModel(repository, FakeCleartextConsentStore())
 
         viewModel.onServerUrlChanged("bad.prairie")
         viewModel.onConnectClick()
@@ -67,10 +77,165 @@ class ServerSetupPersistenceTest {
             "Failed probes must not persist candidate URLs.",
         )
     }
+
+    @Test
+    fun successfulHttpFallbackStopsForConfirmationBeforePersistence() = runTest(dispatcher) {
+        val tokenManager = RecordingTokenManager()
+        val viewModel = viewModelFor(tokenManager)
+
+        viewModel.onServerUrlChanged("prairie.lan")
+        viewModel.onConnectClick()
+        awaitSettled(viewModel)
+
+        assertEquals(
+            "http://prairie.lan",
+            viewModel.uiState.value.pendingCleartextUrl,
+            viewModel.uiState.value.toString(),
+        )
+        assertEquals(emptyList(), tokenManager.serverUrlWrites)
+        assertNull(viewModel.uiState.value.navigateTo)
+
+        viewModel.confirmCleartextConnection()
+        awaitSettled(viewModel)
+
+        assertEquals(listOf("http://prairie.lan"), tokenManager.serverUrlWrites)
+        assertEquals(ServerSetupDestination.Login(signupEnabled = true), viewModel.uiState.value.navigateTo)
+    }
+
+    @Test
+    fun cancelCleartextConnectionClearsPendingWithoutPersistence() = runTest(dispatcher) {
+        val tokenManager = RecordingTokenManager()
+        val viewModel = viewModelFor(tokenManager)
+
+        viewModel.onServerUrlChanged("prairie.lan")
+        viewModel.onConnectClick()
+        awaitSettled(viewModel)
+        viewModel.cancelCleartextConnection()
+
+        assertNull(viewModel.uiState.value.pendingCleartextUrl)
+        assertEquals(emptyList(), tokenManager.serverUrlWrites)
+        assertNull(viewModel.uiState.value.navigateTo)
+    }
+
+    @Test
+    fun cleartextApprovalIsOriginSpecific() = runTest(dispatcher) {
+        val tokenManager = RecordingTokenManager()
+        val approvals = FakeCleartextConsentStore().apply { approve("http://other.lan") }
+        val viewModel = viewModelFor(tokenManager, approvals)
+
+        viewModel.onServerUrlChanged("prairie.lan")
+        viewModel.onConnectClick()
+        awaitSettled(viewModel)
+
+        assertEquals("http://prairie.lan", viewModel.uiState.value.pendingCleartextUrl)
+        assertEquals(emptyList(), tokenManager.serverUrlWrites)
+    }
+
+    @Test
+    fun priorOriginApprovalAndHttpsBypassConfirmation() = runTest(dispatcher) {
+        val approvedTokens = RecordingTokenManager()
+        val approvals = FakeCleartextConsentStore().apply { approve("http://prairie.lan") }
+        val approvedViewModel = viewModelFor(approvedTokens, approvals)
+
+        approvedViewModel.onServerUrlChanged("prairie.lan")
+        approvedViewModel.onConnectClick()
+        awaitSettled(approvedViewModel)
+
+        assertNull(approvedViewModel.uiState.value.pendingCleartextUrl)
+        assertEquals(listOf("http://prairie.lan"), approvedTokens.serverUrlWrites)
+
+        val httpsTokens = RecordingTokenManager()
+        val httpsViewModel = viewModelFor(httpsTokens, httpsSucceeds = true)
+        httpsViewModel.onServerUrlChanged("secure.prairie")
+        httpsViewModel.onConnectClick()
+        awaitSettled(httpsViewModel)
+
+        assertNull(httpsViewModel.uiState.value.pendingCleartextUrl)
+        assertEquals(listOf("https://secure.prairie"), httpsTokens.serverUrlWrites)
+    }
+
+    @Test
+    fun cancelWinsRaceWithInFlightCleartextApproval() = runTest(dispatcher) {
+        val tokenManager = RecordingTokenManager()
+        val approvals = BlockingCleartextConsentStore()
+        val viewModel = viewModelFor(tokenManager, approvals)
+        viewModel.onServerUrlChanged("prairie.lan")
+        viewModel.onConnectClick()
+        awaitSettled(viewModel)
+
+        viewModel.confirmCleartextConnection()
+        runCurrent()
+        approvals.approveStarted.await()
+        viewModel.cancelCleartextConnection()
+        approvals.releaseApproval.complete(Unit)
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.pendingCleartextUrl)
+        assertNull(viewModel.uiState.value.navigateTo)
+        assertEquals(emptyList(), tokenManager.serverUrlWrites)
+    }
+
+    @Test
+    fun successfulUnnormalizableHttpCandidateFailsClosed() = runTest(dispatcher) {
+        val tokenManager = RecordingTokenManager()
+        val viewModel = ServerSetupViewModel(
+            authRepository = repositoryFor(tokenManager),
+            cleartextConsentStore = FakeCleartextConsentStore(),
+            candidateUrls = { listOf("http://prairie_lan") },
+            getSetupStatus = { ApiResult.Success(SetupStatusResponse(needsSetup = false)) },
+            getSignupStatus = { ApiResult.Success(SignupStatusResponse(enabled = true)) },
+        )
+
+        viewModel.onServerUrlChanged("prairie_lan")
+        viewModel.onConnectClick()
+        awaitSettled(viewModel)
+
+        assertEquals(emptyList(), tokenManager.serverUrlWrites)
+        assertNull(viewModel.uiState.value.navigateTo)
+        assertEquals("Could not safely identify this HTTP server.", viewModel.uiState.value.error)
+    }
+
+    private fun viewModelFor(
+        tokenManager: RecordingTokenManager,
+        approvals: FakeCleartextConsentStore = FakeCleartextConsentStore(),
+        httpsSucceeds: Boolean = false,
+    ) = ServerSetupViewModel(
+        authRepository = repositoryFor(tokenManager),
+        cleartextConsentStore = approvals,
+        getSetupStatus = { candidate ->
+            if (candidate.startsWith("https://") && !httpsSucceeds) {
+                ApiResult.NetworkError(IOException("TLS unavailable"))
+            } else {
+                ApiResult.Success(SetupStatusResponse(needsSetup = false))
+            }
+        },
+        getSignupStatus = {
+            ApiResult.Success(SignupStatusResponse(enabled = true))
+        },
+    )
+
+    private fun repositoryFor(
+        tokenManager: RecordingTokenManager,
+    ): AuthRepository = AuthRepository(
+        authApi = AuthApi(
+            HttpClient(MockEngine { throw IOException("Unexpected network request") }) {
+                install(ContentNegotiation) { json(PrairieJson) }
+                install(PrairieAuthPlugin) { this.tokenManager = tokenManager }
+            },
+        ),
+        tokenManager = tokenManager,
+    )
+
+    private suspend fun TestScope.awaitSettled(viewModel: ServerSetupViewModel) {
+        runCurrent()
+        withTimeout(5_000) {
+            viewModel.uiState.first { !it.isLoading }
+        }
+    }
 }
 
 private class RecordingTokenManager(
-    private var serverUrl: String,
+    private var serverUrl: String = "",
 ) : TokenManager {
     val serverUrlWrites = mutableListOf<String>()
     override val sessionExpired = MutableSharedFlow<Unit>()
@@ -91,4 +256,25 @@ private class RecordingTokenManager(
     override suspend fun getCurrentServerId(): String? = null
     override suspend fun switchActiveServer(serverId: String?) = Unit
     override suspend fun signOutCurrentServer() = Unit
+}
+
+private open class FakeCleartextConsentStore : CleartextConsentStore {
+    private val approved = mutableSetOf<String>()
+
+    override suspend fun isApproved(origin: String): Boolean = origin in approved
+
+    override suspend fun approve(origin: String) {
+        approved += origin
+    }
+}
+
+private class BlockingCleartextConsentStore : FakeCleartextConsentStore() {
+    val approveStarted = CompletableDeferred<Unit>()
+    val releaseApproval = CompletableDeferred<Unit>()
+
+    override suspend fun approve(origin: String) {
+        approveStarted.complete(Unit)
+        releaseApproval.await()
+        super.approve(origin)
+    }
 }

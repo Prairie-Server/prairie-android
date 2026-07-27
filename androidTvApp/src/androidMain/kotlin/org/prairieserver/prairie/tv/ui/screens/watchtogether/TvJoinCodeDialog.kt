@@ -43,6 +43,7 @@ import org.prairieserver.prairie.tv.ui.screens.player.TvDialogActionRow
 import org.prairieserver.prairie.tv.ui.theme.DarkBackground
 import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
 import org.prairieserver.prairie.tv.ui.theme.FocusedContent
+import org.prairieserver.prairie.watchtogether.canDismissRoomEntry
 
 /**
  * Pure 8-char D-pad join-code accumulator. Appends only A–Z / 0–9 (uppercasing
@@ -85,11 +86,13 @@ fun TvJoinCodeDialog(
 
     Popup(
         alignment = Alignment.Center,
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (canDismissRoomEntry(isBusy)) onDismiss()
+        },
         properties = PopupProperties(
             focusable = true,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
+            dismissOnBackPress = canDismissRoomEntry(isBusy),
+            dismissOnClickOutside = canDismissRoomEntry(isBusy),
             clippingEnabled = false,
         ),
     ) {

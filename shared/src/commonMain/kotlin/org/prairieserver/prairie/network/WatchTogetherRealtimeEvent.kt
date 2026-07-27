@@ -16,11 +16,12 @@ object WatchTogetherRealtime {
 
 /**
  * A decoded room realtime event. The repository folds these into its
- * StateFlows / feeds them to the RoomSyncEngine. [Closed]
- * is emitted by the client when the socket itself ends (distinct from a server
- * [Closed]-with-reason `room_closed`, surfaced as the same event).
+ * StateFlows / feeds them to the RoomSyncEngine.
  */
 sealed class RoomRealtimeEvent {
+    /** A physical connection completed its handshake and is writable. */
+    data object Opened : RoomRealtimeEvent()
+
     data class SnapshotEvent(val room: RoomSnapshot) : RoomRealtimeEvent()
     data class TransportCommandEvent(val command: TransportCommand) : RoomRealtimeEvent()
     data class SuggestionsEvent(val suggestions: List<Suggestion>) : RoomRealtimeEvent()
@@ -30,8 +31,11 @@ sealed class RoomRealtimeEvent {
         val serverSentAt: String,
     ) : RoomRealtimeEvent()
 
-    /** Server `room_closed{reason}`. The repository stops reconnecting on this. */
+    /** Explicit server `room_closed{reason}`. Terminal at the protocol layer. */
     data class Closed(val reason: String? = null) : RoomRealtimeEvent()
+
+    /** Physical EOF, handshake failure, or socket I/O failure. Transient. */
+    data class TransportTerminated(val cause: Throwable? = null) : RoomRealtimeEvent()
 
     /** Server `error{code,message}`. */
     data class Error(val code: String, val message: String) : RoomRealtimeEvent()

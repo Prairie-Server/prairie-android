@@ -5,7 +5,9 @@ import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomPhase
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -62,5 +64,63 @@ class RoomTransportAuthorityTest {
     fun nullBlocked() {
         assertFalse(roomTransportAuthorized(null, RoomTransportIntent.PlayPause))
         assertFalse(roomTransportAuthorized(null, RoomTransportIntent.Seek))
+    }
+
+    @Test
+    fun guestHostOnlyExternalPauseIsRestoredWithoutRequest() {
+        val snapshot = fixture(
+            GuestControlPolicy.HostOnly,
+            MemberRole.Guest,
+            canControl = false,
+        ).copy(isPaused = false)
+
+        assertEquals(
+            ExternalPlayPauseDecision(
+                restorePlayWhenReady = true,
+                requestIsPaused = null,
+            ),
+            externalPlayPauseDecision(snapshot, localPlayWhenReady = false),
+        )
+    }
+
+    @Test
+    fun authorizedExternalPauseIsRestoredAndRequestedThroughRoom() {
+        val snapshot = fixture(
+            GuestControlPolicy.GuestPlayPause,
+            MemberRole.Guest,
+            canControl = true,
+        ).copy(isPaused = false)
+
+        assertEquals(
+            ExternalPlayPauseDecision(
+                restorePlayWhenReady = true,
+                requestIsPaused = true,
+            ),
+            externalPlayPauseDecision(snapshot, localPlayWhenReady = false),
+        )
+    }
+
+    @Test
+    fun roomAppliedStateDoesNotLoopBackIntoTransportRequest() {
+        val snapshot = fixture(
+            GuestControlPolicy.GuestPlayPause,
+            MemberRole.Guest,
+            canControl = true,
+        ).copy(isPaused = true)
+
+        assertNull(externalPlayPauseDecision(snapshot, localPlayWhenReady = false))
+    }
+
+    @Test
+    fun externalStateOutsidePlayingIsNotReconciled() {
+        val snapshot = fixture(
+            GuestControlPolicy.HostOnly,
+            MemberRole.Guest,
+            canControl = false,
+            phase = RoomPhase.Lobby,
+        )
+
+        assertNull(externalPlayPauseDecision(snapshot, localPlayWhenReady = false))
+        assertNull(externalPlayPauseDecision(null, localPlayWhenReady = false))
     }
 }

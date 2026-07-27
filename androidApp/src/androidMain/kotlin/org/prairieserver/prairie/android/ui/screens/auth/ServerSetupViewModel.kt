@@ -2,6 +2,10 @@ package org.prairieserver.prairie.android.ui.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.common.network.CleartextConsentStore
+import org.prairieserver.prairie.common.network.cleartextOrigin
+import org.prairieserver.prairie.model.auth.SetupStatusResponse
+import org.prairieserver.prairie.model.auth.SignupStatusResponse
 import org.prairieserver.prairie.network.AndroidServerRegistry
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.AuthRepository
@@ -20,6 +24,7 @@ data class ServerSetupUiState(
     val error: String? = null,
     /** Destination after successful server validation. */
     val navigateTo: ServerSetupDestination? = null,
+    val pendingCleartextUrl: String? = null,
 ) {
     /** True when the entered address will connect over unencrypted HTTP.
      *  Informational only — does not block connecting to LAN/IP servers. */
@@ -45,10 +50,21 @@ sealed class ServerSetupDestination {
 
 class ServerSetupViewModel(
     private val authRepository: AuthRepository,
+    private val cleartextConsentStore: CleartextConsentStore,
+    private val getSetupStatus: suspend (String) -> ApiResult<SetupStatusResponse> = {
+        authRepository.getSetupStatus(it)
+    },
+    private val getSignupStatus: suspend (String) -> ApiResult<SignupStatusResponse> = {
+        authRepository.getSignupStatus(it)
+    },
+    private val candidateUrls: (ServerSetupUiState) -> List<String> = {
+        buildServerSetupCandidateUrls(it.serverUrl, it.selectedScheme, it.port)
+    },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServerSetupUiState())
     val uiState: StateFlow<ServerSetupUiState> = _uiState.asStateFlow()
+    private var pendingCleartextConnection: PendingCleartextConnection? = null
 
     init {
         // Pre-populate with previously saved server URL, if any.
@@ -82,31 +98,24 @@ class ServerSetupViewModel(
         if (_uiState.value.isLoading) return
         val current = _uiState.value
         val candidates = try {
-            buildServerSetupCandidateUrls(
-                rawInput = current.serverUrl,
-                selectedScheme = current.selectedScheme,
-                port = current.port,
-            )
+            candidateUrls(current)
         } catch (error: ServerSetupValidationException) {
             _uiState.update { it.copy(error = error.message) }
             return
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            pendingCleartextConnection = null
+            _uiState.update {
+                it.copy(isLoading = true, error = null, pendingCleartextUrl = null)
+            }
 
             var lastError: String? = null
             for (candidate in candidates) {
-                when (val setupResult = authRepository.getSetupStatus(candidate)) {
+                when (val setupResult = getSetupStatus(candidate)) {
                     is ApiResult.Success -> {
                         if (setupResult.data.needsSetup) {
-                            authRepository.setServerUrl(candidate)
-                            _uiState.update {
-                                it.copy(
-                                    isLoading = false,
-                                    navigateTo = ServerSetupDestination.Setup,
-                                )
-                            }
+                            handleSuccessfulConnection(candidate, ServerSetupDestination.Setup)
                             return@launch
                         }
                     }
@@ -122,18 +131,15 @@ class ServerSetupViewModel(
                     }
                 }
 
-                val signupEnabled = when (val signupResult = authRepository.getSignupStatus(candidate)) {
+                val signupEnabled = when (val signupResult = getSignupStatus(candidate)) {
                     is ApiResult.Success -> signupResult.data.enabled
                     else -> false // If we can't determine, default to no signup.
                 }
 
-                authRepository.setServerUrl(candidate)
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        navigateTo = ServerSetupDestination.Login(signupEnabled = signupEnabled),
-                    )
-                }
+                handleSuccessfulConnection(
+                    candidate,
+                    ServerSetupDestination.Login(signupEnabled = signupEnabled),
+                )
                 return@launch
             }
 
@@ -149,11 +155,88 @@ class ServerSetupViewModel(
         }
     }
 
+    fun confirmCleartextConnection() {
+        if (_uiState.value.isLoading) return
+        val pending = pendingCleartextConnection ?: return
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            cleartextConsentStore.approve(pending.origin)
+            if (pendingCleartextConnection !== pending) return@launch
+            pendingCleartextConnection = null
+            persistAndNavigate(pending.serverUrl, pending.destination)
+        }
+    }
+
+    fun cancelCleartextConnection() {
+        pendingCleartextConnection = null
+        _uiState.update {
+            it.copy(pendingCleartextUrl = null, isLoading = false)
+        }
+    }
+
     /** Resets navigation state after the UI has consumed the event. */
     fun onNavigationConsumed() {
         _uiState.update { it.copy(navigateTo = null) }
     }
+
+    private suspend fun handleSuccessfulConnection(
+        serverUrl: String,
+        destination: ServerSetupDestination,
+    ) {
+        if (serverUrl.startsWith("http://", ignoreCase = true)) {
+            val origin = cleartextOrigin(serverUrl)
+            if (origin == null) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Could not safely identify this HTTP server.",
+                        pendingCleartextUrl = null,
+                        navigateTo = null,
+                    )
+                }
+                return
+            }
+            if (cleartextConsentStore.isApproved(origin)) {
+                persistAndNavigate(serverUrl, destination)
+                return
+            }
+            pendingCleartextConnection = PendingCleartextConnection(
+                serverUrl = serverUrl,
+                origin = origin,
+                destination = destination,
+            )
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    pendingCleartextUrl = origin,
+                    navigateTo = null,
+                )
+            }
+            return
+        }
+        persistAndNavigate(serverUrl, destination)
+    }
+
+    private suspend fun persistAndNavigate(
+        serverUrl: String,
+        destination: ServerSetupDestination,
+    ) {
+        authRepository.setServerUrl(serverUrl)
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                pendingCleartextUrl = null,
+                navigateTo = destination,
+            )
+        }
+    }
 }
+
+private data class PendingCleartextConnection(
+    val serverUrl: String,
+    val origin: String,
+    val destination: ServerSetupDestination,
+)
 
 /**
  * True when the address WILL connect over plaintext HTTP: an explicit `http`

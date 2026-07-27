@@ -80,6 +80,17 @@ class PlaybackProtocolV3Test {
     }
 
     @Test
+    fun sourceColorRangeRoundTrips() {
+        val encoded = PrairieJson.encodeToString(
+            plan.copy(source = PlaybackSourceDescriptorV3(colorRange = "pc")),
+        )
+
+        val decoded = PrairieJson.decodeFromString<PlaybackPlanV3>(encoded)
+
+        assertEquals("pc", decoded.source.colorRange)
+    }
+
+    @Test
     fun adaptationUnavailableIsTerminal() {
         val result = PlaybackDecisionResponseV3(
             protocolVersion = 3,

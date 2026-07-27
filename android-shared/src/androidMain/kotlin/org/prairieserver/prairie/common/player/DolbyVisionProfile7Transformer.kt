@@ -24,6 +24,7 @@ internal enum class DolbyVisionTransformMode {
 internal data class PrairieMediaTransformTag(
     val dolbyVisionMode: DolbyVisionTransformMode,
     val expectedDynamicRange: String? = null,
+    val expectedColorRange: String? = null,
 )
 
 internal class DolbyVisionTransformException(
