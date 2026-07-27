@@ -12,7 +12,7 @@ import org.koin.dsl.module
 val networkModule = module {
     single<IdentityTransitionBarrier> { DefaultIdentityTransitionBarrier() }
     single<TokenManager> { TokenManagerImpl(get()) }
-    single { createPrairieClient(get(), getOrNull(), getOrNull()) }
+    single { createPrairieClient(get(), getOrNull(), getOrNull(), getOrNull()) }
     single { AuthApi(get()) }
     single<DeviceLoginApi> { DefaultDeviceLoginApi(get()) }
     single { CatalogApi(get()) }

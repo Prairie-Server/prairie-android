@@ -77,6 +77,7 @@ kotlin {
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
+            implementation(libs.jsoup)
             implementation(libs.media3.exoplayer)
             implementation(libs.media3.exoplayer.hls)
             implementation(libs.media3.datasource.okhttp)
@@ -86,6 +87,7 @@ kotlin {
             implementation(libs.media3.ui.compose)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.androidx.work.runtime.ktx)
+            implementation(libs.androidx.webkit)
             implementation(libs.koin.androidx.workmanager)
             implementation(libs.firebase.messaging)
             // Google Cast (Chromecast) — phone app only. TV app must not depend

@@ -2,6 +2,8 @@ package org.prairieserver.prairie.tv.ui.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.common.network.CleartextConsentStore
+import org.prairieserver.prairie.common.network.cleartextOrigin
 import org.prairieserver.prairie.model.auth.SetupStatusResponse
 import org.prairieserver.prairie.model.auth.SignupStatusResponse
 import org.prairieserver.prairie.network.AndroidServerRegistry
@@ -19,6 +21,7 @@ data class TvServerSetupUiState(
     val error: String? = null,
     /** Destination after a successful server probe; consumed by the screen. */
     val navigateTo: TvServerSetupDestination? = null,
+    val pendingCleartextUrl: String? = null,
 ) {
     /** True when the entered address will connect over unencrypted HTTP.
      *  Informational only — does not block LAN/IP connections. */
@@ -64,10 +67,18 @@ internal sealed class TvServerSetupProbeResult {
  */
 class TvServerSetupViewModel(
     private val authRepository: AuthRepository,
+    private val cleartextConsentStore: CleartextConsentStore,
+    private val getSetupStatus: suspend (String) -> ApiResult<SetupStatusResponse> = {
+        authRepository.getSetupStatus(it)
+    },
+    private val getSignupStatus: suspend (String) -> ApiResult<SignupStatusResponse> = {
+        authRepository.getSignupStatus(it)
+    },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvServerSetupUiState())
     val uiState: StateFlow<TvServerSetupUiState> = _uiState.asStateFlow()
+    private var pendingCleartextConnection: PendingTvCleartextConnection? = null
 
     init {
         viewModelScope.launch {
@@ -100,22 +111,18 @@ class TvServerSetupViewModel(
         val candidates = serverSetupUrlProbeCandidates(raw)
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            pendingCleartextConnection = null
+            _uiState.update {
+                it.copy(isLoading = true, error = null, pendingCleartextUrl = null)
+            }
 
             when (val result = probeTvServerSetupCandidates(
                 candidates = candidates,
-                getSetupStatus = { candidate -> authRepository.getSetupStatus(candidate) },
-                getSignupStatus = { candidate -> authRepository.getSignupStatus(candidate) },
+                getSetupStatus = getSetupStatus,
+                getSignupStatus = getSignupStatus,
             )) {
                 is TvServerSetupProbeResult.Success -> {
-                    authRepository.setServerUrl(result.serverUrl)
-                    _uiState.update {
-                        it.copy(
-                            serverUrl = result.serverUrl,
-                            isLoading = false,
-                            navigateTo = result.destination,
-                        )
-                    }
+                    handleSuccessfulConnection(result.serverUrl, result.destination)
                 }
                 is TvServerSetupProbeResult.Failure -> {
                     _uiState.update {
@@ -130,10 +137,88 @@ class TvServerSetupViewModel(
         }
     }
 
+    fun confirmCleartextConnection() {
+        if (_uiState.value.isLoading) return
+        val pending = pendingCleartextConnection ?: return
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            cleartextConsentStore.approve(pending.origin)
+            if (pendingCleartextConnection !== pending) return@launch
+            pendingCleartextConnection = null
+            persistAndNavigate(pending.serverUrl, pending.destination)
+        }
+    }
+
+    fun cancelCleartextConnection() {
+        pendingCleartextConnection = null
+        _uiState.update {
+            it.copy(pendingCleartextUrl = null, isLoading = false)
+        }
+    }
+
     fun onNavigationConsumed() {
         _uiState.update { it.copy(navigateTo = null) }
     }
+
+    private suspend fun handleSuccessfulConnection(
+        serverUrl: String,
+        destination: TvServerSetupDestination,
+    ) {
+        if (serverUrl.startsWith("http://", ignoreCase = true)) {
+            val origin = cleartextOrigin(serverUrl)
+            if (origin == null) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Could not safely identify this HTTP server.",
+                        pendingCleartextUrl = null,
+                        navigateTo = null,
+                    )
+                }
+                return
+            }
+            if (cleartextConsentStore.isApproved(origin)) {
+                persistAndNavigate(serverUrl, destination)
+                return
+            }
+            pendingCleartextConnection = PendingTvCleartextConnection(
+                serverUrl = serverUrl,
+                origin = origin,
+                destination = destination,
+            )
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    pendingCleartextUrl = origin,
+                    navigateTo = null,
+                )
+            }
+            return
+        }
+        persistAndNavigate(serverUrl, destination)
+    }
+
+    private suspend fun persistAndNavigate(
+        serverUrl: String,
+        destination: TvServerSetupDestination,
+    ) {
+        authRepository.setServerUrl(serverUrl)
+        _uiState.update {
+            it.copy(
+                serverUrl = serverUrl,
+                isLoading = false,
+                pendingCleartextUrl = null,
+                navigateTo = destination,
+            )
+        }
+    }
 }
+
+private data class PendingTvCleartextConnection(
+    val serverUrl: String,
+    val origin: String,
+    val destination: TvServerSetupDestination,
+)
 
 internal suspend fun probeTvServerSetupCandidates(
     candidates: List<String>,

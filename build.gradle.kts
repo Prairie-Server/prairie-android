@@ -18,3 +18,22 @@ plugins {
     // is more reliable when CI invokes :shared:koverXmlReport / :shared:koverVerify.
     alias(libs.plugins.kover) apply false
 }
+
+allprojects {
+    dependencyLocking {
+        lockAllConfigurations()
+    }
+}
+
+tasks.register("resolveAndLockAll") {
+    description = "Resolves every resolvable configuration so dependency locks can be written."
+    group = "build setup"
+
+    doLast {
+        rootProject.allprojects.forEach { project ->
+            project.configurations
+                .filter { it.isCanBeResolved }
+                .forEach { it.incoming.resolutionResult.allComponents }
+        }
+    }
+}

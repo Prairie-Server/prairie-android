@@ -1,11 +1,11 @@
 package org.prairieserver.prairie.model.feature
 
 import kotlin.test.Test
-import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ClientSurfacePolicyTest {
     @Test
-    fun watchTogetherCodeStaysPresentButHiddenFromUserMenus() {
-        assertFalse(CLIENT_WATCH_TOGETHER_SURFACE_ENABLED)
+    fun watchTogetherIsExposedInTheDetailOverflows() {
+        assertTrue(CLIENT_WATCH_TOGETHER_SURFACE_ENABLED)
     }
 }

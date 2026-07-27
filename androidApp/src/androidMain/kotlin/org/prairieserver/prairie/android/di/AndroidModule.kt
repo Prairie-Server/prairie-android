@@ -29,12 +29,15 @@ import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendFacto
 import org.prairieserver.prairie.common.player.video.VideoPlaybackSessionCoordinator
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
 import org.prairieserver.prairie.common.network.AndroidDeviceMetadataProvider
+import org.prairieserver.prairie.common.network.CleartextConsentStore
+import org.prairieserver.prairie.common.network.DataStoreCleartextConsentStore
 import org.prairieserver.prairie.common.settings.AndroidServerSettingsCache
 import android.content.SharedPreferences
 import org.prairieserver.prairie.network.AndroidServerRegistry
 import org.prairieserver.prairie.network.EncryptedTokenManagerImpl
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.CleartextOriginConsent
 import org.prairieserver.prairie.network.createSecureSharedPrefs
 import org.prairieserver.prairie.android.push.AndroidPushRegistrar
 import org.prairieserver.prairie.android.push.AndroidPushTokenProvider
@@ -71,8 +74,6 @@ import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.viewmodel.FavoritesViewModel
 import org.prairieserver.prairie.viewmodel.HistoryViewModel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvViewModel
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
@@ -93,6 +94,8 @@ import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvViewModel
 
 /**
  * Android-specific Koin module.
@@ -102,6 +105,8 @@ import org.koin.dsl.module
  * the viewModel DSL for proper lifecycle integration.
  */
 val androidModule = module {
+    single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
+    single<CleartextOriginConsent> { get<CleartextConsentStore>() }
     // Single encrypted prefs handle shared between the server registry and the
     // token manager — opening it twice means two MasterKey lookups + decryption
     // passes on cold start.
@@ -310,7 +315,7 @@ val androidModule = module {
     }
 
     // ViewModels
-    factory {
+    viewModel {
         PlayerViewModel(
             videoPlaybackCoordinator = get(),
             catalogRepository = get(),
@@ -328,7 +333,7 @@ val androidModule = module {
             sleepTimer = get(),
             subtitlesRepository = get(),
             userItemStatePort = get(),
-            outboxSyncScheduler = get(),
+            finalPlaybackPositionWriter = get(),
             sectionRepository = get(),
             castPlaybackPreparer = get(),
         )
@@ -376,13 +381,6 @@ val androidModule = module {
     viewModel { RequestsViewModel(get()) }
     viewModel { RequestSearchViewModel(get()) }
     viewModel { MyRequestsViewModel(get()) }
-    viewModel {
-        LiveTvViewModel(
-            repository = get(),
-            nowMillisProvider = { System.currentTimeMillis() },
-        )
-    }
-    viewModel { LiveTvPlayerViewModel(get()) }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {
@@ -400,7 +398,7 @@ val androidModule = module {
             tmdbId = args.second,
         )
     }
-    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), org.prairieserver.prairie.android.BuildConfig.VERSION_NAME) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AdminEntryViewModel(get(), get()) }
     viewModel { AdminStatsViewModel(get()) }
@@ -411,14 +409,14 @@ val androidModule = module {
     viewModel { AdminScansViewModel(get(), get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
-    viewModel { ServerSetupViewModel(get()) }
+    viewModel { ServerSetupViewModel(get(), get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }
     viewModel { SignupViewModel(get()) }
     viewModel { ProfileSelectionViewModel(get()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }
-    viewModel { ServerListViewModel(get(), get(), get(), get()) }
+    viewModel { ServerListViewModel(get(), get()) }
     viewModel { params ->
         val args = params.get<Pair<String?, String?>>()
         DevicePairingViewModel(
@@ -472,10 +470,19 @@ val androidModule = module {
         )
     }
     viewModel { org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherEntryViewModel(get()) }
+    viewModel { org.prairieserver.prairie.android.ui.screens.watchtogether.SuggestToRoomViewModel(get()) }
+    viewModel {
+        LiveTvViewModel(
+            repository = get(),
+            nowMillisProvider = { System.currentTimeMillis() },
+        )
+    }
+    viewModel { LiveTvPlayerViewModel(get()) }
     viewModel { params ->
         org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherLobbyViewModel(
             roomId = params.get(),
             repository = get(),
+            roomSession = get(),
         )
     }
 }

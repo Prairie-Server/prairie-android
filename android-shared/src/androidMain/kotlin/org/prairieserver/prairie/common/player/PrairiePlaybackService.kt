@@ -2,6 +2,7 @@ package org.prairieserver.prairie.common.player
 
 import android.content.Intent
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.common.BuildConfig
@@ -60,6 +62,31 @@ class PrairiePlaybackService : MediaSessionService() {
             ACTION_PIP_SKIP_BACK,
             ACTION_PIP_SKIP_FORWARD,
         )
+
+        internal fun dispatchPictureInPictureAction(intent: Intent?, player: Player?): Boolean {
+            val action = intent?.action
+            if (intent == null || action !in PIP_ACTIONS) return false
+            if (!PipActionCapability.isAuthorized(intent)) return true
+            if (player == null) return true
+
+            when (action) {
+                ACTION_PIP_PLAY -> {
+                    player.playWhenReady = true
+                    player.play()
+                }
+                ACTION_PIP_PAUSE -> player.pause()
+                ACTION_PIP_SKIP_BACK -> player.seekTo(
+                    (player.currentPosition - PIP_SKIP_BACK_MS).coerceAtLeast(0L),
+                )
+                ACTION_PIP_SKIP_FORWARD -> {
+                    val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+                    player.seekTo(
+                        (player.currentPosition + PIP_SKIP_FORWARD_MS).coerceAtMost(duration),
+                    )
+                }
+            }
+            return true
+        }
     }
 
     private val playerFactory: PrairiePlayerFactory by inject()
@@ -77,6 +104,13 @@ class PrairiePlaybackService : MediaSessionService() {
 
     // The sole Media3 player owned by this service.
     @Volatile private var activePlayer: Player? = null
+
+    private val activeContentId = MutableStateFlow<String?>(null)
+    private val contentIdListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            activeContentId.value = mediaItem?.mediaId?.takeIf(String::isNotBlank)
+        }
+    }
 
     private val _positionMs = MutableStateFlow(0L)
 
@@ -98,6 +132,8 @@ class PrairiePlaybackService : MediaSessionService() {
             player.addAnalyticsListener(analyticsListener)
         }
         activePlayer = player
+        player.addListener(contentIdListener)
+        activeContentId.value = player.currentMediaItem?.mediaId?.takeIf(String::isNotBlank)
         activePlayerHolder.set(player)
         val count = playerInstanceCount.incrementAndGet()
         android.util.Log.i(
@@ -147,8 +183,10 @@ class PrairiePlaybackService : MediaSessionService() {
         // holder alone cannot retime their already-built cue timestamps.
         // Reprepare at the same position to rebuild those cues while preserving
         // play/pause intent (the libass clock remains continuous across it).
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         subtitleSyncJob = scope.launch {
-            playerSettingsStore.subtitleSyncMsFlow
+            activeContentId
+                .flatMapLatest(playerSettingsStore::subtitleSyncMsFor)
                 .distinctUntilChanged()
                 .collect { offsetMs ->
                     val previous = subtitleOffsetHolder.getOffsetMs()
@@ -191,30 +229,10 @@ class PrairiePlaybackService : MediaSessionService() {
         mediaSession
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (handlePictureInPictureAction(intent?.action)) {
+        if (dispatchPictureInPictureAction(intent, activePlayer ?: mediaSession?.player)) {
             return START_STICKY
         }
         return super.onStartCommand(intent, flags, startId)
-    }
-
-    private fun handlePictureInPictureAction(action: String?): Boolean {
-        val player = activePlayer ?: mediaSession?.player ?: return action in PIP_ACTIONS
-        when (action) {
-            ACTION_PIP_PLAY -> {
-                player.playWhenReady = true
-                player.play()
-            }
-            ACTION_PIP_PAUSE -> player.pause()
-            ACTION_PIP_SKIP_BACK -> player.seekTo(
-                (player.currentPosition - PIP_SKIP_BACK_MS).coerceAtLeast(0L),
-            )
-            ACTION_PIP_SKIP_FORWARD -> {
-                val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-                player.seekTo((player.currentPosition + PIP_SKIP_FORWARD_MS).coerceAtMost(duration))
-            }
-            else -> return false
-        }
-        return true
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -237,7 +255,7 @@ class PrairiePlaybackService : MediaSessionService() {
         subtitleSyncJob?.cancel()
         scope.cancel()
         mediaSession?.run {
-            player.release()
+            playerFactory.releasePlayer(player)
             release()
         }
         mediaSession = null

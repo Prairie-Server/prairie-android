@@ -51,8 +51,8 @@ class VideoTrackSelectionCoordinatorTest {
             .substringBefore("fun selectAudioTrack(")
 
         assertTrue(
-            methodBody.contains("subtitleManager.selectSubtitle(player, subtitles, selectedIndex)"),
-            "mounted subtitle re-selection must use metadata-aware SubtitleManager selection",
+            methodBody.contains("subtitleManager.selectSubtitle(player, identity)"),
+            "mounted subtitle re-selection must use typed SubtitleManager selection",
         )
         assertTrue(
             !methodBody.contains("refreshMountedVideoMedia("),

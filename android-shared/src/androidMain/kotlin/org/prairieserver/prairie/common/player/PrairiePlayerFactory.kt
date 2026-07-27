@@ -34,6 +34,7 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.text.SubtitleExtractor
 import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
@@ -42,6 +43,7 @@ import org.prairieserver.prairie.common.BuildConfig
 import org.prairieserver.prairie.common.player.audio.DelayAudioProcessor
 import org.prairieserver.prairie.common.player.audio.PassthroughSuppressingAudioSink
 import org.prairieserver.prairie.common.player.subtitle.OffsetSubtitleParserFactory
+import org.prairieserver.prairie.common.player.subtitle.PgsSupExtractor
 import org.prairieserver.prairie.common.player.subtitle.SubtitleOffsetHolder
 import org.prairieserver.prairie.common.player.video.PrairieMediaCodecVideoRenderer
 import org.prairieserver.prairie.common.player.video.PlaybackRuntimeCorrectionState
@@ -107,8 +109,31 @@ class PrairiePlayerFactory(
 
     private val sidecarSubtitleParserFactory = OffsetSubtitleParserFactory(
         offsetUsProvider = subtitleOffsetHolder::getOffsetUs,
-        delegate = libassBridge.parserFactory,
+        delegate = BitmapAwareSubtitleParserFactory(libassBridge.parserFactory),
     )
+
+    private class BitmapAwareSubtitleParserFactory(
+        private val delegate: SubtitleParser.Factory,
+        private val media3: SubtitleParser.Factory = DefaultSubtitleParserFactory(),
+    ) : SubtitleParser.Factory {
+        private fun factoryFor(format: androidx.media3.common.Format): SubtitleParser.Factory =
+            when (format.sampleMimeType) {
+                MimeTypes.APPLICATION_PGS,
+                MimeTypes.APPLICATION_VOBSUB,
+                MimeTypes.APPLICATION_DVBSUBS,
+                -> media3
+                else -> delegate
+            }
+
+        override fun supportsFormat(format: androidx.media3.common.Format): Boolean =
+            factoryFor(format).supportsFormat(format)
+
+        override fun getCueReplacementBehavior(format: androidx.media3.common.Format): Int =
+            factoryFor(format).getCueReplacementBehavior(format)
+
+        override fun create(format: androidx.media3.common.Format): SubtitleParser =
+            factoryFor(format).create(format)
+    }
 
     private fun configuredExtractorsFactory() = libassBridge.wrapExtractors(
         DefaultExtractorsFactory()
@@ -238,7 +263,7 @@ class PrairiePlayerFactory(
         }
         val renderersFactory = libassBridge.wrapRenderers(
             media3RenderersFactory,
-            subtitleOffsetHolder::getUserOffsetUs,
+            subtitleOffsetHolder::getOffsetUs,
         )
 
         val trackSelector = DefaultTrackSelector(context).apply {
@@ -255,9 +280,10 @@ class PrairiePlayerFactory(
         val mediaLoadErrorHandlingPolicy = PrairieMediaLoadErrorHandlingPolicy(
             isResumableProgressiveDirectPlay = ::isResumableDirectPlayUri,
         )
-        fun defaultMediaSourceFactory(
+        fun correctedMediaSourceFactory(
             mode: DolbyVisionTransformMode,
             expectedDynamicRange: String? = null,
+            expectedColorRange: String? = null,
         ) =
             DefaultMediaSourceFactory(
                 context,
@@ -265,6 +291,7 @@ class PrairiePlayerFactory(
                     configuredExtractorsFactory(),
                     mode,
                     expectedDynamicRange = expectedDynamicRange,
+                    expectedColorRange = expectedColorRange,
                 ),
             )
             .setDataSourceFactory(dataSourceFactory)
@@ -275,16 +302,12 @@ class PrairiePlayerFactory(
             .setSubtitleParserFactory(embeddedSubtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
         val mediaSourceFactory = PrairieMediaSourceFactory(
-            defaultFactory = defaultMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
-            hlgFactory = defaultMediaSourceFactory(
-                DolbyVisionTransformMode.DISABLED,
-                expectedDynamicRange = "hlg",
-            ),
-            dv81Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_PROFILE81),
-            hdr10Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_HDR10),
+            defaultFactory = correctedMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
+            correctedFactory = ::correctedMediaSourceFactory,
             hlsFactory = hlsMediaSourceFactory,
             dataSourceFactory = dataSourceFactory,
             subtitleParserFactory = sidecarSubtitleParserFactory,
+            subtitleOffsetProvider = subtitleOffsetHolder::getOffsetUs,
             loadErrorHandlingPolicy = mediaLoadErrorHandlingPolicy,
         )
 
@@ -336,6 +359,12 @@ class PrairiePlayerFactory(
         )
 
         return builder.build().also(libassBridge::initialize)
+    }
+
+    /** Releases the player and the libass handler/font graph adopted for it. */
+    fun releasePlayer(player: Player) {
+        (player as? ExoPlayer)?.let(libassBridge::releasePlayer)
+        player.release()
     }
 
     private fun playbackBufferDeviceProfile(): PlaybackBufferDeviceProfile {
@@ -393,6 +422,7 @@ class PrairiePlayerFactory(
      * selected media source factory wires them through a merging source.
      */
     fun buildMediaItem(
+        contentId: String? = null,
         streamUrl: String,
         playMethod: PlayMethod,
         delivery: PlaybackDelivery? = null,
@@ -406,6 +436,7 @@ class PrairiePlayerFactory(
         timelineOffsetSeconds: Double = 0.0,
         requestHeaders: Map<String, String> = emptyMap(),
         expectedDynamicRange: String? = null,
+        expectedColorRange: String? = null,
         transformations: List<String> = emptyList(),
         runtimeCorrections: List<String> = emptyList(),
     ): MediaItem {
@@ -426,6 +457,7 @@ class PrairiePlayerFactory(
 
         val builder = MediaItem.Builder()
             .setUri(absoluteUrl)
+            .apply { contentId?.takeIf(String::isNotBlank)?.let(::setMediaId) }
             .setSubtitleConfigurations(subtitleConfigurations)
             .setTag(
                 PrairieMediaTransformTag(
@@ -437,6 +469,7 @@ class PrairiePlayerFactory(
                         else -> DolbyVisionTransformMode.DISABLED
                     },
                     expectedDynamicRange = expectedDynamicRange,
+                    expectedColorRange = expectedColorRange,
                 ),
             )
 
@@ -495,21 +528,24 @@ class PrairiePlayerFactory(
 
     private class PrairieMediaSourceFactory(
         private val defaultFactory: MediaSource.Factory,
-        private val hlgFactory: MediaSource.Factory,
-        private val dv81Factory: MediaSource.Factory,
-        private val hdr10Factory: MediaSource.Factory,
+        private val correctedFactory: (
+            DolbyVisionTransformMode,
+            String?,
+            String?,
+        ) -> MediaSource.Factory,
         private val hlsFactory: MediaSource.Factory,
         private val dataSourceFactory: DataSource.Factory,
         private val subtitleParserFactory: SubtitleParser.Factory,
+        private val subtitleOffsetProvider: () -> Long,
         private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
     ) : MediaSource.Factory {
+        private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
+
         override fun setDrmSessionManagerProvider(
             drmSessionManagerProvider: DrmSessionManagerProvider,
         ): MediaSource.Factory {
+            this.drmSessionManagerProvider = drmSessionManagerProvider
             defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
-            hlgFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
-            dv81Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
-            hdr10Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             hlsFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             return this
         }
@@ -519,9 +555,6 @@ class PrairiePlayerFactory(
         ): MediaSource.Factory {
             this.loadErrorHandlingPolicy = loadErrorHandlingPolicy
             defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-            hlgFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-            dv81Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-            hdr10Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             hlsFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             return this
         }
@@ -547,15 +580,7 @@ class PrairiePlayerFactory(
                 hlsFactory.createMediaSource(contentItem)
             } else {
                 val tag = localConfiguration.tag as? PrairieMediaTransformTag
-                when (tag?.dolbyVisionMode) {
-                    DolbyVisionTransformMode.PROFILE7_TO_PROFILE81 -> dv81Factory.createMediaSource(contentItem)
-                    DolbyVisionTransformMode.PROFILE7_TO_HDR10 -> hdr10Factory.createMediaSource(contentItem)
-                    else -> if (tag?.expectedDynamicRange.equals("hlg", ignoreCase = true)) {
-                        hlgFactory.createMediaSource(contentItem)
-                    } else {
-                        defaultFactory.createMediaSource(contentItem)
-                    }
-                }
+                mediaSourceFactory(tag).createMediaSource(contentItem)
             }
             if (subtitleConfigurations.isEmpty()) return contentSource
 
@@ -566,6 +591,16 @@ class PrairiePlayerFactory(
             subtitleConfigurations.mapTo(sources, ::createSubtitleMediaSource)
             return MergingMediaSource(*sources.toTypedArray())
         }
+
+        private fun mediaSourceFactory(tag: PrairieMediaTransformTag?): MediaSource.Factory =
+            correctedFactory(
+                tag?.dolbyVisionMode ?: DolbyVisionTransformMode.DISABLED,
+                tag?.expectedDynamicRange,
+                tag?.expectedColorRange,
+            ).also { factory ->
+                drmSessionManagerProvider?.let(factory::setDrmSessionManagerProvider)
+                factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            }
 
         private fun createSubtitleMediaSource(
             configuration: MediaItem.SubtitleConfiguration,
@@ -588,13 +623,25 @@ class PrairiePlayerFactory(
                     subtitleParserFactory.getCueReplacementBehavior(baseFormat),
                 )
                 .build()
-            val extractorsFactory = ExtractorsFactory {
-                arrayOf(
-                    SubtitleExtractor(
-                        subtitleParserFactory.create(outputFormat),
-                        outputFormat,
-                    ),
-                )
+            val extractorsFactory = if (configuration.mimeType == MimeTypes.APPLICATION_PGS) {
+                ExtractorsFactory {
+                    arrayOf(
+                        PgsSupExtractor(
+                            subtitleParserFactory,
+                            subtitleOffsetProvider,
+                            outputFormat,
+                        ),
+                    )
+                }
+            } else {
+                ExtractorsFactory {
+                    arrayOf(
+                        SubtitleExtractor(
+                            subtitleParserFactory.create(outputFormat),
+                            outputFormat,
+                        ),
+                    )
+                }
             }
             return ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)

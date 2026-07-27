@@ -5,17 +5,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +37,7 @@ import org.prairieserver.prairie.android.ui.components.DetailLoadingSkeleton
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastTargetPickerSheet
 import org.prairieserver.prairie.android.ui.screens.downloads.openDownloadTargetInExternalApp
+import org.prairieserver.prairie.android.ui.screens.watchtogether.SuggestToRoomViewModel
 import org.prairieserver.prairie.android.ui.util.playbackResumePosition
 import org.prairieserver.prairie.cast.PrairieCastLaunchRequest
 import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
@@ -59,6 +56,7 @@ import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.playback.selectPlaybackVersion
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.metadata.DescriptionTranslationPhase
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.metadata.MetadataAiOnView
@@ -93,7 +91,18 @@ fun ItemDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val suggestViewModel: SuggestToRoomViewModel = koinViewModel()
+    val suggestRoom by suggestViewModel.room.collectAsState()
+    val suggestState by suggestViewModel.uiState.collectAsState()
     val context = LocalContext.current
+    LaunchedEffect(suggestState.notice, suggestState.error) {
+        val message = suggestState.notice ?: suggestState.error
+        if (message != null) {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            suggestViewModel.consumeNotice()
+            suggestViewModel.clearError()
+        }
+    }
 
     // Refresh on return (e.g. backing out of the player): the ViewModel loads
     // once in init, so without this the Play button keeps the resume label
@@ -105,8 +114,10 @@ fun ItemDetailScreen(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                viewModel.refreshOnReturn()
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> viewModel.onRouteResumed()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> viewModel.onRoutePaused()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -637,6 +648,19 @@ fun ItemDetailScreen(
                                         ?: playbackResumePosition(detail.userData),
                                 )
                             },
+                            onSuggestToRoom = if (suggestRoom != null && nextEpisode != null) {
+                                {
+                                    suggestViewModel.suggest(
+                                        contentId = nextEpisode.contentId,
+                                        contentType = "episode",
+                                        title = nextEpisode.title ?: detail.title,
+                                        subtitle = detail.title,
+                                        posterUrl = nextEpisode.stillUrl ?: detail.posterUrl,
+                                    )
+                                }
+                            } else {
+                                null
+                            },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
                                 { onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null) }
                             } else {
@@ -822,6 +846,17 @@ fun ItemDetailScreen(
                                     resumePositionSeconds = playbackResumePosition(detail.userData),
                                 )
                             },
+                            onSuggestToRoom = suggestRoom?.let {
+                                {
+                                    suggestViewModel.suggest(
+                                        contentId = detail.contentId,
+                                        contentType = detail.type,
+                                        title = detail.title,
+                                        subtitle = detail.seriesTitle?.takeIf { value -> value.isNotBlank() },
+                                        posterUrl = detail.posterUrl,
+                                    )
+                                }
+                            },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
                                 { onWatchTogether(detail.contentId, explicitFileId) }
                             } else {
@@ -877,23 +912,11 @@ fun ItemDetailScreen(
                             confirmAction()
                         },
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Discard Download")
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { pendingCancelDownloadAction = null }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Keep Download")
                     }
                 },

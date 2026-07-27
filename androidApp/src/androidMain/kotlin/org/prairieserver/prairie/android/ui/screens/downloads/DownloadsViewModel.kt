@@ -523,15 +523,26 @@ class DownloadsViewModel(
             if (status == DownloadStatus.Queued || status == DownloadStatus.Downloading) {
                 downloadEnqueuer.cancel(id)
             }
-            repository.enqueueDurableDelete(serverId, profileId, id, fileId)
-            if (fileId != null) {
-                withContext(Dispatchers.IO) {
-                    storage.delete(serverId, profileId, fileId)
-                }
-                metadataStore.deleteSidecar(serverId, profileId, fileId)
-                scopeByFileId = scopeByFileId - fileId
-            }
+            // Drop the in-memory sidecar maps BEFORE the tombstone: enqueueDurableDelete
+            // emits on repository.records and the collector rebuilds sections from
+            // metadataByRecordId — if the entry were still present the deleted row would
+            // survive that emission, and no later emission is guaranteed.
             metadataByRecordId = metadataByRecordId - id
+            if (fileId != null) scopeByFileId = scopeByFileId - fileId
+            removingRecordIds = removingRecordIds + id
+            try {
+                repository.enqueueDurableDelete(serverId, profileId, id, fileId)
+                if (fileId != null) {
+                    withContext(Dispatchers.IO) {
+                        storage.delete(serverId, profileId, fileId)
+                    }
+                    metadataStore.deleteSidecar(serverId, profileId, fileId)
+                }
+            } finally {
+                // Also covers the fileId == null branch, which never reaches
+                // deleteSidecar and would otherwise hold the guard forever.
+                removingRecordIds = removingRecordIds - id
+            }
 
             // Best-effort server reconcile now. Offline → NetworkError: the durable
             // tombstone replays the DELETE on the next online refresh, so the local
@@ -549,10 +560,17 @@ class DownloadsViewModel(
             }
         }
         val (serverId, profileId) = activeDownloadScope()
-        val bytesUsed = withContext(Dispatchers.IO) { storage.totalBytesUsed(serverId, profileId) }
+        // repository.delete() filters an already-filtered list, so the records
+        // StateFlow conflates it and the collector never re-emits — rebuild the tree
+        // here or the deleted rows stay on screen until the next refresh.
+        val (sections, bytesUsed) = withContext(Dispatchers.IO) {
+            buildSections(repository.records.value.associateBy { it.id }) to
+                storage.totalBytesUsed(serverId, profileId)
+        }
         _uiState.update {
             it.copy(
                 error = firstError,
+                sections = sections,
                 totalBytesUsed = bytesUsed,
             )
         }
@@ -592,6 +610,18 @@ class DownloadsViewModel(
     }
 
     /** One filesystem walk loads both lookup maps. Call on Dispatchers.IO. */
+    /**
+     * Records whose sidecar is mid-deletion.
+     *
+     * The in-memory maps are dropped before the durable tombstone (so the row
+     * disappears at once), but the Room sidecar is only removed after a
+     * file/MediaStore delete. The tombstone's own emission wakes the records
+     * collector, which reloads sidecars wholesale — resurrecting the row as a
+     * red "file missing" entry until some later emission. Reloads subtract
+     * these ids so a delete in flight cannot be undone by a concurrent reload.
+     */
+    private var removingRecordIds: Set<String> = emptySet()
+
     private suspend fun reloadSidecarMetadata() {
         val (activeServerId, activeProfileId) = activeDownloadScope()
         val scoped = run {
@@ -600,7 +630,9 @@ class DownloadsViewModel(
                     serverId == activeServerId && profileId == activeProfileId
                 }
         }
-        metadataByRecordId = scoped.associate { (_, _, sidecar) -> sidecar.record.id to sidecar }
+        metadataByRecordId = scoped
+            .associate { (_, _, sidecar) -> sidecar.record.id to sidecar }
+            .filterKeys { it !in removingRecordIds }
         scopeByFileId = scoped.associate { (serverId, profileId, sidecar) ->
             sidecar.record.mediaFileId to (serverId to profileId)
         }

@@ -5,6 +5,7 @@ import org.prairieserver.prairie.model.watchtogether.RoomPhase
 import org.prairieserver.prairie.model.watchtogether.RoomPlaybackState
 import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.model.watchtogether.MemberRole
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -40,5 +41,17 @@ class LobbyAutoNavigateTest {
 
     @Test fun playing_without_selection_does_not_navigate() {
         assertNull(lobbyPlayerDestinationOrNull(room(null, phase = RoomPhase.Playing)))
+    }
+
+    @Test fun host_alone_stays_in_lobby_until_a_guest_arrives() {
+        val host = room("c9", RoomPhase.Playing).copy(
+            selfRole = MemberRole.Host,
+            memberCount = 1,
+        )
+        assertNull(lobbyPlayerDestinationOrNull(host))
+        assertEquals(
+            Route.Player(contentId = "c9", fileId = 3, roomId = "r1").route,
+            lobbyPlayerDestinationOrNull(host.copy(memberCount = 2)),
+        )
     }
 }

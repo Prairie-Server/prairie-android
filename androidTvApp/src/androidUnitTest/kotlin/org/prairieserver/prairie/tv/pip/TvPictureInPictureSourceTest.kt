@@ -31,7 +31,11 @@ class TvPictureInPictureSourceTest {
         assertTrue(player.contains("isPlaying = state.isPlaying && !state.isPaused"))
         assertTrue(player.contains("!isInPictureInPictureMode"))
         assertTrue(player.contains("if (!isInPictureInPictureMode && state.showControls"))
-        assertTrue(player.contains("Lifecycle.Event.ON_PAUSE -> if (!isInPictureInPictureMode)"))
+        val lifecyclePauseBranch = player
+            .substringAfter("Lifecycle.Event.ON_PAUSE,")
+            .substringBefore("Lifecycle.Event.ON_RESUME")
+        assertTrue(lifecyclePauseBranch.contains("Lifecycle.Event.ON_STOP"))
+        assertTrue(lifecyclePauseBranch.contains("if (!isInPictureInPictureMode)"))
     }
 
     @Test

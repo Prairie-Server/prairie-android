@@ -52,7 +52,8 @@ fun decodePlaybackFrame(json: Json, raw: String): PlaybackRealtimeEvent? {
 /**
  * Per-session control socket. One [connect] = one connection to
  * `/api/v1/playback/sessions/{session_id}/control/ws`, authenticated by query
- * string (token + profile, matching [DefaultWatchTogetherRealtimeClient]). The
+ * string (token + profile; unlike [DefaultWatchTogetherRealtimeClient], which
+ * keeps the access bearer in the same-origin Authorization header). The
  * returned flow emits [PlaybackRealtimeEvent.Opened] once the socket is live,
  * then decoded frames, and ends with [PlaybackRealtimeEvent.Closed]; reconnect
  * with backoff is the controller's job. [sendHello]/[sendAck]/[sendResult]

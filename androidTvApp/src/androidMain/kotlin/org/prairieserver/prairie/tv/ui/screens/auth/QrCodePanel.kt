@@ -3,13 +3,12 @@ package org.prairieserver.prairie.tv.ui.screens.auth
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -39,7 +38,7 @@ fun QrCodePanel(
         val writer = QRCodeWriter()
         val hints = mapOf(
             EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-            EncodeHintType.MARGIN to 0,  // We add our own padding via the surrounding Box.
+            EncodeHintType.MARGIN to 4,
         )
         // 256 is the requested matrix dimension; ZXing rounds to module count.
         writer.encode(content, BarcodeFormat.QR_CODE, 256, 256, hints)
@@ -48,11 +47,10 @@ fun QrCodePanel(
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(16.dp))
             .background(background),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(size)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             val moduleCount = matrix.width
             val modulePx = this.size.minDimension / moduleCount
             for (y in 0 until moduleCount) {

@@ -32,8 +32,8 @@ interface IdentityTransitionBarrier {
     val transitions: SharedFlow<IdentityTransition>
     val generation: StateFlow<Long>
 
-    /** Installs the synchronous privacy gate invoked before any identity mutation. */
-    fun installGate(listener: (IdentityTransition) -> Unit)
+    /** Installs the inline privacy gate, which must complete before identity mutation. */
+    fun installGate(listener: suspend (IdentityTransition) -> Unit)
 
     suspend fun <T> changing(kind: IdentityTransitionKind, block: suspend () -> T): T
 }
@@ -48,7 +48,7 @@ class DefaultIdentityTransitionBarrier : IdentityTransitionBarrier {
     private val _generation = MutableStateFlow(0L)
 
     @Volatile
-    private var gate: ((IdentityTransition) -> Unit)? = null
+    private var gates: List<suspend (IdentityTransition) -> Unit> = emptyList()
 
     @Volatile
     private var testObserver: ((IdentityTransition) -> Unit)? = null
@@ -56,8 +56,11 @@ class DefaultIdentityTransitionBarrier : IdentityTransitionBarrier {
     override val transitions: SharedFlow<IdentityTransition> = _transitions.asSharedFlow()
     override val generation: StateFlow<Long> = _generation.asStateFlow()
 
-    override fun installGate(listener: (IdentityTransition) -> Unit) {
-        gate = listener
+    override fun installGate(listener: suspend (IdentityTransition) -> Unit) {
+        // Gates are installed during sequential application startup. Publish an
+        // immutable snapshot so mutations can iterate safely without holding a
+        // lock across suspending privacy cleanup.
+        gates = gates + listener
     }
 
     override suspend fun <T> changing(kind: IdentityTransitionKind, block: suspend () -> T): T =
@@ -69,7 +72,7 @@ class DefaultIdentityTransitionBarrier : IdentityTransitionBarrier {
                 generation = nextGeneration,
             )
             // This callback is the privacy boundary. It runs inline before new identity is visible.
-            gate?.invoke(willChange)
+            gates.forEach { gate -> gate(willChange) }
             _generation.value = nextGeneration
             publish(willChange)
             try {

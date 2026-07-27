@@ -7,6 +7,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.prairieserver.prairie.network.isSameHttpOrigin
 
 /**
  * OkHttp interceptor that mirrors [org.prairieserver.prairie.network.PrairieAuthPlugin]
@@ -36,6 +37,9 @@ class MediaAuthInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         val failedSnapshot = runBlocking { authSession.snapshot() }
+        if (!isSameHttpOrigin(failedSnapshot.serverUrl, original.url.toString())) {
+            return chain.proceed(original.withoutSiloCredentials())
+        }
 
         val authed = original.newBuilder()
             .applyAuthHeaders(failedSnapshot)
@@ -55,9 +59,14 @@ class MediaAuthInterceptor(
             return chain.proceed(authed)
         }
 
-        val retried = original.newBuilder()
-            .applyAuthHeaders(runBlocking { authSession.snapshot() })
-            .build()
+        val retrySnapshot = runBlocking { authSession.snapshot() }
+        val retried = if (isSameHttpOrigin(retrySnapshot.serverUrl, original.url.toString())) {
+            original.newBuilder()
+                .applyAuthHeaders(retrySnapshot)
+                .build()
+        } else {
+            original.withoutSiloCredentials()
+        }
         return chain.proceed(retried)
     }
 
@@ -66,3 +75,15 @@ class MediaAuthInterceptor(
         return this
     }
 }
+
+private fun Request.withoutSiloCredentials(): Request =
+    newBuilder()
+        .removeHeader("Authorization")
+        .removeHeader("X-Profile-Id")
+        .removeHeader("X-Profile-Token")
+        .apply {
+            headers.names()
+                .filter { name -> name.startsWith("X-Prairie-", ignoreCase = true) }
+                .forEach(::removeHeader)
+        }
+        .build()

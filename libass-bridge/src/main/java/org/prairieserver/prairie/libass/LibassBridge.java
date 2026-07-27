@@ -60,7 +60,13 @@ public final class LibassBridge {
 
     private final boolean renderingSupported;
     private final boolean embeddedFontsSupported;
-    private final AssHandler handler;
+    /**
+     * Recycled per player so embedded Matroska font attachments do not remain
+     * reachable for the lifetime of the process after their player is gone.
+     */
+    private final AssRenderType renderType;
+    private volatile AssHandler handler;
+    private volatile AssSubtitleParserFactory assFactory;
     private final SubtitleParser.Factory parserFactory;
     private WeakReference<AssSubtitleView> overlayRef = new WeakReference<>(null);
     private ExoPlayer initializedPlayer;
@@ -76,13 +82,15 @@ public final class LibassBridge {
         renderingSupported = probeNativeRuntime();
         embeddedFontsSupported = renderingSupported && probeMatroskaIntegration();
         if (renderingSupported) {
-            AssRenderType renderType = preferOpenGl
+            renderType = preferOpenGl
                     ? AssRenderType.OVERLAY_OPEN_GL
                     : AssRenderType.OVERLAY_CANVAS;
-            handler = new AssHandler(renderType, new AssHandlerConfig());
+            newHandler();
             parserFactory = buildParserFactory();
         } else {
+            renderType = null;
             handler = null;
+            assFactory = null;
             parserFactory = new DefaultSubtitleParserFactory();
         }
     }
@@ -99,9 +107,34 @@ public final class LibassBridge {
         return parserFactory;
     }
 
+    private void newHandler() {
+        handler = new AssHandler(renderType, new AssHandlerConfig());
+        assFactory = new AssSubtitleParserFactory(handler);
+    }
+
+    /**
+     * The factory wrappers outlive individual players, so each call delegates
+     * to the factory belonging to the current handler rather than pinning the
+     * retired handler and its embedded fonts.
+     */
     private SubtitleParser.Factory buildParserFactory() {
-        AssSubtitleParserFactory assFactory = new AssSubtitleParserFactory(handler);
-        if (embeddedFontsSupported) return assFactory;
+        SubtitleParser.Factory currentAssFactory = new SubtitleParser.Factory() {
+            @Override
+            public boolean supportsFormat(Format format) {
+                return LibassBridge.this.assFactory.supportsFormat(format);
+            }
+
+            @Override
+            public int getCueReplacementBehavior(Format format) {
+                return LibassBridge.this.assFactory.getCueReplacementBehavior(format);
+            }
+
+            @Override
+            public SubtitleParser create(Format format) {
+                return LibassBridge.this.assFactory.create(format);
+            }
+        };
+        if (embeddedFontsSupported) return currentAssFactory;
 
         // The ass-media Matroska extractor supplies both timed dialogue packets
         // and font attachments. If its Media3 reflection probe fails, do not
@@ -112,12 +145,12 @@ public final class LibassBridge {
         return new SubtitleParser.Factory() {
             @Override
             public boolean supportsFormat(Format format) {
-                return assFactory.supportsFormat(format);
+                return currentAssFactory.supportsFormat(format);
             }
 
             @Override
             public int getCueReplacementBehavior(Format format) {
-                return assFactory.getCueReplacementBehavior(format);
+                return currentAssFactory.getCueReplacementBehavior(format);
             }
 
             @Override
@@ -126,7 +159,7 @@ public final class LibassBridge {
                         && MimeTypes.VIDEO_MATROSKA.equals(format.containerMimeType);
                 return unsupportedEmbeddedAss
                         ? media3Factory.create(format)
-                        : assFactory.create(format);
+                        : currentAssFactory.create(format);
             }
         };
     }
@@ -213,12 +246,27 @@ public final class LibassBridge {
         if (initializedPlayer != null) {
             initializedPlayer.removeListener(handler);
             initializedPlayer.removeListener(frameSizeSyncListener);
+            retireOverlay();
+            newHandler();
         }
         initializedPlayer = player;
         handler.init(player);
         // Registered after AssHandler so its track update creates the render
         // before we correct the frame size to Prairie's visible-video subtitle box.
         player.addListener(frameSizeSyncListener);
+    }
+
+    /**
+     * Releases bridge-owned state for the adopted player. Safe for an unknown
+     * player or repeated calls.
+     */
+    public void releasePlayer(ExoPlayer player) {
+        if (!renderingSupported || initializedPlayer == null || initializedPlayer != player) return;
+        initializedPlayer.removeListener(handler);
+        initializedPlayer.removeListener(frameSizeSyncListener);
+        initializedPlayer = null;
+        retireOverlay();
+        newHandler();
     }
 
     /** Adds one libass overlay beneath Media3's normal text cue layer. */
@@ -246,6 +294,17 @@ public final class LibassBridge {
         }
         overlayRef = new WeakReference<>(overlay);
         syncOverlayFrameSizeLater();
+    }
+
+    /** Removes the view that still points at the retiring handler. */
+    private void retireOverlay() {
+        AssSubtitleView overlay = overlayRef.get();
+        overlayRef = new WeakReference<>(null);
+        if (overlay == null) return;
+        ViewGroup parent = overlay.getParent() instanceof ViewGroup
+                ? (ViewGroup) overlay.getParent()
+                : null;
+        if (parent != null) parent.removeView(overlay);
     }
 
     private Extractor[] replaceMatroska(

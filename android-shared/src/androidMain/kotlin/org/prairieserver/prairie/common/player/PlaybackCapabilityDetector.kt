@@ -297,10 +297,11 @@ class PlaybackCapabilityDetector(
                         // Media3's DefaultSubtitleParserFactory decodes the
                         // three embedded bitmap families carried by our
                         // direct-play containers: PGS, VobSub/DVD, and DVB.
-                        // Keep sidecar bitmap disabled because Prairie does not
-                        // mount raw bitmap sidecars into the MediaItem.
+                        // Sidecar bitmap is on too: SubtitleManager mounts the
+                        // server's raw `.sup` extract as a MediaItem sidecar,
+                        // so a bitmap track no longer has to be burned in.
                         embeddedBitmap = true,
-                        sidecarBitmap = false,
+                        sidecarBitmap = true,
                         fontAttachments = libassEmbeddedFonts,
                     ),
                     features = buildList {
@@ -352,6 +353,12 @@ class PlaybackCapabilityDetector(
                         embeddedText = true,
                         sidecarText = true,
                         assStyling = libassRendering,
+                        // The transport carries no subtitle track, but the
+                        // server raw-serves the embedded PGS as a `.sup`
+                        // sidecar and Media3 parses it — so bitmap subtitles
+                        // render here without a burn-in transcode.
+                        embeddedBitmap = true,
+                        sidecarBitmap = true,
                     ),
                     features = buildList {
                         addAll(listOf("hls", "track_switching", "buffer_reporting"))

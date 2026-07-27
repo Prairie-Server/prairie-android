@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.screens.watchtogether
 
+import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomPhase
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import kotlin.test.Test
@@ -53,5 +54,27 @@ class LobbyNavigationDecisionTest {
     @Test
     fun nullSnapshotDoesNotEnter() {
         assertFalse(shouldEnterSyncedPlayer(null))
+    }
+
+    @Test
+    fun hostAloneHoldsOnTheInviteCodeUntilSomeoneJoins() {
+        val alone = fixture(RoomPhase.Playing, "m1").copy(
+            selfRole = MemberRole.Host,
+            memberCount = 1,
+        )
+        assertFalse(shouldEnterSyncedPlayer(alone))
+        assertTrue(shouldEnterSyncedPlayer(alone.copy(memberCount = 2)))
+    }
+
+    @Test
+    fun guestEntersAnAlreadyPlayingRoomImmediately() {
+        assertTrue(
+            shouldEnterSyncedPlayer(
+                fixture(RoomPhase.Playing, "m1").copy(
+                    selfRole = MemberRole.Guest,
+                    memberCount = 1,
+                ),
+            ),
+        )
     }
 }

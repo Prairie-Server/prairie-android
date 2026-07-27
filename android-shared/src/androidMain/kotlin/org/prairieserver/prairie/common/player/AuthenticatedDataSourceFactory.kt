@@ -10,10 +10,13 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.FileDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
+import org.prairieserver.prairie.common.io.checkedLimitedByteCount
 import org.prairieserver.prairie.common.player.subtitle.normalizeSubripPayloadIfNeeded
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import kotlinx.coroutines.runBlocking
+import org.prairieserver.prairie.network.isSameHttpOrigin
+import org.prairieserver.prairie.network.CleartextOriginNotApprovedException
 
 /**
  * DataSource.Factory that resolves relative stream URLs against the server
@@ -78,6 +81,9 @@ internal class RefreshingHttpDataSource(
     }
 
     override fun open(dataSpec: DataSpec): Long {
+        if (!runBlocking { authSession.isTransportApproved(dataSpec.uri.toString()) }) {
+            throw CleartextOriginNotApprovedException(dataSpec.uri.toString())
+        }
         val guardEnabled = isResumableDirectPlayUri(dataSpec.uri)
         if (guardEnabled) {
             prepareEntityGuard(dataSpec.uri)
@@ -88,7 +94,14 @@ internal class RefreshingHttpDataSource(
         return try {
             first.openWithGuards(dataSpec, failedSnapshot, guardEnabled)
         } catch (error: HttpDataSource.InvalidResponseCodeException) {
-            if (error.responseCode != 401 || !runBlocking { authSession.refreshIfStale(failedSnapshot) }) {
+            if (
+                !shouldRefreshMediaRequest(
+                    serverUrl = failedSnapshot.serverUrl,
+                    requestUrl = dataSpec.uri.toString(),
+                    responseCode = error.responseCode,
+                ) ||
+                !runBlocking { authSession.refreshIfStale(failedSnapshot) }
+            ) {
                 throw error
             }
             first.close()
@@ -189,7 +202,12 @@ internal class RefreshingHttpDataSource(
         // headers as authoritative while filling only missing auth/profile
         // headers from the refreshable Prairie session.
         .setHttpRequestHeaders(
-            mergeSessionAuthHeaders(snapshot.asRequestHeaders(), httpRequestHeaders),
+            authenticatedHeadersFor(
+                serverUrl = snapshot.serverUrl,
+                requestUrl = uri.toString(),
+                sessionHeaders = snapshot.asRequestHeaders(),
+                explicitHeaders = httpRequestHeaders,
+            ),
         )
         .build()
 }
@@ -224,6 +242,29 @@ internal fun mergeSessionAuthHeaders(
         put(name, value)
     }
 }
+
+internal fun authenticatedHeadersFor(
+    serverUrl: String,
+    requestUrl: String,
+    sessionHeaders: Map<String, String>,
+    explicitHeaders: Map<String, String>,
+): Map<String, String> {
+    val resolvedRequestUrl = resolveRoutedDataSourceUrl(serverUrl, requestUrl)
+    val scopedSessionHeaders = if (isSameHttpOrigin(serverUrl, resolvedRequestUrl)) {
+        sessionHeaders
+    } else {
+        emptyMap()
+    }
+    return mergeSessionAuthHeaders(scopedSessionHeaders, explicitHeaders)
+}
+
+internal fun shouldRefreshMediaRequest(
+    serverUrl: String,
+    requestUrl: String,
+    responseCode: Int,
+): Boolean =
+    responseCode == 401 &&
+        isSameHttpOrigin(serverUrl, resolveRoutedDataSourceUrl(serverUrl, requestUrl))
 
 /**
  * Picks between a [FileDataSource] (offline media playback) and the shared
@@ -310,6 +351,7 @@ internal fun resolveRoutedDataSourceUrl(serverUrl: String, rawUri: String): Stri
             trimmed.startsWith("https://", ignoreCase = true) ||
             trimmed.startsWith("file://", ignoreCase = true) ||
             trimmed.startsWith("content://", ignoreCase = true) -> trimmed
+        "://" in trimmed -> trimmed
         trimmed.startsWith("/") -> resolvePlaybackStreamUrl(serverUrl, trimmed)
         else -> "${serverUrl.trimEnd('/')}/${trimmed.trimStart('/')}"
     }
@@ -318,6 +360,7 @@ internal fun resolveRoutedDataSourceUrl(serverUrl: String, rawUri: String): Stri
 @UnstableApi
 internal class SubripNormalizingDataSource(
     private val upstream: DataSource,
+    private val maxBytes: Long = MAX_SUBTITLE_BYTES,
 ) : DataSource {
     private var normalizedData: ByteArray? = null
     private var normalizedPosition: Int = 0
@@ -336,14 +379,28 @@ internal class SubripNormalizingDataSource(
             return upstream.open(dataSpec)
         }
 
-        upstream.open(dataSpec)
+        val declaredLength = upstream.open(dataSpec)
         uri = upstream.uri ?: dataSpec.uri
         val raw = try {
+            if (declaredLength >= 0) {
+                checkedLimitedByteCount(
+                    currentBytes = 0,
+                    additionalBytes = declaredLength,
+                    maxBytes = maxBytes,
+                    limitName = "subtitle",
+                )
+            }
             readAllFromUpstream()
         } finally {
             upstream.close()
         }
         val normalized = normalizeSubripDataIfNeeded(raw)
+        checkedLimitedByteCount(
+            currentBytes = 0,
+            additionalBytes = normalized.size.toLong(),
+            maxBytes = maxBytes,
+            limitName = "normalized subtitle",
+        )
         normalizedData = normalized
         return normalized.size.toLong()
     }
@@ -372,10 +429,19 @@ internal class SubripNormalizingDataSource(
     private fun readAllFromUpstream(): ByteArray {
         val out = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_SUBRIP_READ_BUFFER_SIZE)
+        var total = 0L
         while (true) {
             val read = upstream.read(buffer, 0, buffer.size)
             if (read == C.RESULT_END_OF_INPUT) break
-            if (read > 0) out.write(buffer, 0, read)
+            if (read > 0) {
+                total = checkedLimitedByteCount(
+                    currentBytes = total,
+                    additionalBytes = read.toLong(),
+                    maxBytes = maxBytes,
+                    limitName = "subtitle",
+                )
+                out.write(buffer, 0, read)
+            }
         }
         return out.toByteArray()
     }
@@ -390,4 +456,5 @@ internal fun shouldNormalizeSubripPath(path: String?, position: Long): Boolean =
 internal fun normalizeSubripDataIfNeeded(raw: ByteArray): ByteArray =
     normalizeSubripPayloadIfNeeded(raw, 0, raw.size) ?: raw
 
+internal const val MAX_SUBTITLE_BYTES = 32L * 1024 * 1024
 private const val DEFAULT_SUBRIP_READ_BUFFER_SIZE = 16 * 1024

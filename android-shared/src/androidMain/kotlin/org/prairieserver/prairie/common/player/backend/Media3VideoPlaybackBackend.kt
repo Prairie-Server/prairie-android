@@ -12,6 +12,7 @@ import org.prairieserver.prairie.common.player.video.VideoTrackSelectionCoordina
 import org.prairieserver.prairie.model.playback.AudioPassthroughCapabilities
 import org.prairieserver.prairie.model.playback.HdrCapabilities
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
+import org.prairieserver.prairie.model.playback.SubtitleIdentity
 
 @UnstableApi
 class Media3VideoPlaybackBackend(
@@ -58,6 +59,13 @@ class Media3VideoPlaybackBackend(
         )
 
     override fun selectMountedSubtitle(
+        identity: SubtitleIdentity,
+    ): Boolean = trackSelectionCoordinator.selectMountedSubtitle(
+        player = player,
+        identity = identity,
+    )
+
+    override fun selectMountedSubtitle(
         subtitles: List<PlayerSubtitleInfo>,
         selectedIndex: Int,
     ): Boolean = trackSelectionCoordinator.selectMountedSubtitle(
@@ -92,7 +100,7 @@ class Media3VideoPlaybackBackend(
     }
 
     override fun release() {
-        player.release()
+        playerFactory.releasePlayer(player)
     }
 
     private fun requireMediaSpecForExternalSubtitle(track: VideoPlayerTrackEntry?): VideoPlayerMediaSpec {

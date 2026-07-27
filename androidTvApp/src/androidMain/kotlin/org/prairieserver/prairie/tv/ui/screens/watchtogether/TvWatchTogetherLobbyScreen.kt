@@ -17,13 +17,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,10 +54,14 @@ import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.model.watchtogether.Suggestion
 import org.prairieserver.prairie.tv.ui.navigation.TvRoute
 import org.prairieserver.prairie.tv.ui.screens.auth.QrCodePanel
+import org.prairieserver.prairie.tv.ui.screens.player.TvDialogActionRow
 import org.prairieserver.prairie.tv.ui.screens.player.TvDialogCyclerRow
 import org.prairieserver.prairie.tv.ui.theme.DarkBackground
 import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
 import org.prairieserver.prairie.tv.ui.theme.FocusedContent
+import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
+import org.prairieserver.prairie.watchtogether.isVoteRoom
+import org.prairieserver.prairie.watchtogether.roomVoteWinner
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -66,8 +71,11 @@ import org.koin.core.parameter.parametersOf
  * the phone lobby's `lobbyPlayerDestinationOrNull` semantics (enum compare +
  * isNullOrBlank, NOT a wire-string compare).
  */
-fun shouldEnterSyncedPlayer(s: RoomSnapshot?): Boolean =
-    s != null && s.phase == RoomPhase.Playing && !s.selectedContentId.isNullOrBlank()
+fun shouldEnterSyncedPlayer(s: RoomSnapshot?): Boolean {
+    if (s == null || s.phase != RoomPhase.Playing || s.selectedContentId.isNullOrBlank()) return false
+    if (s.selfRole == MemberRole.Host && s.memberCount <= 1) return false
+    return true
+}
 
 /**
  * Watch Together lobby (TV). Shows member count / role / selection mode, the
@@ -106,9 +114,16 @@ fun TvWatchTogetherLobbyScreen(
     val snapshot = room
     val isHostLabel = snapshot?.selfRole == MemberRole.Host
     val canManage = snapshot?.selfCanManageRoom == true
+    val isVoteRoom = snapshot.isVoteRoom()
 
     // Auto-hand-off into the synced player once the room is playing + selected.
-    LaunchedEffect(room?.phase, room?.selectedContentId, room?.selectedFileId) {
+    LaunchedEffect(
+        room?.phase,
+        room?.selectedContentId,
+        room?.selectedFileId,
+        room?.memberCount,
+        room?.selfRole,
+    ) {
         val snapshot = room ?: return@LaunchedEffect
         if (shouldEnterSyncedPlayer(snapshot)) {
             onNavigateToPlayer(
@@ -146,10 +161,14 @@ fun TvWatchTogetherLobbyScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 56.dp, vertical = 40.dp),
+                .padding(start = 56.dp, end = 56.dp, top = 40.dp, bottom = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(48.dp),
+        ) {
+        Column(
+            modifier = Modifier.weight(0.42f),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             // --- Header --------------------------------------------------------
@@ -231,6 +250,19 @@ fun TvWatchTogetherLobbyScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .weight(0.58f)
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            if (snapshot != null) {
+                if (canManage) {
                     // Selection mode is fixed at room creation — shown read-only.
                     TvDialogCyclerRow(
                         title = "Selection mode",
@@ -251,6 +283,16 @@ fun TvWatchTogetherLobbyScreen(
                     CloseRoomButton(onClick = viewModel::closeRoom)
                 }
 
+                val winner = roomVoteWinner(suggestions)
+                if (isVoteRoom && canManage) {
+                    TvDialogActionRow(
+                        title = winner?.let { "Start winner: ${it.title}" }
+                            ?: "Start winner — no votes yet",
+                        enabled = winner != null,
+                        onClick = { winner?.let { viewModel.promote(it.id) } },
+                    )
+                }
+
                 Text(
                     text = "SUGGESTIONS",
                     style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp),
@@ -263,24 +305,28 @@ fun TvWatchTogetherLobbyScreen(
                         color = Color.White.copy(alpha = 0.5f),
                     )
                 } else {
-                    LazyColumn(
+                    Column(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        items(suggestions, key = { it.id }) { s ->
-                            SuggestionRow(
-                                suggestion = s,
-                                canManage = canManage,
-                                onVote = {
-                                    if (s.votedByMe) viewModel.unvote(s.id) else viewModel.vote(s.id)
-                                },
-                                onPromote = { viewModel.promote(s.id) },
-                                onRemove = { viewModel.removeSuggestion(s.id) },
-                            )
+                        suggestions.forEach { s ->
+                            key(s.id) {
+                                SuggestionRow(
+                                    suggestion = s,
+                                    canManage = canManage,
+                                    isWinning = isVoteRoom && winner?.id == s.id,
+                                    onVote = {
+                                        if (s.votedByMe) viewModel.unvote(s.id) else viewModel.vote(s.id)
+                                    },
+                                    onPromote = { viewModel.promote(s.id) },
+                                    onRemove = { viewModel.removeSuggestion(s.id) },
+                                )
+                            }
                         }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -314,6 +360,7 @@ private fun nextPolicy(policy: GuestControlPolicy): GuestControlPolicy = when (p
 private fun SuggestionRow(
     suggestion: Suggestion,
     canManage: Boolean,
+    isWinning: Boolean,
     onVote: () -> Unit,
     onPromote: () -> Unit,
     onRemove: () -> Unit,
@@ -413,6 +460,17 @@ private fun SuggestionRow(
                 style = MaterialTheme.typography.titleMedium,
                 color = if (isFocused) FocusedContent else Color.White,
             )
+            if (isWinning) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "WINNING",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                    ),
+                    color = if (isFocused) FocusedContent else PrairieBlue,
+                )
+            }
             if (canManage) {
                 Spacer(Modifier.width(8.dp))
                 RowAction(text = "Pick", onClick = onPromote)

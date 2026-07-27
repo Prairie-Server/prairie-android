@@ -40,6 +40,7 @@ import org.prairieserver.prairie.common.ui.components.StartupSplashVideo
 import org.prairieserver.prairie.common.ui.components.StartupSplashResizeMode
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.requiresApproval
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.ProfileRepository
@@ -259,16 +260,23 @@ class MainTvActivity : ComponentActivity() {
     /**
      * Mirrors the phone app's [org.prairieserver.prairie.android.MainActivity] startup
      * flow on top of the multi-server [ServerRegistry]. See that file for the
-     * routing rules — they're identical: registry empty ⇒ ServerList
-     * (LAN scan; manual URL is secondary), tokens missing ⇒ Login, no
-     * active profile header scope ⇒ ProfileSelection, else Main.
+     * routing rules — they're identical: registry empty ⇒ ServerSetup,
+     * tokens missing ⇒ Login, no active profile header scope ⇒
+     * ProfileSelection, else Main.
      */
     private suspend fun resolveStartDestination(): String {
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
 
         val activeEntry = registry.activeEntry.value
-            ?: return TvRoute.ServerList.START
+            ?: return TvRoute.ServerSetup.route
+
+        val cleartextConsent = get<org.prairieserver.prairie.network.CleartextOriginConsent>(
+            org.prairieserver.prairie.network.CleartextOriginConsent::class.java,
+        )
+        if (cleartextConsent.requiresApproval(activeEntry.url)) {
+            return TvRoute.ServerSetup.route
+        }
 
         val accessToken = tokenManager.getAccessToken()
         if (accessToken.isNullOrBlank()) return TvRoute.Login().route

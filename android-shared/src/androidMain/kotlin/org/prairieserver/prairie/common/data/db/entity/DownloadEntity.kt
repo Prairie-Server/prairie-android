@@ -72,4 +72,11 @@ data class DownloadEntity(
      *  206 (source unchanged → safe to append) or 200 (source changed → restart).
      *  Null = no validator captured (resume falls back to a fresh download). */
     val resumeValidator: String? = null,
+    /** Requested download quality wire string (`DownloadQuality.wire`). Persisted
+     *  because the Downloads tab falls back to the stored record when there is no
+     *  live server record — offline, or once the download has completed. */
+    val quality: String? = null,
+    /** Quality the server actually delivered after any compatibility fallback;
+     *  may differ from [quality]. Same offline-fallback reason as above. */
+    val effectiveQuality: String? = null,
 )

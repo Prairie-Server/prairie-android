@@ -46,6 +46,7 @@ import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnostic
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsReportScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsSettingsScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
+import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherLobbyScreen
 import org.prairieserver.prairie.common.overlays.ProvideCardOverlays
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
@@ -92,7 +93,7 @@ private val preMainAuthRoutes: Set<String> = setOf(
     TvRoute.Setup.route,
     TvRoute.Signup.route,
     TvRoute.Login.ROUTE,
-    TvRoute.ServerList.ROUTE,
+    TvRoute.ServerList.route,
     TvRoute.ProfileSelection.route,
     TvRoute.CreateProfile.route,
     TvRoute.EditProfile.ROUTE,
@@ -351,21 +352,8 @@ fun TvAppNavigation(
             )
         }
 
-        composable(
-            route = TvRoute.ServerList.ROUTE,
-            arguments = listOf(
-                navArgument(TvRoute.ServerList.ARG_AUTO_SCAN) {
-                    type = NavType.BoolType
-                    defaultValue = false
-                },
-            ),
-        ) { backStackEntry ->
-            val autoScan = backStackEntry.arguments
-                ?.getBoolean(TvRoute.ServerList.ARG_AUTO_SCAN)
-                ?: false
-            val canGoBack = navController.previousBackStackEntry != null
+        composable(TvRoute.ServerList.route) {
             TvServerListScreen(
-                autoScan = autoScan,
                 onAddServer = {
                     navController.navigate(TvRoute.ServerSetup.route)
                 },
@@ -378,7 +366,6 @@ fun TvAppNavigation(
                         TvServerSwitchDestination.ProfileSelection ->
                             TvRoute.ProfileSelection.route
                         TvServerSwitchDestination.Login -> TvRoute.Login().route
-                        TvServerSwitchDestination.Setup -> TvRoute.Setup.route
                     }
                     // Landing straight on Home means the target server is already
                     // authenticated, so no Login/ProfileSelection callback fires to
@@ -399,11 +386,7 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
-                onBack = if (canGoBack) {
-                    { navController.popBackStack() }
-                } else {
-                    null
-                },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -423,7 +406,7 @@ fun TvAppNavigation(
                 // Point this TV at a different server — drop Login so Back from
                 // setup can't return to a credential form with no server bound.
                 onChangeServer = {
-                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = true)) {
+                    navController.navigate(TvRoute.ServerSetup.route) {
                         popUpTo(TvRoute.Login.ROUTE) { inclusive = true }
                         launchSingleTop = true
                     }
@@ -458,13 +441,13 @@ fun TvAppNavigation(
                     navController.navigate(TvRoute.EditProfile(profileId).route)
                 },
                 onChangeServer = {
-                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = true))
+                    navController.navigate(TvRoute.ServerList.route)
                 },
                 onSignOut = {
                     scope.launch {
                         authRepository.logout()
                         watchNextSeeder.clear()
-                        navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = true)) {
+                        navController.navigate(TvRoute.ServerSetup.route) {
                             popUpTo(0) { inclusive = true }
                             launchSingleTop = true
                         }
@@ -504,7 +487,7 @@ fun TvAppNavigation(
                 },
                 onManageServers = {
                     mainEntry.savedStateHandle[RETURN_TO_MANAGE_SERVERS_KEY] = true
-                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = false))
+                    navController.navigate(TvRoute.ServerList.route)
                 },
                 onOpenDiagnostics = {
                     navController.navigate(TvRoute.Diagnostics.route)
@@ -581,7 +564,7 @@ fun TvAppNavigation(
                 // Server" opens the server list; the user picks an existing
                 // saved server or chooses Add to enter a new URL.
                 onSwitchServer = {
-                    navController.navigate(TvRoute.ServerList.autoScanRoute(autoScan = false))
+                    navController.navigate(TvRoute.ServerList.route)
                 },
                 onPairDevice = {
                     navController.navigate(TvRoute.PairDevice().route) {
@@ -703,7 +686,9 @@ fun TvAppNavigation(
                 // host-with-selection straight to the synced player (carrying
                 // roomId), otherwise into the lobby to wait/vote/pick.
                 onWatchTogether = { snapshot ->
-                    val target = if (!snapshot.selectedContentId.isNullOrBlank()) {
+                    val hostAlone =
+                        snapshot.selfRole == MemberRole.Host && snapshot.memberCount <= 1
+                    val target = if (!snapshot.selectedContentId.isNullOrBlank() && !hostAlone) {
                         TvRoute.Player(
                             contentId = snapshot.selectedContentId!!,
                             fileId = snapshot.selectedFileId,

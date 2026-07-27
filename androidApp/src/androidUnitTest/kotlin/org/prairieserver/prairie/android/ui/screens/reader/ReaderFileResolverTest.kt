@@ -2,6 +2,7 @@ package org.prairieserver.prairie.android.ui.screens.reader
 
 import java.io.File
 import java.net.URI
+import org.prairieserver.prairie.network.isSameHttpOrigin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -15,6 +16,23 @@ class ReaderFileResolverTest {
             resolveReaderRequestUrl(
                 url = "/api/v1/ebooks/book-1/files/7/read",
                 serverUrl = "https://lib.strm.cafe/",
+            ),
+        )
+        assertEquals(
+            "https://lib.strm.cafe/api/v1/ebooks/book-1/files/7/read",
+            resolveReaderRequestUrl(
+                url = "api/v1/ebooks/book-1/files/7/read",
+                serverUrl = "https://lib.strm.cafe/",
+            ),
+        )
+        assertEquals(
+            true,
+            isSameHttpOrigin(
+                "https://lib.strm.cafe",
+                resolveReaderRequestUrl(
+                    url = "/api/v1/ebooks/book-1/files/7/read",
+                    serverUrl = "https://lib.strm.cafe/",
+                ),
             ),
         )
     }
@@ -36,6 +54,13 @@ class ReaderFileResolverTest {
         assertEquals(
             "content://media/external/downloads/12",
             resolveReaderRequestUrl("content://media/external/downloads/12", "https://lib.strm.cafe"),
+        )
+        assertEquals(
+            false,
+            isSameHttpOrigin(
+                "https://lib.strm.cafe",
+                resolveReaderRequestUrl("https://cdn.example.test/book.epub", "https://lib.strm.cafe"),
+            ),
         )
     }
 

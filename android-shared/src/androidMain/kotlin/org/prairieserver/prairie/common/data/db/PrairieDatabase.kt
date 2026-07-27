@@ -11,6 +11,7 @@ import org.prairieserver.prairie.common.data.db.dao.DirtyOperationDao
 import org.prairieserver.prairie.common.data.db.dao.DownloadDao
 import org.prairieserver.prairie.common.data.db.dao.DownloadDeletionDao
 import org.prairieserver.prairie.common.data.db.dao.DownloadSubscriptionDao
+import org.prairieserver.prairie.common.data.db.dao.ServerPurgeDao
 import org.prairieserver.prairie.common.data.db.dao.HomeCacheDao
 import org.prairieserver.prairie.common.data.db.dao.LegacyImportDao
 import org.prairieserver.prairie.common.data.db.dao.UserItemStateDao
@@ -48,7 +49,7 @@ import org.prairieserver.prairie.common.data.db.entity.UserItemStateEntity
         DownloadDeletionEntity::class,
         DownloadSubscriptionEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
@@ -57,6 +58,7 @@ import org.prairieserver.prairie.common.data.db.entity.UserItemStateEntity
         AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 6, to = 7),
+        AutoMigration(from = 7, to = 8),
     ],
 )
 abstract class PrairieDatabase : RoomDatabase() {
@@ -69,6 +71,7 @@ abstract class PrairieDatabase : RoomDatabase() {
     abstract fun homeCacheDao(): HomeCacheDao
     abstract fun catalogCacheDao(): CatalogCacheDao
     abstract fun downloadSubscriptionDao(): DownloadSubscriptionDao
+    abstract fun serverPurgeDao(): ServerPurgeDao
 
     companion object {
         const val NAME = "prairie.db"

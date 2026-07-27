@@ -5,8 +5,8 @@ import org.prairieserver.prairie.domain.ManagePlaybackUseCase
 import org.prairieserver.prairie.domain.MediaActionsCoordinator
 import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
-import org.prairieserver.prairie.repository.AdminRepository
 import org.prairieserver.prairie.repository.LiveTvRepository
+import org.prairieserver.prairie.repository.AdminRepository
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.CalendarRepository
 import org.prairieserver.prairie.repository.DeviceLoginRepository
@@ -26,7 +26,12 @@ import org.prairieserver.prairie.repository.RequestsRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.SettingsRepository
 import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.watchtogether.RoomSession
 import org.koin.dsl.module
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Koin module providing all repository and domain use case instances.
@@ -93,17 +98,31 @@ val repositoryModule = module {
     }
 
     // One room's snapshot/suggestions state + WS lifecycle. The realtime factory
-    // builds the per-room socket client from the shared HttpClient + TokenManager
-    // (query-param auth). Lazy so a socket is only minted when connect() runs.
+    // builds the per-room socket client from the shared HttpClient + TokenManager.
+    // Access auth is supplied by the same-origin Prairie auth plugin; the room/profile
+    // query fields are a residual server contract. Lazy so a socket is only minted
+    // when connect() runs.
     single {
+        val tokenManager: TokenManager = get()
         WatchTogetherRepository(
             api = get(),
+            authScopeProvider = { tokenManager.snapshotCurrentScope() },
             realtimeFactory = {
                 org.prairieserver.prairie.network.DefaultWatchTogetherRealtimeClient(
                     client = get(),
-                    tokenManager = get(),
+                    tokenManager = tokenManager,
                 )
             },
+        )
+    }
+    // Eager so the identity-transition privacy gate is installed before any
+    // profile/server/token mutation can occur. This process-lifetime scope,
+    // rather than a screen scope, owns connection replacement and teardown.
+    single(createdAtStart = true) {
+        RoomSession(
+            repository = get<WatchTogetherRepository>(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            identityTransitions = get(),
         )
     }
 

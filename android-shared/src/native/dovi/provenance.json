@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "repository": "https://github.com/quietvoid/dovi_tool",
+    "tag": "2.3.1",
+    "commit": "b25558062e4a56973482ec70133bd7b891320e48",
+    "archive": {
+      "url": "https://codeload.github.com/quietvoid/dovi_tool/tar.gz/b25558062e4a56973482ec70133bd7b891320e48",
+      "sha256": "595b1c756c9ad4acd5c1ddd851726eb3f0bd1786627c3d374998efc2929209ad"
+    },
+    "rootCargoLockSha256": "a2d6127f9e4bad347fc98602282eb1cd8f711fc46ddf28723abfedc47ef30eac",
+    "upstreamCargoLockSha256": "e415cb414098495667f07a732633b632393adc1de2e0fa23c38c675b4fa81286",
+    "cargoLockSha256": "d6e609177b9cf349734f3972b41dca11c05f42aea1d7fac62a6869cb48f7d276"
+  },
+  "toolchains": {
+    "rust": "1.85.0",
+    "ndk": "26.3.11579264"
+  },
+  "build": {
+    "sourceDateEpoch": "1755858563",
+    "cargoLockPath": "android-shared/src/native/dovi/Cargo.lock",
+    "cargoManifestAdjustment": "Set dolby_vision [lib] crate-type to staticlib after verifying the source archive",
+    "cargoLockDerivation": [
+      "cargo update -p bitvec_helpers --precise 4.0.2",
+      "cargo update -p anyhow --precise 1.0.103",
+      "cargo update -p crossbeam-epoch --precise 0.9.20"
+    ],
+    "advisoryRemediation": [
+      {
+        "advisory": "RUSTSEC-2026-0190",
+        "package": "anyhow",
+        "from": "1.0.98",
+        "to": "1.0.103"
+      },
+      {
+        "advisory": "RUSTSEC-2026-0105",
+        "package": "core2",
+        "from": "0.4.0",
+        "to": null,
+        "resolution": "bitvec_helpers 4.0.2 and bitstream-io 4.10.0 replace core2 with no_std_io2 0.9.4"
+      },
+      {
+        "advisory": "RUSTSEC-2026-0204",
+        "package": "crossbeam-epoch",
+        "from": "0.9.18",
+        "to": "0.9.20"
+      }
+    ]
+  },
+  "outputs": {
+    "abis": {
+      "arm64-v8a": {
+        "rustTarget": "aarch64-linux-android",
+        "sha256": "2ccef1b96ba9332441807d6dd4c8e091ee30b0d8c9d93b90ef5ce275f0c72afa"
+      },
+      "armeabi-v7a": {
+        "rustTarget": "armv7-linux-androideabi",
+        "sha256": "11eedfc07571b80aa9c69d68d8dfbf27829a016cf91635fc41c2b0b740a430a1"
+      },
+      "x86_64": {
+        "rustTarget": "x86_64-linux-android",
+        "sha256": "7090f632abbab1a1ec893a98101b119c04508ba3b93b9041e60b58c349c31e36"
+      }
+    },
+    "aar": {
+      "path": "android-shared/libs/prairie-dovi-bridge-2.3.1.aar",
+      "sha256": "a22161626142aff96d445806377aad386a8421780f060b39e1cfaa3876f7a109"
+    }
+  }
+}

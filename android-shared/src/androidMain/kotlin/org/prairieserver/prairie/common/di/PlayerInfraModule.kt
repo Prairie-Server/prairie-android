@@ -4,6 +4,7 @@ import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
 import org.prairieserver.prairie.common.player.ActivePlayerHolder
 import org.prairieserver.prairie.common.player.AudiobookSettingsStore
+import org.prairieserver.prairie.common.player.FinalPlaybackPositionWriter
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsPlaybackSessionTracker
 import org.prairieserver.prairie.common.player.SleepTimerController
@@ -45,6 +46,24 @@ val playerInfraModule = module {
     single { ActivePlayerHolder() }
 
     single { PrairiePictureInPictureCoordinator() }
+
+    single {
+        val userItemState = get<org.prairieserver.prairie.repository.port.UserItemStatePort>()
+        val syncScheduler = get<org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler>()
+        FinalPlaybackPositionWriter(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            scopeProvider = { get<TokenManager>().snapshotCurrentScope() },
+        ) { snapshot ->
+            val written = userItemState.recordPosition(
+                snapshot.scope,
+                snapshot.contentId,
+                snapshot.fileId,
+                snapshot.positionSeconds,
+                snapshot.durationSeconds,
+            )
+            if (written) syncScheduler.requestSync()
+        }
+    }
 
     // Long-lived application-scope flusher: debounced server writes survive
     // ViewModel teardown. Uses Dispatchers.IO since flushOne does network work.

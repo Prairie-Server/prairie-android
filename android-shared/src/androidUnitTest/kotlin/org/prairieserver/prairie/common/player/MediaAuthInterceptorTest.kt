@@ -2,6 +2,9 @@ package org.prairieserver.prairie.common.player
 
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.TokenManagerImpl
+import org.prairieserver.prairie.network.CleartextOriginConsent
+import org.prairieserver.prairie.network.CleartextOriginNotApprovedException
+import org.prairieserver.prairie.network.canonicalHttpOrigin
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -16,19 +19,57 @@ import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class MediaAuthInterceptorTest {
+    @Test
+    fun `redirect from approved origin to unapproved cleartext is blocked before downstream`() {
+        val origin = MockWebServer()
+        val downstream = MockWebServer()
+        origin.start()
+        downstream.start()
+        try {
+            origin.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", downstream.url("/asset")),
+            )
+            val approvedOrigin = canonicalHttpOrigin(origin.url("/").toString())
+            val consent = object : CleartextOriginConsent {
+                override suspend fun isApproved(origin: String): Boolean =
+                    canonicalHttpOrigin(origin) == approvedOrigin
+            }
+            val client = buildPlayerOkHttpClient(consent)
+            val request = Request.Builder()
+                .url(origin.url("/redirect"))
+                .header("X-Stream-Signature", "secret-plan-header")
+                .build()
+
+            assertFailsWith<CleartextOriginNotApprovedException> {
+                client.newCall(request).execute().close()
+            }
+            assertEquals(1, origin.requestCount)
+            assertEquals(0, downstream.requestCount)
+        } finally {
+            origin.shutdown()
+            downstream.shutdown()
+        }
+    }
+
 
     @Test
     fun `adds auth and active profile headers to media and reader requests`() {
         val tokenManager = TokenManagerImpl()
         runBlocking {
+            tokenManager.setServerUrl("https://lib.strm.cafe")
             tokenManager.saveTokens("access-token", "refresh-token", expiresIn = 3600)
             tokenManager.setProfileId("profile-1")
             tokenManager.setProfileToken("profile-token")
@@ -51,6 +92,194 @@ class MediaAuthInterceptorTest {
             assertEquals("profile-1", request.header("X-Profile-Id"))
             assertEquals("profile-token", request.header("X-Profile-Token"))
         }
+    }
+
+    @Test
+    fun `foreign origins receive no auth or profile headers`() {
+        val tokenManager = TokenManagerImpl()
+        runBlocking {
+            tokenManager.setServerUrl("https://lib.strm.cafe")
+            tokenManager.saveTokens("access-token", "refresh-token", expiresIn = 3600)
+            tokenManager.setProfileId("profile-1")
+            tokenManager.setProfileToken("profile-token")
+        }
+
+        listOf(
+            "https://cdn.lib.strm.cafe/video",
+            "https://lib.strm.cafe:444/video",
+            "http://lib.strm.cafe/video",
+        ).forEach { url ->
+            val chain = CapturingChain(
+                Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Signed explicit-credential")
+                    .header("X-Profile-Id", "explicit-profile")
+                    .header("X-Profile-Token", "explicit-profile-token")
+                    .build(),
+            )
+
+            MediaAuthInterceptor(tokenManager, refreshClient = OkHttpClient()).intercept(chain)
+
+            val request = chain.capturedRequest ?: error("request was not captured")
+            assertNull(request.header("Authorization"), "Authorization leaked to $url")
+            assertNull(request.header("X-Profile-Id"), "X-Profile-Id leaked to $url")
+            assertNull(request.header("X-Profile-Token"), "X-Profile-Token leaked to $url")
+        }
+    }
+
+    @Test
+    fun `foreign unauthorized response causes no refresh attempt`() {
+        val tokenManager = FakeTokenManager(
+            accessToken = "expired-access",
+            refreshToken = "refresh-token",
+            serverUrl = "https://lib.strm.cafe",
+            serverId = "server-a",
+        )
+        var refreshRequests = 0
+        val refreshClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                refreshRequests += 1
+                responseFor(chain.request(), code = 500)
+            }
+            .build()
+        val chain = SequenceChain(
+            Request.Builder()
+                .url("https://cdn.example/video")
+                .build(),
+            responseCodes = listOf(401, 401),
+        )
+
+        MediaAuthInterceptor(tokenManager, refreshClient = refreshClient).intercept(chain).close()
+
+        assertEquals(0, refreshRequests)
+        assertEquals(1, chain.proceedCalls)
+        assertFalse(tokenManager.invalidatedSession)
+    }
+
+    @Test
+    fun `server switch while snapshot is read cannot pair old credentials with new origin`() {
+        val tokenManager = FakeTokenManager(
+            accessToken = "server-a-access",
+            refreshToken = "server-a-refresh",
+            serverUrl = "https://server-a.example",
+            serverId = "server-a",
+        ).apply {
+            runBlocking {
+                setProfileId("server-a-profile")
+                setProfileToken("server-a-profile-token")
+            }
+            onGetServerUrl = {
+                serverId = "server-b"
+                serverUrl = "https://server-b.example"
+            }
+        }
+        val chain = CapturingChain(
+            Request.Builder()
+                .url("https://server-b.example/video")
+                .build(),
+        )
+
+        MediaAuthInterceptor(tokenManager, refreshClient = OkHttpClient()).intercept(chain)
+
+        val request = chain.capturedRequest ?: error("request was not captured")
+        assertNull(request.header("Authorization"))
+        assertNull(request.header("X-Profile-Id"))
+        assertNull(request.header("X-Profile-Token"))
+    }
+
+    @Test
+    fun `cross origin redirect strips prairie and explicit authorization headers`() {
+        val origin = MockWebServer()
+        val downstream = MockWebServer()
+        origin.start()
+        downstream.start()
+        try {
+            origin.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", downstream.url("/asset")),
+            )
+            downstream.enqueue(MockResponse().setResponseCode(200).setBody("ok"))
+            val tokenManager = FakeTokenManager(
+                accessToken = null,
+                refreshToken = "refresh-token",
+                serverUrl = origin.url("/").toString(),
+                serverId = "server-a",
+            ).apply {
+                runBlocking {
+                    setProfileId("profile-1")
+                    setProfileToken("profile-token")
+                }
+            }
+            val client = buildPlayerOkHttpClient()
+                .newBuilder()
+                .addInterceptor(MediaAuthInterceptor(tokenManager, refreshClient = OkHttpClient()))
+                .build()
+            val request = Request.Builder()
+                .url(origin.url("/redirect"))
+                .header("Authorization", "Signed explicit-target-credential")
+                .header("X-Prairie-Device-Id", "device-1")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                assertEquals(200, response.code)
+            }
+
+            val received = downstream.takeRequest()
+            assertNull(received.getHeader("Authorization"))
+            assertNull(received.getHeader("X-Profile-Id"))
+            assertNull(received.getHeader("X-Profile-Token"))
+            assertNull(received.getHeader("X-Prairie-Device-Id"))
+        } finally {
+            origin.shutdown()
+            downstream.shutdown()
+        }
+    }
+
+    @Test
+    fun `retry never applies credentials from a newly active foreign server`() {
+        val tokenManager = FakeTokenManager(
+            accessToken = "server-a-expired",
+            refreshToken = "server-a-refresh",
+            serverUrl = "https://server-a.example",
+            serverId = "server-a",
+        )
+        val refreshClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                responseFor(
+                    chain.request(),
+                    code = 200,
+                    body = """
+                        {
+                          "access_token": "server-a-fresh",
+                          "refresh_token": "server-a-fresh-refresh",
+                          "expires_in": 3600
+                        }
+                    """.trimIndent(),
+                )
+            }
+            .build()
+        tokenManager.onSaveTokens = {
+            tokenManager.switchScope(
+                accessToken = "server-b-access",
+                refreshToken = "server-b-refresh",
+                serverUrl = "https://server-b.example",
+                serverId = "server-b",
+            )
+        }
+        val chain = SequenceChain(
+            Request.Builder()
+                .url("https://server-a.example/video")
+                .build(),
+            responseCodes = listOf(401, 401),
+        )
+
+        MediaAuthInterceptor(tokenManager, refreshClient = refreshClient).intercept(chain).close()
+
+        val retry = chain.capturedRequests.last()
+        assertNull(retry.header("Authorization"))
+        assertNull(retry.header("X-Profile-Id"))
+        assertNull(retry.header("X-Profile-Token"))
     }
 
     @Test
@@ -276,10 +505,13 @@ class MediaAuthInterceptorTest {
         private val responseCodes: List<Int>,
     ) : Interceptor.Chain {
         private var calls = 0
+        val proceedCalls: Int get() = calls
+        val capturedRequests = mutableListOf<Request>()
 
         override fun request(): Request = request
 
         override fun proceed(request: Request): Response {
+            capturedRequests += request
             val code = responseCodes.getOrElse(calls) { responseCodes.last() }
             calls += 1
             return mediaAuthTestResponseFor(request, code)
@@ -302,6 +534,7 @@ class MediaAuthInterceptorTest {
         var serverId: String?,
     ) : TokenManager {
         var onGetServerUrl: (() -> Unit)? = null
+        var onSaveTokens: (() -> Unit)? = null
         var invalidatedSession = false
             private set
         var savedTokens = false
@@ -320,6 +553,7 @@ class MediaAuthInterceptorTest {
             savedTokens = true
             this.accessToken = accessToken
             this.refreshToken = refreshToken
+            onSaveTokens?.invoke()
         }
 
         override suspend fun clearTokens() {
@@ -363,6 +597,18 @@ class MediaAuthInterceptorTest {
 
         override suspend fun signOutCurrentServer() {
             clearTokens()
+        }
+
+        fun switchScope(
+            accessToken: String?,
+            refreshToken: String?,
+            serverUrl: String,
+            serverId: String?,
+        ) {
+            this.accessToken = accessToken
+            this.refreshToken = refreshToken
+            this.serverUrl = serverUrl
+            this.serverId = serverId
         }
     }
 

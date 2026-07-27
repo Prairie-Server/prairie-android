@@ -8,6 +8,19 @@ import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 enum class RoomTransportIntent { PlayPause, Seek }
 
 /**
+ * Reconciliation required when a platform media control changes the local
+ * player directly instead of entering through the in-app room controls.
+ *
+ * [restorePlayWhenReady] immediately returns the player to the server-owned
+ * room state. [requestIsPaused] is non-null only when the member is authorized
+ * to ask the room to adopt the attempted state.
+ */
+data class ExternalPlayPauseDecision(
+    val restorePlayWhenReady: Boolean,
+    val requestIsPaused: Boolean?,
+)
+
+/**
  * Single source of truth for Watch Together transport authority, shared across
  * mobile and TV. Mirrors prairie-server `internal/watchtogether/service.go`:
  *  - no transport outside the [RoomPhase.Playing] phase;
@@ -25,4 +38,31 @@ fun roomTransportAuthorized(snapshot: RoomSnapshot?, intent: RoomTransportIntent
         RoomTransportIntent.Seek -> snapshot.selfRole == MemberRole.Host && snapshot.selfCanControlTransport
         RoomTransportIntent.PlayPause -> snapshot.selfCanControlTransport
     }
+}
+
+/**
+ * Keeps notification, headset, Bluetooth, and other MediaSession controls from
+ * creating a local-only fork from Watch Together playback.
+ *
+ * Every external toggle is first restored to the authoritative room state. An
+ * authorized toggle is then requested through the room and will be applied to
+ * every participant by the resulting scheduled transport command.
+ */
+fun externalPlayPauseDecision(
+    snapshot: RoomSnapshot?,
+    localPlayWhenReady: Boolean,
+): ExternalPlayPauseDecision? {
+    if (snapshot == null || snapshot.phase != RoomPhase.Playing) return null
+    val authoritativePlayWhenReady = !snapshot.isPaused
+    if (localPlayWhenReady == authoritativePlayWhenReady) return null
+    return ExternalPlayPauseDecision(
+        restorePlayWhenReady = authoritativePlayWhenReady,
+        requestIsPaused = if (
+            roomTransportAuthorized(snapshot, RoomTransportIntent.PlayPause)
+        ) {
+            !localPlayWhenReady
+        } else {
+            null
+        },
+    )
 }

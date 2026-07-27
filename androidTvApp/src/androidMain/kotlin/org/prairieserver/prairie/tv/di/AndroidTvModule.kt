@@ -7,6 +7,8 @@ import org.prairieserver.prairie.repository.SettingsRepository
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
 import org.prairieserver.prairie.tv.data.preferences.TvLibrarySelectionStore
 import org.prairieserver.prairie.common.network.AndroidDeviceMetadataProvider
+import org.prairieserver.prairie.common.network.CleartextConsentStore
+import org.prairieserver.prairie.common.network.DataStoreCleartextConsentStore
 import org.prairieserver.prairie.common.settings.AndroidServerSettingsCache
 import android.content.SharedPreferences
 import org.prairieserver.prairie.network.AndroidServerRegistry
@@ -40,8 +42,6 @@ import org.prairieserver.prairie.tv.ui.screens.detail.TvItemDetailViewModel
 import org.prairieserver.prairie.viewmodel.HomeViewModel
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvViewModel
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
 import org.prairieserver.prairie.tv.ui.screens.libraries.TvLibrariesViewModel
@@ -63,6 +63,8 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvViewModel
 
 /**
  * TV-specific Koin module.
@@ -73,6 +75,8 @@ import org.koin.dsl.module
  * [org.prairieserver.prairie.tv.PrairieTvApplication].
  */
 val androidTvModule = module {
+    single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
+    single<org.prairieserver.prairie.network.CleartextOriginConsent> { get<CleartextConsentStore>() }
     // Single encrypted prefs handle shared between the server registry and
     // the token manager — see the phone module for rationale.
     single<SharedPreferences> { createSecureSharedPrefs(androidContext()) }
@@ -267,7 +271,7 @@ val androidTvModule = module {
     // machine. A later step wires the UI to PairingReceiver.status.
     single {
         org.prairieserver.prairie.common.pairing.PairingReceiver(
-            authPort = org.prairieserver.prairie.common.pairing.RegistryPairingAuthPort(get(), get()),
+            authPort = org.prairieserver.prairie.common.pairing.RegistryPairingAuthPort(get(), get(), get()),
             deviceLogin = org.prairieserver.prairie.common.pairing.DeviceLoginRepositoryPort(get()),
             identityProvider = {
                 org.prairieserver.prairie.common.pairing.PairingDeviceIdentity(
@@ -321,7 +325,7 @@ val androidTvModule = module {
     }
 
     // Auth ViewModels
-    viewModel { TvServerSetupViewModel(get()) }
+    viewModel { TvServerSetupViewModel(get(), get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.auth.TvSetupViewModel(get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.auth.TvSignupViewModel(get()) }
     viewModel { TvLoginViewModel(get(), get(), get()) }
@@ -333,7 +337,7 @@ val androidTvModule = module {
             profileId = params.get(),
         )
     }
-    viewModel { TvServerListViewModel(get(), get(), get(), get()) }
+    viewModel { TvServerListViewModel(get(), get(), get()) }
 
     // Admin ViewModels
     viewModel { AdminStatsViewModel(get()) }
@@ -427,12 +431,16 @@ val androidTvModule = module {
     viewModel {
         org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherViewModel(get())
     }
+    viewModel {
+        org.prairieserver.prairie.tv.ui.screens.watchtogether.TvSuggestToRoomViewModel(get())
+    }
     // Watch Together lobby — keyed per roomId (koinViewModel key="wt-lobby-$roomId");
     // roomId is read from the positional parameter.
     viewModel { params ->
         org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherLobbyViewModel(
             roomId = params.get(),
             repository = get(),
+            roomSession = get(),
         )
     }
     viewModel { params ->
@@ -449,7 +457,7 @@ val androidTvModule = module {
             sleepTimer = get(),
             subtitlesRepository = get(),
             userItemStatePort = get(),
-            outboxSyncScheduler = get(),
+            finalPlaybackPositionWriter = get(),
             catalogRepository = get(),
             serverReachabilityMonitor = get(),
             launchArgs = params.get<TvPlayerLaunchArgs>(),
@@ -483,8 +491,6 @@ val androidTvModule = module {
             overlayPrefsStore = get(),
             legacyTvPrefsMigration = get(),
             tvLibraryScopeStore = getOrNull(),
-            appUpdateChecker = get(),
-            appVersionName = org.prairieserver.prairie.tv.BuildConfig.VERSION_NAME,
         )
     }
     viewModel { TvDiagnosticsViewModel(get()) }

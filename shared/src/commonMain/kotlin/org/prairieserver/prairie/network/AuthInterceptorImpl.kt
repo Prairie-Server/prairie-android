@@ -6,6 +6,8 @@ import io.ktor.client.plugins.api.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.http.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.prairieserver.prairie.model.auth.RefreshRequest
@@ -22,6 +24,7 @@ class PrairieAuthConfig {
     var tokenManager: TokenManager? = null
     var deviceMetadataProvider: DeviceMetadataProvider? = null
     var diagnosticsObserver: NetworkDiagnosticsObserver? = null
+    var cleartextOriginConsent: CleartextOriginConsent? = null
 }
 
 /**
@@ -44,35 +47,76 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
         ?: error("TokenManager must be provided to PrairieAuthPlugin")
     val deviceMetadataProvider = pluginConfig.deviceMetadataProvider
     val diagnosticsObserver = pluginConfig.diagnosticsObserver
+    val cleartextOriginConsent = pluginConfig.cleartextOriginConsent
 
     val refreshMutex = Mutex()
 
+    // Temporary credential generations (remote-playback overlays) whose refresh
+    // the server has definitively rejected. Such an overlay is deliberately left
+    // INSTALLED — clearing it would make every later token read fall through to
+    // the saved owner's account, so the guest session would silently continue as
+    // the owner. Flagging the generation here is what stops the plugin from
+    // refreshing dead credentials again on every subsequent 401.
+    val deadCredentialGenerations = MutableStateFlow<Set<String>>(emptySet())
+
     onRequest { request, _ ->
         val skipAuth = request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true
+        val requireAuth = request.attributes.getOrNull(RequirePrairieAuthAttributeKey) == true
         val diagnosticsScope = request.attributes.getOrNull(DiagnosticsRequestScopeKey)
+        val pinned = request.attributes.getOrNull(AuthScopeAttributeKey)
+        val activeServerIdBefore = if (pinned == null) tokenManager.getCurrentServerId() else null
+        val trustedServerUrl = pinned?.serverUrl ?: tokenManager.getServerUrl()
+
+        // Shared calls are normally relative. Resolve those against the exact
+        // server that owns the credential scope before deciding whether any
+        // Prairie header may be attached.
+        if (
+            request.url.encodedPath.startsWith("/api/") &&
+            (request.url.host.isBlank() || request.url.host == "localhost") &&
+            trustedServerUrl.isNotBlank()
+        ) {
+            request.url.rebaseRelativeApiUrl(trustedServerUrl)
+        }
+
+        if (
+            // skipPrairieAuth is also used by login/refresh/device-login POSTs:
+            // those requests omit headers but still carry credentials in the
+            // body. Only read-only candidate probes may bypass consent.
+            (!skipAuth || request.method != HttpMethod.Get) &&
+            cleartextOriginConsent?.requiresApproval(request.url.toString()) == true
+        ) {
+            request.removePrairieCredentialHeaders()
+            throw CleartextOriginNotApprovedException(request.url.toString())
+        }
+
+        val sameOrigin = isSamePrairieHttpOrigin(trustedServerUrl, request.url)
+        if (skipAuth) {
+            request.removePrairieCredentialHeaders()
+            if (sameOrigin) {
+                request.attachPrairieDeviceMetadataHeaders(deviceMetadataProvider)
+            }
+            return@onRequest
+        }
+
+        if (!sameOrigin) {
+            request.removePrairieCredentialHeaders()
+            return@onRequest
+        }
 
         // Pinned (Track B outbox replay): bind this request to a captured scope
         // regardless of the globally-active server/profile, so a mid-drain switch
         // can't send it to the wrong account. Uses the snapshot's URL/profile and
         // the *live* per-server access token (handles rotation).
-        val pinned = request.attributes.getOrNull(AuthScopeAttributeKey)
-        if (pinned != null && !skipAuth) {
-            if (request.url.encodedPath.startsWith("/api/") && pinned.serverUrl.isNotBlank()) {
-                val originalPath = request.url.encodedPath
-                val originalParameters = request.url.parameters.build()
-                val originalFragment = request.url.fragment
-                val originalProtocol = request.url.protocol
-                request.url.takeFrom(pinned.serverUrl)
-                request.url.restoreWebSocketProtocol(originalProtocol)
-                request.url.encodedPath = originalPath
-                request.url.parameters.clear()
-                request.url.parameters.appendAll(originalParameters)
-                request.url.fragment = originalFragment
-            }
+        if (pinned != null) {
             // Replace (never append) the scoped headers; clear the profile token
             // header when the snapshot has none.
             request.headers.remove(HttpHeaders.Authorization)
-            tokenManager.getAccessTokenForScope(pinned)?.let { token ->
+            val scopedAccessToken = tokenManager.getAccessTokenForScope(pinned)
+            if (requireAuth && scopedAccessToken.isNullOrBlank()) {
+                request.removePrairieCredentialHeaders()
+                throw IllegalStateException("required_prairie_auth_unavailable")
+            }
+            scopedAccessToken?.let { token ->
                 request.header(HttpHeaders.Authorization, "Bearer $token")
             }
             request.headers.remove("X-Profile-Id")
@@ -86,63 +130,81 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             return@onRequest
         }
 
-        // Shared API calls use relative paths; bind them to the configured server URL
-        // before the request is sent so Ktor doesn't fall back to localhost on iOS.
-        if (request.url.encodedPath.startsWith("/api/") && request.url.host == "localhost") {
-            val serverUrl = tokenManager.getServerUrl()
-            if (serverUrl.isNotBlank()) {
-                val originalPath = request.url.encodedPath
-                val originalParameters = request.url.parameters.build()
-                val originalFragment = request.url.fragment
-                val originalProtocol = request.url.protocol
-
-                request.url.takeFrom(serverUrl)
-                request.url.restoreWebSocketProtocol(originalProtocol)
-                request.url.encodedPath = originalPath
-                request.url.parameters.clear()
-                request.url.parameters.appendAll(originalParameters)
-                request.url.fragment = originalFragment
-            }
-        }
-
-        if (skipAuth) {
-            request.headers.remove(HttpHeaders.Authorization)
-            request.headers.remove("X-Profile-Id")
-            request.headers.remove("X-Profile-Token")
-            request.attachPrairieDeviceMetadataHeaders(deviceMetadataProvider)
-            return@onRequest
-        }
-
         // Skip auth headers for the refresh endpoint itself to avoid recursion
         val isRefreshRequest = request.url.encodedPath.endsWith("/auth/refresh")
         if (isRefreshRequest) return@onRequest
 
-        tokenManager.getAccessToken()?.let { token ->
+        val accessToken = tokenManager.getAccessToken()
+        val profileId = tokenManager.getProfileId()
+        val profileToken = tokenManager.getProfileToken()
+        val activeServerIdAfter = tokenManager.getCurrentServerId()
+        val activeServerUrlAfter = tokenManager.getServerUrl()
+        if (
+            activeServerIdBefore != activeServerIdAfter ||
+            !isSameHttpOrigin(trustedServerUrl, activeServerUrlAfter)
+        ) {
+            request.removePrairieCredentialHeaders()
+            return@onRequest
+        }
+
+        accessToken?.let { token ->
             request.header(HttpHeaders.Authorization, "Bearer $token")
         }
 
         request.applyProfileHeaders(
             diagnosticsScope = diagnosticsScope,
-            activeProfileId = tokenManager.getProfileId(),
-            activeProfileToken = tokenManager.getProfileToken(),
+            activeProfileId = profileId,
+            activeProfileToken = profileToken,
         )
 
         request.attachPrairieDeviceMetadataHeaders(deviceMetadataProvider)
     }
 
     on(Send) { request ->
-        if (request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true) {
-            return@on proceed(request)
-        }
-
         // Pinned scope (Track B): refresh against the *captured* scope, never the
         // active one, and never invalidate the active UI session — a failed
         // pinned refresh just surfaces the 401 so the outbox keeps the op.
         val pinnedScope = request.attributes.getOrNull(AuthScopeAttributeKey)
+        val normalScope =
+            if (pinnedScope == null) tokenManager.snapshotCurrentScope() else null
+        val activeServerIdBeforeUrl =
+            if (pinnedScope == null) normalScope?.serverId ?: tokenManager.getCurrentServerId() else null
+        val trustedServerUrl =
+            pinnedScope?.serverUrl ?: normalScope?.serverUrl ?: tokenManager.getServerUrl()
+        val activeServerIdBeforeRequest =
+            if (pinnedScope == null) tokenManager.getCurrentServerId() else null
+        if (
+            pinnedScope == null &&
+            activeServerIdBeforeUrl != activeServerIdBeforeRequest
+        ) {
+            request.removePrairieCredentialHeaders()
+            return@on proceed(request)
+        }
+        if (request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true) {
+            if (!isSamePrairieHttpOrigin(trustedServerUrl, request.url)) {
+                request.removePrairieCredentialHeaders()
+            }
+            return@on proceed(request)
+        }
+        if (!isSamePrairieHttpOrigin(trustedServerUrl, request.url)) {
+            request.removePrairieCredentialHeaders()
+            return@on proceed(request)
+        }
         if (pinnedScope != null) {
             val sentAuth = request.headers[HttpHeaders.Authorization]
             val originalCall = proceed(request)
             if (originalCall.response.status != HttpStatusCode.Unauthorized) {
+                return@on originalCall
+            }
+            val pinnedGeneration = pinnedScope.credentialGenerationId
+            if (pinnedGeneration != null && pinnedGeneration in deadCredentialGenerations.value) {
+                // Already-rejected temporary credentials: surface the 401 instead of
+                // re-refreshing them for every pinned op (progress ticks, teardown).
+                return@on originalCall
+            }
+            // A redirect can carry the pinned call off the Prairie origin; refreshing
+            // then would hand this scope's credentials to whatever answered.
+            if (!isSamePrairieHttpOrigin(pinnedScope.serverUrl, originalCall.request.url)) {
                 return@on originalCall
             }
             diagnosticsObserver.safeAuthRefresh("required")
@@ -180,6 +242,11 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                         after != null && after != sentAuth
                     } else {
                         diagnosticsObserver.safeAuthRefresh("failed")
+                        if (pinnedGeneration != null &&
+                            refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()
+                        ) {
+                            deadCredentialGenerations.update { it + pinnedGeneration }
+                        }
                         // Don't invalidate the active session for a background scope.
                         // Re-check in case a concurrent path refreshed it in flight.
                         val after = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
@@ -201,11 +268,19 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             }
         }
 
-        // Capture the access token we will actually SEND with this request.
-        // If the response comes back 401, we compare against this snapshot
+        val refreshScope = normalScope ?: AuthScopeSnapshot(
+            serverId = activeServerIdBeforeRequest.orEmpty(),
+            profileId = null,
+            serverUrl = trustedServerUrl,
+            profileToken = null,
+        )
+
+        // Capture the authorization value we will actually SEND, together with
+        // the server identity and origin that own it. If the response comes back
+        // 401, we compare against this snapshot
         // inside the refresh mutex to detect a concurrent refresh that
         // already happened — so N parallel 401s collapse into ONE refresh.
-        val tokenBeforeRequest = tokenManager.getAccessToken()
+        val authorizationBeforeRequest = request.headers[HttpHeaders.Authorization]
 
         val originalCall = proceed(request)
 
@@ -213,10 +288,31 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
         if (originalCall.response.status != HttpStatusCode.Unauthorized) {
             return@on originalCall
         }
+        if (!isSamePrairieHttpOrigin(trustedServerUrl, originalCall.request.url)) {
+            return@on originalCall
+        }
+        if (
+            tokenManager.getCurrentServerId() != activeServerIdBeforeRequest ||
+            !isSameHttpOrigin(trustedServerUrl, tokenManager.getServerUrl())
+        ) {
+            return@on originalCall
+        }
         diagnosticsObserver.safeAuthRefresh("required")
 
         val requestPath = originalCall.request.url.encodedPath
         if (requestPath.endsWith("/auth/refresh") || requestPath.endsWith("/auth/login")) {
+            return@on originalCall
+        }
+
+        // Identity of the temporary overlay (remote playback) this request ran
+        // under, if any. Null means the request ran on a saved account.
+        val temporaryGeneration = tokenManager.temporaryGenerationId()
+        if (temporaryGeneration != null &&
+            temporaryGeneration in deadCredentialGenerations.value
+        ) {
+            // The server already rejected these credentials. Refreshing again would
+            // storm it once per request for the rest of the handoff; the overlay stays
+            // installed so the guest cannot fall back onto the owner's account.
             return@on originalCall
         }
 
@@ -237,30 +333,50 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             // "refresh" — the refresh token wouldn't be valid for the new
             // server anyway, and we'd risk persisting cross-server tokens.
             val serverIdNow = tokenManager.getCurrentServerId()
-            if (serverIdNow != serverIdBeforeRequest) {
+            val serverUrlNow = tokenManager.getServerUrl()
+            if (
+                serverIdNow != activeServerIdBeforeRequest ||
+                !isSameHttpOrigin(trustedServerUrl, serverUrlNow)
+            ) {
                 return@withLock false
             }
 
-            val tokenNow = tokenManager.getAccessToken()
-            if (tokenNow != null && tokenNow != tokenBeforeRequest) {
+            val tokenNow = tokenManager.getAccessTokenForScope(refreshScope)
+            if (
+                tokenManager.getCurrentServerId() != activeServerIdBeforeRequest ||
+                !isSameHttpOrigin(trustedServerUrl, tokenManager.getServerUrl())
+            ) {
+                return@withLock false
+            }
+            if (tokenNow != null && "Bearer $tokenNow" != authorizationBeforeRequest) {
                 // Another coroutine already refreshed while we were waiting —
                 // just retry the original request with the new token.
                 return@withLock true
             }
 
-            val refreshToken = tokenManager.getRefreshToken()
+            if (temporaryGeneration != null &&
+                temporaryGeneration in deadCredentialGenerations.value
+            ) {
+                // A 401 that won the race already proved these temporary credentials
+                // are dead; the token is unchanged, so without this every waiter would
+                // repeat the same doomed refresh.
+                return@withLock false
+            }
+
+            // Scope-bound, not global: a refresh must spend the token belonging to
+            // the scope this request ran under.
+            val refreshToken = tokenManager.getRefreshTokenForScope(refreshScope)
             if (refreshToken.isNullOrBlank()) {
                 return@withLock false
             }
 
             try {
                 diagnosticsObserver.safeAuthRefresh("started")
-                val serverUrl = tokenManager.getServerUrl()
-                if (serverUrl.isBlank()) {
+                if (trustedServerUrl.isBlank()) {
                     return@withLock false
                 }
 
-                val refreshResponse = client.post("$serverUrl/api/v1/auth/refresh") {
+                val refreshResponse = client.post("$trustedServerUrl/api/v1/auth/refresh") {
                     contentType(ContentType.Application.Json)
                     setBody(RefreshRequest(refreshToken))
                 }
@@ -271,7 +387,11 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 // save time, so a mismatch here means we'd write to the wrong
                 // slot.
                 val serverIdAfterCall = tokenManager.getCurrentServerId()
-                if (serverIdAfterCall != serverIdBeforeRequest) {
+                val serverUrlAfterCall = tokenManager.getServerUrl()
+                if (
+                    serverIdAfterCall != activeServerIdBeforeRequest ||
+                    !isSameHttpOrigin(trustedServerUrl, serverUrlAfterCall)
+                ) {
                     return@withLock false
                 }
 
@@ -281,32 +401,53 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 // start a refresh with the still-valid refresh token; without
                 // this guard the refresh response lands after clearTokens()
                 // and saveTokens() silently signs the user back in.
-                if (tokenManager.getRefreshToken().isNullOrBlank()) {
+                if (tokenManager.getRefreshTokenForScope(refreshScope).isNullOrBlank()) {
                     return@withLock false
                 }
 
                 if (refreshResponse.status.isSuccess()) {
                     diagnosticsObserver.safeAuthRefresh("succeeded")
                     val tokens = refreshResponse.body<RefreshResponse>()
-                    tokenManager.saveTokens(
+                    tokenManager.saveTokensForScope(
+                        scope = refreshScope,
                         accessToken = tokens.accessToken,
                         refreshToken = tokens.refreshToken,
-                        expiresIn = tokens.expiresIn
+                        expiresIn = tokens.expiresIn,
                     )
-                    true
+                    val after = tokenManager.getAccessTokenForScope(refreshScope)
+                    after != null && "Bearer $after" != authorizationBeforeRequest
                 } else {
                     diagnosticsObserver.safeAuthRefresh("failed")
                     // Only auth rejection proves the refresh token is bad.
                     // Gateway/proxy/server failures should keep the session so
                     // a temporary outage does not sign the user out.
                     if (refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
-                        // The [TokenManager.sessionExpired] event emitted by
-                        // this call is what the root NavHost observer uses to
-                        // route the user back to the login screen; without it,
-                        // the UI would stay on Home and keep rendering
-                        // "Failed to load..." for every subsequent API call
-                        // that now has no credentials.
-                        tokenManager.invalidateSession()
+                        val generationNow = tokenManager.temporaryGenerationId()
+                        when {
+                            // The identity changed while the refresh was in flight
+                            // (overlay began or ended): the rejection belongs to a
+                            // credential set that is no longer installed, so it must
+                            // not tear down whatever is installed now.
+                            generationNow != temporaryGeneration -> Unit
+
+                            // Remote playback: the rejected credentials are a
+                            // temporary overlay. invalidateSession() would drop that
+                            // overlay, and every later read would fall through to the
+                            // saved OWNER's account — the guest would keep browsing
+                            // and writing history as the owner. Flag the generation
+                            // dead and leave the overlay installed instead; the cast
+                            // teardown path is what removes it.
+                            temporaryGeneration != null ->
+                                deadCredentialGenerations.update { it + temporaryGeneration }
+
+                            // The [TokenManager.sessionExpired] event emitted by
+                            // this call is what the root NavHost observer uses to
+                            // route the user back to the login screen; without it,
+                            // the UI would stay on Home and keep rendering
+                            // "Failed to load..." for every subsequent API call
+                            // that now has no credentials.
+                            else -> tokenManager.invalidateSessionForScope(refreshScope)
+                        }
                     }
                     false
                 }
@@ -323,11 +464,23 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             // NOT run a second time, so if we don't update the header here the
             // retry gets sent with the expired Bearer token and the server
             // returns another 401.
-            val newAccessToken = tokenManager.getAccessToken()
-            if (newAccessToken != null) {
-                request.headers.remove(HttpHeaders.Authorization)
-                request.header(HttpHeaders.Authorization, "Bearer $newAccessToken")
+            val retryServerIdBeforeToken = tokenManager.getCurrentServerId()
+            val retryServerUrlBeforeToken = tokenManager.getServerUrl()
+            val newAccessToken = tokenManager.getAccessTokenForScope(refreshScope)
+            val retryServerIdAfterToken = tokenManager.getCurrentServerId()
+            val retryServerUrlAfterToken = tokenManager.getServerUrl()
+            if (
+                retryServerIdBeforeToken != activeServerIdBeforeRequest ||
+                retryServerIdAfterToken != activeServerIdBeforeRequest ||
+                !isSameHttpOrigin(trustedServerUrl, retryServerUrlBeforeToken) ||
+                !isSameHttpOrigin(trustedServerUrl, retryServerUrlAfterToken) ||
+                !isSamePrairieHttpOrigin(trustedServerUrl, request.url) ||
+                newAccessToken == null
+            ) {
+                return@on originalCall
             }
+            request.headers.remove(HttpHeaders.Authorization)
+            request.header(HttpHeaders.Authorization, "Bearer $newAccessToken")
             proceed(request)
         } else {
             originalCall
@@ -362,6 +515,14 @@ private fun HttpRequestBuilder.applyProfileHeaders(
     }
 }
 
+/**
+ * Generation id of the temporary credential overlay currently installed (remote
+ * playback), or null when the active identity is a saved account. Managers that
+ * don't model overlays report null, which keeps the saved-account behaviour.
+ */
+private suspend fun TokenManager.temporaryGenerationId(): String? =
+    snapshotCurrentScope()?.credentialGenerationId
+
 private fun HttpStatusCode.shouldInvalidateSessionAfterRefreshFailure(): Boolean =
     this == HttpStatusCode.BadRequest ||
         this == HttpStatusCode.Unauthorized ||
@@ -382,6 +543,50 @@ private suspend fun HttpRequestBuilder.attachPrairieDeviceMetadataHeaders(
     device.clientName?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client", it) }
     device.clientVersion?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Version", it) }
 }
+
+private fun URLBuilder.rebaseRelativeApiUrl(serverUrl: String) {
+    val originalPath = encodedPath
+    val originalParameters = parameters.build()
+    val originalFragment = fragment
+    val originalProtocol = protocol
+
+    takeFrom(serverUrl)
+    restoreWebSocketProtocol(originalProtocol)
+    encodedPath = originalPath
+    parameters.clear()
+    parameters.appendAll(originalParameters)
+    fragment = originalFragment
+}
+
+private fun HttpRequestBuilder.removePrairieCredentialHeaders() {
+    headers.remove(HttpHeaders.Authorization)
+    headers.remove("X-Profile-Id")
+    headers.remove("X-Profile-Token")
+    headers.names()
+        .filter { name -> name.startsWith("X-Prairie-", ignoreCase = true) }
+        .forEach(headers::remove)
+}
+
+private fun isSamePrairieHttpOrigin(serverUrl: String, requestUrl: URLBuilder): Boolean {
+    val httpRequestUrl = when (requestUrl.protocol) {
+        URLProtocol.WS -> requestUrl.toString().replaceSchemeForOriginCheck("http")
+        URLProtocol.WSS -> requestUrl.toString().replaceSchemeForOriginCheck("https")
+        else -> requestUrl.toString()
+    }
+    return isSameHttpOrigin(serverUrl, httpRequestUrl)
+}
+
+private fun isSamePrairieHttpOrigin(serverUrl: String, requestUrl: Url): Boolean {
+    val httpRequestUrl = when (requestUrl.protocol) {
+        URLProtocol.WS -> requestUrl.toString().replaceSchemeForOriginCheck("http")
+        URLProtocol.WSS -> requestUrl.toString().replaceSchemeForOriginCheck("https")
+        else -> requestUrl.toString()
+    }
+    return isSameHttpOrigin(serverUrl, httpRequestUrl)
+}
+
+private fun String.replaceSchemeForOriginCheck(scheme: String): String =
+    "$scheme://${substringAfter("://")}"
 
 /**
  * Re-applies the websocket protocol after a `takeFrom(serverUrl)` rebase.

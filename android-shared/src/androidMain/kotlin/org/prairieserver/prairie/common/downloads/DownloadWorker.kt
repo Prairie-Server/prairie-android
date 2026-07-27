@@ -94,7 +94,10 @@ class DownloadWorker(
         val mediaType = inputData.getString(KEY_MEDIA_TYPE)
         val displayTitle = inputData.getString(KEY_DISPLAY_TITLE) ?: "Download"
         if (fileId < 0) return@withContext Result.failure()
+        val lifetimeLease = DownloadWorkerLifetime.acquire(downloadId)
+            ?: return@withContext Result.failure()
 
+        try {
         Log.i(TAG, "doWork start id=$downloadId fileId=$fileId title=$displayTitle")
         DiagnosticsDownloadLogger.event("download started")
         runCatching {
@@ -242,9 +245,9 @@ class DownloadWorker(
             // Server flips status → completed when its serve handler returns;
             // a refresh here ensures the cache reflects that before the
             // worker exits and the UI re-renders.
-            val finalUri = activeUri ?: error("download target was not created")
-            val finalBytes = storage.partialSize(finalUri)
-            storage.completeWrite(finalUri)
+            val pendingUri = activeUri ?: error("download target was not created")
+            val finalBytes = storage.partialSize(pendingUri)
+            val finalUri = storage.completeWrite(pendingUri)
             Log.i(TAG, "doWork success id=$downloadId bytes=$finalBytes")
             DiagnosticsDownloadLogger.event("download completed")
             repository.refresh()
@@ -312,6 +315,9 @@ class DownloadWorker(
             }
         } catch (e: Throwable) {
             failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
+        }
+        } finally {
+            lifetimeLease.close()
         }
     }
 
@@ -516,8 +522,27 @@ class DownloadWorker(
         }
 
         fun cancel(context: Context, downloadId: String) {
+            DownloadWorkerLifetime.beginCancellation(downloadId)
             WorkManager.getInstance(context).cancelAllWorkByTag(tagFor(downloadId))
         }
+
+        /**
+         * Cancellation barrier for destructive identity cleanup. The normal UI
+         * API remains fire-and-forget, but a server purge must know the worker
+         * has stopped before deleting the Room rows it can otherwise recreate.
+         */
+        suspend fun cancelAndAwait(context: Context, downloadId: String) {
+            DownloadWorkerLifetime.beginCancellation(downloadId)
+            withContext(Dispatchers.IO) {
+                WorkManager.getInstance(context)
+                    .cancelUniqueWork(tagFor(downloadId))
+                    .result
+                    .get(CANCEL_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }
+            DownloadWorkerLifetime.awaitIdle(downloadId)
+        }
+
+        private const val CANCEL_ACK_TIMEOUT_SECONDS = 30L
     }
 }
 
