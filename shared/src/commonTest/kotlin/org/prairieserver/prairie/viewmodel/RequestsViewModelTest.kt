@@ -294,6 +294,125 @@ class RequestsViewModelTest {
     }
 
     @Test
+    fun `requests view model refreshes and clears refreshing flag after discover`() = runTest(dispatcher) {
+        val api = FakeRequestsApi(
+            statusResult = ApiResult.Success(RequestsFeatureStatus(requestsEnabled = true)),
+            discoverResult = ApiResult.Success(
+                RequestsDiscoverResponse(
+                    listOf(
+                        RequestDiscoverySection(
+                            key = "popular_movies",
+                            title = "Popular Movies",
+                            results = listOf(stubResult(tmdbId = 12, title = "Popular")),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
+
+        viewModel.refresh()
+
+        assertFalse(viewModel.uiState.value.isRefreshing)
+        assertTrue(viewModel.uiState.value.isEnabled)
+        assertEquals(listOf("status", "discover", "status", "discover"), api.calls)
+    }
+
+    @Test
+    fun `search view model handles blank and failed searches`() = runTest(dispatcher) {
+        val api = FakeRequestsApi(searchResult = ApiResult.Error(500, "internal", ""))
+        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
+
+        viewModel.onQueryChanged("   ")
+        viewModel.search()
+        assertEquals("Enter a search term.", viewModel.uiState.value.error)
+        assertTrue(viewModel.uiState.value.results.isEmpty())
+
+        viewModel.onQueryChanged("alien")
+        viewModel.search(page = 2)
+
+        val state = viewModel.uiState.value
+        assertFalse(state.isLoading)
+        assertEquals("alien", state.submittedQuery)
+        assertEquals(2, state.page)
+        assertEquals("Failed to search requests", state.error)
+    }
+
+    @Test
+    fun `search view model preserves submitted results when query text matches trimmed submitted query`() =
+        runTest(dispatcher) {
+            val page = RequestMediaPage(results = listOf(stubResult(tmdbId = 23, title = "Marsbase")))
+            val viewModel = track(RequestSearchViewModel(RequestsRepository(FakeRequestsApi(
+                searchResult = ApiResult.Success(page),
+            ))))
+
+            viewModel.onQueryChanged("mars")
+            viewModel.search()
+            viewModel.onQueryChanged(" mars ")
+
+            val state = viewModel.uiState.value
+            assertEquals(page.results, state.results)
+            assertEquals(1, state.totalPages)
+            assertTrue(state.hasSubmittedQuery)
+        }
+
+    @Test
+    fun `detail view model surfaces load and submit failures`() = runTest(dispatcher) {
+        val api = FakeRequestsApi(
+            detailResults = ArrayDeque(
+                listOf(
+                    ApiResult.Error(404, "not_found", "Missing"),
+                    ApiResult.Success(stubDetail()),
+                ),
+            ),
+            createResult = ApiResult.Error(409, "duplicate", ""),
+        )
+        val viewModel = track(RequestDetailViewModel(
+            repository = RequestsRepository(api),
+            mediaType = RequestMediaType.Movie,
+            tmdbId = 77,
+        ))
+
+        assertEquals("Missing", viewModel.uiState.value.error)
+
+        viewModel.submitRequest()
+        assertEquals("Request details are not loaded.", viewModel.uiState.value.error)
+
+        viewModel.load()
+        viewModel.submitRequest()
+
+        assertFalse(viewModel.uiState.value.isSubmitting)
+        assertEquals("Failed to submit request", viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `detail submit falls back to local request state when refresh fails`() = runTest(dispatcher) {
+        val detail = stubDetail()
+        val created = stubRequest(id = "request-77", tmdbId = 77, title = detail.title)
+        val api = FakeRequestsApi(
+            detailResults = ArrayDeque(
+                listOf(
+                    ApiResult.Success(detail),
+                    ApiResult.NetworkError(IllegalStateException("offline")),
+                ),
+            ),
+            createResult = ApiResult.Success(created),
+        )
+        val viewModel = track(RequestDetailViewModel(
+            repository = RequestsRepository(api),
+            mediaType = RequestMediaType.Movie,
+            tmdbId = 77,
+        ))
+
+        viewModel.submitRequest()
+
+        val state = viewModel.uiState.value
+        assertEquals("request-77", state.detail?.request?.requestId)
+        assertFalse(state.detail?.request?.requestable ?: true)
+        assertEquals("Request submitted.", state.notice)
+    }
+
+    @Test
     fun `my requests view model stale load does not overwrite newer result`() = runTest(dispatcher) {
         val staleRequest = stubRequest(id = "stale-1", tmdbId = 55, title = "Stale Movie")
         val freshRequest = stubRequest(id = "fresh-1", tmdbId = 56, title = "Fresh Movie")
@@ -351,6 +470,23 @@ class RequestsViewModelTest {
         assertEquals(listOf(cancelled), state.requests)
         assertNull(state.error)
         assertEquals(listOf("request-1"), api.cancelCalls)
+    }
+
+    @Test
+    fun `my requests view model reports load and cancel failures`() = runTest(dispatcher) {
+        val api = FakeRequestsApi(
+            mineResult = ApiResult.Error(500, "internal", ""),
+            cancelResult = ApiResult.NetworkError(IllegalStateException("offline")),
+        )
+        val viewModel = track(MyRequestsViewModel(RequestsRepository(api)))
+
+        assertEquals("Failed to load your requests", viewModel.uiState.value.error)
+
+        viewModel.cancel("request-1")
+
+        val state = viewModel.uiState.value
+        assertNull(state.actionInFlightId)
+        assertEquals("Network error. Check your connection.", state.error)
     }
 }
 
@@ -472,4 +608,16 @@ private fun stubRequest(
     outcome = outcome,
     createdAt = "2026-06-01T00:00:00Z",
     updatedAt = "2026-06-01T00:00:00Z",
+)
+
+private fun stubDetail(): RequestMediaDetail = RequestMediaDetail(
+    mediaType = RequestMediaType.Movie,
+    tmdbId = 77,
+    imdbId = "tt77",
+    title = "Deep Archive",
+    year = 2025,
+    overview = "Buried media returns.",
+    posterPath = "/poster.jpg",
+    backdropPath = "/backdrop.jpg",
+    request = RequestState(requestable = true),
 )

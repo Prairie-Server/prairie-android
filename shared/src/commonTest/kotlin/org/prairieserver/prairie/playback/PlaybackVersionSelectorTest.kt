@@ -3,6 +3,7 @@ package org.prairieserver.prairie.playback
 import org.prairieserver.prairie.model.catalog.FileVersion
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class PlaybackVersionSelectorTest {
     private val version1080 = FileVersion(fileId = 1080, resolution = "1080p")
@@ -58,5 +59,37 @@ class PlaybackVersionSelectorTest {
         )
 
         assertEquals(720, selected.fileId)
+    }
+
+    @Test
+    fun fallsBackToBestAvailableWhenPreferenceCannotBeMatched() {
+        val selected = selectPlaybackVersion(
+            versions = listOf(
+                FileVersion(fileId = 1, resolution = "720p", bitrate = 1, fileSize = 100L),
+                FileVersion(fileId = 2, resolution = "1080p", bitrate = 2, fileSize = 100L),
+            ),
+            lastFileId = 99,
+            preferredQuality = "144p",
+        )
+
+        assertEquals(2, selected.fileId)
+    }
+
+    @Test
+    fun ranksNamedResolutionAliases() {
+        assertEquals(4320, playbackResolutionRank("8K UHD"))
+        assertEquals(2160, playbackResolutionRank("4k"))
+        assertEquals(1440, playbackResolutionRank("QHD"))
+        assertEquals(1080, playbackResolutionRank("fhd"))
+        assertEquals(576, playbackResolutionRank("576i"))
+        assertEquals(480, playbackResolutionRank("sd"))
+        assertEquals(0, playbackResolutionRank(null))
+    }
+
+    @Test
+    fun rejectsEmptyVersionLists() {
+        assertFailsWith<IllegalArgumentException> {
+            selectPlaybackVersion(emptyList(), lastFileId = null, preferredQuality = null)
+        }
     }
 }

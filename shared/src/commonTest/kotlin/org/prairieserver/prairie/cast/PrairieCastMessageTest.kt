@@ -192,6 +192,75 @@ class PrairieCastMessageTest {
     }
 
     @Test
+    fun directConstructorsAndFactoriesExposeExpectedValues() {
+        val playback = PrairieCastPlaybackRequest(
+            contentId = "movie-1",
+            fileId = 9,
+            audioTrackIndex = 1,
+            subtitleTrackIndex = 2,
+            startFromBeginning = true,
+            resumePosition = null,
+        )
+        assertEquals(2, playback.subtitleTrackIndex)
+
+        val state = PrairieCastPlaybackState(
+            contentId = "movie-1",
+            sessionId = "session-1",
+            title = "Movie",
+            subtitle = "2026",
+            isPlaying = false,
+            isLoading = true,
+            isBuffering = true,
+            currentTime = 1.0,
+            duration = 2.0,
+            audioTracks = listOf(PrairieCastTrack("audio", 11, "English", "AAC")),
+            subtitleTracks = listOf(PrairieCastTrack("subtitle", 22, "English CC")),
+            selectedAudioTrackId = 11,
+            selectedSubtitleTrackId = 22,
+            qualityOptions = listOf(PrairieCastQualityOption("auto", "Auto", "Best")),
+            activeQualityId = "auto",
+            isQualitySwitching = true,
+            playbackSpeed = 1.5,
+            videoGravity = "fill",
+            hdrEnabled = true,
+            supportsVideoGravity = true,
+            supportsHDRToggle = true,
+            subtitleSyncMs = 125,
+            subtitlePosition = "bottom",
+            supportsSubtitleDelay = true,
+            supportsSubtitlePosition = true,
+            volume = 0.75,
+            isMuted = true,
+            hasNextEpisode = true,
+            nextEpisodeTitle = "Next",
+            error = null,
+        ).copy(error = "buffering")
+        assertEquals("buffering", state.error)
+        assertEquals("Best", state.qualityOptions.single().detail)
+
+        val messages = listOf(
+            PrairieCastMessage.HandoffOffer(
+                PrairieCastHandoffOffer("req", "srv", "https://prairie.example", null, "profile", null),
+                v = 99,
+            ),
+            PrairieCastMessage.HandoffChallenge(PrairieCastHandoffChallenge("req", "1234", "99", "soon")),
+            PrairieCastMessage.HandoffReady(PrairieCastHandoffReady("req", "srv", "profile", "later", reused = true)),
+            PrairieCastMessage.HandoffCancel(PrairieCastHandoffCancel("req", "cancelled", null)),
+            PrairieCastMessage.Launch(PrairieCastLaunchRequest("srv", playback)),
+            PrairieCastMessage.State(state),
+            PrairieCastMessage.Error(PrairieCastError("bad_request", "Bad request")),
+            PrairieCastMessage.Pong(v = 99),
+            PrairieCastMessage.Close(v = 99),
+        )
+        assertEquals(99, messages.first().v)
+        assertEquals(messages.size, messages.map { it.v }.size)
+
+        assertEquals(7L, PrairieCastControlCommand.selectSubtitleTrack(7).trackId)
+        assertEquals(PrairieCastControlCommand.PlayPause, PrairieCastControlCommand.playPause().name)
+        assertEquals(PrairieCastControlCommand.Stop, PrairieCastControlCommand.stop().name)
+    }
+
+    @Test
     fun protocolConstantsMatchApple() {
         assertEquals(2, PrairieCastProtocol.version)
         assertEquals(listOf(2), PrairieCastProtocol.supportedVersions)
