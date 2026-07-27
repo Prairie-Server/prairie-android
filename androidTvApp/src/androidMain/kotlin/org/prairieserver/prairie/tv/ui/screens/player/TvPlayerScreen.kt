@@ -1838,6 +1838,14 @@ fun TvPlayerScreen(
                             showQuickSubtitlePicker = true
                             viewModel.setControlsVisible(true)
                         },
+                        // Only offered when there is something to advance to;
+                        // the view model owns that predicate so the manual
+                        // control and the automatic trigger cannot disagree.
+                        onUpNext = if (viewModel.canShowNextUpNow()) {
+                            { viewModel.onUserRequestedNextUp() }
+                        } else {
+                            null
+                        },
                         onClose = {
                             when {
                                 roomController != null && roomSnapshot?.isHost == true ->
@@ -2227,6 +2235,8 @@ private fun TvPlayerIdleOverlay(
     focusRequest: TvIdleOverlayFocusRequest,
     onOpenHUD: () -> Unit,
     onOpenQuickSubtitles: () -> Unit,
+    /** Non-null only while a next episode is resolved and not already shown. */
+    onUpNext: (() -> Unit)? = null,
     onClose: () -> Unit,
     // Watch Together transport authority. Solo playback leaves both true.
     // A guest who can't seek gets a no-op scrubber/skip; a guest who can't
@@ -2345,6 +2355,7 @@ private fun TvPlayerIdleOverlay(
                 onPlayPause = onPlayPause,
                 onSkipForward = onSkipForward,
                 onOpenQuickSubtitles = onOpenQuickSubtitles,
+                onUpNext = onUpNext,
                 onOpenHUD = onOpenHUD,
                 onClose = onClose,
                 playPauseFocus = playPauseFocus,
