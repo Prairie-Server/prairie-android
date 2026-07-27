@@ -130,6 +130,14 @@ fun AccountSection(
                 )
             }
 
+            SettingsRowLabel(
+                title = "Quick Connect",
+                icon = Icons.Default.Devices,
+                badgeColor = SettingsBadgeTeal,
+                onClick = onPairDevice,
+                showChevron = true,
+            )
+
             // Apple-parity admin surface: stats dashboard only, role-gated.
             if (isAdminVisible) {
                 SettingsRowLabel(
@@ -145,14 +153,6 @@ fun AccountSection(
                 icon = Icons.Default.Security,
                 badgeColor = SettingsBadgeGray,
                 onClick = onManageSessions,
-                showChevron = true,
-            )
-
-            SettingsRowLabel(
-                title = "Quick Connect",
-                icon = Icons.Default.Devices,
-                badgeColor = SettingsBadgeTeal,
-                onClick = onPairDevice,
                 showChevron = true,
             )
 
