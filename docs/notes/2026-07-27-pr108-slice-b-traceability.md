@@ -3,7 +3,7 @@
 Slice B is stacked on reviewed slice A:
 
 ```text
-base  0dea6161c9c01a62e96793e1fd87237758c34055
+base  5a34a95518047daa698acd4e80cde3571e6b0c8c
 head  split/108-b-auth-epub
 ```
 
