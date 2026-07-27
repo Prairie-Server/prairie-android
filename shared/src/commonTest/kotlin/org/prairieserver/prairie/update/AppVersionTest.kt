@@ -44,6 +44,7 @@ class AppUpdateStatusResolveTest {
         assertEquals("Update available", status.statusLabel())
         assertEquals("1.4.0", status.latestVersionLabel())
         assertEquals("https://example.com/r", status.changelogUrlOrNull())
+        assertEquals("https://example.com/r", status.releaseUrlOrNull())
     }
 
     @Test
@@ -69,6 +70,9 @@ class AppUpdateStatusResolveTest {
             resolveAppUpdateStatus("1.0.0", null, null),
         )
         assertIs<AppUpdateStatus.Unavailable>(
+            resolveAppUpdateStatus("1.0.0", "   ", null),
+        )
+        assertIs<AppUpdateStatus.Unavailable>(
             resolveAppUpdateStatus("1.0.0", "not-a-version", null),
         )
         assertNull(resolveAppUpdateStatus("1.0.0", null, null).latestVersionLabel())
@@ -82,5 +86,28 @@ class AppUpdateStatusResolveTest {
                 changelogUrl = "https://example.com/releases",
             ).changelogUrlOrNull(),
         )
+    }
+
+    @Test
+    fun resolve_unavailable_when_current_version_unparseable() {
+        val status = resolveAppUpdateStatus(
+            currentVersionName = "not-a-version",
+            latestVersionName = "v1.4.0",
+            releaseUrl = "https://example.com/r",
+            changelogUrl = "https://example.com/changelog",
+        )
+        val unavailable = assertIs<AppUpdateStatus.Unavailable>(status)
+        assertEquals("not-a-version", unavailable.currentVersion)
+        assertEquals("https://example.com/changelog", unavailable.changelogUrl)
+        assertEquals("Couldn't check for updates", unavailable.statusLabel())
+    }
+
+    @Test
+    fun checking_status_helpers() {
+        val checking = AppUpdateStatus.Checking
+        assertEquals("Checking…", checking.statusLabel())
+        assertNull(checking.latestVersionLabel())
+        assertNull(checking.releaseUrlOrNull())
+        assertNull(checking.changelogUrlOrNull())
     }
 }

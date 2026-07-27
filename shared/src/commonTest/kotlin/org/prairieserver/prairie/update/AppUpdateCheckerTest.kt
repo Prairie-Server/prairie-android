@@ -49,6 +49,26 @@ class AppUpdateCheckerTest {
         assertEquals(AppUpdateChecker.DEFAULT_CHANGELOG_URL, unavailable.changelogUrl)
     }
 
+    @Test
+    fun check_maps_non_success_http_to_unavailable() = runTest {
+        val client = mockClient(status = HttpStatusCode.InternalServerError, body = """{"message":"boom"}""")
+        val status = AppUpdateChecker(client).check("0.3.11")
+        val unavailable = assertIs<AppUpdateStatus.Unavailable>(status)
+        assertEquals("0.3.11", unavailable.currentVersion)
+        assertEquals(AppUpdateChecker.DEFAULT_CHANGELOG_URL, unavailable.changelogUrl)
+    }
+
+    @Test
+    fun check_falls_back_to_release_name_when_tag_missing() = runTest {
+        val client = mockClient(
+            status = HttpStatusCode.OK,
+            body = """{"name":"1.5.0","html_url":"https://github.com/Prairie-Server/prairie-android/releases/tag/1.5.0"}""",
+        )
+        val status = AppUpdateChecker(client).check("0.3.11")
+        val available = assertIs<AppUpdateStatus.UpdateAvailable>(status)
+        assertEquals("1.5.0", available.latestVersion)
+    }
+
     private fun mockClient(status: HttpStatusCode, body: String): HttpClient =
         HttpClient(
             MockEngine { _ ->
