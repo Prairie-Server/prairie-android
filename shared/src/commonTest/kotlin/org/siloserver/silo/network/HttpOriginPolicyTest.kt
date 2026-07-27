@@ -26,6 +26,22 @@ class HttpOriginPolicyTest {
     }
 
     @Test
+    fun webSocketSchemesUseTheirCorrespondingHttpOriginsForConsent() = runTest {
+        val consent = object : CleartextOriginConsent {
+            override suspend fun isApproved(origin: String): Boolean =
+                origin == "http://silo.example"
+        }
+
+        assertFalse(consent.requiresApproval("ws://SILO.EXAMPLE:80/rooms/r/ws?room_token=secret"))
+        assertTrue(consent.requiresApproval("ws://silo.example:8090/rooms/r/ws"))
+        assertFalse(consent.requiresApproval("wss://silo.example/rooms/r/ws"))
+        assertEquals("http://silo.example", canonicalHttpOrigin("ws://SILO.EXAMPLE:80/rooms/r/ws"))
+        assertEquals("https://silo.example", canonicalHttpOrigin("wss://SILO.EXAMPLE:443/rooms/r/ws"))
+        assertTrue(isSameHttpOrigin("http://silo.example", "ws://silo.example/rooms/r/ws"))
+        assertTrue(isSameHttpOrigin("https://silo.example", "wss://silo.example/rooms/r/ws"))
+    }
+
+    @Test
     fun defaultPortsAndCaseNormalize() {
         assertTrue(isSameHttpOrigin("HTTPS://Silo.Example", "https://silo.example:443/a"))
         assertTrue(isSameHttpOrigin("http://silo.example", "http://SILO.EXAMPLE:80/a"))

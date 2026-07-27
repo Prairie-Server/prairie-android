@@ -242,20 +242,35 @@ class WatchTogetherRepository(
 
     // ---- WS: client→server send passthroughs ----------------------------------
 
-    suspend fun attachSession(sessionId: String) { realtime?.attachSession(sessionId) }
-    suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean) {
-        realtime?.transportRequest(action, positionSeconds, isPaused)
-    }
-    suspend fun stateReport(sessionId: String, positionSeconds: Double, isPaused: Boolean) {
-        realtime?.stateReport(sessionId, positionSeconds, isPaused)
-    }
-    suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean) {
-        realtime?.ready(sessionId, positionSeconds, isPaused)
-    }
-    suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean) {
-        realtime?.buffering(sessionId, positionSeconds, isPaused)
-    }
-    suspend fun ping(clientSentAt: String) { realtime?.ping(clientSentAt) }
+    suspend fun attachSession(sessionId: String): Boolean =
+        realtime?.attachSession(sessionId) ?: false
+
+    suspend fun transportRequest(
+        action: String,
+        positionSeconds: Double?,
+        isPaused: Boolean,
+    ): Boolean = realtime?.transportRequest(action, positionSeconds, isPaused) ?: false
+
+    suspend fun stateReport(
+        sessionId: String,
+        positionSeconds: Double,
+        isPaused: Boolean,
+    ): Boolean = realtime?.stateReport(sessionId, positionSeconds, isPaused) ?: false
+
+    suspend fun ready(
+        sessionId: String,
+        positionSeconds: Double,
+        isPaused: Boolean,
+    ): Boolean = realtime?.ready(sessionId, positionSeconds, isPaused) ?: false
+
+    suspend fun buffering(
+        sessionId: String,
+        positionSeconds: Double,
+        isPaused: Boolean,
+    ): Boolean = realtime?.buffering(sessionId, positionSeconds, isPaused) ?: false
+
+    suspend fun ping(clientSentAt: String): Boolean =
+        realtime?.ping(clientSentAt) ?: false
 
     // ---- WS lifecycle: connect + reconnect-with-backoff ------------------------
 
@@ -321,6 +336,7 @@ class WatchTogetherRepository(
     /** Pure-ish fold of one realtime event into the state flows + side streams. */
     private fun fold(event: RoomRealtimeEvent) {
         when (event) {
+            RoomRealtimeEvent.Opened -> Unit
             is RoomRealtimeEvent.SnapshotEvent -> _roomSnapshot.value = event.room
             is RoomRealtimeEvent.SuggestionsEvent -> applySuggestions(event.suggestions, fromBroadcast = true)
             is RoomRealtimeEvent.TransportCommandEvent -> _transportCommands.tryEmit(
@@ -337,6 +353,7 @@ class WatchTogetherRepository(
                 ),
             )
             is RoomRealtimeEvent.Closed -> { /* lifecycle handled in connect() */ }
+            is RoomRealtimeEvent.TransportTerminated -> Unit
             is RoomRealtimeEvent.Error ->
                 // Transient, NON-terminal: a server `error` frame (e.g. a rejected
                 // transport_request) must be "ignored gracefully" per the design.

@@ -11,13 +11,18 @@ import org.siloserver.silo.model.watchtogether.WsStateReport
 import org.siloserver.silo.model.watchtogether.WsTransportRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
-import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.http.encodeURLParameter
+import io.ktor.http.encodeURLPathPart
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
 import io.ktor.websocket.readText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -26,87 +31,151 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Per-room websocket. One [connect] = one connection to
- * `/api/v1/watch-together/rooms/{id}/ws`, authenticated by query string only:
- * `?token=<authJWT>&room_token=<roomJWT>&profile_id=<id>&profile_token=<token>`
- * (a separate socket from `/events/ws`). Every server frame is mapped through
- * the pure [decodeRoomFrame] into the returned [Flow]; the flow completes
- * (emitting [RoomRealtimeEvent.Closed]) when the socket ends — reconnect with
- * capped backoff is the repository's job.
+ * `/api/v1/watch-together/rooms/{id}/ws`. The same-origin Silo auth plugin
+ * supplies the access bearer and profile headers. The server still requires
+ * `room_token`, `profile_id`, and (when present) `profile_token` in the query;
+ * these residual URL credentials remain exposed to infrastructure that logs
+ * request targets until the server protocol can be changed.
  *
- * [send*] methods write client frames on an open session; the repository holds
- * the session and the ping loop. Auth values are read from [TokenManager] at
- * connect time. Behind an interface so the repository's tests use a fake flow
- * — the only logic worth unit-testing is the pure [decodeRoomFrame].
+ * [RoomRealtimeEvent.Closed] is reserved for an explicit decoded
+ * `room_closed` frame. Physical EOF and socket failures surface as
+ * [RoomRealtimeEvent.TransportTerminated], while owner cancellation is silent.
  */
 interface WatchTogetherRealtimeClient {
-    /** Open the room socket. The returned flow ends with [RoomRealtimeEvent.Closed]. */
+    /** Open one physical room socket and publish [RoomRealtimeEvent.Opened] once writable. */
     fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent>
 
-    /** Client→server sends. No-op when no session is open (repository gates on connection). */
-    suspend fun attachSession(sessionId: String)
-    suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean)
-    suspend fun stateReport(sessionId: String, positionSeconds: Double, isPaused: Boolean)
-    suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean)
-    suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean)
-    suspend fun ping(clientSentAt: String)
+    /** Client→server sends report whether a frame reached the current writable socket. */
+    suspend fun attachSession(sessionId: String): Boolean
+    suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean): Boolean
+    suspend fun stateReport(sessionId: String, positionSeconds: Double, isPaused: Boolean): Boolean
+    suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean): Boolean
+    suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean): Boolean
+    suspend fun ping(clientSentAt: String): Boolean
 }
 
-class DefaultWatchTogetherRealtimeClient(
+internal interface WatchTogetherSocketConnection {
+    suspend fun receiveText(): String?
+    suspend fun sendText(text: String)
+    suspend fun close()
+}
+
+internal fun interface WatchTogetherSocketConnector {
+    suspend fun open(url: String): WatchTogetherSocketConnection
+}
+
+private class KtorWatchTogetherSocketConnector(
     private val client: HttpClient,
+) : WatchTogetherSocketConnector {
+    override suspend fun open(url: String): WatchTogetherSocketConnection =
+        KtorWatchTogetherSocketConnection(client.webSocketSession(urlString = url))
+}
+
+private class KtorWatchTogetherSocketConnection(
+    private val session: DefaultClientWebSocketSession,
+) : WatchTogetherSocketConnection {
+    override suspend fun receiveText(): String? {
+        while (true) {
+            val result = session.incoming.receiveCatching()
+            result.exceptionOrNull()?.let { throw it }
+            val frame = result.getOrNull() ?: return null
+            if (frame is Frame.Text) return frame.readText()
+        }
+    }
+
+    override suspend fun sendText(text: String) {
+        session.send(Frame.Text(text))
+    }
+
+    override suspend fun close() {
+        session.close()
+    }
+}
+
+class DefaultWatchTogetherRealtimeClient private constructor(
     private val tokenManager: TokenManager,
-    private val json: Json = SiloJson,
+    private val json: Json,
+    private val socketConnector: WatchTogetherSocketConnector,
 ) : WatchTogetherRealtimeClient {
 
-    // The live session for the current connect(); send* methods write to it.
-    // Single-connection-at-a-time (the repository owns one room).
-    private var session: DefaultClientWebSocketSession? = null
+    constructor(
+        client: HttpClient,
+        tokenManager: TokenManager,
+        json: Json = SiloJson,
+    ) : this(tokenManager, json, KtorWatchTogetherSocketConnector(client))
+
+    internal constructor(
+        tokenManager: TokenManager,
+        socketConnector: WatchTogetherSocketConnector,
+        json: Json = SiloJson,
+    ) : this(tokenManager, json, socketConnector)
+
+    private val sessionMutex = Mutex()
+    private var session: WatchTogetherSocketConnection? = null
 
     override fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent> = callbackFlow {
         val token = tokenManager.getAccessToken()
         val profileId = tokenManager.getProfileId()
         val profileToken = tokenManager.getProfileToken()
         if (token.isNullOrBlank() || profileId.isNullOrBlank()) {
-            trySend(RoomRealtimeEvent.Closed("missing_auth"))
+            trySend(
+                RoomRealtimeEvent.TransportTerminated(
+                    IllegalStateException("missing_auth"),
+                ),
+            )
             close()
             return@callbackFlow
         }
 
         val url = buildString {
             append("/api/v1/watch-together/rooms/")
-            append(roomId.encodeURLParameter())
-            append("/ws?token=").append(token.encodeURLParameter())
-            append("&room_token=").append(roomToken.encodeURLParameter())
+            append(roomId.encodeURLPathPart())
+            append("/ws?room_token=").append(roomToken.encodeURLParameter())
             append("&profile_id=").append(profileId.encodeURLParameter())
             if (!profileToken.isNullOrBlank()) {
                 append("&profile_token=").append(profileToken.encodeURLParameter())
             }
         }
 
+        var connection: WatchTogetherSocketConnection? = null
         try {
-            client.webSocket(urlString = url) {
-                session = this
-                try {
-                    for (frame in incoming) {
-                        if (frame !is Frame.Text) continue
-                        decodeRoomFrame(json, frame.readText())?.let { trySend(it) }
-                    }
-                } finally {
-                    session = null
-                }
+            connection = socketConnector.open(url)
+            sessionMutex.withLock {
+                session = connection
             }
-            trySend(RoomRealtimeEvent.Closed())
-        } catch (e: Throwable) {
-            session = null
-            trySend(RoomRealtimeEvent.Closed(e.message))
+            trySend(RoomRealtimeEvent.Opened)
+            while (true) {
+                val raw = connection.receiveText() ?: break
+                decodeRoomFrame(json, raw)?.let { trySend(it) }
+            }
+            trySend(RoomRealtimeEvent.TransportTerminated())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Throwable) {
+            trySend(RoomRealtimeEvent.TransportTerminated(failure))
         } finally {
+            connection?.let { completed ->
+                sessionMutex.withLock {
+                    if (session === completed) session = null
+                }
+                runCatching { completed.close() }
+            }
             close()
         }
 
-        awaitClose { /* socket closes when the collector is cancelled */ }
+        awaitClose { }
     }
 
-    private suspend fun sendText(text: String) {
-        session?.send(Frame.Text(text))
+    private suspend fun sendText(text: String): Boolean {
+        val writable = sessionMutex.withLock { session } ?: return false
+        return try {
+            writable.sendText(text)
+            true
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     override suspend fun attachSession(sessionId: String) =

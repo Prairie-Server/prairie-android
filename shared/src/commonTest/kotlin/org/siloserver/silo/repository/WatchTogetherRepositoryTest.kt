@@ -96,12 +96,12 @@ class WatchTogetherRepositoryTest {
             }
             return events.asSharedFlow()
         }
-        override suspend fun attachSession(sessionId: String) {}
-        override suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean) {}
-        override suspend fun stateReport(sessionId: String, positionSeconds: Double, isPaused: Boolean) {}
-        override suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean) {}
-        override suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean) {}
-        override suspend fun ping(clientSentAt: String) {}
+        override suspend fun attachSession(sessionId: String) = true
+        override suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean) = true
+        override suspend fun stateReport(sessionId: String, positionSeconds: Double, isPaused: Boolean) = true
+        override suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean) = true
+        override suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean) = true
+        override suspend fun ping(clientSentAt: String) = true
     }
 
     private fun repo(
