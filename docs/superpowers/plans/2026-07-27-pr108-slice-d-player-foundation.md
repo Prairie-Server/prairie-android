@@ -77,6 +77,19 @@ lines of the subtitle transaction implementation.
 
 - Focused lifecycle race test observed failing before the epoch guard and
   passing afterward.
+- Queued-stop ownership acquisition, canceled post-allocation adoption cleanup,
+  and stale failure publication were each observed failing before their fixes
+  and passing afterward.
 - Shared player, phone player/detail, and TV player focused unit suites pass.
-- Full unit/release/supply-chain gates and independent review remain required
-  before the draft PR is published.
+- Final independent review: **Ready: YES**, with no remaining
+  Important/Critical findings. The proposed second Room staging queue was
+  withdrawn because the target write is already the atomic Room state/outbox
+  transaction; an asynchronous staging write has the same pre-persistence
+  process-death gap and cannot survive failure of that same store.
+- Final gate:
+  `./scripts/test-check-build-supply-chain.sh`,
+  `./scripts/check-build-supply-chain.sh`, and
+  `./gradlew -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+  testDebugUnitTest :androidApp:assembleRelease
+  :androidTvApp:assembleRelease --max-workers=2`.
+  Result: **BUILD SUCCESSFUL**, 334 tasks, 2m50s.
