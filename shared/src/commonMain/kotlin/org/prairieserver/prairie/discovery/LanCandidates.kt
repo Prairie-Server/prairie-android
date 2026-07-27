@@ -41,6 +41,8 @@ data class BuildCandidatesOptions(
     val maxHostsPerCidr: Int = 254,
     /** Device IPv4s when the platform can expose them. */
     val localIps: List<String> = emptyList(),
+    /** Hostnames to probe for cross-subnet discovery (via unicast DNS A). */
+    val baseHosts: List<String> = emptyList(),
 )
 
 data class ParsedCidr(
@@ -198,7 +200,7 @@ fun buildCandidates(options: BuildCandidatesOptions = BuildCandidatesOptions()):
     val out = ArrayList<String>()
     val seen = LinkedHashSet<String>()
 
-    for (host in listOf("prairie.local", "prairie")) {
+    for (host in listOf("prairie.local", "prairie") + options.baseHosts) {
         urlsForHost(host, DEFAULT_PORTS, seen, out)
     }
     for (ip in options.localIps) {
