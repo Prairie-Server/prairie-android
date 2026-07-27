@@ -16,6 +16,7 @@ data class TvForYouEntryRequest(
 internal data class AppliedForYouSelection(
     val selection: SavedListSelection?,
     val lastAppliedSequence: Int,
+    val appliedRequest: Boolean,
 )
 
 internal fun applyForYouEntryRequest(
@@ -27,10 +28,27 @@ internal fun applyForYouEntryRequest(
         AppliedForYouSelection(
             selection = currentSelection,
             lastAppliedSequence = lastAppliedSequence,
+            appliedRequest = false,
         )
     } else {
         AppliedForYouSelection(
             selection = request.selection,
             lastAppliedSequence = request.sequence,
+            appliedRequest = true,
         )
     }
+
+internal suspend fun requestForYouEntryFocus(
+    selection: SavedListSelection?,
+    awaitFrame: suspend () -> Unit,
+    requestForYou: () -> Boolean,
+    requestWatchlist: () -> Boolean,
+    requestFavorites: () -> Boolean,
+): Boolean {
+    awaitFrame()
+    return when (selection) {
+        null -> requestForYou()
+        SavedListSelection.Watchlist -> requestWatchlist()
+        SavedListSelection.Favorites -> requestFavorites()
+    }
+}

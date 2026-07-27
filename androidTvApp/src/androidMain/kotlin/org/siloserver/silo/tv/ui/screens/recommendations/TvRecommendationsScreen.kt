@@ -81,7 +81,7 @@ fun TvRecommendationsScreen(
     val firstRecommendationCardFocusRequester = remember { FocusRequester() }
     val focusBridgeScope = rememberCoroutineScope()
     var savedListSelection by remember { mutableStateOf(entryRequest.selection) }
-    var lastAppliedEntrySequence by remember { mutableIntStateOf(entryRequest.sequence) }
+    var lastAppliedEntrySequence by remember { mutableIntStateOf(0) }
     val moveIntoRecommendations: () -> Boolean = {
         if (
             !shouldBridgeRecommendationsDown(
@@ -116,6 +116,21 @@ fun TvRecommendationsScreen(
         )
         savedListSelection = applied.selection
         lastAppliedEntrySequence = applied.lastAppliedSequence
+        if (applied.appliedRequest) {
+            requestForYouEntryFocus(
+                selection = applied.selection,
+                awaitFrame = { withFrameNanos { } },
+                requestForYou = {
+                    runCatching { forYouFocusRequester.requestFocus() }.getOrDefault(false)
+                },
+                requestWatchlist = {
+                    runCatching { watchlistFocusRequester.requestFocus() }.getOrDefault(false)
+                },
+                requestFavorites = {
+                    runCatching { favoritesFocusRequester.requestFocus() }.getOrDefault(false)
+                },
+            )
+        }
     }
 
     // Match tvOS: recommendations remain the landing content when available;
