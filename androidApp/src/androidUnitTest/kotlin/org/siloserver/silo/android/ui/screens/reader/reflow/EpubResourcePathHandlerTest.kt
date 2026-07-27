@@ -53,6 +53,21 @@ class EpubResourcePathHandlerTest {
     }
 
     @Test
+    fun rejectsAValidNormalizedPathBelongingToAnotherCachedBook() {
+        withFixture { fixture ->
+            val otherRoot = fixture.root.resolve("epub-${"b".repeat(40)}").apply { mkdirs() }
+            val otherChapter = otherRoot.resolve("OEBPS/private.xhtml")
+            requireNotNull(otherChapter.parentFile).mkdirs()
+            otherChapter.writeText("other book")
+
+            assertEmpty404(
+                fixture.handler.handle("${otherRoot.name}/OEBPS/private.xhtml"),
+                otherChapter.path,
+            )
+        }
+    }
+
+    @Test
     fun returnsEmpty404ForSymlinksEvenWhenTheirTargetIsInsideRoot() {
         withFixture { fixture ->
             val target = java.io.File(fixture.bookRoot, "OEBPS/images/cover.jpg")
@@ -161,7 +176,7 @@ class EpubResourcePathHandlerTest {
         val root = createTempDirectory("epub-resource-root").toFile()
         try {
             val bookRoot = root.resolve("epub-${"a".repeat(40)}").apply { mkdirs() }
-            block(Fixture(root, bookRoot, EpubResourcePathHandler(root)))
+            block(Fixture(root, bookRoot, EpubResourcePathHandler(root, bookRoot.name)))
         } finally {
             root.deleteRecursively()
         }

@@ -55,9 +55,11 @@
     var base;
     try {
       base = new URL(baseUrl, privateOrigin);
-      if (base.origin !== privateOrigin || base.pathname.indexOf('/epub/') !== 0) {
+      var bookPathMatch = base.pathname.match(/^\/epub\/(epub-[0-9a-f]{40})(?:\/|$)/);
+      if (base.origin !== privateOrigin || !bookPathMatch) {
         return template.innerHTML;
       }
+      var allowedBookPath = '/epub/' + bookPathMatch[1] + '/';
     } catch (e) {
       return template.innerHTML;
     }
@@ -70,7 +72,7 @@
         if (!value || value.charAt(0) === '#') return;
         try {
           var resolved = new URL(value, base);
-          if (resolved.origin === privateOrigin && resolved.pathname.indexOf('/epub/') === 0) {
+          if (resolved.origin === privateOrigin && resolved.pathname.indexOf(allowedBookPath) === 0) {
             element.setAttribute(attribute, resolved.href);
           } else {
             element.removeAttribute(attribute);

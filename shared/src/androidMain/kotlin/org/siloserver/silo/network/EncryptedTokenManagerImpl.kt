@@ -57,7 +57,10 @@ class EncryptedTokenManagerImpl(
      * overwrite the credentials of the login that replaced it. Overlay begin/end
      * deliberately does not move it — see [AuthScopeSnapshot.credentialEpoch].
      */
-    private var persistentCredentialEpoch: Long = 0L
+    // Zero is reserved by AuthScopeSnapshot for callers that did not capture
+    // a live generation. A manager constructed over credentials already on
+    // disk must therefore begin at a non-sentinel value.
+    private var persistentCredentialEpoch: Long = 1L
 
     private val _sessionExpired = MutableSharedFlow<Unit>(
         replay = 0,

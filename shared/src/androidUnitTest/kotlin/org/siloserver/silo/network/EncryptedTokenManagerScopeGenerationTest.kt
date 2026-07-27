@@ -35,6 +35,30 @@ class EncryptedTokenManagerScopeGenerationTest {
     }
 
     @Test
+    fun startupSnapshotOfPreloadedCredentialsCannotReadOrRestoreReloggedCredentials() = runTest {
+        val registry = FakeServerRegistry()
+        val manager = EncryptedTokenManagerImpl(
+            prefs = inMemoryPreferences(
+                AndroidServerRegistry.serverScopedKey("server-a", EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN) to
+                    "old-access",
+                AndroidServerRegistry.serverScopedKey("server-a", EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN) to
+                    "old-refresh",
+            ),
+            registry = registry,
+        )
+        val staleScope = checkNotNull(manager.snapshotCurrentScope())
+
+        manager.clearTokens()
+        manager.saveTokens("new-access", "new-refresh", 3600)
+
+        assertNull(manager.getAccessTokenForScope(staleScope))
+        assertNull(manager.getRefreshTokenForScope(staleScope))
+        manager.saveTokensForScope(staleScope, "stale-access", "stale-refresh", 3600)
+        assertEquals("new-access", manager.getAccessToken())
+        assertEquals("new-refresh", manager.getRefreshToken())
+    }
+
+    @Test
     fun registryFirstSwitchInvalidatesSnapshotBeforeManagerSwitchCall() = runTest {
         val registry = FakeServerRegistry()
         val manager = EncryptedTokenManagerImpl(
@@ -77,8 +101,8 @@ class EncryptedTokenManagerScopeGenerationTest {
         }
     }
 
-    private fun inMemoryPreferences(): SharedPreferences {
-        val values = mutableMapOf<String, Any?>()
+    private fun inMemoryPreferences(vararg initialValues: Pair<String, Any?>): SharedPreferences {
+        val values = mutableMapOf<String, Any?>(*initialValues)
         lateinit var preferences: SharedPreferences
         preferences = Proxy.newProxyInstance(
             SharedPreferences::class.java.classLoader,

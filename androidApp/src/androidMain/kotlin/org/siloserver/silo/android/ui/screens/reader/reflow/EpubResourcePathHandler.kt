@@ -16,9 +16,18 @@ import java.nio.charset.StandardCharsets
  * rejected even when their targets remain inside [readersRoot], so a later
  * filesystem change cannot silently alter the resource boundary.
  */
-internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.PathHandler {
+internal class EpubResourcePathHandler(
+    readersRoot: File,
+    private val allowedBookDirectory: String,
+) : WebViewAssetLoader.PathHandler {
     private val root = readersRoot.canonicalFile
     private val rootPrefix = root.path + File.separator
+
+    init {
+        require(EPUB_DIRECTORY.matches(allowedBookDirectory)) {
+            "EPUB resource handler requires one content-addressed book directory"
+        }
+    }
 
     override fun handle(path: String): WebResourceResponse =
         try {
@@ -34,7 +43,7 @@ internal class EpubResourcePathHandler(readersRoot: File) : WebViewAssetLoader.P
         val segments = decoded.split('/')
         if (
             segments.isEmpty() ||
-            !EPUB_DIRECTORY.matches(segments.first()) ||
+            segments.first() != allowedBookDirectory ||
             segments.any { it.isEmpty() || it == "." || it == ".." }
         ) {
             return emptyNotFoundResponse()

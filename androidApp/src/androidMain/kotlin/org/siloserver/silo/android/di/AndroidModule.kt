@@ -37,6 +37,7 @@ import org.siloserver.silo.network.AndroidServerRegistry
 import org.siloserver.silo.network.EncryptedTokenManagerImpl
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.TokenManager
+import org.siloserver.silo.network.CleartextOriginConsent
 import org.siloserver.silo.network.createSecureSharedPrefs
 import org.siloserver.silo.android.push.AndroidPushRegistrar
 import org.siloserver.silo.android.push.AndroidPushTokenProvider
@@ -103,6 +104,7 @@ import org.koin.dsl.module
  */
 val androidModule = module {
     single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
+    single<CleartextOriginConsent> { get<CleartextConsentStore>() }
     // Single encrypted prefs handle shared between the server registry and the
     // token manager — opening it twice means two MasterKey lookups + decryption
     // passes on cold start.

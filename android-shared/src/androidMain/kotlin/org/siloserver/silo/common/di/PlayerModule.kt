@@ -34,7 +34,13 @@ val playerModule = module {
     // 401 on the refresh call can't loop back through MediaAuthInterceptor.
     single(named("player-refresh-okhttp")) { buildPlayerRefreshOkHttpClient() }
 
-    single { MediaAuthSession(tokenManager = get(), refreshClient = get(named("player-refresh-okhttp"))) }
+    single {
+        MediaAuthSession(
+            tokenManager = get(),
+            refreshClient = get(named("player-refresh-okhttp")),
+            cleartextOriginConsent = getOrNull(),
+        )
+    }
     single { MediaAuthInterceptor(authSession = get()) }
 
     single<OkHttpClient>(PLAYER_TRANSPORT_OKHTTP_QUALIFIER) { buildPlayerOkHttpClient() }

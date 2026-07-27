@@ -23,6 +23,7 @@ class SiloAuthConfig {
     var tokenManager: TokenManager? = null
     var deviceMetadataProvider: DeviceMetadataProvider? = null
     var diagnosticsObserver: NetworkDiagnosticsObserver? = null
+    var cleartextOriginConsent: CleartextOriginConsent? = null
 }
 
 /**
@@ -45,6 +46,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
         ?: error("TokenManager must be provided to SiloAuthPlugin")
     val deviceMetadataProvider = pluginConfig.deviceMetadataProvider
     val diagnosticsObserver = pluginConfig.diagnosticsObserver
+    val cleartextOriginConsent = pluginConfig.cleartextOriginConsent
 
     val refreshMutex = Mutex()
 
@@ -72,6 +74,17 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             trustedServerUrl.isNotBlank()
         ) {
             request.url.rebaseRelativeApiUrl(trustedServerUrl)
+        }
+
+        if (
+            // skipSiloAuth is also used by login/refresh/device-login POSTs:
+            // those requests omit headers but still carry credentials in the
+            // body. Only read-only candidate probes may bypass consent.
+            (!skipAuth || request.method != HttpMethod.Get) &&
+            cleartextOriginConsent?.requiresApproval(trustedServerUrl) == true
+        ) {
+            request.removeSiloCredentialHeaders()
+            throw CleartextOriginNotApprovedException(trustedServerUrl)
         }
 
         val sameOrigin = isSameSiloHttpOrigin(trustedServerUrl, request.url)

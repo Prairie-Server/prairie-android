@@ -11,7 +11,7 @@ import org.koin.dsl.module
 val networkModule = module {
     single<IdentityTransitionBarrier> { DefaultIdentityTransitionBarrier() }
     single<TokenManager> { TokenManagerImpl(get()) }
-    single { createSiloClient(get(), getOrNull(), getOrNull()) }
+    single { createSiloClient(get(), getOrNull(), getOrNull(), getOrNull()) }
     single { AuthApi(get()) }
     single<DeviceLoginApi> { DefaultDeviceLoginApi(get()) }
     single { CatalogApi(get()) }

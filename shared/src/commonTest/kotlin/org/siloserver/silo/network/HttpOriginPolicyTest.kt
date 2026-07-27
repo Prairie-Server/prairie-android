@@ -5,8 +5,23 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class HttpOriginPolicyTest {
+    @Test
+    fun cleartextApprovalUsesCanonicalExactOriginAndHttpsNeedsNoApproval() = runTest {
+        val approved = setOf("http://silo.example", "http://[2001:db8::1]:8090")
+        val consent = object : CleartextOriginConsent {
+            override suspend fun isApproved(origin: String): Boolean =
+                canonicalHttpOrigin(origin) in approved
+        }
+
+        assertFalse(consent.requiresApproval("HTTP://SILO.EXAMPLE:80/path"))
+        assertFalse(consent.requiresApproval("http://[2001:db8::1]:8090/path"))
+        assertTrue(consent.requiresApproval("http://silo.example:8090/path"))
+        assertFalse(consent.requiresApproval("https://silo.example"))
+    }
+
     @Test
     fun defaultPortsAndCaseNormalize() {
         assertTrue(isSameHttpOrigin("HTTPS://Silo.Example", "https://silo.example:443/a"))

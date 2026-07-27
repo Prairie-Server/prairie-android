@@ -201,6 +201,7 @@ fun ReflowableReader(
         key(source, webViewResetKey) {
             ReflowWebView(
                 modifier = Modifier.fillMaxSize(),
+                resourceDirectoryName = source.resourceDirectoryName,
                 onTap = { xFraction ->
                     when {
                         xFraction < 1f / 3f -> prevPage()

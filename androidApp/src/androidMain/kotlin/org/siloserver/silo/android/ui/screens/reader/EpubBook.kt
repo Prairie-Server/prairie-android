@@ -4,6 +4,7 @@ import org.siloserver.silo.common.io.ContentLimitExceeded
 import org.siloserver.silo.common.io.checkedLimitedByteCount
 import org.siloserver.silo.common.io.copyToLimited
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
 import java.net.URI
 import java.security.MessageDigest
@@ -30,6 +31,11 @@ internal val DEFAULT_EPUB_EXTRACTION_LIMITS = EpubExtractionLimits(
     maxCompressionRatio = 200,
 )
 
+internal const val MAX_EPUB_CONTAINER_MARKUP_BYTES = 1L * 1024 * 1024
+internal const val MAX_EPUB_PACKAGE_MARKUP_BYTES = 4L * 1024 * 1024
+internal const val MAX_EPUB_CHAPTER_MARKUP_BYTES = 4L * 1024 * 1024
+internal const val MAX_EPUB_CHAPTER_PREVIEW_BYTES = 64 * 1024
+
 /**
  * Minimal EPUB parser. Holds the unpacked archive on disk so the
  * WebView can resolve relative URLs naturally; nothing else in the app
@@ -46,7 +52,16 @@ internal class EpubBook private constructor(
         val f = File(opfDir, href).canonicalFile
         if (f.path != root.path && !f.path.startsWith(root.path + File.separator)) return null
         if (!f.isFile) return null
-        return f.readText(Charsets.UTF_8)
+        return f.readUtf8Limited(MAX_EPUB_CHAPTER_MARKUP_BYTES, "EPUB chapter markup")
+    }
+
+    /** Small prefix used only for section title/weight metadata. */
+    fun readChapterPreview(href: String): String? {
+        val root = unpackedRoot.canonicalFile
+        val f = File(opfDir, href).canonicalFile
+        if (f.path != root.path && !f.path.startsWith(root.path + File.separator)) return null
+        if (!f.isFile) return null
+        return f.readUtf8Prefix(MAX_EPUB_CHAPTER_PREVIEW_BYTES)
     }
 
     /**
@@ -79,14 +94,18 @@ internal class EpubBook private constructor(
                 }
 
                 // container.xml points to the OPF package.
-                val containerXml = safeChild(unpacked, "META-INF/container.xml", unpacked).readText()
+                val containerXml = safeChild(unpacked, "META-INF/container.xml", unpacked)
+                    .readUtf8Limited(MAX_EPUB_CONTAINER_MARKUP_BYTES, "EPUB container markup")
                 val opfHref = ROOTFILE_TAG_REGEX.findAll(containerXml)
                     .mapNotNull { it.value.xmlAttribute("full-path") }
                     .firstOrNull()
                     ?: error("EPUB missing OPF rootfile")
                 val opfFile = safeChild(unpacked, opfHref, unpacked)
                 val opfDir = opfFile.parentFile!!
-                val opfXml = opfFile.readText()
+                val opfXml = opfFile.readUtf8Limited(
+                    MAX_EPUB_PACKAGE_MARKUP_BYTES,
+                    "EPUB package markup",
+                )
 
                 // Spine entries reference manifest items by idref. Manifest
                 // items carry the actual href. Build the chapter list by
@@ -273,6 +292,30 @@ internal class EpubBook private constructor(
         private val ITEM_TAG_REGEX = Regex("""<item\b[^>]*>""", RegexOption.IGNORE_CASE)
         private val ITEMREF_TAG_REGEX = Regex("""<itemref\b[^>]*>""", RegexOption.IGNORE_CASE)
     }
+}
+
+private fun File.readUtf8Limited(maxBytes: Long, limitName: String): String {
+    checkedLimitedByteCount(0, length(), maxBytes, limitName)
+    val output = ByteArrayOutputStream(length().coerceAtMost(maxBytes).toInt())
+    inputStream().use { input ->
+        input.copyToLimited(output, maxBytes)
+    }
+    return output.toString(Charsets.UTF_8.name())
+}
+
+private fun File.readUtf8Prefix(maxBytes: Int): String {
+    val output = ByteArrayOutputStream(minOf(length().coerceAtLeast(0), maxBytes.toLong()).toInt())
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var remaining = maxBytes
+    inputStream().use { input ->
+        while (remaining > 0) {
+            val read = input.read(buffer, 0, minOf(buffer.size, remaining))
+            if (read < 0) break
+            output.write(buffer, 0, read)
+            remaining -= read
+        }
+    }
+    return output.toString(Charsets.UTF_8.name())
 }
 
 internal fun readerDirectoryBaseUrl(directory: File): String {

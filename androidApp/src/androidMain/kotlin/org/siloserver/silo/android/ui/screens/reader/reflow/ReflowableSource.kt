@@ -20,6 +20,7 @@ data class ReflowTocEntry(val title: String, val sectionIndex: Int)
 interface ReflowableSource {
     val sections: List<ReflowSection>
     val tableOfContents: List<ReflowTocEntry>
+    val resourceDirectoryName: String? get() = null
 
     /** HTML for [index], or null when the section is unreadable. */
     suspend fun html(index: Int): String?

@@ -53,6 +53,7 @@ class ReflowController(private val web: WebView) {
 @Composable
 fun ReflowWebView(
     modifier: Modifier,
+    resourceDirectoryName: String?,
     onTap: (Float) -> Unit,
     onScale: (Float) -> Unit,
     onEvent: (ReflowEvent) -> Unit,
@@ -82,17 +83,19 @@ fun ReflowWebView(
         }
     }
 
-    DisposableEffect(webView) {
-        val assetLoader = WebViewAssetLoader.Builder()
+    DisposableEffect(webView, resourceDirectoryName) {
+        val assetLoaderBuilder = WebViewAssetLoader.Builder()
             .addPathHandler(
                 "/assets/",
                 WebViewAssetLoader.AssetsPathHandler(context),
             )
-            .addPathHandler(
+        resourceDirectoryName?.let { directory ->
+            assetLoaderBuilder.addPathHandler(
                 "/epub/",
-                EpubResourcePathHandler(context.cacheDir.resolve("readers")),
+                EpubResourcePathHandler(context.cacheDir.resolve("readers"), directory),
             )
-            .build()
+        }
+        val assetLoader = assetLoaderBuilder.build()
         val mainHandler = Handler(Looper.getMainLooper())
         var disposed = false
         var readyDelivered = false

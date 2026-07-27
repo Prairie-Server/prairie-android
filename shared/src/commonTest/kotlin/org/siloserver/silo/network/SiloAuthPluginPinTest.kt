@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFailsWith
 
 /**
  * Verifies [SiloAuthPlugin] honors an [AuthScopeSnapshot] pin: a request
@@ -24,6 +25,59 @@ import kotlin.test.assertNull
  * the network-layer guarantee the Track B outbox drain relies on.
  */
 class SiloAuthPluginPinTest {
+    @Test
+    fun unapprovedCleartextOriginIsBlockedBeforeCredentialsReachEngine() = runTest {
+        var engineCalled = false
+        val tokenManager = TokenManagerImpl().apply {
+            setServerUrl("http://silo.lan")
+            saveTokens("access", "refresh", 3600)
+        }
+        val client = HttpClient(
+            MockEngine {
+                engineCalled = true
+                respond("{}", HttpStatusCode.OK)
+            },
+        ) {
+            install(SiloAuthPlugin) {
+                this.tokenManager = tokenManager
+                this.cleartextOriginConsent = object : CleartextOriginConsent {
+                    override suspend fun isApproved(origin: String): Boolean = false
+                }
+            }
+        }
+
+        assertFailsWith<CleartextOriginNotApprovedException> {
+            client.get("/api/v1/items")
+        }
+        assertEquals(false, engineCalled)
+        client.close()
+    }
+
+    @Test
+    fun unauthenticatedLoginPostStillRequiresCleartextApproval() = runTest {
+        var engineCalled = false
+        val tokenManager = TokenManagerImpl().apply { setServerUrl("http://silo.lan") }
+        val client = HttpClient(
+            MockEngine {
+                engineCalled = true
+                respond("{}", HttpStatusCode.OK)
+            },
+        ) {
+            install(SiloAuthPlugin) {
+                this.tokenManager = tokenManager
+                this.cleartextOriginConsent = object : CleartextOriginConsent {
+                    override suspend fun isApproved(origin: String): Boolean = false
+                }
+            }
+        }
+
+        assertFailsWith<CleartextOriginNotApprovedException> {
+            client.post("/api/v1/auth/login") { skipSiloAuth() }
+        }
+        assertEquals(false, engineCalled)
+        client.close()
+    }
+
 
     private class Captured {
         var url: String = ""

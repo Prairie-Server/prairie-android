@@ -215,6 +215,45 @@ class EpubBookTest {
         assertNoPartialExtraction()
     }
 
+    @Test
+    fun `chapter markup is bounded independently from passive archive resources`() {
+        val epub = tmp.newFile("oversized-chapter.epub")
+        writeEpub(
+            epub,
+            chapters = mapOf(
+                "OEBPS/chapter.xhtml" to "<h1>Title</h1>" +
+                    "A".repeat(MAX_EPUB_CHAPTER_MARKUP_BYTES.toInt()),
+            ),
+            stored = true,
+        )
+
+        val book = EpubBook.open(epub, tmp.root)
+
+        assertFailsWith<ContentLimitExceeded> {
+            book.readChapterHtml("chapter.xhtml")
+        }
+    }
+
+    @Test
+    fun `package metadata is bounded independently from archive entry size`() {
+        val epub = tmp.newFile("oversized-package.epub")
+        ZipOutputStream(epub.outputStream()).use { zip ->
+            zip.writeTextEntry(
+                "META-INF/container.xml",
+                """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
+            )
+            zip.writeTextEntry(
+                "OEBPS/content.opf",
+                "<package>" + " ".repeat(MAX_EPUB_PACKAGE_MARKUP_BYTES.toInt()) + "</package>",
+            )
+        }
+
+        assertFailsWith<ContentLimitExceeded> {
+            EpubBook.open(epub, tmp.root)
+        }
+        assertNoPartialExtraction()
+    }
+
     private fun writeEpub(
         target: File,
         chapters: Map<String, String>,

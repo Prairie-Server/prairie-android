@@ -74,6 +74,7 @@ import org.koin.dsl.module
  */
 val androidTvModule = module {
     single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
+    single<org.siloserver.silo.network.CleartextOriginConsent> { get<CleartextConsentStore>() }
     // Single encrypted prefs handle shared between the server registry and
     // the token manager — see the phone module for rationale.
     single<SharedPreferences> { createSecureSharedPrefs(androidContext()) }
@@ -268,7 +269,7 @@ val androidTvModule = module {
     // machine. A later step wires the UI to PairingReceiver.status.
     single {
         org.siloserver.silo.common.pairing.PairingReceiver(
-            authPort = org.siloserver.silo.common.pairing.RegistryPairingAuthPort(get(), get()),
+            authPort = org.siloserver.silo.common.pairing.RegistryPairingAuthPort(get(), get(), get()),
             deviceLogin = org.siloserver.silo.common.pairing.DeviceLoginRepositoryPort(get()),
             identityProvider = {
                 org.siloserver.silo.common.pairing.PairingDeviceIdentity(
