@@ -11,6 +11,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.siloserver.silo.model.auth.RefreshRequest
 import org.siloserver.silo.model.auth.RefreshResponse
 import org.siloserver.silo.network.TokenManager
+import org.siloserver.silo.network.isSameHttpOrigin
 import java.io.IOException
 
 /**
@@ -28,12 +29,39 @@ class MediaAuthSession(
 ) {
     private val refreshMutex = Mutex()
 
-    suspend fun snapshot(): MediaAuthSnapshot = MediaAuthSnapshot(
-        accessToken = tokenManager.getAccessToken(),
-        profileId = tokenManager.getProfileId(),
-        profileToken = tokenManager.getProfileToken(),
-        serverId = tokenManager.getCurrentServerId(),
-    )
+    suspend fun snapshot(): MediaAuthSnapshot {
+        val serverIdBefore = tokenManager.getCurrentServerId()
+        val serverUrl = tokenManager.getServerUrl()
+        val accessToken = tokenManager.getAccessToken()
+        val profileId = tokenManager.getProfileId()
+        val profileToken = tokenManager.getProfileToken()
+        val serverIdAfter = tokenManager.getCurrentServerId()
+        val serverUrlAfter = tokenManager.getServerUrl()
+
+        // TokenManager exposes the active fields separately. If the user
+        // switches servers while they are read, never combine one server's
+        // credentials with another server's URL. An empty URL makes every
+        // transport's origin check fail closed and also suppresses refresh.
+        if (
+            serverIdBefore != serverIdAfter ||
+            !isSameHttpOrigin(serverUrl, serverUrlAfter)
+        ) {
+            return MediaAuthSnapshot(
+                accessToken = null,
+                profileId = null,
+                profileToken = null,
+                serverId = serverIdAfter,
+                serverUrl = "",
+            )
+        }
+        return MediaAuthSnapshot(
+            accessToken = accessToken,
+            profileId = profileId,
+            profileToken = profileToken,
+            serverId = serverIdAfter,
+            serverUrl = serverUrlAfter,
+        )
+    }
 
     suspend fun refreshIfStale(failedSnapshot: MediaAuthSnapshot): Boolean = refreshMutex.withLock {
         val current = snapshot()
@@ -101,6 +129,7 @@ data class MediaAuthSnapshot(
     val profileId: String?,
     val profileToken: String?,
     val serverId: String?,
+    val serverUrl: String,
 ) {
     fun asRequestHeaders(): Map<String, String> = buildMap {
         accessToken?.takeIf { it.isNotBlank() }?.let { put("Authorization", "Bearer $it") }

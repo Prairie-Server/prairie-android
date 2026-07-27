@@ -50,6 +50,14 @@ class EncryptedTokenManagerImpl(
     private var profileToken: String? = null
     private var temporaryScope: TemporaryAuthScope? = null
 
+    /**
+     * Incremented whenever this manager writes or clears PERSISTENT credentials.
+     * Stamped onto snapshots so a scope captured before a sign-out cannot read or
+     * overwrite the credentials of the login that replaced it. Overlay begin/end
+     * deliberately does not move it — see [AuthScopeSnapshot.credentialEpoch].
+     */
+    private var persistentCredentialEpoch: Long = 0L
+
     private val _sessionExpired = MutableSharedFlow<Unit>(
         replay = 0,
         extraBufferCapacity = 1,
@@ -138,6 +146,7 @@ class EncryptedTokenManagerImpl(
             this.refreshToken = refreshToken
             val expiryEpochMs = System.currentTimeMillis() + expiresIn * 1000L
             this.tokenExpiryEpochMs = expiryEpochMs
+            persistentCredentialEpoch += 1
             prefs.edit()
                 .putString(serverScopedKey(serverId, KEY_ACCESS_TOKEN), accessToken)
                 .putString(serverScopedKey(serverId, KEY_REFRESH_TOKEN), refreshToken)
@@ -175,6 +184,7 @@ class EncryptedTokenManagerImpl(
     }
 
     private fun clearPersistentTokensLocked() {
+        persistentCredentialEpoch += 1
         val serverId = activeServerId
         accessToken = null
         refreshToken = null
@@ -305,6 +315,7 @@ class EncryptedTokenManagerImpl(
                 serverUrl = scope.serverUrl,
                 profileToken = scope.profileToken,
                 credentialGenerationId = scope.generationId,
+                identityGeneration = identityTransitions.generation.value,
             )
         }
         val serverId = activeServerId ?: return@withLock null
@@ -320,6 +331,8 @@ class EncryptedTokenManagerImpl(
             profileId = profileId,
             serverUrl = url,
             profileToken = profileToken,
+            identityGeneration = identityTransitions.generation.value,
+            credentialEpoch = persistentCredentialEpoch,
         )
     }
 
@@ -333,9 +346,27 @@ class EncryptedTokenManagerImpl(
         else prefs.getString(serverScopedKey(serverId, KEY_REFRESH_TOKEN), null)
     }
 
+    /**
+     * True when an identity transition has happened since [this] was captured.
+     *
+     * The persistent path is keyed by serverId alone, so a snapshot taken before
+     * a sign-out could still read — and overwrite — the credentials issued by the
+     * NEXT login on that same server. Comparing the captured identity generation
+     * closes that: [saveTokens] and [clearTokens]/[invalidateSession] both run
+     * inside `identityTransitions.changing`, which increments it.
+     *
+     * `0L` means "not captured from a live snapshot" — several call sites build a
+     * scope by hand (the interceptor's refresh fallback, companion pairing,
+     * remote-playback identity) and carry the default. Those keep the old
+     * behaviour rather than failing closed on a generation they never recorded.
+     */
+    private fun AuthScopeSnapshot.credentialsReplaced(): Boolean =
+        credentialEpoch != 0L && credentialEpoch != persistentCredentialEpoch
+
     override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? = mutex.withLock {
         val generationId = scope.credentialGenerationId
         if (generationId == null) {
+            if (scope.credentialsReplaced()) return@withLock null
             persistentAccessToken(scope.serverId)
         } else {
             temporaryScope
@@ -347,6 +378,7 @@ class EncryptedTokenManagerImpl(
     override suspend fun getRefreshTokenForScope(scope: AuthScopeSnapshot): String? = mutex.withLock {
         val generationId = scope.credentialGenerationId
         if (generationId == null) {
+            if (scope.credentialsReplaced()) return@withLock null
             persistentRefreshToken(scope.serverId)
         } else {
             temporaryScope
@@ -377,6 +409,9 @@ class EncryptedTokenManagerImpl(
             val expiryEpochMs = System.currentTimeMillis() + expiresIn * 1000L
             val generationId = scope.credentialGenerationId
             if (generationId == null) {
+                // A stale scope must not overwrite the credentials of the login
+                // that replaced it.
+                if (scope.credentialsReplaced()) return@withLock
                 savePersistentTokens(scope.serverId, accessToken, refreshToken, expiryEpochMs)
                 return@withLock
             }
@@ -451,4 +486,55 @@ class EncryptedTokenManagerImpl(
         // strip the pre-multi-server unprefixed key off disk.
         const val KEY_SERVER_URL = "server_url"
     }
+
+    private fun currentScopeMatchesLocked(
+        scope: AuthScopeSnapshot,
+        expectedGeneration: Long,
+    ): Boolean {
+        if (identityTransitions.generation.value != expectedGeneration) return false
+        val temporary = temporaryScope
+        val generationId = scope.credentialGenerationId
+        if (generationId != null) {
+            return temporary?.generationId == generationId &&
+                temporary.serverId == scope.serverId &&
+                temporary.serverUrl == scope.serverUrl
+        }
+        if (temporary != null || activeServerId != scope.serverId) return false
+        return registry.entries.value
+            .firstOrNull { it.id == scope.serverId }
+            ?.url == scope.serverUrl
+    }
+
+    override suspend fun invalidateSessionForScope(scope: AuthScopeSnapshot): Boolean =
+        tokenWriteMutex.withLock {
+            val matchesBeforeTransition = mutex.withLock {
+                ensureCacheMatchesRegistryLocked()
+                currentScopeMatchesLocked(
+                    scope = scope,
+                    expectedGeneration = scope.identityGeneration,
+                )
+            }
+            if (!matchesBeforeTransition) return@withLock false
+
+            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+                mutex.withLock {
+                    ensureCacheMatchesRegistryLocked()
+                    // `changing` increments the generation before entering this
+                    // block. Any intervening identity transition therefore
+                    // makes this value larger and the mutation fails closed.
+                    if (
+                        !currentScopeMatchesLocked(
+                            scope = scope,
+                            expectedGeneration = scope.identityGeneration + 1,
+                        )
+                    ) {
+                        return@withLock false
+                    }
+                    val wasTemporary = temporaryScope != null
+                    clearCurrentScopeLocked()
+                    if (!wasTemporary) _sessionExpired.tryEmit(Unit)
+                    true
+                }
+            }
+        }
 }

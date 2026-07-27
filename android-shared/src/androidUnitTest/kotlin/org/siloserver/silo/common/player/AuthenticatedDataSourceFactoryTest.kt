@@ -58,7 +58,9 @@ class AuthenticatedDataSourceFactoryTest {
 
     @Test
     fun explicitPlanHeadersOverrideSessionAuthCaseInsensitively() {
-        val merged = mergeSessionAuthHeaders(
+        val merged = authenticatedHeadersFor(
+            serverUrl = "https://silo.example",
+            requestUrl = "https://silo.example/video",
             sessionHeaders = mapOf(
                 "Authorization" to "Bearer silo-session",
                 "X-Profile-Id" to "profile-1",
@@ -73,6 +75,101 @@ class AuthenticatedDataSourceFactoryTest {
         assertFalse(merged.containsKey("Authorization"))
         assertEquals("profile-1", merged["X-Profile-Id"])
         assertEquals("route-7", merged["X-Stream-Scope"])
+    }
+
+    @Test
+    fun foreignOriginReceivesOnlyExplicitTargetHeaders() {
+        assertEquals(
+            mapOf("X-Stream-Scope" to "route-7"),
+            authenticatedHeadersFor(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://cdn.example/video",
+                sessionHeaders = mapOf(
+                    "Authorization" to "Bearer silo-session",
+                    "X-Profile-Id" to "profile-1",
+                    "X-Profile-Token" to "profile-token",
+                ),
+                explicitHeaders = mapOf("X-Stream-Scope" to "route-7"),
+            ),
+        )
+    }
+
+    @Test
+    fun explicitAuthorizationIsPreservedOnlyForItsIssuedTarget() {
+        assertEquals(
+            mapOf("Authorization" to "Signed cdn-route-7"),
+            authenticatedHeadersFor(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://cdn.example/video",
+                sessionHeaders = mapOf("Authorization" to "Bearer silo-session"),
+                explicitHeaders = mapOf("Authorization" to "Signed cdn-route-7"),
+            ),
+        )
+    }
+
+    @Test
+    fun sessionHeadersRequireExactSchemeHostAndPort() {
+        val sessionHeaders = mapOf(
+            "Authorization" to "Bearer silo-session",
+            "X-Profile-Id" to "profile-1",
+            "X-Profile-Token" to "profile-token",
+        )
+        listOf(
+            "https://cdn.silo.example/video",
+            "https://silo.example:444/video",
+            "http://silo.example/video",
+            "file:///tmp/video",
+            "://malformed",
+        ).forEach { requestUrl ->
+            assertEquals(
+                emptyMap(),
+                authenticatedHeadersFor(
+                    serverUrl = "https://silo.example",
+                    requestUrl = requestUrl,
+                    sessionHeaders = sessionHeaders,
+                    explicitHeaders = emptyMap(),
+                ),
+                "Session credentials leaked to $requestUrl",
+            )
+        }
+    }
+
+    @Test
+    fun relativeMediaAndSubtitleUrlsResolveBeforeOriginPolicy() {
+        val sessionHeaders = mapOf("Authorization" to "Bearer silo-session")
+
+        listOf(
+            "/api/v1/stream/session-1",
+            "api/v1/stream/session-1/subtitles/4.srt",
+        ).forEach { requestUrl ->
+            assertEquals(
+                sessionHeaders,
+                authenticatedHeadersFor(
+                    serverUrl = "https://silo.example",
+                    requestUrl = requestUrl,
+                    sessionHeaders = sessionHeaders,
+                    explicitHeaders = emptyMap(),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun foreignUnauthorizedMediaResponseDoesNotRefresh() {
+        assertFalse(
+            shouldRefreshMediaRequest(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://cdn.example/video",
+                responseCode = 401,
+            ),
+        )
+        assertTrue(
+            shouldRefreshMediaRequest(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://silo.example/video",
+                responseCode = 401,
+            ),
+        )
     }
 
     @Test

@@ -4,6 +4,8 @@ import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
+import org.siloserver.silo.network.isSameHttpOrigin
 import java.util.concurrent.TimeUnit
 
 /**
@@ -22,9 +24,31 @@ internal fun buildPlayerOkHttpClient(): OkHttpClient =
         .writeTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .addNetworkInterceptor { chain ->
+            val initialTarget = chain.call().request().url.toString()
+            val networkRequest = chain.request()
+            val safeRequest = if (isSameHttpOrigin(initialTarget, networkRequest.url.toString())) {
+                networkRequest
+            } else {
+                networkRequest.withoutCrossOriginCredentials()
+            }
+            chain.proceed(safeRequest)
+        }
         .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .connectionPool(ConnectionPool(maxIdleConnections = 5, keepAliveDuration = 5, timeUnit = TimeUnit.MINUTES))
         .dispatcher(Dispatcher())
+        .build()
+
+private fun Request.withoutCrossOriginCredentials(): Request =
+    newBuilder()
+        .removeHeader("Authorization")
+        .removeHeader("X-Profile-Id")
+        .removeHeader("X-Profile-Token")
+        .apply {
+            headers.names()
+                .filter { name -> name.startsWith("X-Silo-", ignoreCase = true) }
+                .forEach(::removeHeader)
+        }
         .build()
 
 /**
