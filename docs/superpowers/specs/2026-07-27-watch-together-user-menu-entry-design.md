@@ -37,6 +37,13 @@ Watch Together entry surface:
    lobby. The existing host-alone rule may keep a host in the lobby to share
    the invite.
 
+The owner of a top-level empty vote room is a full room participant. The owner
+may suggest titles, vote, apply the existing host override to any suggestion in
+the room (that is, any room-owned suggestion), and close the room for everyone.
+These are the existing voting and host-authority capabilities exposed by the
+current lobby and repository; the menu entry adds no new role, permission,
+protocol message, or server behavior.
+
 On phone, the dedicated surface follows the existing modal-sheet idiom. On TV,
 it follows the existing focused popup/dialog idiom. It is not a new persistent
 Watch Together home or a replacement for the lobby. When Resume is available,
@@ -135,6 +142,10 @@ Focused automated coverage must establish:
 - **Empty host flow:** both clients issue one vote-mode create request, never
   call `setSelection`, and navigate to the existing lobby with the returned
   room ID.
+- **Owner authority regression:** in that lobby, the owner remains able to
+  suggest, vote, exercise the existing host override on any room-owned
+  suggestion, and close the room for everyone, without a new protocol or
+  permission path.
 - **Join routing:** code normalization/validation and errors remain intact;
   selected rooms route to the synchronized player and unselected rooms route to
   the lobby on both clients.
