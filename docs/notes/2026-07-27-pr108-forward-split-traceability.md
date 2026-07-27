@@ -106,6 +106,11 @@ is generated on macOS.
 - GitHub Actions correction: all three SHA-256 values were independently
   downloaded from Maven Central and matched archival PR 108 before being
   recorded. The rerun is the clean-runner GREEN gate.
+- The rerun exposed the Android-flavor Guava parent on the libass compile
+  classpath. Its `33.3.1-android` POM was independently downloaded from Maven
+  Central, verified as SHA-256
+  `6e11986ea7250b51f847157e2dc937f32a306804dfce0007a5e81ddb9b95c579`,
+  and recorded as the second clean-runner correction.
 - Native provenance: `scripts/build-dovi-aar.sh --verify-provenance` verified
   the pinned source archive, Rust and NDK toolchains, three ABI outputs, and
   final AAR hash.
