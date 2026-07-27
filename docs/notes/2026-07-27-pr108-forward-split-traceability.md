@@ -99,6 +99,13 @@ is generated on macOS.
   `androidTvApp:assembleRelease` completed after recording those artifacts.
   Every newly recorded checksum exactly matched the independently generated
   metadata in archival PR 108.
+- GitHub Actions regression red: the first clean Linux runner resolved three
+  build-classpath artifacts injected by `gradle/actions/setup-gradle` that are
+  absent from an uninjected local build: Guava parent `33.3.1-jre`, JUnit BOM
+  `5.10.2.module`, and coroutines BOM `1.8.0`.
+- GitHub Actions correction: all three SHA-256 values were independently
+  downloaded from Maven Central and matched archival PR 108 before being
+  recorded. The rerun is the clean-runner GREEN gate.
 - Native provenance: `scripts/build-dovi-aar.sh --verify-provenance` verified
   the pinned source archive, Rust and NDK toolchains, three ABI outputs, and
   final AAR hash.
