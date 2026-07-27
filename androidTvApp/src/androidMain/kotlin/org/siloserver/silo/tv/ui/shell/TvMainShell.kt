@@ -145,6 +145,8 @@ import org.siloserver.silo.tv.ui.screens.personal.TvFavoritesScreen
 import org.siloserver.silo.tv.ui.screens.personal.TvHistoryScreen
 import org.siloserver.silo.tv.ui.screens.personal.TvWatchlistScreen
 import org.siloserver.silo.tv.ui.screens.recommendations.TvRecommendationsScreen
+import org.siloserver.silo.tv.ui.screens.recommendations.SavedListSelection
+import org.siloserver.silo.tv.ui.screens.recommendations.TvForYouEntryRequest
 import org.siloserver.silo.tv.ui.screens.requests.TvMyRequestsScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestDetailScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestsScreen
@@ -411,6 +413,7 @@ fun TvMainShell(
     // top), while ordinary content re-entry keeps the focusRestorer()'s
     // last-focused card.
     var contentFocusRequest by remember { mutableIntStateOf(0) }
+    var forYouEntryRequest by remember { mutableStateOf(TvForYouEntryRequest()) }
 
     // --- Skyline cascade panel host (Stage 4) ----------------------------------
     // Mirrors tvOS `TVMainTabView.persistentPanels`. The cascade overlays are
@@ -533,6 +536,12 @@ fun TvMainShell(
             // own LaunchedEffect on its first data emission.
             runCatching { contentFocusRequester.requestFocus() }
         }
+    }
+    val openForYou: (SavedListSelection?) -> Unit = { selection ->
+        forYouEntryRequest = forYouEntryRequest.next(selection)
+        focusState.closePanel(false)
+        navigateToSecondary(TvMainRoute.ForYou.route)
+        moveFocusToContent(TvMainRoute.ForYou.route)
     }
 
     val onSelectRoot: (TvRootDestination) -> Unit = { dest ->
@@ -839,8 +848,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
                         onOpenForYou = {
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -861,8 +869,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
                         onOpenForYou = {
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -974,6 +981,7 @@ fun TvMainShell(
                         onItemClick = onOpenItemDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
+                        entryRequest = forYouEntryRequest,
                     )
                 }
                 composable(TvMainRoute.Requests.route) {
@@ -1226,19 +1234,13 @@ fun TvMainShell(
                         entersPanel = active && focusState.panelEntersFocus,
                         focusEntryToken = focusState.panelFocusEntryToken,
                         onWatchlist = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.Watchlist.route)
-                            moveFocusToContent(TvMainRoute.Watchlist.route)
+                            openForYou(SavedListSelection.Watchlist)
                         },
                         onFavorites = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.Favorites.route)
-                            moveFocusToContent(TvMainRoute.Favorites.route)
+                            openForYou(SavedListSelection.Favorites)
                         },
                         onRecommendations = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                     )
                 }

@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -68,6 +69,7 @@ fun TvRecommendationsScreen(
     onItemClick: (contentId: String) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
+    entryRequest: TvForYouEntryRequest = TvForYouEntryRequest(),
     viewModel: RecommendationsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -78,7 +80,8 @@ fun TvRecommendationsScreen(
     val firstRecommendationRowFocusRequester = remember { FocusRequester() }
     val firstRecommendationCardFocusRequester = remember { FocusRequester() }
     val focusBridgeScope = rememberCoroutineScope()
-    var savedListSelection by remember { mutableStateOf<SavedListSelection?>(null) }
+    var savedListSelection by remember { mutableStateOf(entryRequest.selection) }
+    var lastAppliedEntrySequence by remember { mutableIntStateOf(entryRequest.sequence) }
     val moveIntoRecommendations: () -> Boolean = {
         if (
             !shouldBridgeRecommendationsDown(
@@ -103,6 +106,16 @@ fun TvRecommendationsScreen(
             }
             true
         }
+    }
+
+    LaunchedEffect(entryRequest.sequence) {
+        val applied = applyForYouEntryRequest(
+            currentSelection = savedListSelection,
+            lastAppliedSequence = lastAppliedEntrySequence,
+            request = entryRequest,
+        )
+        savedListSelection = applied.selection
+        lastAppliedEntrySequence = applied.lastAppliedSequence
     }
 
     // Match tvOS: recommendations remain the landing content when available;
@@ -338,9 +351,4 @@ fun TvRecommendationsScreen(
             )
         }
     }
-}
-
-private enum class SavedListSelection {
-    Watchlist,
-    Favorites,
 }
