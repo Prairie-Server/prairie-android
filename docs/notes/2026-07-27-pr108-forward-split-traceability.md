@@ -85,6 +85,13 @@ is generated on macOS.
   completed successfully.
 - CI-equivalent debug unit suite: `testDebugUnitTest` completed successfully
   with verification enabled and no write flag.
+- Release regression red: the first verification-enabled release build rejected
+  26 Android lint/release-tool artifacts not traversed by `resolveAndLockAll`
+  or `test`.
+- Release regression green: `androidApp:assembleRelease` and
+  `androidTvApp:assembleRelease` completed after recording those artifacts.
+  Every newly recorded checksum exactly matched the independently generated
+  metadata in archival PR 108.
 - Native provenance: `scripts/build-dovi-aar.sh --verify-provenance` verified
   the pinned source archive, Rust and NDK toolchains, three ABI outputs, and
   final AAR hash.
