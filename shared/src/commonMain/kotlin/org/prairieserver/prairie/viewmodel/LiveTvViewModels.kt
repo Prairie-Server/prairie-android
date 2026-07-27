@@ -103,6 +103,13 @@ class LiveTvViewModel(
     fun scheduleRecording(program: LiveTvProgram) {
         val programId = program.id.trim()
         if (programId.isEmpty() || !schedulingProgramIds.add(programId)) return
+        val stopMs = parseRfc3339ToEpochMillis(program.stop)
+        val nowMs = nowMillisProvider()
+        if (stopMs != null && nowMs > 0L && stopMs <= nowMs) {
+            schedulingProgramIds.remove(programId)
+            _uiState.update { it.copy(recordingMessage = "Program already ended") }
+            return
+        }
         viewModelScope.launch {
             try {
                 when (
