@@ -2,6 +2,7 @@ package org.siloserver.silo.common.network
 
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
@@ -15,11 +16,13 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.network.CleartextOriginConsent
 import org.siloserver.silo.network.CleartextOriginNotApprovedException
 import org.siloserver.silo.network.DefaultWatchTogetherRealtimeClient
 import org.siloserver.silo.network.RoomRealtimeEvent
 import org.siloserver.silo.network.SiloJson
+import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.TokenManagerImpl
 import org.siloserver.silo.network.canonicalHttpOrigin
 import org.siloserver.silo.network.createSiloClient
@@ -32,6 +35,59 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WatchTogetherRealtimeWebSocketTest {
+
+    @Test
+    fun `handshake remains entirely on captured auth scope when active identity switches`() = runBlocking {
+        val serverA = MockWebServer()
+        val serverB = MockWebServer()
+        val socketListener = object : WebSocketListener() {
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(code, reason)
+            }
+        }
+        serverA.enqueue(MockResponse().withWebSocketUpgrade(socketListener))
+        serverB.enqueue(MockResponse().withWebSocketUpgrade(socketListener))
+        serverA.start()
+        serverB.start()
+
+        val tokens = SwitchingScopeTokenManager(
+            serverAUrl = serverA.url("/").toString(),
+            serverBUrl = serverB.url("/").toString(),
+        )
+        val approvedOrigins = setOf(
+            canonicalHttpOrigin(serverA.url("/").toString()),
+            canonicalHttpOrigin(serverB.url("/").toString()),
+        )
+        val httpClient = createSiloClient(
+            tokenManager = tokens,
+            cleartextOriginConsent = object : CleartextOriginConsent {
+                override suspend fun isApproved(origin: String): Boolean = origin in approvedOrigins
+            },
+        )
+        var collection: Job? = null
+        try {
+            val realtime = DefaultWatchTogetherRealtimeClient(httpClient, tokens)
+            val events = Channel<RoomRealtimeEvent>(Channel.UNLIMITED)
+            collection = launch {
+                realtime.connect("room-a", "ROOM_A").collect(events::send)
+            }
+
+            assertIs<RoomRealtimeEvent.Opened>(withTimeout(5_000) { events.receive() })
+            val requestA = assertNotNull(serverA.takeRequest(1, TimeUnit.SECONDS))
+            assertEquals(0, serverB.requestCount)
+            assertEquals("ROOM_A", requestA.requestUrl?.queryParameter("room_token"))
+            assertEquals("profile-a", requestA.requestUrl?.queryParameter("profile_id"))
+            assertEquals("PROFILE_A", requestA.requestUrl?.queryParameter("profile_token"))
+            assertEquals("Bearer ACCESS_A", requestA.getHeader("Authorization"))
+            assertEquals("profile-a", requestA.getHeader("X-Profile-Id"))
+            assertEquals("PROFILE_A", requestA.getHeader("X-Profile-Token"))
+        } finally {
+            collection?.cancelAndJoin()
+            httpClient.close()
+            serverA.shutdown()
+            serverB.shutdown()
+        }
+    }
 
     @Test
     fun `real handshake protects credentials orders open before snapshot and delivers outbound frames`() = runBlocking {
@@ -176,13 +232,25 @@ class WatchTogetherRealtimeWebSocketTest {
         }
     }
 
-    private suspend fun configuredTokens(server: MockWebServer): TokenManagerImpl =
-        TokenManagerImpl().apply {
-            setServerUrl(server.url("/").toString())
+    private suspend fun configuredTokens(server: MockWebServer): TokenManager {
+        val serverUrl = server.url("/").toString()
+        val delegate = TokenManagerImpl().apply {
+            setServerUrl(serverUrl)
             saveTokens("ACCESS_SECRET", "refresh", 3_600)
             setProfileId("profile-1")
             setProfileToken("PROFILE_SECRET")
         }
+        return SnapshotTokenManager(
+            delegate = delegate,
+            scope = AuthScopeSnapshot(
+                serverId = "server-1",
+                profileId = "profile-1",
+                serverUrl = serverUrl,
+                profileToken = "PROFILE_SECRET",
+            ),
+            accessToken = "ACCESS_SECRET",
+        )
+    }
 
     private fun approvedConsent(server: MockWebServer): CleartextOriginConsent {
         val approvedOrigin = canonicalHttpOrigin(server.url("/").toString())
@@ -190,5 +258,61 @@ class WatchTogetherRealtimeWebSocketTest {
             override suspend fun isApproved(origin: String): Boolean =
                 origin == approvedOrigin
         }
+    }
+
+    /**
+     * Returns scope A once, then makes generic active-scope reads report B.
+     *
+     * The old client switches on [getProfileToken], immediately before the
+     * engine/auth plugin runs. The corrected client switches after its first
+     * exact-scope access-token validation. Either path deterministically puts
+     * the active identity on B before the handshake is built.
+     */
+    private class SwitchingScopeTokenManager(
+        serverAUrl: String,
+        private val serverBUrl: String,
+        private val delegate: TokenManager = TokenManagerImpl(),
+    ) : TokenManager by delegate {
+        private val scopeA = AuthScopeSnapshot(
+            serverId = "server-a",
+            profileId = "profile-a",
+            serverUrl = serverAUrl,
+            profileToken = "PROFILE_A",
+            identityGeneration = 1,
+            credentialEpoch = 1,
+        )
+        private var activeB = false
+
+        override suspend fun snapshotCurrentScope(): AuthScopeSnapshot = scopeA
+
+        override suspend fun getAccessToken(): String = if (activeB) "ACCESS_B" else "ACCESS_A"
+
+        override suspend fun getProfileId(): String = if (activeB) "profile-b" else "profile-a"
+
+        override suspend fun getProfileToken(): String {
+            val token = if (activeB) "PROFILE_B" else "PROFILE_A"
+            activeB = true
+            return token
+        }
+
+        override suspend fun getServerUrl(): String = if (activeB) serverBUrl else scopeA.serverUrl
+
+        override suspend fun getCurrentServerId(): String = if (activeB) "server-b" else "server-a"
+
+        override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? {
+            activeB = true
+            return if (scope == scopeA) "ACCESS_A" else null
+        }
+    }
+
+    private class SnapshotTokenManager(
+        private val delegate: TokenManager,
+        private val scope: AuthScopeSnapshot,
+        private val accessToken: String,
+    ) : TokenManager by delegate {
+        override suspend fun snapshotCurrentScope(): AuthScopeSnapshot = scope
+
+        override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? =
+            accessToken.takeIf { scope == this.scope }
     }
 }

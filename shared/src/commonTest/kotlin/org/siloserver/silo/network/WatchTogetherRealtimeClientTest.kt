@@ -52,7 +52,7 @@ class WatchTogetherRealtimeClientTest {
     fun `handshake failure is typed transport termination not protocol room close`() = runTest {
         val client = client(
             object : WatchTogetherSocketConnector {
-                override suspend fun open(url: String): WatchTogetherSocketConnection {
+                override suspend fun open(request: WatchTogetherSocketRequest): WatchTogetherSocketConnection {
                     throw IllegalStateException("handshake rejected")
                 }
             },
@@ -171,15 +171,42 @@ class WatchTogetherRealtimeClientTest {
         }
         opened.await()
 
-        val url = connector.urls.single()
+        val request = connector.requests.single()
+        val url = request.url
         assertTrue(url.startsWith("/api/v1/watch-together/rooms/room%2Fwith%20%3F%23/ws?"))
         assertFalse(url.contains("ACCESS_SECRET"))
         assertFalse(url.contains("token=ACCESS_SECRET"))
         assertTrue(url.contains("room_token=room%26secret"))
         assertTrue(url.contains("profile_id=profile%20id"))
         assertTrue(url.contains("profile_token=profile%26secret"))
+        assertEquals("profile id", request.authScope.profileId)
+        assertEquals("profile&secret", request.authScope.profileToken)
 
         job.cancelAndJoin()
+    }
+
+    @Test
+    fun `missing access token for captured scope fails before connector opens`() = runTest {
+        val scope = AuthScopeSnapshot(
+            serverId = "server-a",
+            profileId = "profile-a",
+            serverUrl = "https://a.example",
+            profileToken = "PROFILE_A",
+        )
+        val tokens = SnapshotTokenManager(scope, accessToken = null)
+        val connector = FakeConnector(FakeConnection())
+        val client = DefaultWatchTogetherRealtimeClient(
+            tokenManager = tokens,
+            socketConnector = connector,
+        )
+
+        val events = mutableListOf<RoomRealtimeEvent>()
+        client.connect("room-a", "ROOM_A").collect(events::add)
+
+        val terminated = assertIs<RoomRealtimeEvent.TransportTerminated>(events.single())
+        assertEquals("missing_auth_scope", terminated.cause?.message)
+        assertEquals(1, tokens.snapshotReads)
+        assertTrue(connector.requests.isEmpty())
     }
 
     private suspend fun client(
@@ -188,11 +215,13 @@ class WatchTogetherRealtimeClientTest {
         profileId: String = "profile",
         profileToken: String = "profile-token",
     ): DefaultWatchTogetherRealtimeClient {
-        val tokens = TokenManagerImpl().apply {
-            saveTokens(accessToken, "refresh", 3_600)
-            setProfileId(profileId)
-            setProfileToken(profileToken)
-        }
+        val scope = AuthScopeSnapshot(
+            serverId = "server",
+            profileId = profileId,
+            serverUrl = "http://localhost:8090",
+            profileToken = profileToken,
+        )
+        val tokens = SnapshotTokenManager(scope, accessToken)
         return DefaultWatchTogetherRealtimeClient(
             tokenManager = tokens,
             socketConnector = connector,
@@ -205,12 +234,28 @@ class WatchTogetherRealtimeClientTest {
         private val connections = Channel<FakeConnection>(Channel.UNLIMITED).apply {
             connections.forEach { trySend(it) }
         }
-        val urls = mutableListOf<String>()
+        val requests = mutableListOf<WatchTogetherSocketRequest>()
 
-        override suspend fun open(url: String): WatchTogetherSocketConnection {
-            urls += url
+        override suspend fun open(request: WatchTogetherSocketRequest): WatchTogetherSocketConnection {
+            requests += request
             return connections.receive()
         }
+    }
+
+    private class SnapshotTokenManager(
+        private val scope: AuthScopeSnapshot,
+        private val accessToken: String?,
+        private val delegate: TokenManager = TokenManagerImpl(),
+    ) : TokenManager by delegate {
+        var snapshotReads = 0
+
+        override suspend fun snapshotCurrentScope(): AuthScopeSnapshot {
+            snapshotReads += 1
+            return scope
+        }
+
+        override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? =
+            accessToken?.takeIf { scope == this.scope }
     }
 
     private class FakeConnection : WatchTogetherSocketConnection {

@@ -153,3 +153,56 @@ Total: 64 tests, 0 failures, 0 errors.
   Slice F Task 2.
 - Existing Kotlin/Gradle deprecation and coroutine opt-in warnings remain.
 - No push, PR, or merge was performed.
+
+## Review correction: coherent websocket auth scope
+
+The websocket handshake now captures `snapshotCurrentScope()` exactly once at
+connect start. It validates the access token against that exact snapshot,
+derives `profile_id` and `profile_token` from the same snapshot, and passes the
+snapshot through the connector boundary. The production Ktor connector applies
+`authScope(scope)` to the websocket request, so URL rebasing, bearer lookup, and
+profile headers remain pinned even if the globally-active server, profile, or
+temporary identity changes before the engine builds the handshake. A missing
+snapshot or missing exact-scope access token terminates before the connector
+opens.
+
+### Correction TDD evidence
+
+RED command:
+
+```text
+./gradlew :android-shared:testDebugUnitTest \
+  --tests 'org.siloserver.silo.common.network.WatchTogetherRealtimeWebSocketTest.handshake remains entirely on captured auth scope when active identity switches'
+```
+
+Before the correction, the deterministic fixture switched the active identity
+from server A to server B immediately before engine/auth-plugin processing.
+The test failed because the request did not reach captured server A:
+
+```text
+1 test completed, 1 failed
+BUILD FAILED in 2s
+```
+
+After the correction, that real-WebSocket test proves the request reaches only
+server A and carries A's room/profile query fields, bearer, and profile headers;
+server B receives no request. A common seam test additionally proves that an
+unavailable exact-scope access token fails closed before connector invocation.
+
+Fresh focused GREEN used the same command listed above with all six test
+classes and `--rerun-tasks`. Observed:
+
+```text
+RoomFrameDecoderTest: 10 tests, 0 failures/errors
+WatchTogetherRealtimeClientTest: 8 tests, 0 failures/errors
+HttpOriginPolicyTest: 13 tests, 0 failures/errors
+SiloAuthPluginPinTest: 20 tests, 0 failures/errors
+WatchTogetherRepositoryTest: 11 tests, 0 failures/errors
+WatchTogetherRealtimeWebSocketTest: 4 tests, 0 failures/errors
+BUILD SUCCESSFUL in 17s
+70 actionable tasks: 70 executed
+```
+
+Total after correction: 66 tests, 0 failures, 0 errors. Existing off-origin and
+cleartext-consent gates, including the real pre-engine rejection test, remain
+covered and green. No push, PR, or merge was performed.

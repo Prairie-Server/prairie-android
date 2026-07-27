@@ -12,6 +12,7 @@ import org.siloserver.silo.model.watchtogether.WsTransportRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.client.request.url
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLPathPart
 import io.ktor.websocket.Frame
@@ -60,15 +61,25 @@ internal interface WatchTogetherSocketConnection {
     suspend fun close()
 }
 
+internal data class WatchTogetherSocketRequest(
+    val url: String,
+    val authScope: AuthScopeSnapshot,
+)
+
 internal fun interface WatchTogetherSocketConnector {
-    suspend fun open(url: String): WatchTogetherSocketConnection
+    suspend fun open(request: WatchTogetherSocketRequest): WatchTogetherSocketConnection
 }
 
 private class KtorWatchTogetherSocketConnector(
     private val client: HttpClient,
 ) : WatchTogetherSocketConnector {
-    override suspend fun open(url: String): WatchTogetherSocketConnection =
-        KtorWatchTogetherSocketConnection(client.webSocketSession(urlString = url))
+    override suspend fun open(request: WatchTogetherSocketRequest): WatchTogetherSocketConnection =
+        KtorWatchTogetherSocketConnection(
+            client.webSocketSession {
+                url(request.url)
+                authScope(request.authScope)
+            },
+        )
 }
 
 private class KtorWatchTogetherSocketConnection(
@@ -114,13 +125,13 @@ class DefaultWatchTogetherRealtimeClient private constructor(
     private var session: WatchTogetherSocketConnection? = null
 
     override fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent> = callbackFlow {
-        val token = tokenManager.getAccessToken()
-        val profileId = tokenManager.getProfileId()
-        val profileToken = tokenManager.getProfileToken()
-        if (token.isNullOrBlank() || profileId.isNullOrBlank()) {
+        val scope = tokenManager.snapshotCurrentScope()
+        val profileId = scope?.profileId
+        val scopedAccessToken = scope?.let { tokenManager.getAccessTokenForScope(it) }
+        if (scope == null || scopedAccessToken.isNullOrBlank() || profileId.isNullOrBlank()) {
             trySend(
                 RoomRealtimeEvent.TransportTerminated(
-                    IllegalStateException("missing_auth"),
+                    IllegalStateException("missing_auth_scope"),
                 ),
             )
             close()
@@ -132,14 +143,19 @@ class DefaultWatchTogetherRealtimeClient private constructor(
             append(roomId.encodeURLPathPart())
             append("/ws?room_token=").append(roomToken.encodeURLParameter())
             append("&profile_id=").append(profileId.encodeURLParameter())
-            if (!profileToken.isNullOrBlank()) {
-                append("&profile_token=").append(profileToken.encodeURLParameter())
+            if (!scope.profileToken.isNullOrBlank()) {
+                append("&profile_token=").append(scope.profileToken.encodeURLParameter())
             }
         }
 
         var connection: WatchTogetherSocketConnection? = null
         try {
-            connection = socketConnector.open(url)
+            connection = socketConnector.open(
+                WatchTogetherSocketRequest(
+                    url = url,
+                    authScope = scope,
+                ),
+            )
             sessionMutex.withLock {
                 session = connection
             }
