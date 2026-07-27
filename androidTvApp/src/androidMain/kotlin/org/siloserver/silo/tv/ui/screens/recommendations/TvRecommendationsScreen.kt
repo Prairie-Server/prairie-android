@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Favorite
@@ -24,7 +24,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -50,6 +52,7 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.util.visibleOnTv
 import org.siloserver.silo.viewmodel.RecommendationsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import kotlinx.coroutines.launch
 
 private val RecommendationsFilterBandHeight = 52.dp
 
@@ -69,8 +72,38 @@ fun TvRecommendationsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val visibleSections = remember(state.sections) { state.sections.visibleOnTv() }
+    val forYouFocusRequester = remember { FocusRequester() }
     val watchlistFocusRequester = remember { FocusRequester() }
+    val favoritesFocusRequester = remember { FocusRequester() }
+    val firstRecommendationRowFocusRequester = remember { FocusRequester() }
+    val firstRecommendationCardFocusRequester = remember { FocusRequester() }
+    val focusBridgeScope = rememberCoroutineScope()
     var savedListSelection by remember { mutableStateOf<SavedListSelection?>(null) }
+    val moveIntoRecommendations: () -> Boolean = {
+        if (
+            !shouldBridgeRecommendationsDown(
+                showingRecommendations = savedListSelection == null,
+                hasVisibleRecommendations = visibleSections.isNotEmpty(),
+            )
+        ) {
+            false
+        } else {
+            focusBridgeScope.launch {
+                requestRecommendationRowFocus(
+                    requestRowContainer = {
+                        runCatching { firstRecommendationRowFocusRequester.requestFocus() }
+                            .getOrDefault(false)
+                    },
+                    awaitFrame = { withFrameNanos { } },
+                    requestFirstCard = {
+                        runCatching { firstRecommendationCardFocusRequester.requestFocus() }
+                            .getOrDefault(false)
+                    },
+                )
+            }
+            true
+        }
+    }
 
     // Match tvOS: recommendations remain the landing content when available;
     // an empty successful response defaults to the inline Watchlist fallback.
@@ -183,16 +216,28 @@ fun TvRecommendationsScreen(
                         bottom = 24.dp,
                     ),
                 ) {
-                    items(
+                    itemsIndexed(
                         items = visibleSections,
-                        key = { it.id },
-                        contentType = { "recommendation-section-row" },
-                    ) { section ->
+                        key = { _, section -> section.id },
+                        contentType = { _, _ -> "recommendation-section-row" },
+                    ) { index, section ->
                         TvMediaRow(
                             title = section.title,
                             items = section.items,
                             onItemClick = onItemClick,
                             style = TvRowStyle.Poster,
+                            firstItemFocusRequester = firstRecommendationCardFocusRequester
+                                .takeIf { index == 0 },
+                            rowContainerFocusRequester = firstRecommendationRowFocusRequester
+                                .takeIf { index == 0 },
+                            onDirectionUp = if (index == 0) {
+                                {
+                                    runCatching { forYouFocusRequester.requestFocus() }
+                                        .getOrDefault(false)
+                                }
+                            } else {
+                                null
+                            },
                         )
                     }
                     item { Spacer(modifier = Modifier.height(8.dp)) }
@@ -230,6 +275,8 @@ fun TvRecommendationsScreen(
                 icon = Icons.Outlined.AutoAwesome,
                 variant = TvPillVariant.Hollow,
                 selected = savedListSelection == null,
+                focusRequester = forYouFocusRequester,
+                onDirectionDown = moveIntoRecommendations,
                 heightOverride = 32.dp,
                 horizontalPaddingOverride = 13.dp,
                 iconSizeOverride = 10.dp,
@@ -251,6 +298,7 @@ fun TvRecommendationsScreen(
                 variant = TvPillVariant.Hollow,
                 selected = savedListSelection == SavedListSelection.Watchlist,
                 focusRequester = watchlistFocusRequester,
+                onDirectionDown = moveIntoRecommendations,
                 heightOverride = 32.dp,
                 horizontalPaddingOverride = 13.dp,
                 iconSizeOverride = 10.dp,
@@ -271,6 +319,8 @@ fun TvRecommendationsScreen(
                 icon = Icons.Filled.Favorite,
                 variant = TvPillVariant.Hollow,
                 selected = savedListSelection == SavedListSelection.Favorites,
+                focusRequester = favoritesFocusRequester,
+                onDirectionDown = moveIntoRecommendations,
                 heightOverride = 32.dp,
                 horizontalPaddingOverride = 13.dp,
                 iconSizeOverride = 10.dp,
