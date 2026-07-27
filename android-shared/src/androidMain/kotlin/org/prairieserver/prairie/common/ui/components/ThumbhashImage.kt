@@ -1,6 +1,5 @@
 package org.prairieserver.prairie.common.ui.components
 
-import android.os.Build
 import android.util.Base64
 import android.util.LruCache
 import androidx.compose.foundation.Image
@@ -110,14 +109,7 @@ fun ThumbhashImage(
     }
 
     val candidates = remember(url) {
-        val all = ArtworkUrl.candidates(url)
-        if (Build.VERSION.SDK_INT >= 31) {
-            all
-        } else {
-            // Pre-API 31: skip AVIF (no platform decode); keep WebP → PNG.
-            all.filterNot { it.endsWith(".avif", ignoreCase = true) }
-                .ifEmpty { listOf(url) }
-        }
+        ArtworkUrl.candidates(url)
     }
     var failedCount by remember(url) { mutableStateOf(0) }
     val current = candidates[failedCount.coerceIn(0, (candidates.size - 1).coerceAtLeast(0))]

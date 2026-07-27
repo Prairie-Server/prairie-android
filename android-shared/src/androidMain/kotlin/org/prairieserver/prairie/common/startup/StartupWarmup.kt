@@ -1,7 +1,6 @@
 package org.prairieserver.prairie.common.startup
 
 import android.content.Context
-import android.os.Build
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
@@ -183,9 +182,9 @@ private suspend fun warmHomeArtwork(
         if (requests.size >= plan.maxUrls) return
         val raw = urlString?.trim().orEmpty()
         if (raw.isEmpty()) return
-        // Warm AVIF when the platform can decode it so ThumbhashImage's first
+        // Warm the preferred format for this device so ThumbhashImage's first
         // request hits the Coil disk/memory cache.
-        val url = if (Build.VERSION.SDK_INT >= 31) ArtworkUrl.preferred(raw) else raw
+        val url = ArtworkUrl.preferred(raw)
         if (!seen.add(url)) return
         requests.add(
             ImageRequest.Builder(context)

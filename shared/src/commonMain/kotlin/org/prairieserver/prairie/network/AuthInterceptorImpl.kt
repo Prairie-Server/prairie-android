@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.prairieserver.prairie.model.auth.RefreshRequest
 import org.prairieserver.prairie.model.auth.RefreshResponse
+import org.prairieserver.prairie.util.ImageFormats
 
 /**
  * Configuration for the [PrairieAuthPlugin].
@@ -377,6 +378,7 @@ private suspend fun HttpRequestBuilder.attachPrairieDeviceMetadataHeaders(
     header("X-Prairie-Device-Id", device.id)
     header("X-Prairie-Device-Name", device.name)
     header("X-Prairie-Device-Platform", device.platform)
+    header("X-Prairie-Image-Formats", ImageFormats.headerValue())
     device.clientName?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client", it) }
     device.clientVersion?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Version", it) }
 }

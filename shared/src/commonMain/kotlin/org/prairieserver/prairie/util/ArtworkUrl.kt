@@ -2,7 +2,8 @@ package org.prairieserver.prairie.util
 
 /**
  * Artwork URL helpers mirroring prairie-server `internal/artworkkey` / web `artworkUrl.ts`.
- * Canonical cache keys stay `.webp`; clients try AVIF → WebP → PNG for older devices.
+ * Canonical cache keys stay `.webp`; clients pick the best sibling immediately using
+ * [ImageFormats] (one-time capability detection) instead of AVIF-first trial-and-error.
  */
 object ArtworkUrl {
     /**
@@ -17,20 +18,28 @@ object ArtworkUrl {
     fun webPPNGSibling(objectPath: String?): String? = webPFormatSibling(objectPath, ".png")
 
     /**
-     * Ordered load candidates: AVIF → WebP → PNG when the input is WebP.
+     * Ordered load candidates using the process [ImageFormats] preference list.
      */
     fun candidates(objectPath: String?): List<String> {
         val trimmed = objectPath?.trim().orEmpty()
         if (trimmed.isEmpty()) return emptyList()
+        val byFormat = mapOf(
+            ImageFormats.WEBP to trimmed,
+            ImageFormats.AVIF to webPAVIFSibling(trimmed),
+            ImageFormats.PNG to webPPNGSibling(trimmed),
+        )
         val out = mutableListOf<String>()
-        webPAVIFSibling(trimmed)?.let { out.add(it) }
-        out.add(trimmed)
-        webPPNGSibling(trimmed)?.let { out.add(it) }
+        val seen = mutableSetOf<String>()
+        for (format in ImageFormats.preferred()) {
+            val url = byFormat[format]?.takeIf { it.isNotBlank() } ?: continue
+            if (seen.add(url)) out.add(url)
+        }
+        if (out.isEmpty()) out.add(trimmed)
         return out
     }
 
-    /** Prefer the AVIF sibling when one can be derived; otherwise the original URL. */
-    fun preferred(objectPath: String): String = webPAVIFSibling(objectPath) ?: objectPath
+    /** Best immediate artwork URL for this device without codec probing. */
+    fun preferred(objectPath: String): String = candidates(objectPath).firstOrNull() ?: objectPath
 
     private fun webPFormatSibling(objectPath: String?, ext: String): String? {
         val trimmed = objectPath?.trim().orEmpty()
