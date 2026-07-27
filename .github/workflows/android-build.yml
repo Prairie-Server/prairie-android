@@ -56,7 +56,7 @@ jobs:
             testDebugUnitTest \
             :shared:koverXmlReport \
             :shared:koverVerify \
-            --max-workers=2
+            --max-workers=4
 
       - name: Upload test reports
         if: failure()
