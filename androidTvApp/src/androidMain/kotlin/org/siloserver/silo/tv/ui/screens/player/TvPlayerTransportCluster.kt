@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -62,6 +63,12 @@ fun TvPlayerTransportCluster(
     onPlayPause: () -> Unit,
     onSkipForward: () -> Unit,
     onOpenQuickSubtitles: () -> Unit,
+    /**
+     * Non-null only when there is a next episode to show. Mirrors
+     * silo-apple#86: the automatic trigger fires at the credits, and this lets
+     * a viewer who is already done reach it early.
+     */
+    onUpNext: (() -> Unit)? = null,
     onOpenHUD: () -> Unit,
     onClose: () -> Unit,
     playPauseFocus: FocusRequester,
@@ -101,6 +108,15 @@ fun TvPlayerTransportCluster(
 
         // Secondary group — pushed right.
         Row(verticalAlignment = Alignment.CenterVertically) {
+            onUpNext?.let { showUpNext ->
+                TransportIconButton(
+                    icon = Icons.Filled.SkipNext,
+                    description = "Up Next",
+                    onClick = showUpNext,
+                    onMoveUp = onMoveUpToScrubber,
+                )
+                DockGap()
+            }
             TransportIconButton(
                 icon = Icons.Filled.ClosedCaption,
                 description = "Subtitles",

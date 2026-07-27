@@ -2292,6 +2292,40 @@ class TvPlayerViewModel(
         commitApproachingEnd(next, videoEnded)
     }
 
+    /**
+     * Whether an Up Next control has anything to show right now.
+     *
+     * Shared with the automatic path deliberately: a manual button that can
+     * appear when the automatic trigger would find nothing is a button that
+     * does nothing when pressed.
+     */
+    fun canShowNextUpNow(): Boolean {
+        val state = _uiState.value
+        return state.nextEpisode != null && !state.showNextUp
+    }
+
+    /**
+     * Surface Up Next on demand, ahead of the credits trigger.
+     *
+     * Routed through the same commit the automatic timing uses so the overlay,
+     * the countdown gating and the auto-advance accounting behave identically —
+     * the only difference is what asked for it. Mirrors silo-apple#86, which
+     * added the equivalent control to the tvOS transport.
+     *
+     * The countdown is deliberately NOT started here: someone who opened this
+     * themselves is choosing, and a timer that yanks them into the next episode
+     * mid-decision is the opposite of what the press asked for.
+     */
+    fun onUserRequestedNextUp() {
+        val next = _uiState.value.nextEpisode ?: return
+        if (_uiState.value.showNextUp) return
+        nextUpCountdownJob?.cancel()
+        nextUpCountdownJob = null
+        _uiState.update {
+            it.copy(showNextUp = true, nextUpCountdownSeconds = null)
+        }
+    }
+
     private fun commitApproachingEnd(next: NextEpisodeState, videoEnded: Boolean) {
         autoAdvanceHandled = true
         pendingApproachingEndVideoEnded = null
