@@ -111,6 +111,10 @@ is generated on macOS.
   Central, verified as SHA-256
   `6e11986ea7250b51f847157e2dc937f32a306804dfce0007a5e81ddb9b95c579`,
   and recorded as the second clean-runner correction.
+- The next clean runner reached `guava-parent:33.4.8-jre` only from the
+  Android shared test runtime. Its Maven Central SHA-256
+  `a03c5199a1be14443df7fd40ba8673b1c6aae04deef6688ce7d573ea489e3a20`
+  was independently verified and recorded.
 - Native provenance: `scripts/build-dovi-aar.sh --verify-provenance` verified
   the pinned source archive, Rust and NDK toolchains, three ABI outputs, and
   final AAR hash.
