@@ -34,6 +34,12 @@ private val videoLibraryTypes = setOf(
     "shows",
     "tv",
     "video",
+    // A server library holding movies AND series in one folder. Omitting it
+    // here did not degrade the library — it erased it: the type mapped to no
+    // MediaMode, so the library never reached navigation, search or browse on
+    // either platform, with nothing to indicate anything was missing.
+    // silo-apple hit the same thing and fixed it in #93.
+    "mixed",
 )
 
 private val audioLibraryTypes = setOf(

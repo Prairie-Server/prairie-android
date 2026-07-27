@@ -3,18 +3,26 @@ package org.prairieserver.prairie.tv.ui.screens.requests
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -22,10 +30,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.request.RequestMediaDetail
+import org.prairieserver.prairie.model.request.requestBackdropUrl
+import org.prairieserver.prairie.model.request.requestPosterUrl
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
+import org.prairieserver.prairie.tv.ui.theme.RowDimens
 import org.prairieserver.prairie.tv.ui.theme.sectionEyebrow
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
 import org.koin.compose.viewmodel.koinViewModel
@@ -71,6 +83,25 @@ fun TvRequestDetailScreen(
     }
 }
 
+/**
+ * Content starts below the shell's top navigation, which is a `TopStart`
+ * overlay drawn over every screen rather than something that reserves space.
+ * Without this the title rendered *through* the nav row and the eyebrow was
+ * clipped off the top edge entirely.
+ */
+private val ShellNavInset = 96.dp
+
+/** TV-safe horizontal margin; the outer ~5% of a panel is not reliably visible. */
+private val SafeHorizontal = 48.dp
+
+/**
+ * The overview is a full TMDB synopsis — often several hundred words, which on
+ * a 10-foot display filled the screen and pushed the Request action off the
+ * bottom. Clamped to a readable teaser; the point of this screen is deciding
+ * whether to request, not reading the whole plot.
+ */
+private const val OverviewMaxLines = 4
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun RequestDetailContent(
@@ -80,93 +111,159 @@ private fun RequestDetailContent(
     error: String?,
     onRequest: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = "REQUEST",
-            style = sectionEyebrow,
-            color = PrairieBlue.copy(alpha = 0.92f),
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Backdrop, scrimmed hard enough that body copy stays legible over the
+        // busiest frame. Absent artwork simply leaves the background colour.
+        requestBackdropUrl(detail.backdropPath)?.let { url ->
+            ThumbhashImage(
+                url = url,
+                thumbhash = null,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        0f to MaterialTheme.colorScheme.background,
+                        0.55f to MaterialTheme.colorScheme.background.copy(alpha = 0.94f),
+                        1f to Color.Transparent,
+                    ),
+                ),
         )
-        Text(
-            text = detail.title,
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onBackground,
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to MaterialTheme.colorScheme.background.copy(alpha = 0.86f),
+                        0.4f to Color.Transparent,
+                        1f to MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
+                    ),
+                ),
         )
 
-        val meta = buildList {
-            detail.year?.takeIf { it > 0 }?.let { add(it.toString()) }
-            detail.runtime?.takeIf { it > 0 }?.let { add("${it} min") }
-            detail.contentRating.takeIf { it.isNotBlank() }?.let { add(it) }
-            detail.voteAverage?.takeIf { it > 0 }?.let { add("★ ${"%.1f".format(it)}") }
-        }.joinToString("  ·  ")
-        if (meta.isNotBlank()) {
-            Text(meta, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        if (detail.genres.isNotEmpty()) {
-            Text(
-                text = detail.genres.joinToString(" · "),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        if (detail.tagline.isNotBlank()) {
-            Text(
-                text = detail.tagline,
-                style = MaterialTheme.typography.titleMedium.copy(fontStyle = FontStyle.Italic),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-            )
-        }
-
-        if (detail.overview.isNotBlank()) {
-            Text(
-                text = detail.overview,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.widthIn(max = 1100.dp),
-            )
-        }
-
-        val request = detail.request
-        when {
-            request.requestable -> {
-                TvRequestActionPill(
-                    label = if (isSubmitting) "Requesting…" else "Request",
-                    icon = Icons.Filled.Add,
-                    onClick = onRequest,
-                    enabled = !isSubmitting,
-                    modifier = Modifier.padding(top = 8.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    PaddingValues(
+                        start = SafeHorizontal,
+                        end = SafeHorizontal,
+                        top = ShellNavInset,
+                        bottom = 48.dp,
+                    ),
+                ),
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
+        ) {
+            requestPosterUrl(detail.posterPath)?.let { url ->
+                ThumbhashImage(
+                    url = url,
+                    thumbhash = null,
+                    contentDescription = detail.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(RowDimens.PosterWidth, RowDimens.PosterHeight)
+                        .clip(RoundedCornerShape(10.dp)),
                 )
             }
-            !request.status.isNullOrBlank() -> {
+
+            Column(
+                // Held to the scrimmed side so the backdrop stays visible on the
+                // right rather than sitting behind the text.
+                modifier = Modifier.widthIn(max = 900.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text(
-                    text = "Request status: ${request.status}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 8.dp),
+                    text = "REQUEST",
+                    style = sectionEyebrow,
+                    color = PrairieBlue.copy(alpha = 0.92f),
                 )
-            }
-            request.reason.isNotBlank() -> {
                 Text(
-                    text = request.reason,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
+                    text = detail.title,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-            }
-        }
 
-        notice?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-        }
-        error?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                val meta = buildList {
+                    detail.year?.takeIf { it > 0 }?.let { add(it.toString()) }
+                    detail.runtime?.takeIf { it > 0 }?.let { add("${it} min") }
+                    detail.contentRating.takeIf { it.isNotBlank() }?.let { add(it) }
+                    detail.voteAverage?.takeIf { it > 0 }?.let { add("★ ${"%.1f".format(it)}") }
+                    detail.genres.take(3).takeIf { it.isNotEmpty() }?.let { add(it.joinToString(" · ")) }
+                }.joinToString("  ·  ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (detail.tagline.isNotBlank()) {
+                    Text(
+                        text = detail.tagline,
+                        style = MaterialTheme.typography.titleMedium.copy(fontStyle = FontStyle.Italic),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (detail.overview.isNotBlank()) {
+                    Text(
+                        text = detail.overview,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                        maxLines = OverviewMaxLines,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                val request = detail.request
+                when {
+                    request.requestable -> {
+                        TvRequestActionPill(
+                            label = if (isSubmitting) "Requesting…" else "Request",
+                            icon = Icons.Filled.Add,
+                            onClick = onRequest,
+                            enabled = !isSubmitting,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                    !request.status.isNullOrBlank() -> {
+                        Text(
+                            text = "Request status: ${request.status}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                    request.reason.isNotBlank() -> {
+                        Text(
+                            text = request.reason,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                }
+
+                notice?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                error?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                }
+            }
         }
     }
 }
