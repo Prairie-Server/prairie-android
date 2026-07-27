@@ -3,11 +3,55 @@ package org.siloserver.silo.playback
 import org.siloserver.silo.model.catalog.AudioTrack
 import org.siloserver.silo.model.catalog.SubtitleTrack
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import org.siloserver.silo.model.playback.SubtitleIdentity
+import org.siloserver.silo.model.playback.SubtitleMediaIdentity
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 
 class TrackSelectionFingerprintTest {
+
+    @Test
+    fun downloadedSubtitleIdentityRoundTripsThroughVersionedPreference() {
+        val identity = SubtitleIdentity.Downloaded(
+            downloadId = 312,
+            media = SubtitleMediaIdentity(
+                trackId = "silo-downloaded-subtitle:312",
+                label = "English | SDH",
+                language = "eng",
+                codecFamily = "webvtt",
+                forced = false,
+                hearingImpaired = true,
+            ),
+        )
+
+        val encoded = encodeSubtitleIdentityPreference(identity)
+
+        assertEquals(identity, decodeSubtitleIdentityPreference(encoded))
+    }
+
+    @Test
+    fun localMedia3SubtitleIdentityRoundTripsExactTrackMetadata() {
+        val identity = SubtitleIdentity.LocalMedia3(
+            SubtitleMediaIdentity(
+                trackId = "decoder:text:9",
+                label = "Commentary",
+                language = "fr-CA",
+                codecFamily = "vtt",
+                forced = null,
+                hearingImpaired = false,
+            ),
+        )
+
+        val encoded = encodeSubtitleIdentityPreference(identity)
+
+        assertEquals(identity, decodeSubtitleIdentityPreference(encoded))
+        assertNull(decodeSubtitleIdentityPreference(subtitleTrackFingerprint(
+            PlayerSubtitleInfo(index = 1, label = "Legacy", url = "/1.vtt"),
+        )))
+        assertNull(decodeSubtitleIdentityPreference("silo-subtitle-v2:{broken"))
+    }
 
     @Test
     fun resolvesAudioFingerprintBackToTrackOrdinal() {
@@ -29,6 +73,322 @@ class TrackSelectionFingerprintTest {
 
         assertEquals(-1, resolveSubtitleTrackOrdinal(tracks, SUBTITLE_OFF_FINGERPRINT))
         assertEquals(1, resolveSubtitleTrackOrdinal(tracks, subtitleTrackFingerprint(tracks[1])))
+    }
+
+    @Test
+    fun playerTypedOffAndServerPreferencesResolveOnDetailScreen() {
+        val tracks = catalogTracksInMixedIndexSpaces()
+
+        assertEquals(
+            -1,
+            resolveCatalogSubtitlePreferenceOrdinal(
+                tracks,
+                encodeSubtitleIdentityPreference(SubtitleIdentity.Off),
+            ),
+        )
+        assertEquals(
+            3,
+            resolveCatalogSubtitlePreferenceOrdinal(
+                tracks,
+                encodeSubtitleIdentityPreference(SubtitleIdentity.ServerSidecar(serverIndex = 1)),
+            ),
+        )
+    }
+
+    @Test
+    fun detailTypedPreferenceDecodesForPlayerWithCombinedServerIndex() {
+        val tracks = catalogTracksInMixedIndexSpaces()
+
+        val encoded = encodeCatalogSubtitlePreference(
+            tracks = tracks,
+            selectedOrdinal = 3,
+        )
+
+        val identity = assertIs<SubtitleIdentity.ServerSidecar>(
+            decodeSubtitleIdentityPreference(encoded),
+        )
+        assertEquals(1, identity.serverIndex)
+        assertEquals("External English", identity.media?.label)
+        assertEquals("en", identity.media?.language)
+    }
+
+    @Test
+    fun detailEmbeddedPreferenceUsesCombinedIndexInsteadOfDemuxIndex() {
+        val tracks = catalogTracksInMixedIndexSpaces()
+
+        val encoded = encodeCatalogSubtitlePreference(
+            tracks = tracks,
+            selectedOrdinal = 0,
+        )
+        val identity = decodeSubtitleIdentityPreference(encoded)
+
+        assertEquals(2, (identity as SubtitleIdentity.Embedded).serverIndex)
+        assertEquals("Embedded English", identity.media.label)
+    }
+
+    @Test
+    fun detailPreferenceResolverFallsBackToLegacyFingerprint() {
+        val tracks = catalogTracksInMixedIndexSpaces()
+
+        assertEquals(
+            2,
+            resolveCatalogSubtitlePreferenceOrdinal(
+                tracks,
+                subtitleTrackFingerprint(tracks[2]),
+            ),
+        )
+    }
+
+    @Test
+    fun externalTypedPreferenceFollowsStableMetadataAcrossCombinedIndexReorder() {
+        val original = listOf(
+            SubtitleTrack(index = 0, codec = "srt", language = "en", title = "English", external = true),
+            SubtitleTrack(index = 0, codec = "srt", language = "fr", title = "French", external = true),
+        )
+        val reordered = listOf(original[1], original[0])
+        val saved = encodeCatalogSubtitlePreference(original, selectedOrdinal = 0)
+
+        assertEquals(
+            1,
+            resolveCatalogSubtitlePreferenceOrdinal(reordered, saved),
+        )
+    }
+
+    @Test
+    fun embeddedTypedPreferenceFollowsStableMetadataAcrossCombinedIndexReorder() {
+        val external = SubtitleTrack(
+            index = 0,
+            codec = "srt",
+            language = "fr",
+            title = "French",
+            external = true,
+        )
+        val english = SubtitleTrack(
+            index = 17,
+            codec = "ass",
+            language = "en",
+            title = "English embedded",
+            external = false,
+        )
+        val dutch = SubtitleTrack(
+            index = 23,
+            codec = "ass",
+            language = "nl",
+            title = "Dutch embedded",
+            external = false,
+        )
+        val original = listOf(external, english, dutch)
+        val reordered = listOf(external, dutch, english)
+        val saved = encodeCatalogSubtitlePreference(original, selectedOrdinal = 1)
+
+        assertEquals(
+            2,
+            resolveCatalogSubtitlePreferenceOrdinal(reordered, saved),
+        )
+    }
+
+    @Test
+    fun typedServerPreferenceSafelyMissesWhenStableMetadataNoLongerMatches() {
+        val original = listOf(
+            SubtitleTrack(index = 0, codec = "srt", language = "en", title = "English", external = true),
+        )
+        val replacement = listOf(
+            SubtitleTrack(index = 0, codec = "srt", language = "es", title = "Spanish", external = true),
+        )
+        val saved = encodeCatalogSubtitlePreference(original, selectedOrdinal = 0)
+
+        assertNull(resolveCatalogSubtitlePreferenceOrdinal(replacement, saved))
+    }
+
+    @Test
+    fun typedServerPreferenceWithOnlyForcedFalseDoesNotRemapArbitrarySoleTrack() {
+        val weak = encodeSubtitleIdentityPreference(
+            SubtitleIdentity.ServerSidecar(
+                serverIndex = 0,
+                media = SubtitleMediaIdentity(forced = false),
+            ),
+        )
+        val replacement = listOf(
+            SubtitleTrack(
+                index = 9,
+                codec = "srt",
+                language = "es",
+                title = "Spanish",
+                external = true,
+            ),
+        )
+
+        assertNull(resolveCatalogSubtitlePreferenceOrdinal(replacement, weak))
+    }
+
+    @Test
+    fun typedServerPreferenceRequiresStoredTrackIdToMatch() {
+        val withTrackId = encodeSubtitleIdentityPreference(
+            SubtitleIdentity.ServerSidecar(
+                serverIndex = 0,
+                media = SubtitleMediaIdentity(
+                    trackId = "stable-track",
+                    label = "English",
+                    language = "en",
+                    codecFamily = "srt",
+                    forced = false,
+                ),
+            ),
+        )
+        val rowWithoutTrackId = listOf(
+            SubtitleTrack(
+                index = 9,
+                codec = "srt",
+                language = "en",
+                title = "English",
+                external = true,
+            ),
+        )
+
+        assertNull(resolveCatalogSubtitlePreferenceOrdinal(rowWithoutTrackId, withTrackId))
+    }
+
+    @Test
+    fun legacyTypedServerPreferenceWithoutMediaKeepsCombinedIndexCompatibility() {
+        val legacy = encodeSubtitleIdentityPreference(
+            SubtitleIdentity.ServerSidecar(serverIndex = 1),
+        )
+        val tracks = listOf(
+            SubtitleTrack(index = 0, codec = "srt", language = "en", title = "English", external = true),
+            SubtitleTrack(index = 0, codec = "srt", language = "fr", title = "French", external = true),
+        )
+
+        assertEquals(1, resolveCatalogSubtitlePreferenceOrdinal(tracks, legacy))
+    }
+
+    @Test
+    fun playerCanonicalSubripPreferenceResolvesCatalogSrt() {
+        val preference = encodedPlayerServerPreference("English", "en", "subrip")
+        val catalog = listOf(
+            SubtitleTrack(
+                index = 7,
+                codec = "srt",
+                language = "en",
+                title = "English",
+                external = true,
+            ),
+        )
+
+        assertEquals(0, resolveCatalogSubtitlePreferenceOrdinal(catalog, preference))
+    }
+
+    @Test
+    fun playerCanonicalSsaPreferenceResolvesCatalogAss() {
+        val preference = encodedPlayerServerPreference("Styled English", "en", "ssa")
+        val catalog = listOf(
+            SubtitleTrack(
+                index = 7,
+                codec = "ass",
+                language = "en",
+                title = "Styled English",
+                external = true,
+            ),
+        )
+
+        assertEquals(0, resolveCatalogSubtitlePreferenceOrdinal(catalog, preference))
+    }
+
+    @Test
+    fun playerCanonicalLanguagePreferenceResolvesCatalogIso639Aliases() {
+        val englishPreference = encodedPlayerServerPreference("English", "en", "subrip")
+        val frenchPreference = encodedPlayerServerPreference("French", "fr", "subrip")
+        val catalog = listOf(
+            SubtitleTrack(
+                index = 7,
+                codec = "srt",
+                language = "eng",
+                title = "English",
+                external = true,
+            ),
+            SubtitleTrack(
+                index = 9,
+                codec = "srt",
+                language = "fra",
+                title = "French",
+                external = true,
+            ),
+        )
+
+        assertEquals(0, resolveCatalogSubtitlePreferenceOrdinal(catalog, englishPreference))
+        assertEquals(1, resolveCatalogSubtitlePreferenceOrdinal(catalog, frenchPreference))
+    }
+
+    @Test
+    fun catalogPreferenceSerializesCanonicalSubtitleLanguage() {
+        val catalog = listOf(
+            SubtitleTrack(
+                index = 7,
+                codec = "srt",
+                language = "fre",
+                title = "French",
+                external = true,
+            ),
+        )
+
+        val identity = assertIs<SubtitleIdentity.ServerSidecar>(
+            decodeSubtitleIdentityPreference(encodeCatalogSubtitlePreference(catalog, 0)),
+        )
+
+        assertEquals("fr", identity.media?.language)
+    }
+
+    @Test
+    fun playerCanonicalLanguagePreferenceSafelyMissesDifferentCatalogLanguage() {
+        val preference = encodedPlayerServerPreference("Dialogue", "en", "subrip")
+        val catalog = listOf(
+            SubtitleTrack(
+                index = 7,
+                codec = "srt",
+                language = "fra",
+                title = "Dialogue",
+                external = true,
+            ),
+        )
+
+        assertNull(resolveCatalogSubtitlePreferenceOrdinal(catalog, preference))
+    }
+
+    @Test
+    fun playerCanonicalLanguagePreferenceSafelyMissesAmbiguousAliasRows() {
+        val preference = encodedPlayerServerPreference("English", "en", "subrip")
+        val catalog = listOf(
+            SubtitleTrack(index = 7, codec = "srt", language = "en", title = "English", external = true),
+            SubtitleTrack(index = 9, codec = "srt", language = "eng", title = "English", external = true),
+        )
+
+        assertNull(resolveCatalogSubtitlePreferenceOrdinal(catalog, preference))
+    }
+
+    @Test
+    fun playerCanonicalCodecPreferenceSafelyMissesDifferentCatalogCodec() {
+        val preference = encodedPlayerServerPreference("English", "en", "subrip")
+        val catalog = listOf(
+            SubtitleTrack(
+                index = 7,
+                codec = "ass",
+                language = "en",
+                title = "English",
+                external = true,
+            ),
+        )
+
+        assertNull(resolveCatalogSubtitlePreferenceOrdinal(catalog, preference))
+    }
+
+    @Test
+    fun playerCanonicalCodecPreferenceSafelyMissesAmbiguousCatalogRows() {
+        val preference = encodedPlayerServerPreference("English", "en", "subrip")
+        val catalog = listOf(
+            SubtitleTrack(index = 7, codec = "srt", language = "en", title = "English", external = true),
+            SubtitleTrack(index = 9, codec = "subrip", language = "en", title = "English", external = true),
+        )
+
+        assertNull(resolveCatalogSubtitlePreferenceOrdinal(catalog, preference))
     }
 
     @Test
@@ -69,4 +429,51 @@ class TrackSelectionFingerprintTest {
         assertNull(resolveAudioTrackOrdinal(tracks, ""))
         assertNull(resolveAudioTrackOrdinal(tracks, "missing"))
     }
+
+    private fun encodedPlayerServerPreference(
+        label: String,
+        language: String,
+        codecFamily: String,
+    ): String = encodeSubtitleIdentityPreference(
+        SubtitleIdentity.ServerSidecar(
+            serverIndex = 7,
+            media = SubtitleMediaIdentity(
+                label = label,
+                language = language,
+                codecFamily = codecFamily,
+                forced = false,
+            ),
+        ),
+    )
+
+    private fun catalogTracksInMixedIndexSpaces(): List<SubtitleTrack> = listOf(
+        SubtitleTrack(
+            index = 17,
+            codec = "ass",
+            language = "en",
+            title = "Embedded English",
+            external = false,
+        ),
+        SubtitleTrack(
+            index = 0,
+            codec = "srt",
+            language = "fr",
+            title = "External French",
+            external = true,
+        ),
+        SubtitleTrack(
+            index = 23,
+            codec = "ass",
+            language = "nl",
+            title = "Embedded Dutch",
+            external = false,
+        ),
+        SubtitleTrack(
+            index = 0,
+            codec = "srt",
+            language = "en",
+            title = "External English",
+            external = true,
+        ),
+    )
 }

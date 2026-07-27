@@ -45,4 +45,13 @@ class CatalogTrackSerializationTest {
         assertEquals("Profile 8", track.dolbyVision)
         assertEquals(8, track.dolbyVisionProfile)
     }
+
+    @Test
+    fun `VideoTrack decodes server color range`() {
+        val source = """{"codec":"hevc","color_range":"tv"}"""
+
+        val track = json.decodeFromString<VideoTrack>(source)
+
+        assertEquals("tv", track.colorRange)
+    }
 }

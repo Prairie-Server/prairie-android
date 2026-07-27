@@ -304,6 +304,7 @@ data class VideoTrack(
     @SerialName("color_space") val colorSpace: String? = null,
     @SerialName("color_primaries") val colorPrimaries: String? = null,
     @SerialName("color_transfer") val colorTransfer: String? = null,
+    @SerialName("color_range") val colorRange: String? = null,
     val title: String? = null,
     val language: String? = null
 )

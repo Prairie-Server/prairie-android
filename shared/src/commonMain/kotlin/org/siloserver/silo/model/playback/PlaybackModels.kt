@@ -62,6 +62,10 @@ data class PlayerSubtitleInfo(
     @SerialName("catalog_source") val catalogSource: String? = null,
     /** Catalog default marker; playback-session artifact rows do not carry it themselves. */
     @SerialName("default") val isDefault: Boolean? = null,
+    /** Persistent provider download identity; distinct from the mutable combined artifact [index]. */
+    @SerialName("download_id") val downloadId: Int? = null,
+    /** Optional exact Media3 Format.id retained by client-created/local rows. */
+    @SerialName("media_track_id") val mediaTrackId: String? = null,
 )
 
 /**
@@ -254,6 +258,7 @@ data class PlaybackSourceMetadata(
     @SerialName("audio_codec") val audioCodec: String? = null,
     val resolution: String? = null,
     @SerialName("hdr_format") val hdrFormat: String? = null,
+    @SerialName("color_range") val colorRange: String? = null,
     @SerialName("dolby_vision_profile") val dolbyVisionProfile: Int? = null,
     @SerialName("subtitle_codec") val subtitleCodec: String? = null,
 )
