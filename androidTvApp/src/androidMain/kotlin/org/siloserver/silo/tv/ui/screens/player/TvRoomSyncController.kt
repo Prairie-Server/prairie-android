@@ -12,12 +12,18 @@ import org.siloserver.silo.repository.PongSample
 import org.siloserver.silo.repository.ScheduledTransportCommand
 import org.siloserver.silo.repository.WatchTogetherRepository
 import org.siloserver.silo.watchtogether.RoomSession
+import org.siloserver.silo.watchtogether.RoomCommandDispatcher
+import org.siloserver.silo.watchtogether.RoomControllerLifetime
+import org.siloserver.silo.watchtogether.RoomPendingExecutions
+import org.siloserver.silo.watchtogether.scheduledCommandStillCurrent
+import kotlinx.coroutines.CoroutineStart
 import org.siloserver.silo.watchtogether.RoomTransportIntent
 import org.siloserver.silo.watchtogether.roomTransportAuthorized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
@@ -140,78 +146,61 @@ class TvRoomSyncController(
 
     // Monotonic-domain state-report cadence bookkeeping.
     @Volatile private var lastReportMs = 0L
-    @Volatile private var pendingExecuteAtMs: Long? = null
-
-    // Session id we have already SENT attach_session for. We send attach_session
-    // AT MOST ONCE per session-id resolution; this latch suppresses re-sends on
-    // the many intervening pre-echo snapshots. Re-armed on a genuine server-side
-    // detach (see [serverHadOurSession]) so a reconnect re-attaches exactly once.
-    @Volatile private var sentAttachForSessionId: String? = null
-
-    // Tracks whether the LAST snapshot had the server associated with our
-    // session. A true -> false transition is a genuine server-side detach
-    // (mid-session reconnect drops the association); that — not the pre-echo
-    // window — re-arms the latch to re-send attach_session once.
-    @Volatile private var serverHadOurSession: Boolean = false
+    private val lifetime = RoomControllerLifetime(scope)
+    private val controllerScope = lifetime.scope
+    private val deliveryLatch = repository.roomDeliveryLatch
+    private val commandDispatcher = RoomCommandDispatcher(controllerScope)
+    private val pendingExecutions = RoomPendingExecutions()
 
     fun start() {
-        // Lobby and player adopt the same application-scoped connection; route
-        // disposal does not tear down or duplicate the socket.
-        roomSession.adopt(roomId)
-
-        // Attach the player's own playback session id, and RE-attach on WS
-        // reconnect. We combine the local session id with each server snapshot
-        // and use a SENT latch distinct from the echo-confirmed check:
-        //  - send attach_session AT MOST ONCE per session-id resolution, the
-        //    moment the id first resolves (set the latch immediately so
-        //    intervening pre-echo snapshots don't re-send);
-        //  - re-arm the latch (and re-send once) ONLY on a genuine server-side
-        //    detach: a snapshot transition where the server HAD our session and
-        //    now doesn't ([serverHadOurSession] true -> false). A mid-session
-        //    reconnect produces exactly that transition.
-        scope.launch {
+        controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
             combine(
                 viewModel.uiState.map { it.sessionId }.distinctUntilChanged(),
-                repository.roomSnapshot,
-            ) { sessionId, snapshot -> sessionId to snapshot }
-                .collect { (sessionId, snapshot) ->
-                    if (sessionId == null) {
-                        sentAttachForSessionId = null
-                        serverHadOurSession = false
-                        return@collect
-                    }
-                    val serverHasOurSession = snapshot?.attachedSessionId == sessionId
-                    if (serverHadOurSession && !serverHasOurSession) {
-                        sentAttachForSessionId = null
-                    }
-                    serverHadOurSession = serverHasOurSession
-
-                    if (!serverHasOurSession && sentAttachForSessionId != sessionId) {
-                        sentAttachForSessionId = sessionId
-                        repository.attachSession(sessionId)
+                repository.connectionState,
+            ) { sessionId, connection -> deliveryLatch.keyOrNull(connection, sessionId) }
+                .distinctUntilChanged()
+                .collectLatest { key ->
+                    key ?: return@collectLatest
+                    while (isActive && deliveryLatch.needsAttach(key)) {
+                        val delivered = repository.attachSession(key.playbackSessionId)
+                        deliveryLatch.recordAttach(key, delivered)
+                        if (!delivered) {
+                            delay(500)
+                        }
                     }
                 }
         }
 
         // Clock-sync: drive pings (once on start + every PING_INTERVAL_MS) and
         // fold pongs into the engine's offset estimate.
-        scope.launch {
-            while (isActive) {
-                repository.ping(clientSentAt = nowWallClockRfc3339())
-                delay(PING_INTERVAL_MS)
+        controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            combine(
+                viewModel.uiState.map { it.sessionId }.distinctUntilChanged(),
+                repository.connectionState,
+            ) { sessionId, connection ->
+                deliveryLatch.keyOrNull(connection, sessionId) to connection.writable
             }
+                .distinctUntilChanged()
+                .collectLatest { (key, writable) ->
+                    if (!writable || key == null) return@collectLatest
+                    while (!deliveryLatch.isAttached(key)) delay(10)
+                    while (isActive) {
+                        repository.ping(clientSentAt = nowWallClockRfc3339())
+                        delay(PING_INTERVAL_MS)
+                    }
+                }
         }
-        scope.launch {
+        controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
             repository.pongs.collect { pong -> recordPong(pong) }
         }
 
         // Apply engine decisions for each scheduled transport command.
-        scope.launch {
+        controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
             repository.transportCommands.collect { scheduled -> handleCommand(scheduled) }
         }
 
         // Drift reporting loop (suppressed around a pending execute).
-        scope.launch {
+        controllerScope.launch {
             while (isActive) {
                 val state = viewModel.uiState.value
                 val sessionId = state.sessionId
@@ -221,7 +210,7 @@ class TvRoomSyncController(
                         now,
                         lastReportMs,
                         REPORT_CADENCE_MS,
-                        pendingExecuteAtMs,
+                        pendingExecutions.nearestTo(now),
                         SUPPRESS_WINDOW_MS,
                     )
                 ) {
@@ -237,21 +226,47 @@ class TvRoomSyncController(
         }
 
         // ready / buffering during the waiting barrier.
-        scope.launch {
-            var lastBuffering: Boolean? = null
-            viewModel.uiState.collect { state ->
-                val waiting = repository.roomSnapshot.value?.playbackState == RoomPlaybackState.Waiting
-                val sessionId = state.sessionId
-                if (waiting && sessionId != null && state.isBuffering != lastBuffering) {
-                    lastBuffering = state.isBuffering
-                    if (state.isBuffering) {
-                        repository.buffering(sessionId, state.position, state.isPaused)
-                    } else {
-                        repository.ready(sessionId, state.position, state.isPaused)
+        controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            combine(
+                viewModel.uiState
+                    .map { it.sessionId to it.isBuffering }
+                    .distinctUntilChanged(),
+                repository.roomSnapshot
+                    .map { it?.playbackState }
+                    .distinctUntilChanged(),
+                repository.connectionState,
+            ) { readiness, playbackState, connection -> Triple(readiness, playbackState, connection) }
+                .collectLatest { (readiness, playbackState, connection) ->
+                    val (sessionId, buffering) = readiness
+                    val key = deliveryLatch.keyOrNull(connection, sessionId)
+                    if (playbackState != RoomPlaybackState.Waiting || key == null) {
+                        return@collectLatest
+                    }
+                    while (!deliveryLatch.isAttached(key)) delay(10)
+                    while (isActive && deliveryLatch.needsReadiness(key, buffering)) {
+                        val currentState = viewModel.uiState.value
+                        val delivered = if (buffering) {
+                            repository.buffering(
+                                key.playbackSessionId,
+                                currentState.position,
+                                currentState.isPaused,
+                            )
+                        } else {
+                            repository.ready(
+                                key.playbackSessionId,
+                                currentState.position,
+                                currentState.isPaused,
+                            )
+                        }
+                        deliveryLatch.recordReadiness(key, buffering, delivered)
+                        if (!delivered) {
+                            delay(500)
+                        }
                     }
                 }
-            }
         }
+
+        roomSession.adopt(roomId)
     }
 
     /**
@@ -271,7 +286,12 @@ class TvRoomSyncController(
         )
     }
 
-    private suspend fun handleCommand(scheduled: ScheduledTransportCommand) {
+    private fun handleCommand(scheduled: ScheduledTransportCommand) {
+        if (!scheduled.connection.writable ||
+            scheduled.connection != repository.connectionState.value
+        ) {
+            return
+        }
         val command = scheduled.command
         val state = viewModel.uiState.value
         val snapshot = repository.roomSnapshot.value
@@ -289,32 +309,57 @@ class TvRoomSyncController(
             attachedSessionId = snapshot?.attachedSessionId ?: state.sessionId,
         ) ?: return // duplicate / revision / session gate → ignore
 
-        applyDecision(decision, state.sessionId)
+        commandDispatcher.dispatch {
+            applyDecision(
+                decision = decision,
+                sessionId = state.sessionId,
+                command = command,
+                acceptedConnection = scheduled.connection,
+            )
+        }
     }
 
-    private suspend fun applyDecision(decision: SyncDecision, sessionId: String?) {
+    private suspend fun applyDecision(
+        decision: SyncDecision,
+        sessionId: String?,
+        command: org.siloserver.silo.model.watchtogether.TransportCommand,
+        acceptedConnection: org.siloserver.silo.repository.WatchTogetherConnectionState,
+    ) {
         val delayMs = decision.localExecuteDelayMs.coerceAtLeast(0L)
         // Record the pending execute against the MONOTONIC clock for the
         // state-report suppression gate, then wait the engine-computed delay.
-        pendingExecuteAtMs = monotonicMs() + delayMs
-        if (delayMs > 0) delay(delayMs)
+        val pendingToken = pendingExecutions.record(monotonicMs() + delayMs)
+        try {
+            if (delayMs > 0) delay(delayMs)
+            if (
+                !scheduledCommandStillCurrent(
+                    command = command,
+                    acceptedPlaybackSessionId = sessionId,
+                    acceptedRoomId = roomId,
+                    acceptedConnection = acceptedConnection,
+                    currentPlaybackSessionId = viewModel.uiState.value.sessionId,
+                    currentRoom = repository.roomSnapshot.value,
+                    currentConnection = repository.connectionState.value,
+                )
+            ) {
+                return
+            }
 
-        // Use the deadband-free immediate-seek path: room corrective seeks can
-        // be as small as the engine's 0.35s DRIFT_THRESHOLD_MS, and a normal
-        // seekRequest would be fine on TV (no position-mirror deadband), but we
-        // route through seekImmediate to match mobile's contract exactly and
-        // guarantee the MediaController moves regardless of any future deadband.
-        decision.seekToMs?.let { ms -> viewModel.seekImmediate(ms / 1000.0) }
-        // Idempotent pause: set the desired state directly (NOT a toggle) so a
-        // duplicate command can't flip us the wrong way.
-        viewModel.setPaused(!decision.setPlaying)
-        pendingExecuteAtMs = null
-
-        // Auto-emit ready on the waiting barrier (command.playback_state == waiting).
-        if (decision.shouldEmitReady && sessionId != null) {
-            val s = viewModel.uiState.value
-            repository.ready(sessionId, s.position, s.isPaused)
+            // Use the deadband-free immediate-seek path: room corrective seeks can
+            // be as small as the engine's 0.35s DRIFT_THRESHOLD_MS, and a normal
+            // seekRequest would be fine on TV (no position-mirror deadband), but we
+            // route through seekImmediate to match mobile's contract exactly and
+            // guarantee the MediaController moves regardless of any future deadband.
+            decision.seekToMs?.let { ms -> viewModel.seekImmediate(ms / 1000.0) }
+            // Idempotent pause: set the desired state directly (NOT a toggle) so a
+            // duplicate command can't flip us the wrong way.
+            viewModel.setPaused(!decision.setPlaying)
+        } finally {
+            pendingExecutions.finish(pendingToken)
         }
+
+        // The epoch/session-keyed readiness collector owns ready delivery and
+        // retries. Do not advance an untracked one-shot latch here.
     }
 
     // ---- User-initiated transport: route through the room instead of local apply ----
@@ -330,12 +375,13 @@ class TvRoomSyncController(
         }
         val state = viewModel.uiState.value
         val willPause = !state.isPaused
-        scope.launch {
-            repository.transportRequest(
+        controllerScope.launch {
+            val delivered = repository.transportRequest(
                 action = if (willPause) TransportAction.Pause.wire else TransportAction.Play.wire,
                 positionSeconds = state.position,
                 isPaused = willPause,
             )
+            if (!delivered) repository.reportDeliveryFailure("room_transport_unavailable")
         }
     }
 
@@ -345,12 +391,13 @@ class TvRoomSyncController(
             return
         }
         val state = viewModel.uiState.value
-        scope.launch {
-            repository.transportRequest(
+        controllerScope.launch {
+            val delivered = repository.transportRequest(
                 action = TransportAction.Seek.wire,
                 positionSeconds = positionSeconds,
                 isPaused = state.isPaused,
             )
+            if (!delivered) repository.reportDeliveryFailure("room_transport_unavailable")
         }
     }
 
@@ -358,6 +405,12 @@ class TvRoomSyncController(
     fun leave(closeRoom: Boolean) {
         engine.reset()
         roomSession.depart(closeRoom)
+    }
+
+    /** Cancel this screen binding without ending the process-owned room lease. */
+    fun dispose() {
+        engine.reset()
+        lifetime.dispose()
     }
 
     /** Wall-clock RFC3339 string for the ping `client_sent_at`. */

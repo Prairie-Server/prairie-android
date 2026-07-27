@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.advanceTimeBy
@@ -137,6 +139,9 @@ class WatchTogetherRepositoryTest {
         var failConnect = false
         var terminateImmediately = false
         var attachCount = 0
+        val transportActions = mutableListOf<String>()
+        val readySessions = mutableListOf<String>()
+        val bufferingSessions = mutableListOf<String>()
         var connectBehavior: ((Int) -> Flow<RoomRealtimeEvent>)? = null
         /**
          * When non-null, each connect attempt emits this one event and then throws.
@@ -174,10 +179,19 @@ class WatchTogetherRepositoryTest {
             attachCount++
             return true
         }
-        override suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean) = true
+        override suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean): Boolean {
+            transportActions += action
+            return true
+        }
         override suspend fun stateReport(sessionId: String, positionSeconds: Double, isPaused: Boolean) = true
-        override suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean) = true
-        override suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean) = true
+        override suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean): Boolean {
+            readySessions += sessionId
+            return true
+        }
+        override suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean): Boolean {
+            bufferingSessions += sessionId
+            return true
+        }
         override suspend fun ping(clientSentAt: String) = true
     }
 
@@ -377,6 +391,92 @@ class WatchTogetherRepositoryTest {
 
         assertEquals(0, realtime.connectCount)
         job.cancel()
+    }
+
+    @Test
+    fun `local delivery failure is surfaced as a non terminal room error`() = runTest {
+        val repository = repo()
+        val error = async { repository.errors.first() }
+        runCurrent()
+
+        repository.reportDeliveryFailure("room_transport_unavailable")
+
+        assertEquals("room_transport_unavailable", error.await())
+        assertNull(repository.roomClosedReason.value)
+    }
+
+    @Test
+    fun `controller recreation shares successful delivery state for the same epoch`() = runTest {
+        val repository = repo()
+        val key = repository.roomDeliveryLatch.keyOrNull(
+            WatchTogetherConnectionState(generation = 7, epoch = 2, writable = true),
+            "playback-1",
+        )!!
+
+        repository.roomDeliveryLatch.recordAttach(key, delivered = true)
+
+        assertTrue(repository.roomDeliveryLatch.isAttached(key))
+        assertTrue(!repository.roomDeliveryLatch.needsAttach(key))
+    }
+
+    @Test
+    fun `two participants independently receive room state commands and terminal close`() = runTest {
+        val sharedSnapshot = snapshot(memberCount = 2)
+        val response = ApiResult.Success(RoomResponse(sharedSnapshot, "jwt-room"))
+        val hostRealtime = FakeRealtime()
+        val guestRealtime = FakeRealtime()
+        val host = repo(api = FakeApi(response), realtime = hostRealtime)
+        val guest = repo(api = FakeApi(response), realtime = guestRealtime)
+        host.createRoom(CreateRoomRequest())
+        guest.createRoom(CreateRoomRequest())
+        val hostCommand = async { host.transportCommands.first() }
+        val guestCommand = async { guest.transportCommands.first() }
+        val hostConnection = launch { host.connect("room-1") }
+        val guestConnection = launch { guest.connect("room-1") }
+        runCurrent()
+        val command = org.siloserver.silo.model.watchtogether.TransportCommand(
+            commandId = "cmd-1",
+            sessionId = "playback-1",
+            selectionRevision = sharedSnapshot.selectionRevision,
+            action = org.siloserver.silo.model.watchtogether.TransportAction.Seek,
+            positionSeconds = 42.0,
+            executeAt = "2026-07-27T12:00:00Z",
+        )
+
+        hostRealtime.events.emit(RoomRealtimeEvent.Opened)
+        guestRealtime.events.emit(RoomRealtimeEvent.Opened)
+        hostRealtime.events.emit(RoomRealtimeEvent.SnapshotEvent(sharedSnapshot))
+        guestRealtime.events.emit(RoomRealtimeEvent.SnapshotEvent(sharedSnapshot))
+        hostRealtime.events.emit(RoomRealtimeEvent.TransportCommandEvent(command))
+        guestRealtime.events.emit(RoomRealtimeEvent.TransportCommandEvent(command))
+        runCurrent()
+
+        assertEquals(sharedSnapshot, host.roomSnapshot.value)
+        assertEquals(sharedSnapshot, guest.roomSnapshot.value)
+        val hostScheduled = hostCommand.await()
+        val guestScheduled = guestCommand.await()
+        assertEquals(command, hostScheduled.command)
+        assertEquals(command, guestScheduled.command)
+        assertEquals(host.connectionState.value, hostScheduled.connection)
+        assertEquals(guest.connectionState.value, guestScheduled.connection)
+        assertTrue(host.attachSession("host-playback"))
+        assertTrue(guest.attachSession("guest-playback"))
+        assertTrue(host.transportRequest("pause", 42.0, true))
+        assertTrue(guest.transportRequest("play", 42.0, false))
+        assertTrue(host.buffering("host-playback", 42.0, true))
+        assertTrue(guest.ready("guest-playback", 42.0, false))
+        assertEquals(listOf("pause"), hostRealtime.transportActions)
+        assertEquals(listOf("play"), guestRealtime.transportActions)
+
+        hostRealtime.events.emit(RoomRealtimeEvent.Closed("host_left"))
+        guestRealtime.events.emit(RoomRealtimeEvent.Closed("host_left"))
+        hostConnection.join()
+        guestConnection.join()
+
+        assertEquals("host_left", host.roomClosedReason.value)
+        assertEquals("host_left", guest.roomClosedReason.value)
+        assertEquals(1, hostRealtime.connectCount)
+        assertEquals(1, guestRealtime.connectCount)
     }
 
     @Test
@@ -695,6 +795,46 @@ class WatchTogetherRepositoryTest {
         assertTrue(!r.connectionState.value.writable)
         assertTrue(!r.attachSession("during-backoff"))
         assertEquals(0, realtime.attachCount)
+        job.cancel()
+    }
+
+    @Test
+    fun `queued transport command retains the exact epoch that emitted it across reconnect`() = runTest {
+        val command = org.siloserver.silo.model.watchtogether.TransportCommand(
+            commandId = "epoch-1-command",
+            sessionId = "playback-1",
+            selectionRevision = 1,
+            executeAt = "2026-07-27T12:00:00Z",
+        )
+        val realtime = FakeRealtime().apply {
+            connectBehavior = { attempt ->
+                if (attempt == 1) {
+                    flow {
+                        emit(RoomRealtimeEvent.Opened)
+                        emit(RoomRealtimeEvent.TransportCommandEvent(command))
+                        emit(RoomRealtimeEvent.TransportTerminated())
+                    }
+                } else {
+                    events.asSharedFlow()
+                }
+            }
+        }
+        val r = repo(realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val received = async { r.transportCommands.first() }
+        val job = launch { r.connect("room-1") }
+        runCurrent()
+        val scheduled = received.await()
+
+        assertEquals(1L, scheduled.connection.epoch)
+        assertTrue(!r.connectionState.value.writable)
+        advanceTimeBy(500)
+        runCurrent()
+        realtime.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+
+        assertEquals(2L, r.connectionState.value.epoch)
+        assertTrue(scheduled.connection != r.connectionState.value)
         job.cancel()
     }
 

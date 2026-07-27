@@ -371,8 +371,9 @@ fun TvPlayerScreen(
     DisposableEffect(roomController) {
         roomController?.start()
         // Repo teardown happens on explicit leave (Leave affordance) or
-        // room_closed; the connect scope dies with roomScope on dispose.
-        onDispose { }
+        // room_closed; only this replaceable controller's child jobs are
+        // canceled on disposal.
+        onDispose { roomController?.dispose() }
     }
     val roomSnapshot by (roomController?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null))
         .collectAsState()

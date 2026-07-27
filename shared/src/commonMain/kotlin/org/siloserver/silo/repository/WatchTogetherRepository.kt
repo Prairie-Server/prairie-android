@@ -18,6 +18,7 @@ import org.siloserver.silo.network.RoomRealtimeEvent
 import org.siloserver.silo.network.WatchTogetherRealtimeClient
 import org.siloserver.silo.network.api.WatchTogetherApi
 import org.siloserver.silo.util.parseRfc3339ToEpochMillis
+import org.siloserver.silo.watchtogether.RoomDeliveryLatch
 import org.siloserver.silo.watchtogether.RoomSessionRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.BufferOverflow
@@ -41,6 +42,7 @@ import kotlin.time.TimeSource
 data class ScheduledTransportCommand(
     val command: TransportCommand,
     val executeAtMs: Long?,
+    val connection: WatchTogetherConnectionState,
 )
 
 /**
@@ -85,6 +87,9 @@ class WatchTogetherRepository(
     private val monotonicNowMs: () -> Long = { MONOTONIC_ORIGIN.elapsedNow().inWholeMilliseconds },
     private val authScopeProvider: suspend () -> AuthScopeSnapshot? = { null },
 ) : RoomSessionRepository {
+    /** Successful delivery state follows the process connection, not a UI controller. */
+    val roomDeliveryLatch = RoomDeliveryLatch()
+
     private data class RoomBinding(
         val roomId: String,
         val roomToken: String,
@@ -155,6 +160,11 @@ class WatchTogetherRepository(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val errors: SharedFlow<String> = _errors.asSharedFlow()
+
+    /** Surface a local delivery failure through the same non-terminal UI path. */
+    fun reportDeliveryFailure(message: String) {
+        if (message.isNotBlank()) _errors.tryEmit(message)
+    }
 
     // Locally-tracked vote set: ids the local user has voted for. Used to
     // re-merge voted_by_me into broadcast suggestion lists (which force false).
@@ -558,6 +568,7 @@ class WatchTogetherRepository(
                     ScheduledTransportCommand(
                         command = event.command,
                         executeAtMs = parseRfc3339ToEpochMillis(event.command.executeAt),
+                        connection = _connectionState.value,
                     ),
                 )
                 is RoomRealtimeEvent.Pong -> _pongs.tryEmit(

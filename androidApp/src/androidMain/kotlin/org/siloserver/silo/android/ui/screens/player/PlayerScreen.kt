@@ -241,7 +241,11 @@ fun PlayerScreen(
     }
     DisposableEffect(roomController) {
         roomController?.start()
-        onDispose { /* repo teardown happens on explicit leave (onBack) */ }
+        onDispose {
+            // Cancel only this replaceable controller's collectors. The
+            // application RoomSession persists until explicit leave.
+            roomController?.dispose()
+        }
     }
     val roomSnapshot by produceRoomSnapshotState(roomController)
     val roomClosedReason by produceRoomClosedState(roomController)
