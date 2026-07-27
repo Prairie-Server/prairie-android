@@ -37,6 +37,9 @@ import org.siloserver.silo.model.playback.PlaybackOutputContext
 import org.siloserver.silo.model.playback.PlaybackPlanV3
 import org.siloserver.silo.model.playback.PlaybackStreamProtocol
 import org.siloserver.silo.model.playback.PlaybackStreamV3
+import org.siloserver.silo.model.playback.PlaybackSubtitleArtifactV3
+import org.siloserver.silo.model.playback.PlaybackSubtitleDecisionV3
+import org.siloserver.silo.model.playback.PlaybackSubtitleModeV3
 import org.siloserver.silo.model.playback.PlaybackTimelineV3
 import org.siloserver.silo.model.playback.PlaybackTrackIdentityV3
 import org.siloserver.silo.model.playback.SEEK_FAILURE_RECOVERY_V3_OPERATION
@@ -400,6 +403,15 @@ class PlaybackSessionManagerSeekReanchorTest {
             selectedTracks = SelectedPlaybackTracksV3(
                 audio = PlaybackTrackIdentityV3("file:84:audio:2", 2),
                 subtitle = PlaybackTrackIdentityV3("file:84:subtitle:3", 3),
+            ),
+            subtitle = PlaybackSubtitleDecisionV3(
+                mode = PlaybackSubtitleModeV3.RENDER,
+                trackId = "file:84:subtitle:3",
+                artifact = PlaybackSubtitleArtifactV3(
+                    url = "/stream/session-1/subtitles/3.vtt",
+                    mimeType = "text/vtt",
+                    format = "webvtt",
+                ),
             ),
         )
         val harness = Harness(response(initial)) { _, _ -> success(response(replanned)) }
