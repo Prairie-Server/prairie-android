@@ -23,6 +23,8 @@ import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
 import org.prairieserver.prairie.tv.data.preferences.PlaybackQuality
 import org.prairieserver.prairie.tv.data.preferences.SubtitleMode
 import org.prairieserver.prairie.tv.data.preferences.SubtitleSize
+import org.prairieserver.prairie.update.AppUpdateChecker
+import org.prairieserver.prairie.update.AppUpdateStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,6 +54,8 @@ class TvSettingsViewModel(
     private val overlayPrefsStore: OverlayPrefsStore,
     private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
     private val tvLibraryScopeStore: org.prairieserver.prairie.tv.data.preferences.TvLibraryScopeStore? = null,
+    private val appUpdateChecker: AppUpdateChecker,
+    private val appVersionName: String,
 ) : ViewModel() {
 
     enum class NavAction { SIGNED_OUT, SWITCH_PROFILE }
@@ -96,15 +100,31 @@ class TvSettingsViewModel(
         // Client admin is hidden for now even when the server would accept acting-admin.
         val adminVisible: Boolean = false,
         val navAction: NavAction? = null,
+        val appVersionName: String = "",
+        val appUpdateStatus: AppUpdateStatus = AppUpdateStatus.Checking,
     )
 
-    private val _uiState = MutableStateFlow(UiState())
+    private val _uiState = MutableStateFlow(UiState(appVersionName = appVersionName))
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     init {
         loadUser()
         loadSettings()
         observePlayerSettings()
+        checkForAppUpdate()
+    }
+
+    private fun checkForAppUpdate() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    appVersionName = appVersionName,
+                    appUpdateStatus = AppUpdateStatus.Checking,
+                )
+            }
+            val status = appUpdateChecker.check(appVersionName)
+            _uiState.update { it.copy(appUpdateStatus = status) }
+        }
     }
 
     /**

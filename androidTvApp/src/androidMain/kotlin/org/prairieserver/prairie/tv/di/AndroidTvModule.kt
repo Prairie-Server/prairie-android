@@ -483,6 +483,8 @@ val androidTvModule = module {
             overlayPrefsStore = get(),
             legacyTvPrefsMigration = get(),
             tvLibraryScopeStore = getOrNull(),
+            appUpdateChecker = get(),
+            appVersionName = org.prairieserver.prairie.tv.BuildConfig.VERSION_NAME,
         )
     }
     viewModel { TvDiagnosticsViewModel(get()) }

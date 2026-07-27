@@ -89,8 +89,12 @@ import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnostic
 import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
 import org.prairieserver.prairie.tv.ui.theme.FocusedContent
 import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.prairieserver.prairie.update.latestVersionLabel
+import org.prairieserver.prairie.update.releaseUrlOrNull
+import org.prairieserver.prairie.update.statusLabel
 import org.koin.compose.viewmodel.koinViewModel
 import kotlinx.coroutines.delay
+import androidx.compose.ui.platform.LocalUriHandler
 
 /**
  * TV Settings — a tvOS-style split rail/detail surface modeled on
@@ -481,7 +485,7 @@ private fun SettingsRail(
             onFocused = { railActionHasFocus = true },
         )
         Text(
-            text = "Prairie ${BuildConfig.VERSION_NAME}",
+            text = "Prairie ${state.appVersionName.ifBlank { BuildConfig.VERSION_NAME }}",
             style = MaterialTheme.typography.bodySmall.copy(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 14.sp,
@@ -1301,6 +1305,7 @@ private fun TvServerSettingsPane(
     onManageServers: () -> Unit,
     onNavigateToDiagnostics: () -> Unit,
 ) {
+    val uriHandler = LocalUriHandler.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1337,7 +1342,23 @@ private fun TvServerSettingsPane(
         }
         item {
             SettingsGroup(title = "About") {
-                SettingsInfoRow(label = "Version", value = BuildConfig.VERSION_NAME)
+                SettingsInfoRow(
+                    label = "Version",
+                    value = state.appVersionName.ifBlank { BuildConfig.VERSION_NAME },
+                )
+                SettingsInfoRow(
+                    label = "Update status",
+                    value = state.appUpdateStatus.statusLabel(),
+                )
+                state.appUpdateStatus.latestVersionLabel()?.let { latest ->
+                    SettingsInfoRow(label = "Latest version", value = latest)
+                }
+                state.appUpdateStatus.releaseUrlOrNull()?.let { url ->
+                    SettingsActionRow(
+                        label = "View update",
+                        onClick = { runCatching { uriHandler.openUri(url) } },
+                    )
+                }
             }
         }
     }

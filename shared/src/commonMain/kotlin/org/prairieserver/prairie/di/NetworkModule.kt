@@ -28,6 +28,7 @@ val networkModule = module {
     single<org.prairieserver.prairie.network.HomeRealtimeClient> { org.prairieserver.prairie.network.DefaultHomeRealtimeClient(get(), get()) }
     single<CalendarApi> { DefaultCalendarApi(get()) }
     single { HealthApi(get()) }
+    single { org.prairieserver.prairie.update.AppUpdateChecker(get()) }
     single { LanDiscovery(get()) }
     single { SettingsApi(get()) }
     single { LibraryPlaybackPrefsApi(get()) }

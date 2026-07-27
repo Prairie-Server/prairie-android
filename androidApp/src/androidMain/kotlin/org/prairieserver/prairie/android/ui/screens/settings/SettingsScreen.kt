@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
@@ -92,6 +93,7 @@ fun SettingsScreen(
     diagnosticsViewModel: DiagnosticsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val uriHandler = LocalUriHandler.current
     var subtitleStyleVisible by remember { mutableStateOf(false) }
     org.prairieserver.prairie.android.ui.screens.player.SubtitleStyleSheet(
         isVisible = subtitleStyleVisible,
@@ -341,7 +343,12 @@ fun SettingsScreen(
             item {
                 ServerInfoSection(
                     serverUrl = state.serverUrl,
+                    appVersionName = state.appVersionName,
+                    appUpdateStatus = state.appUpdateStatus,
                     onManageServersClick = onNavigateToServers,
+                    onUpdateClick = { url ->
+                        runCatching { uriHandler.openUri(url) }
+                    },
                 )
             }
 
