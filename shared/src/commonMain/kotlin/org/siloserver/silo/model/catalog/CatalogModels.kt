@@ -294,7 +294,9 @@ data class VideoTrack(
     val resolution: String? = null,
     val width: Int? = null,
     val height: Int? = null,
-    @SerialName("frame_rate") val frameRate: Double? = null,
+    @SerialName("frame_rate")
+    @Serializable(with = NullableFrameRateSerializer::class)
+    val frameRate: Double? = null,
     val bitrate: Int? = null,
     val hdr: Boolean = false,
     @SerialName("hdr_format") val hdrFormat: String? = null,

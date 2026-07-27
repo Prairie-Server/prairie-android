@@ -133,6 +133,7 @@ class TvVideoPlaybackStarter(
                     subtitleTrackIndex = request.subtitleTrackIndex,
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
+                    deferPublication = true,
                 )
             ) {
                 is ApiResult.Success -> r.data
@@ -195,6 +196,7 @@ class TvVideoPlaybackStarter(
                 ),
                 session = resolved,
                 renewMissingSessionWithLegacyStart = false,
+                deferPublication = true,
                 expectedOwnershipEpoch = ownershipEpoch,
             )
             if (!adopted) {

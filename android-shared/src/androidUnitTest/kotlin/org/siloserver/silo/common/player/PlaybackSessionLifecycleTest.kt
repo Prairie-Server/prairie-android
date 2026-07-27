@@ -295,6 +295,28 @@ class PlaybackSessionLifecycleTest {
     }
 
     @Test
+    fun `epoch adoption can defer publication for the first session`() = runTest {
+        val sessionMgr = FakeSessionManager()
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        val ownershipEpoch = lifecycle.acquireOwnershipEpoch()
+
+        assertTrue(
+            lifecycle.adoptActiveSessionIfCurrent(
+                params = defaultStartParams(),
+                session = makeSession("sess-first"),
+                deferPublication = true,
+                expectedOwnershipEpoch = ownershipEpoch,
+            ),
+        )
+
+        assertTrue(lifecycle.confirmActiveSessionPublication("sess-first"))
+        assertEquals(
+            "sess-first",
+            (lifecycle.state.value as SessionState.Active).session.sessionId,
+        )
+    }
+
+    @Test
     fun `ownership acquisition waits for queued stop before accepting a new start`() = runTest {
         val oldStopEntered = CompletableDeferred<Unit>()
         val releaseOldStop = CompletableDeferred<Unit>()

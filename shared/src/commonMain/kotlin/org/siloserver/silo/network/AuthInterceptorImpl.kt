@@ -60,6 +60,7 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
 
     onRequest { request, _ ->
         val skipAuth = request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true
+        val requireAuth = request.attributes.getOrNull(RequireSiloAuthAttributeKey) == true
         val diagnosticsScope = request.attributes.getOrNull(DiagnosticsRequestScopeKey)
         val pinned = request.attributes.getOrNull(AuthScopeAttributeKey)
         val activeServerIdBefore = if (pinned == null) tokenManager.getCurrentServerId() else null
@@ -109,7 +110,12 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             // Replace (never append) the scoped headers; clear the profile token
             // header when the snapshot has none.
             request.headers.remove(HttpHeaders.Authorization)
-            tokenManager.getAccessTokenForScope(pinned)?.let { token ->
+            val scopedAccessToken = tokenManager.getAccessTokenForScope(pinned)
+            if (requireAuth && scopedAccessToken.isNullOrBlank()) {
+                request.removeSiloCredentialHeaders()
+                throw IllegalStateException("required_silo_auth_unavailable")
+            }
+            scopedAccessToken?.let { token ->
                 request.header(HttpHeaders.Authorization, "Bearer $token")
             }
             request.headers.remove("X-Profile-Id")

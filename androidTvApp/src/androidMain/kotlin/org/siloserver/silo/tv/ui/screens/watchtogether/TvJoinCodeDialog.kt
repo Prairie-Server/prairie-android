@@ -43,6 +43,7 @@ import org.siloserver.silo.tv.ui.screens.player.TvDialogActionRow
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
+import org.siloserver.silo.watchtogether.canDismissRoomEntry
 
 /**
  * Pure 8-char D-pad join-code accumulator. Appends only A–Z / 0–9 (uppercasing
@@ -85,11 +86,13 @@ fun TvJoinCodeDialog(
 
     Popup(
         alignment = Alignment.Center,
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (canDismissRoomEntry(isBusy)) onDismiss()
+        },
         properties = PopupProperties(
             focusable = true,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
+            dismissOnBackPress = canDismissRoomEntry(isBusy),
+            dismissOnClickOutside = canDismissRoomEntry(isBusy),
             clippingEnabled = false,
         ),
     ) {

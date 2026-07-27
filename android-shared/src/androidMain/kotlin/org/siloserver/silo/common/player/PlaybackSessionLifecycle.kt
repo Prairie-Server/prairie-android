@@ -263,6 +263,7 @@ class PlaybackSessionLifecycle(
         manageProgress: Boolean = true,
         stopSessionOnStop: Boolean = true,
         renewMissingSessionWithLegacyStart: Boolean = true,
+        deferPublication: Boolean = false,
         expectedOwnershipEpoch: Long,
     ): Boolean = try {
         currentCoroutineContext().ensureActive()
@@ -272,7 +273,7 @@ class PlaybackSessionLifecycle(
             manageProgress = manageProgress,
             stopSessionOnStop = stopSessionOnStop,
             renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart,
-            deferPublication = false,
+            deferPublication = deferPublication,
             isCurrent = { stopEpoch == expectedOwnershipEpoch },
         )
         if (!adopted) {

@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -23,11 +24,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import org.siloserver.silo.model.watchtogether.RoomSelectionMode
+import org.siloserver.silo.watchtogether.canDismissRoomEntry
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -48,6 +52,7 @@ fun WatchTogetherEntrySheet(
     val state by viewModel.uiState.collectAsState()
     var code by remember { mutableStateOf("") }
     var showJoin by remember { mutableStateOf(false) }
+    val latestBusy by rememberUpdatedState(state.busy)
 
     LaunchedEffect(state.destination) {
         val dest = state.destination ?: return@LaunchedEffect
@@ -57,8 +62,15 @@ fun WatchTogetherEntrySheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        onDismissRequest = {
+            if (canDismissRoomEntry(state.busy)) onDismiss()
+        },
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            confirmValueChange = { target ->
+                target != SheetValue.Hidden || canDismissRoomEntry(latestBusy)
+            },
+        ),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Text(
@@ -83,6 +95,14 @@ fun WatchTogetherEntrySheet(
                     enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (state.busy) "Creating…" else "Host a room") }
+
+                OutlinedButton(
+                    onClick = {
+                        viewModel.host(contentId, fileId, RoomSelectionMode.Vote)
+                    },
+                    enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Host a vote room") }
 
                 OutlinedButton(
                     onClick = { viewModel.clearError(); showJoin = true },

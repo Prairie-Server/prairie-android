@@ -17,8 +17,9 @@ suspend fun CleartextOriginConsent.requiresApproval(url: String): Boolean {
     val origin = httpOrigin(url)
     return when {
         origin?.scheme == "https" -> false
-        origin?.scheme == "http" -> !isApproved(url)
-        url.trim().startsWith("http:", ignoreCase = true) -> true
+        origin?.scheme == "http" -> !isApproved(checkNotNull(canonicalHttpOrigin(url)))
+        url.trim().startsWith("http:", ignoreCase = true) ||
+            url.trim().startsWith("ws:", ignoreCase = true) -> true
         else -> false
     }
 }

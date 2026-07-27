@@ -54,6 +54,36 @@ class SiloAuthPluginPinTest {
     }
 
     @Test
+    fun unapprovedCleartextWebSocketIsBlockedBeforeCredentialsReachEngine() = runTest {
+        var engineCalled = false
+        val tokenManager = TokenManagerImpl().apply {
+            setServerUrl("http://silo.lan")
+            saveTokens("access", "refresh", 3600)
+            setProfileId("profile")
+            setProfileToken("profile-token")
+        }
+        val client = HttpClient(
+            MockEngine {
+                engineCalled = true
+                respond("{}", HttpStatusCode.OK)
+            },
+        ) {
+            install(SiloAuthPlugin) {
+                this.tokenManager = tokenManager
+                this.cleartextOriginConsent = object : CleartextOriginConsent {
+                    override suspend fun isApproved(origin: String): Boolean = false
+                }
+            }
+        }
+
+        assertFailsWith<CleartextOriginNotApprovedException> {
+            client.get("ws://silo.lan/api/v1/watch-together/rooms/r/ws?room_token=secret")
+        }
+        assertEquals(false, engineCalled)
+        client.close()
+    }
+
+    @Test
     fun unauthenticatedLoginPostStillRequiresCleartextApproval() = runTest {
         var engineCalled = false
         val tokenManager = TokenManagerImpl().apply { setServerUrl("http://silo.lan") }

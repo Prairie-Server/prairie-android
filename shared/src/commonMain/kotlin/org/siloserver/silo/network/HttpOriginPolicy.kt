@@ -9,10 +9,11 @@ data class HttpOrigin(
 )
 
 fun httpOrigin(raw: String): HttpOrigin? = runCatching {
-    val scheme = raw.httpSchemeOrNull() ?: return null
-    val authorityHost = raw.authorityHostOrNull(scheme) ?: return null
+    val normalized = raw.normalizedHttpOriginUrl()
+    val scheme = normalized.httpSchemeOrNull() ?: return null
+    val authorityHost = normalized.authorityHostOrNull(scheme) ?: return null
 
-    val url = Url(raw)
+    val url = Url(normalized)
     if (url.user != null || url.password != null) return null
     if (url.protocol.name.lowercase() != scheme) return null
 
@@ -26,6 +27,12 @@ fun httpOrigin(raw: String): HttpOrigin? = runCatching {
         port = url.port,
     )
 }.getOrNull()
+
+private fun String.normalizedHttpOriginUrl(): String = when {
+    startsWith("wss://", ignoreCase = true) -> "https://${drop(6)}"
+    startsWith("ws://", ignoreCase = true) -> "http://${drop(5)}"
+    else -> this
+}
 
 fun isSameHttpOrigin(serverUrl: String, requestUrl: String): Boolean {
     val serverOrigin = httpOrigin(serverUrl) ?: return false
