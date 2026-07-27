@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -16,6 +18,7 @@ import kotlinx.coroutines.withContext
 import org.siloserver.silo.common.data.db.SiloDatabase
 import org.siloserver.silo.common.data.db.dao.ServerPurgeDao
 import org.siloserver.silo.common.player.ActivePlaybackFile
+import org.siloserver.silo.common.store.ServerScopedJsonStatePurger
 import org.siloserver.silo.network.ServerRegistry
 
 /**
@@ -43,30 +46,44 @@ class OrphanedServerDataPurger(
     private val registry: ServerRegistry,
     private val purgeDao: ServerPurgeDao,
     private val storage: DownloadStorage,
-    private val cancelDownload: (recordId: String) -> Unit,
+    private val cancelDownload: suspend (recordId: String) -> Unit,
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val activePlaybackFileId: () -> Int? = { ActivePlaybackFile.fileId.value },
     private val purgeRows: suspend (String) -> Unit = purgeDao::deleteAllRowsForServer,
+    private val deleteDownloadStorage: suspend (String) -> Unit = {
+        storage.deleteAllForServer(it)
+        Unit
+    },
+    private val jsonStatePurger: ServerScopedJsonStatePurger? = null,
 ) {
 
     private val runLock = Mutex()
 
-    fun start() {
-        scope.launch {
-            purgeOnce()
-            // Re-run whenever the registry loses an entry. Additions cannot
-            // orphan anything, and re-running on every change would walk the
-            // filesystem during ordinary sign-in churn.
-            var previous = registry.entries.value.map { it.id }.toSet()
+    fun start(): Job = scope.launch {
+        var previous = registry.entries.value.map { it.id }.toSet()
+        val observer = launch(start = CoroutineStart.UNDISPATCHED) {
+            // Subscribe before the startup filesystem scan. A removal during
+            // that scan is then buffered instead of falling between a snapshot
+            // and a later collector subscription.
             registry.entries
                 .map { entries -> entries.map { it.id }.toSet() }
                 .distinctUntilChanged()
                 .collect { ids ->
                     val lost = previous - ids
                     previous = ids
-                    if (lost.isNotEmpty()) purgeOnce()
+                    if (lost.isNotEmpty()) {
+                        runCatching { purgeOnce() }
+                            .onFailure { Log.w(TAG, "registry-change purge failed", it) }
+                    }
                 }
+        }
+        try {
+            runCatching { purgeOnce() }
+                .onFailure { Log.w(TAG, "startup purge failed", it) }
+            observer.join()
+        } finally {
+            observer.cancel()
         }
     }
 
@@ -99,6 +116,12 @@ class OrphanedServerDataPurger(
                     purged += serverId
                 }
             }
+            runCatching {
+                jsonStatePurger?.deleteJsonOnlyOrphans(
+                    registeredServerIds = registered,
+                    protectedServerIds = orphans - purged,
+                )
+            }.onFailure { Log.w(TAG, "JSON-only orphan purge failed; retaining directory evidence", it) }
             purged
         }
     }
@@ -117,13 +140,22 @@ class OrphanedServerDataPurger(
         // Cancel first. A running DownloadWorker writes its row back on every
         // progress tick, so deleting rows underneath it resurrects one — with
         // no registry entry behind it, permanently un-purgeable by this pass.
-        purgeDao.downloadRecordIdsForServer(serverId).forEach { recordId ->
-            runCatching { cancelDownload(recordId) }
-                .onFailure { Log.w(TAG, "cancel failed for $recordId", it) }
+        try {
+            purgeDao.downloadRecordIdsForServer(serverId).forEach { recordId ->
+                cancelDownload(recordId)
+            }
+        } catch (failure: Exception) {
+            Log.w(TAG, "download cancellation failed for $serverId; retaining rows", failure)
+            return false
         }
 
-        runCatching { storage.deleteAllForServer(serverId) }
-            .onFailure { Log.w(TAG, "file purge failed for $serverId", it) }
+        try {
+            deleteDownloadStorage(serverId)
+            jsonStatePurger?.deleteAllForServer(serverId)
+        } catch (failure: Exception) {
+            Log.w(TAG, "local-state purge failed for $serverId; retaining rows", failure)
+            return false
+        }
 
         purgeRows(serverId)
         Log.i(TAG, "purged orphaned server data for $serverId")
@@ -152,6 +184,7 @@ fun installOrphanedServerDataPurge(
     registry = registry,
     purgeDao = database.serverPurgeDao(),
     storage = storage,
-    cancelDownload = { recordId -> DownloadWorker.cancel(context, recordId) },
+    cancelDownload = { recordId -> DownloadWorker.cancelAndAwait(context, recordId) },
     scope = scope,
+    jsonStatePurger = ServerScopedJsonStatePurger(context.filesDir),
 ).also { it.start() }

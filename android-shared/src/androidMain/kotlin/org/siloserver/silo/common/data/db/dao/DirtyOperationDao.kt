@@ -126,6 +126,32 @@ interface DirtyOperationDao {
     suspend fun dueBatch(serverId: String, profileId: String, nowMs: Long, limit: Int): List<DirtyOperationEntity>
 
     /**
+     * Due oldest operation for each content item. The anti-join is evaluated
+     * before LIMIT so an older sibling in backoff cannot fall outside the SQL
+     * page and let a newer operation overtake it.
+     */
+    @Query(
+        "SELECT candidate.* FROM dirty_operations candidate " +
+            "WHERE candidate.state = '${DirtyOperationEntity.STATE_PENDING}' " +
+            "AND candidate.nextAttemptAtMs <= :nowMs " +
+            "AND candidate.serverId = :serverId AND candidate.profileId = :profileId " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM dirty_operations older " +
+            "WHERE older.serverId = candidate.serverId " +
+            "AND older.profileId = candidate.profileId " +
+            "AND older.targetContentId = candidate.targetContentId " +
+            "AND older.state IN ('${DirtyOperationEntity.STATE_PENDING}', '${DirtyOperationEntity.STATE_IN_FLIGHT}') " +
+            "AND older.id < candidate.id" +
+            ") ORDER BY candidate.nextAttemptAtMs ASC, candidate.id ASC LIMIT :limit",
+    )
+    suspend fun dueTargetHeads(
+        serverId: String,
+        profileId: String,
+        nowMs: Long,
+        limit: Int,
+    ): List<DirtyOperationEntity>
+
+    /**
      * Atomically claim a pending op for sending. Returns the number of rows
      * updated: 1 if this caller won the claim, 0 if it was already claimed or
      * removed. The state guard makes this safe across concurrent drains/processes.

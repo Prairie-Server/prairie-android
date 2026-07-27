@@ -93,16 +93,19 @@ class EbookLocalStateStore(baseDir: File) {
         location: String,
         createdAtMs: Long = System.currentTimeMillis(),
     ): BookmarkSnapshot {
-        val bookmark = BookmarkSnapshot(
-            id = "local-$createdAtMs",
-            location = location,
-            createdAtMs = createdAtMs,
-        )
-        val updated = (listBookmarks(serverId, profileId, contentId) + bookmark)
-            .distinctBy { it.id }
-            .sortedBy { it.createdAtMs }
-        store.write(bookmarksFile(serverId, profileId, contentId), updated)
-        return bookmark
+        val target = bookmarksFile(serverId, profileId, contentId)
+        return store.withTargetLock(target) {
+            val bookmark = BookmarkSnapshot(
+                id = "local-$createdAtMs",
+                location = location,
+                createdAtMs = createdAtMs,
+            )
+            val updated = (store.read<List<BookmarkSnapshot>>(target).orEmpty() + bookmark)
+                .distinctBy { it.id }
+                .sortedBy { it.createdAtMs }
+            store.write(target, updated)
+            bookmark
+        }
     }
 
     fun removeBookmark(
@@ -111,10 +114,14 @@ class EbookLocalStateStore(baseDir: File) {
         contentId: String,
         bookmarkId: String,
     ): List<BookmarkSnapshot> {
-        val updated = listBookmarks(serverId, profileId, contentId)
-            .filterNot { it.id == bookmarkId }
-        store.write(bookmarksFile(serverId, profileId, contentId), updated)
-        return updated
+        val target = bookmarksFile(serverId, profileId, contentId)
+        return store.withTargetLock(target) {
+            val updated = store.read<List<BookmarkSnapshot>>(target)
+                .orEmpty()
+                .filterNot { it.id == bookmarkId }
+            store.write(target, updated)
+            updated
+        }
     }
 
     fun readDisplaySettings(serverId: String, profileId: String): ReaderDisplaySettings? =

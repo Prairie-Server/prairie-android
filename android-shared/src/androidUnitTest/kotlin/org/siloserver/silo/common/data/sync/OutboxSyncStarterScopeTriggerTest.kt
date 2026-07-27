@@ -4,10 +4,14 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -33,6 +37,7 @@ import kotlin.test.assertEquals
  * a virtual-time test observes nothing at all and passes for the wrong reason.
  */
 @RunWith(RobolectricTestRunner::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 class OutboxSyncStarterScopeTriggerTest {
 
     private fun registry(name: String): Pair<AndroidServerRegistry, String> {
@@ -105,6 +110,28 @@ class OutboxSyncStarterScopeTriggerTest {
             drains.get(),
             "only the scope pair may trigger — a rename is not a scope change",
         )
+        scope.cancel()
+    }
+
+    @Test
+    fun `profile switch before collector starts is not swallowed as initial state`() = runTest {
+        val (registry, serverId) = registry("outbox-starter-immediate-profile")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val drains = AtomicInteger()
+        OutboxSyncStarter(
+            context = ApplicationProvider.getApplicationContext(),
+            registry = registry,
+            scope = scope,
+            enqueueDrain = { drains.incrementAndGet() },
+        ).start()
+
+        // The collector is queued on [dispatcher] but has not run. Reproduce the
+        // real startup race by switching before its first StateFlow read.
+        registry.setProfileId(serverId, "p2")
+        advanceUntilIdle()
+
+        assertEquals(2, drains.get(), "launch plus the captured p1-to-p2 scope change")
         scope.cancel()
     }
 }

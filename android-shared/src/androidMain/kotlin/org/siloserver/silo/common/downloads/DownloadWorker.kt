@@ -518,6 +518,22 @@ class DownloadWorker(
         fun cancel(context: Context, downloadId: String) {
             WorkManager.getInstance(context).cancelAllWorkByTag(tagFor(downloadId))
         }
+
+        /**
+         * Cancellation barrier for destructive identity cleanup. The normal UI
+         * API remains fire-and-forget, but a server purge must know the worker
+         * has stopped before deleting the Room rows it can otherwise recreate.
+         */
+        suspend fun cancelAndAwait(context: Context, downloadId: String) {
+            withContext(Dispatchers.IO) {
+                WorkManager.getInstance(context)
+                    .cancelUniqueWork(tagFor(downloadId))
+                    .result
+                    .get(CANCEL_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }
+        }
+
+        private const val CANCEL_ACK_TIMEOUT_SECONDS = 30L
     }
 }
 

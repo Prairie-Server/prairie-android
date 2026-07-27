@@ -162,8 +162,11 @@ class ItemDetailViewModel(
         ) {
             DetailDownloadTapAction.Cancel -> {
                 existing?.let { record ->
-                    downloadEnqueuer.cancel(record.id)
-                    viewModelScope.launch { downloadsRepository.delete(record.id) }
+                    val cancelScope = downloadEnqueuer.captureCancelScope()
+                    viewModelScope.launch {
+                        downloadEnqueuer.cancel(record.id, version.fileId, cancelScope)
+                        downloadsRepository.delete(record.id)
+                    }
                 }
             }
             DetailDownloadTapAction.Ignore -> Unit  // Manage via Downloads tab.
@@ -218,8 +221,11 @@ class ItemDetailViewModel(
         when (detailDownloadTapAction(existing?.statusEnum(), forceRedownloadMissingLocal = false)) {
             DetailDownloadTapAction.Ignore -> Unit
             DetailDownloadTapAction.Cancel -> existing?.let { record ->
-                downloadEnqueuer.cancel(record.id)
-                viewModelScope.launch { downloadsRepository.delete(record.id) }
+                val cancelScope = downloadEnqueuer.captureCancelScope()
+                viewModelScope.launch {
+                    downloadEnqueuer.cancel(record.id, fileId, cancelScope)
+                    downloadsRepository.delete(record.id)
+                }
             }
             DetailDownloadTapAction.Start, DetailDownloadTapAction.ReplaceAndStart -> viewModelScope.launch {
                 // Episode pages load the episode itself as `detail`, so the

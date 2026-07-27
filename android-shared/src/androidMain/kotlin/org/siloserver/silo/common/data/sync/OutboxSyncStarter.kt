@@ -8,7 +8,6 @@ import org.siloserver.silo.network.ServerRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -53,13 +52,16 @@ class OutboxSyncStarter(
         // stopped: watched marks, ratings, favourites and resume positions from
         // that profile never synced again. On a TV, which is never relaunched,
         // that is permanent and invisible.
+        val initialScope = registry.activeEntry.value?.let { it.id to it.profileId }
         scope.launch {
-            var seenInitial = false
+            var previousScope = initialScope
             registry.activeEntry
                 .map { entry -> entry?.let { it.id to it.profileId } }
-                .distinctUntilChanged()
-                .collect {
-                    if (seenInitial) enqueueDrain() else seenInitial = true
+                .collect { currentScope ->
+                    if (currentScope != previousScope) {
+                        previousScope = currentScope
+                        enqueueDrain()
+                    }
                 }
         }
 

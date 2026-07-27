@@ -84,33 +84,13 @@ class SyncEngine(
         var batches = 0
         while (batches++ < MAX_BATCHES) {
             val nowMs = now()
-            // Pull every pending row for the scope, not just the due ones (the DAO
-            // has one listing query and it filters on due time, hence the unbounded
-            // cutoff). The drain has to SEE an op that is backing off in order to
-            // hold back the newer ops that target the same item.
-            val queued = dao.dueBatch(serverId, profileId, NO_DUE_CUTOFF, batchLimit)
-            if (queued.isEmpty()) break
-
-            // Per-item FIFO. Backoff re-times the outbox, so without this a
-            // retried SET_WATCHED lands AFTER a SET_POSITION queued later for the
-            // same item and wipes the resume position the user just created. An op
-            // waits until every older op for its content id has cleared; unrelated
-            // items keep draining in parallel.
-            val blockedTargets = HashSet<String>()
-            val batch = ArrayList<DirtyOperationEntity>(queued.size)
-            for (op in queued.sortedBy { it.id }) {
-                if (op.targetContentId in blockedTargets) continue
-                if (op.nextAttemptAtMs > nowMs) {
-                    blockedTargets += op.targetContentId
-                    continue
-                }
-                batch += op
-            }
+            // The DAO selects only due target heads and applies its older-sibling
+            // anti-join before LIMIT. This preserves per-item FIFO even when the
+            // backing-off predecessor lies outside the current SQL page.
+            val batch = dao.dueTargetHeads(serverId, profileId, nowMs, batchLimit)
             if (batch.isEmpty()) break
 
             for (op in batch) {
-                // An older op for this item failed earlier in this pass.
-                if (op.targetContentId in blockedTargets) continue
                 if (dao.claim(op.id) != 1) continue // lost the claim; skip
 
                 val outcome = try {
@@ -154,8 +134,6 @@ class SyncEngine(
                             dropped++
                         } else {
                             retriable++
-                            // Still queued: nothing newer for this item may pass it.
-                            blockedTargets += op.targetContentId
                         }
                     }
                 }
@@ -291,7 +269,5 @@ class SyncEngine(
         // long before this because each op is deleted or pushed into the future.
         private const val MAX_BATCHES = 1_000
 
-        /** Due-time cutoff that selects every pending row, backing-off ones included. */
-        private const val NO_DUE_CUTOFF = Long.MAX_VALUE
     }
 }

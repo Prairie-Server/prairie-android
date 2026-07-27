@@ -449,17 +449,32 @@ class DownloadEnqueuer(
         DownloadWorker.cancel(context, downloadId)
     }
 
+    data class CancelScope(
+        val serverId: String,
+        val profileId: String,
+    )
+
+    /** Capture identity synchronously with the UI record being acted on. */
+    fun captureCancelScope(): CancelScope {
+        val active = serverRegistry.activeEntry.value
+        return CancelScope(
+            serverId = active?.id ?: DEFAULT_SERVER_ID,
+            profileId = active?.profileId ?: DEFAULT_PROFILE_ID,
+        )
+    }
+
     /**
-     * Cancel and forget: as [cancel], plus drops the local sidecar for
-     * [fileId]. Leaving the row behind is what made a cancelled download
-     * un-restartable — it stays Queued/Downloading in Room, so every later
-     * tap is swallowed by the duplicate guard.
+     * Cancel and forget in the explicitly captured identity scope. Leaving the
+     * row behind made a cancelled download un-restartable; resolving scope
+     * after a coroutine dispatch could instead delete the next profile's row.
      */
-    suspend fun cancel(downloadId: String, fileId: Int) {
+    suspend fun cancel(
+        downloadId: String,
+        fileId: Int,
+        scope: CancelScope,
+    ) {
         cancel(downloadId)
-        val serverId = serverRegistry.activeServerId.value ?: DEFAULT_SERVER_ID
-        val profileId = profileRepository.getActiveProfileId() ?: DEFAULT_PROFILE_ID
-        runCatching { metadataStore.deleteSidecar(serverId, profileId, fileId) }
+        runCatching { metadataStore.deleteSidecar(scope.serverId, scope.profileId, fileId) }
             .onFailure { Log.w(TAG, "cancel: deleteSidecar failed for fileId=$fileId", it) }
     }
 

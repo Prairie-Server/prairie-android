@@ -46,6 +46,20 @@ intentionally excluded. The table above is the path-purpose mapping.
   deletion starts, each server purge completes its paired Room transaction in a
   `NonCancellable` section so app-scope teardown cannot strand a half-purged
   identity after the one removal event has been consumed.
+- Made worker cancellation an acknowledged barrier. Cancellation or filesystem
+  failure now retains Room rows as durable retry evidence instead of deleting
+  the only index of an incompletely cleaned identity.
+- Subscribed to registry removals before the startup scan and added a
+  deterministic removal-during-startup regression, closing the event gap that
+  could permanently miss a server.
+- Added no-follow discovery and deletion for JSON-only ebook/audiobook state,
+  including long hashed identity keys and a symlink escape regression.
+- Moved detail-screen cancellation to the sidecar-cleaning path with a
+  synchronously captured identity scope, so a profile switch cannot redirect
+  cleanup to the next profile.
+- Applied the FIFO predicate before the SQL page limit, fixed an immediate
+  profile-switch collector race, and serialised JSON bookmark read-modify-write
+  operations per target.
 - Added Room's migration test harness with dependency locks and SHA-256
   verification independently reproduced from Google Maven and Maven Central.
 
@@ -57,7 +71,9 @@ Focused red/green suites cover:
 - path traversal, encoded-namespace collisions, symlink/no-follow staged writes,
   public collection roots, profile/server deletion scope;
 - corrupt-registry suppression, active-playback deferral, idempotent purge, and
-  cancellation during destructive cleanup;
+  cancellation acknowledgement/failure retries during destructive cleanup;
+- startup-removal event ordering, JSON-only orphan discovery, hashed identity
+  keys, and symlink-safe deletion;
 - profile-scope drain triggers, per-item outbox FIFO, and retained retry state.
 
 The final full repository gate and independent review results are recorded on

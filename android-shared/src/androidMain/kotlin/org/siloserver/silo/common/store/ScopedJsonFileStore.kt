@@ -32,8 +32,14 @@ internal class ScopedJsonFileStore(
 ) {
     private val canonicalRoot: File = root.canonicalFile
     private val legacyByTarget = ConcurrentHashMap<String, File>()
+    private val locksByTarget = ConcurrentHashMap<String, Any>()
 
     internal fun rootDirectory(): File = canonicalRoot
+
+    internal fun <T> withTargetLock(target: File, block: () -> T): T {
+        val lock = locksByTarget.computeIfAbsent(target.canonicalPath) { Any() }
+        return synchronized(lock, block)
+    }
 
     internal fun fileFor(
         serverId: String,
