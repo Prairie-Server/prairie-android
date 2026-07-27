@@ -81,10 +81,10 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
             // those requests omit headers but still carry credentials in the
             // body. Only read-only candidate probes may bypass consent.
             (!skipAuth || request.method != HttpMethod.Get) &&
-            cleartextOriginConsent?.requiresApproval(trustedServerUrl) == true
+            cleartextOriginConsent?.requiresApproval(request.url.toString()) == true
         ) {
             request.removeSiloCredentialHeaders()
-            throw CleartextOriginNotApprovedException(trustedServerUrl)
+            throw CleartextOriginNotApprovedException(request.url.toString())
         }
 
         val sameOrigin = isSameSiloHttpOrigin(trustedServerUrl, request.url)

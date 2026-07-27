@@ -16,6 +16,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import org.siloserver.silo.network.isSameHttpOrigin
+import org.siloserver.silo.network.CleartextOriginNotApprovedException
 
 /**
  * DataSource.Factory that resolves relative stream URLs against the server
@@ -80,6 +81,9 @@ internal class RefreshingHttpDataSource(
     }
 
     override fun open(dataSpec: DataSpec): Long {
+        if (!runBlocking { authSession.isTransportApproved(dataSpec.uri.toString()) }) {
+            throw CleartextOriginNotApprovedException(dataSpec.uri.toString())
+        }
         val guardEnabled = isResumableDirectPlayUri(dataSpec.uri)
         if (guardEnabled) {
             prepareEntityGuard(dataSpec.uri)

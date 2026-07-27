@@ -78,6 +78,37 @@ class SiloAuthPluginPinTest {
         client.close()
     }
 
+    @Test
+    fun absoluteCandidateAuthPostsCheckTheirOwnCleartextOrigin() = runTest {
+        var engineCalled = false
+        val tokenManager = TokenManagerImpl().apply { setServerUrl("https://active.example") }
+        val client = HttpClient(
+            MockEngine {
+                engineCalled = true
+                respond("{}", HttpStatusCode.OK)
+            },
+        ) {
+            install(SiloAuthPlugin) {
+                this.tokenManager = tokenManager
+                this.cleartextOriginConsent = object : CleartextOriginConsent {
+                    override suspend fun isApproved(origin: String): Boolean = false
+                }
+            }
+        }
+
+        listOf(
+            "/api/v1/auth/device/start",
+            "/api/v1/auth/device/poll",
+            "/api/v1/auth/remote-playback/start",
+        ).forEach { path ->
+            assertFailsWith<CleartextOriginNotApprovedException>(path) {
+                client.post("http://candidate.lan$path") { skipSiloAuth() }
+            }
+        }
+        assertEquals(false, engineCalled)
+        client.close()
+    }
+
 
     private class Captured {
         var url: String = ""

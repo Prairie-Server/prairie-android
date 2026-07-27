@@ -80,3 +80,8 @@ commits.
   loading is bound to one exact EPUB cache directory in JavaScript and native
   code; and container/package/chapter markup has strict type-specific limits
   while section metadata reads only a bounded prefix.
+- Follow-up review found two additional cleartext destination gaps. The final
+  correction checks the actual resolved URL for absolute unauthenticated auth
+  POSTs, fails closed for malformed HTTP authorities, and rejects an
+  unapproved final Media3 HTTP stream before server-issued plan headers or
+  query credentials reach the transport.

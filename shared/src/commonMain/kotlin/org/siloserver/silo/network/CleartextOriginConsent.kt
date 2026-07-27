@@ -13,8 +13,15 @@ interface CleartextOriginConsent {
 class CleartextOriginNotApprovedException(origin: String) :
     IllegalStateException("Cleartext HTTP origin has not been approved: ${canonicalHttpOrigin(origin) ?: "<invalid>"}")
 
-suspend fun CleartextOriginConsent.requiresApproval(url: String): Boolean =
-    httpOrigin(url)?.scheme == "http" && !isApproved(url)
+suspend fun CleartextOriginConsent.requiresApproval(url: String): Boolean {
+    val origin = httpOrigin(url)
+    return when {
+        origin?.scheme == "https" -> false
+        origin?.scheme == "http" -> !isApproved(url)
+        url.trim().startsWith("http://", ignoreCase = true) -> true
+        else -> false
+    }
+}
 
 fun canonicalHttpOrigin(raw: String): String? {
     val origin = httpOrigin(raw) ?: return null

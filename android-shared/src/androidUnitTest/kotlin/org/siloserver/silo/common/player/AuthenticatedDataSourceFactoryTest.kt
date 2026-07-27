@@ -19,6 +19,8 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.siloserver.silo.network.TokenManagerImpl
+import org.siloserver.silo.network.CleartextOriginConsent
+import org.siloserver.silo.network.CleartextOriginNotApprovedException
 import org.siloserver.silo.common.io.ContentLimitExceeded
 import androidx.media3.datasource.DataSource
 
@@ -56,6 +58,38 @@ class AuthenticatedDataSourceFactoryTest {
             "https://cdn.example/stream/session-1",
             resolveRoutedDataSourceUrl("https://silo.example", "https://cdn.example/stream/session-1"),
         )
+    }
+
+    @Test
+    fun `unapproved cleartext stream is rejected before explicit plan headers reach transport`() {
+        val transport = FakeHttpDataSource()
+        val client = OkHttpClient().also { closeables += it }
+        val tokens = TokenManagerImpl()
+        runBlocking { tokens.setServerUrl("https://silo.example") }
+        val source = RefreshingHttpDataSource(
+            factory = FakeHttpDataSourceFactory(ArrayDeque(listOf(transport))),
+            authSession = MediaAuthSession(
+                tokenManager = tokens,
+                refreshClient = client,
+                cleartextOriginConsent = object : CleartextOriginConsent {
+                    override suspend fun isApproved(origin: String): Boolean = false
+                },
+            ),
+        )
+        val plan = DataSpec.Builder()
+            .setUri(Uri.parse("http://cdn.example/video"))
+            .setHttpRequestHeaders(
+                mapOf(
+                    "Authorization" to "Bearer stream-plan",
+                    "X-Stream-Signature" to "secret",
+                ),
+            )
+            .build()
+
+        assertFailsWith<CleartextOriginNotApprovedException> {
+            source.open(plan)
+        }
+        assertEquals(emptyList(), transport.openedDataSpecs)
     }
 
     @Test

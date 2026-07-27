@@ -33,6 +33,9 @@ class MediaAuthSession(
 ) {
     private val refreshMutex = Mutex()
 
+    suspend fun isTransportApproved(requestUrl: String): Boolean =
+        cleartextOriginConsent?.requiresApproval(requestUrl) != true
+
     suspend fun snapshot(): MediaAuthSnapshot {
         tokenManager.snapshotCurrentScope()?.let { scope ->
             if (cleartextOriginConsent?.requiresApproval(scope.serverUrl) == true) {
