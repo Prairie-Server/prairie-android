@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.model.livetv.LiveTvChannel
 import org.prairieserver.prairie.model.livetv.LiveTvProgram
+import org.prairieserver.prairie.model.livetv.LiveTvRecording
 import org.prairieserver.prairie.model.livetv.LiveTvScheduleRecordingRequest
 import org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
 import org.prairieserver.prairie.network.ApiResult
@@ -16,18 +17,47 @@ import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.repository.LiveTvRepository
 import org.prairieserver.prairie.util.parseRfc3339ToEpochMillis
 
+enum class LiveTvTab {
+    Guide,
+    Channels,
+    Recordings,
+}
+
 data class LiveTvChannelRow(
     val channel: LiveTvChannel,
     val nowPlaying: LiveTvProgram? = null,
+    val upNext: LiveTvProgram? = null,
 )
 
 data class LiveTvUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
+    val selectedTab: LiveTvTab = LiveTvTab.Guide,
     val channels: List<LiveTvChannelRow> = emptyList(),
+    val recordings: List<LiveTvRecording> = emptyList(),
+    val channelQuery: String = "",
     val recordingMessage: String? = null,
     val error: String? = null,
-)
+) {
+    val filteredChannels: List<LiveTvChannelRow>
+        get() {
+            val q = channelQuery.trim().lowercase()
+            if (q.isEmpty()) return channels
+            return channels.filter { row ->
+                val ch = row.channel
+                ch.displayName.lowercase().contains(q) ||
+                    ch.displayNumber.lowercase().contains(q) ||
+                    ch.callsign.lowercase().contains(q) ||
+                    (row.nowPlaying?.title?.lowercase()?.contains(q) == true)
+            }
+        }
+
+    val activeRecordings: List<LiveTvRecording>
+        get() = recordings.filter { it.isActive }
+
+    val historyRecordings: List<LiveTvRecording>
+        get() = recordings.filter { !it.isActive }
+}
 
 class LiveTvViewModel(
     private val repository: LiveTvRepository,
@@ -44,19 +74,31 @@ class LiveTvViewModel(
     fun load() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            fetchChannels()
+            fetchAll()
         }
     }
 
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null, recordingMessage = null) }
-            fetchChannels()
+            fetchAll()
             _uiState.update { it.copy(isRefreshing = false) }
         }
     }
 
+    fun selectTab(tab: LiveTvTab) {
+        _uiState.update { it.copy(selectedTab = tab) }
+        if (tab == LiveTvTab.Recordings) {
+            viewModelScope.launch { fetchRecordings() }
+        }
+    }
+
+    fun setChannelQuery(query: String) {
+        _uiState.update { it.copy(channelQuery = query) }
+    }
+
     private val schedulingProgramIds = mutableSetOf<String>()
+    private val cancellingRecordingIds = mutableSetOf<String>()
 
     fun scheduleRecording(program: LiveTvProgram) {
         val programId = program.id.trim()
@@ -70,6 +112,7 @@ class LiveTvViewModel(
                 ) {
                     is ApiResult.Success -> {
                         _uiState.update { it.copy(recordingMessage = "Recording scheduled") }
+                        fetchRecordings()
                     }
                     is ApiResult.Error -> {
                         val message = when (result.code) {
@@ -92,24 +135,52 @@ class LiveTvViewModel(
         }
     }
 
+    fun cancelRecording(recording: LiveTvRecording) {
+        val id = recording.id.trim()
+        if (id.isEmpty() || !cancellingRecordingIds.add(id)) return
+        viewModelScope.launch {
+            try {
+                when (val result = repository.cancelRecording(id)) {
+                    is ApiResult.Success -> {
+                        _uiState.update { it.copy(recordingMessage = "Recording cancelled") }
+                        fetchRecordings()
+                    }
+                    is ApiResult.Error, is ApiResult.NetworkError -> {
+                        _uiState.update {
+                            it.copy(recordingMessage = "Could not cancel recording")
+                        }
+                    }
+                }
+            } finally {
+                cancellingRecordingIds.remove(id)
+            }
+        }
+    }
+
     fun clearRecordingMessage() {
         _uiState.update { it.copy(recordingMessage = null) }
     }
 
-    private suspend fun fetchChannels() {
+    private suspend fun fetchAll() {
         when (val result = repository.channels()) {
             is ApiResult.Success -> {
                 val channels = result.data.channels.filter { it.enabled }
-                val nowByChannel = loadNowPlaying(channels.map { it.id })
+                val slots = loadNowNext(channels.map { it.id })
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         channels = channels.map { channel ->
-                            LiveTvChannelRow(channel, nowByChannel[channel.id])
+                            val slot = slots[channel.id]
+                            LiveTvChannelRow(
+                                channel = channel,
+                                nowPlaying = slot?.first,
+                                upNext = slot?.second,
+                            )
                         },
                         error = null,
                     )
                 }
+                fetchRecordings()
             }
             is ApiResult.Error, is ApiResult.NetworkError -> {
                 _uiState.update {
@@ -122,20 +193,61 @@ class LiveTvViewModel(
         }
     }
 
-    private suspend fun loadNowPlaying(channelIds: List<String>): Map<String, LiveTvProgram> {
+    private suspend fun fetchRecordings() {
+        when (val result = repository.recordings()) {
+            is ApiResult.Success -> {
+                _uiState.update {
+                    it.copy(
+                        recordings = result.data.recordings.sortedByDescending { rec -> rec.start },
+                    )
+                }
+            }
+            is ApiResult.Error, is ApiResult.NetworkError -> {
+                // Soft-fail: older servers / empty DVR should not blank the channel UI.
+            }
+        }
+    }
+
+    private suspend fun loadNowNext(
+        channelIds: List<String>,
+    ): Map<String, Pair<LiveTvProgram?, LiveTvProgram?>> {
         if (channelIds.isEmpty()) return emptyMap()
         return when (val guide = repository.guide(channelIds = channelIds)) {
             is ApiResult.Success -> {
                 val now = nowMillisProvider()
-                guide.data.programs
-                    .filter { program ->
-                        if (now <= 0L) return@filter true
-                        val start = parseRfc3339ToEpochMillis(program.start) ?: return@filter false
-                        val stop = parseRfc3339ToEpochMillis(program.stop) ?: return@filter false
-                        now in start until stop
+                channelIds.associateWith { channelId ->
+                    val sorted = guide.data.programs
+                        .filter { it.channelId == channelId }
+                        .sortedBy { it.start }
+                    var current: LiveTvProgram? = null
+                    var upcoming: LiveTvProgram? = null
+                    for (program in sorted) {
+                        val start = parseRfc3339ToEpochMillis(program.start) ?: continue
+                        val stop = parseRfc3339ToEpochMillis(program.stop) ?: continue
+                        if (now > 0L) {
+                            if (now in start until stop) {
+                                current = program
+                                continue
+                            }
+                            if (start > now) {
+                                upcoming = program
+                                break
+                            }
+                        } else if (current == null) {
+                            current = program
+                        } else if (upcoming == null) {
+                            upcoming = program
+                            break
+                        }
                     }
-                    .groupBy { it.channelId }
-                    .mapValues { (_, programs) -> programs.maxBy { it.start } }
+                    if (upcoming == null && current != null) {
+                        val idx = sorted.indexOfFirst { it.id == current.id }
+                        if (idx >= 0 && idx + 1 < sorted.size) {
+                            upcoming = sorted[idx + 1]
+                        }
+                    }
+                    current to upcoming
+                }
             }
             is ApiResult.Error, is ApiResult.NetworkError -> emptyMap()
         }
@@ -151,9 +263,9 @@ data class LiveTvPlayerUiState(
 )
 
 /**
- * Owns Live TV playback session lifecycle: POST session to obtain an HLS URL,
- * then DELETE the session when the player stops. ExoPlayer wiring lives in the
- * Android UI layer via [org.prairieserver.prairie.common.player.PrairiePlayerFactory].
+ * Owns Live TV playback session lifecycle: POST session to obtain a playable
+ * URL (HLS remux or MPEG-TS proxy), then DELETE when the player stops.
+ * ExoPlayer wiring lives in the Android UI layer via PrairiePlayerFactory.
  */
 class LiveTvPlayerViewModel(
     private val repository: LiveTvRepository,

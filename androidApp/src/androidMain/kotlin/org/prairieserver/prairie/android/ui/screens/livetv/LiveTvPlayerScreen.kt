@@ -84,17 +84,27 @@ fun LiveTvPlayerScreen(
         onDispose { player.release() }
     }
 
-    LaunchedEffect(state.session?.sessionId, state.session?.playableUrl) {
+    LaunchedEffect(state.session?.sessionId, state.session?.playableUrl, state.session?.transport) {
         val session = state.session ?: return@LaunchedEffect
         val url = session.playableUrl
         if (url.isBlank()) return@LaunchedEffect
         val serverUrl = tokenManager.getServerUrl()
-        val mediaItem = playerFactory.buildMediaItem(
-            streamUrl = url,
-            playMethod = PlayMethod.TRANSCODE,
-            serverUrl = serverUrl,
-            title = channelName.ifBlank { "Live TV" },
-        )
+        val mediaItem = if (session.isHls) {
+            playerFactory.buildMediaItem(
+                streamUrl = url,
+                playMethod = PlayMethod.TRANSCODE,
+                serverUrl = serverUrl,
+                title = channelName.ifBlank { "Live TV" },
+            )
+        } else {
+            playerFactory.buildMediaItem(
+                streamUrl = url,
+                playMethod = PlayMethod.DIRECT,
+                container = "mpegts",
+                serverUrl = serverUrl,
+                title = channelName.ifBlank { "Live TV" },
+            )
+        }
         player.setMediaItem(mediaItem)
         player.prepare()
         player.play()

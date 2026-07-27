@@ -62,8 +62,9 @@ data class LiveTvGuideResponse(
 /**
  * Response from `POST /api/v1/livetv/channels/{id}/session`.
  *
- * Clients play [hlsUrl] (preferred) or fall back to [streamUrl], then
- * `DELETE /api/v1/livetv/sessions/{sessionId}` when playback stops.
+ * [transport] is `"hls"` when the server HLS remux bridge is active, otherwise
+ * `"mpegts"` for the authenticated session MPEG-TS proxy. Clients play
+ * [playableUrl], then `DELETE /api/v1/livetv/sessions/{sessionId}` when stopped.
  */
 @Serializable
 data class LiveTvSessionStartResponse(
@@ -71,10 +72,24 @@ data class LiveTvSessionStartResponse(
     @SerialName("playback_ticket") val playbackTicket: String = "",
     @SerialName("hls_url") val hlsUrl: String = "",
     @SerialName("stream_url") val streamUrl: String = "",
+    val transport: String = "mpegts",
     val note: String = "",
 ) {
+    /** True when the server (or URL shape) indicates HLS remux. */
+    val isHls: Boolean
+        get() {
+            val explicit = transport.trim().lowercase()
+            if (explicit == "hls") return true
+            if (explicit == "mpegts") return false
+            val url = (hlsUrl.ifBlank { streamUrl }).lowercase()
+            return url.contains(".m3u8") || url.contains("/live-hls/")
+        }
+
     val playableUrl: String
-        get() = hlsUrl.takeIf { it.isNotBlank() } ?: streamUrl
+        get() = when {
+            isHls -> hlsUrl.takeIf { it.isNotBlank() } ?: streamUrl
+            else -> streamUrl.takeIf { it.isNotBlank() } ?: hlsUrl
+        }
 }
 
 @Serializable
@@ -103,7 +118,15 @@ data class LiveTvRecording(
     val start: String = "",
     val stop: String = "",
     val title: String = "",
-)
+    @SerialName("last_error") val lastError: String = "",
+) {
+    val isActive: Boolean
+        get() = status.equals("scheduled", ignoreCase = true) ||
+            status.equals("recording", ignoreCase = true)
+
+    val isCompleted: Boolean
+        get() = status.equals("completed", ignoreCase = true)
+}
 
 @Serializable
 data class LiveTvRecordingsResponse(
