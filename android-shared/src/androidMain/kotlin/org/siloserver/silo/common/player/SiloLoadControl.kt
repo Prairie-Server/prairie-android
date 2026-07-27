@@ -38,9 +38,18 @@ class SiloLoadControl(
         parameters: LoadControl.Parameters,
         trackSelections: Array<out ExoTrackSelection?>,
     ): Int {
-        val selectedBitrateBps = trackSelections.sumOf { selection ->
-            selection?.selectedBitrateBps() ?: 0L
-        }.takeIf { it > 0L }
+        val selectedBitrateBps =
+            selectBufferSizingBitrateBps(
+                trackSelections.mapNotNull { selection ->
+                    selection?.let {
+                        BufferSizingTrackBitrates(
+                            averageBitrateBps = it.selectedFormat.averageBitrate,
+                            peakBitrateBps = it.selectedFormat.peakBitrate,
+                            latestNetworkEstimateBps = it.latestBitrateEstimate,
+                        )
+                    }
+                },
+            )
         val fallback = super.calculateTargetBufferBytes(parameters, trackSelections)
         return calculateBitrateTargetBufferBytes(
             selectedBitrateBps = selectedBitrateBps,
@@ -51,19 +60,33 @@ class SiloLoadControl(
         )
     }
 
-    private fun ExoTrackSelection.selectedBitrateBps(): Long {
-        val format = selectedFormat
-        return listOf(
-            latestBitrateEstimate,
-            format.averageBitrate.toLong(),
-            format.peakBitrate.toLong(),
-            format.bitrate.toLong(),
-        ).maxOrNull()?.coerceAtLeast(0L) ?: 0L
-    }
-
     companion object {
         internal const val MIN_TARGET_BUFFER_BYTES = 16 * 1024 * 1024
     }
+}
+
+internal data class BufferSizingTrackBitrates(
+    val averageBitrateBps: Int,
+    val peakBitrateBps: Int,
+    val latestNetworkEstimateBps: Long,
+)
+
+internal fun selectBufferSizingBitrateBps(
+    tracks: List<BufferSizingTrackBitrates>,
+): Long? {
+    val mediaBitrateBps =
+        tracks.mapNotNull { track ->
+            track.averageBitrateBps.takeIf { it > 0 }?.toLong()
+                ?: track.peakBitrateBps.takeIf { it > 0 }?.toLong()
+        }
+
+    if (mediaBitrateBps.isNotEmpty()) {
+        return mediaBitrateBps.sum()
+    }
+
+    return tracks
+        .maxOfOrNull { it.latestNetworkEstimateBps }
+        ?.takeIf { it > 0L }
 }
 
 internal fun calculateBitrateTargetBufferBytes(
