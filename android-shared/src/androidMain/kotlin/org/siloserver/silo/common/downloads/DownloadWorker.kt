@@ -94,7 +94,10 @@ class DownloadWorker(
         val mediaType = inputData.getString(KEY_MEDIA_TYPE)
         val displayTitle = inputData.getString(KEY_DISPLAY_TITLE) ?: "Download"
         if (fileId < 0) return@withContext Result.failure()
+        val lifetimeLease = DownloadWorkerLifetime.acquire(downloadId)
+            ?: return@withContext Result.failure()
 
+        try {
         Log.i(TAG, "doWork start id=$downloadId fileId=$fileId title=$displayTitle")
         DiagnosticsDownloadLogger.event("download started")
         runCatching {
@@ -313,6 +316,9 @@ class DownloadWorker(
         } catch (e: Throwable) {
             failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
         }
+        } finally {
+            lifetimeLease.close()
+        }
     }
 
     /** Permanent failure — clean up local file and let the user retry manually. */
@@ -516,6 +522,7 @@ class DownloadWorker(
         }
 
         fun cancel(context: Context, downloadId: String) {
+            DownloadWorkerLifetime.beginCancellation(downloadId)
             WorkManager.getInstance(context).cancelAllWorkByTag(tagFor(downloadId))
         }
 
@@ -525,12 +532,14 @@ class DownloadWorker(
          * has stopped before deleting the Room rows it can otherwise recreate.
          */
         suspend fun cancelAndAwait(context: Context, downloadId: String) {
+            DownloadWorkerLifetime.beginCancellation(downloadId)
             withContext(Dispatchers.IO) {
                 WorkManager.getInstance(context)
                     .cancelUniqueWork(tagFor(downloadId))
                     .result
                     .get(CANCEL_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             }
+            DownloadWorkerLifetime.awaitIdle(downloadId)
         }
 
         private const val CANCEL_ACK_TIMEOUT_SECONDS = 30L

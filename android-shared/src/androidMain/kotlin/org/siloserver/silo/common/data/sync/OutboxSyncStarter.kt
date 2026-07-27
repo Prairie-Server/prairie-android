@@ -6,6 +6,7 @@ import android.net.Network
 import android.util.Log
 import org.siloserver.silo.network.ServerRegistry
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.map
@@ -53,7 +54,7 @@ class OutboxSyncStarter(
         // that profile never synced again. On a TV, which is never relaunched,
         // that is permanent and invisible.
         val initialScope = registry.activeEntry.value?.let { it.id to it.profileId }
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             var previousScope = initialScope
             registry.activeEntry
                 .map { entry -> entry?.let { it.id to it.profileId } }

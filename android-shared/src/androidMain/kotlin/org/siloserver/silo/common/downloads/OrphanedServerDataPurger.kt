@@ -62,6 +62,7 @@ class OrphanedServerDataPurger(
 
     fun start(): Job = scope.launch {
         var previous = registry.entries.value.map { it.id }.toSet()
+        jsonStatePurger?.allowRegistered(previous)
         val observer = launch(start = CoroutineStart.UNDISPATCHED) {
             // Subscribe before the startup filesystem scan. A removal during
             // that scan is then buffered instead of falling between a snapshot
@@ -72,6 +73,7 @@ class OrphanedServerDataPurger(
                 .collect { ids ->
                     val lost = previous - ids
                     previous = ids
+                    jsonStatePurger?.allowRegistered(ids)
                     if (lost.isNotEmpty()) {
                         runCatching { purgeOnce() }
                             .onFailure { Log.w(TAG, "registry-change purge failed", it) }

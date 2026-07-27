@@ -32,12 +32,13 @@ internal class ScopedJsonFileStore(
 ) {
     private val canonicalRoot: File = root.canonicalFile
     private val legacyByTarget = ConcurrentHashMap<String, File>()
-    private val locksByTarget = ConcurrentHashMap<String, Any>()
+    private val targetLockStripes = Array(TARGET_LOCK_STRIPES) { Any() }
 
     internal fun rootDirectory(): File = canonicalRoot
 
     internal fun <T> withTargetLock(target: File, block: () -> T): T {
-        val lock = locksByTarget.computeIfAbsent(target.canonicalPath) { Any() }
+        val hash = target.canonicalPath.hashCode() and Int.MAX_VALUE
+        val lock = targetLockStripes[hash % TARGET_LOCK_STRIPES]
         return synchronized(lock, block)
     }
 
@@ -71,6 +72,19 @@ internal class ScopedJsonFileStore(
     }
 
     internal fun writeAtomic(target: File, text: String) {
+        val serverStorageKey = runCatching {
+            canonicalRoot.toPath().relativize(target.canonicalFile.toPath()).first().toString()
+        }.getOrNull() ?: run {
+            Log.w(tag, "write rejected without a server scope")
+            return
+        }
+        val written = ServerScopedJsonAccess.withWriter(canonicalRoot, serverStorageKey) {
+            writeAtomicUnlocked(target, text)
+        }
+        if (written == null) Log.w(tag, "write rejected for removed server scope")
+    }
+
+    private fun writeAtomicUnlocked(target: File, text: String) {
         if (!isContained(target)) {
             Log.w(tag, "write rejected outside store root")
             return
@@ -204,6 +218,7 @@ internal class ScopedJsonFileStore(
     companion object {
         val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
         private const val MAX_TEMP_ATTEMPTS = 8
+        private const val TARGET_LOCK_STRIPES = 64
         private val CREATE_NEW_NOFOLLOW: Set<OpenOption> = setOf(
             StandardOpenOption.CREATE_NEW,
             StandardOpenOption.WRITE,

@@ -15,17 +15,34 @@ import java.nio.file.attribute.BasicFileAttributes
  * Tree deletion never follows symlinks.
  */
 class ServerScopedJsonStatePurger(baseDir: File) {
+    private val canonicalBase = baseDir.canonicalFile
     private val roots = listOf(
-        File(baseDir, "ebook_state").canonicalFile,
-        File(baseDir, "audiobook_bookmarks").canonicalFile,
+        File(canonicalBase, "ebook_state"),
+        File(canonicalBase, "audiobook_bookmarks"),
     )
 
+    fun allowRegistered(serverIds: Set<String>) {
+        roots.mapNotNull(::validatedRoot).forEach { root ->
+            serverIds.forEach { serverId ->
+                ServerScopedJsonAccess.allow(root, safePathSegment(serverId))
+            }
+        }
+    }
+
     fun deleteAllForServer(serverId: String) {
-        roots.forEach { root ->
-            containedSafeChild(root, serverId)?.let(::deleteTree)
-            containedLegacyChild(root, serverId)
-                ?.takeIf { it.path != containedSafeChild(root, serverId)?.path }
-                ?.let(::deleteTree)
+        roots.mapNotNull(::validatedRoot).forEach { root ->
+            val safeKey = safePathSegment(serverId)
+            ServerScopedJsonAccess.invalidateAndRun(root, safeKey) {
+                containedSafeChild(root, serverId)?.let(::deleteTree)
+            }
+            containedLegacyChild(root, serverId)?.let { legacy ->
+                val legacyKey = root.toPath().relativize(legacy.toPath()).firstOrNull()?.toString()
+                if (legacyKey != null && legacyKey != safeKey) {
+                    ServerScopedJsonAccess.invalidateAndRun(root, legacyKey) {
+                        deleteTree(legacy)
+                    }
+                }
+            }
         }
     }
 
@@ -34,7 +51,10 @@ class ServerScopedJsonStatePurger(baseDir: File) {
         protectedServerIds: Set<String>,
     ) {
         val retainedIds = registeredServerIds + protectedServerIds
-        roots.forEach { root ->
+        roots.mapNotNull(::validatedRoot).forEach { root ->
+            registeredServerIds.forEach { serverId ->
+                ServerScopedJsonAccess.allow(root, safePathSegment(serverId))
+            }
             val retainedTopLevelNames = retainedIds.flatMapTo(mutableSetOf()) { serverId ->
                 buildList {
                     add(safePathSegment(serverId))
@@ -46,9 +66,27 @@ class ServerScopedJsonStatePurger(baseDir: File) {
             }
             root.listFiles().orEmpty()
                 .filterNot { it.name in retainedTopLevelNames }
-                .forEach(::deleteTree)
+                .forEach { orphan ->
+                    ServerScopedJsonAccess.invalidateAndRun(root, orphan.name) {
+                        deleteTree(orphan)
+                    }
+                }
         }
     }
+
+    private fun validatedRoot(root: File): File? = runCatching {
+        val path = root.toPath()
+        if (Files.isSymbolicLink(path)) return@runCatching null
+        if (Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+            !Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        ) {
+            return@runCatching null
+        }
+        root.canonicalFile.takeIf { canonical ->
+            canonical.parentFile == canonicalBase &&
+                canonical.path.startsWith(canonicalBase.path + File.separator)
+        }
+    }.getOrNull()
 
     private fun deleteTree(candidate: File) {
         val path = candidate.toPath()

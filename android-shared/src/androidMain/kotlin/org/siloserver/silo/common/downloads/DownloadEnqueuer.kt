@@ -444,9 +444,9 @@ class DownloadEnqueuer(
     /** Cancel a queued / in-flight download by record id (worker-tag).
      *  Callers that own the local metadata (Downloads tab) clean the sidecar up
      *  themselves; everyone else should use the [fileId] overload. */
-    fun cancel(downloadId: String) {
+    suspend fun cancel(downloadId: String) {
         Log.i(TAG, "cancel: downloadId=$downloadId")
-        DownloadWorker.cancel(context, downloadId)
+        DownloadWorker.cancelAndAwait(context, downloadId)
     }
 
     data class CancelScope(

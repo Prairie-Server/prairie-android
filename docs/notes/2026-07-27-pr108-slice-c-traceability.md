@@ -48,12 +48,16 @@ intentionally excluded. The table above is the path-purpose mapping.
   identity after the one removal event has been consumed.
 - Made worker cancellation an acknowledged barrier. Cancellation or filesystem
   failure now retains Room rows as durable retry evidence instead of deleting
-  the only index of an incompletely cleaned identity.
+  the only index of an incompletely cleaned identity. A process-local worker
+  lease additionally waits for the actual CoroutineWorker body/finally path,
+  beyond WorkManager's interrupt acknowledgement.
 - Subscribed to registry removals before the startup scan and added a
   deterministic removal-during-startup regression, closing the event gap that
   could permanently miss a server.
 - Added no-follow discovery and deletion for JSON-only ebook/audiobook state,
-  including long hashed identity keys and a symlink escape regression.
+  including long hashed identity keys, root/child symlink escape regressions,
+  and a shared removal generation that prevents stale writers from recreating
+  purged identities.
 - Moved detail-screen cancellation to the sidecar-cleaning path with a
   synchronously captured identity scope, so a profile switch cannot redirect
   cleanup to the next profile.
