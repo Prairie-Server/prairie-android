@@ -422,6 +422,9 @@ val androidTvModule = module {
     viewModel {
         org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherViewModel(get())
     }
+    viewModel {
+        org.siloserver.silo.tv.ui.screens.watchtogether.TvSuggestToRoomViewModel(get())
+    }
     // Watch Together lobby — keyed per roomId (koinViewModel key="wt-lobby-$roomId");
     // roomId is read from the positional parameter.
     viewModel { params ->

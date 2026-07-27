@@ -37,6 +37,7 @@ import org.siloserver.silo.android.ui.components.DetailLoadingSkeleton
 import org.siloserver.silo.android.ui.components.ErrorView
 import org.siloserver.silo.android.ui.screens.cast.SiloCastTargetPickerSheet
 import org.siloserver.silo.android.ui.screens.downloads.openDownloadTargetInExternalApp
+import org.siloserver.silo.android.ui.screens.watchtogether.SuggestToRoomViewModel
 import org.siloserver.silo.android.ui.util.playbackResumePosition
 import org.siloserver.silo.cast.SiloCastLaunchRequest
 import org.siloserver.silo.cast.SiloCastPlaybackRequest
@@ -55,6 +56,7 @@ import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.playback.selectPlaybackVersion
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import org.siloserver.silo.metadata.DescriptionTranslationPhase
 import org.siloserver.silo.model.feature.MetadataAiFeatureStore
 import org.siloserver.silo.model.metadata.MetadataAiOnView
@@ -89,7 +91,18 @@ fun ItemDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val suggestViewModel: SuggestToRoomViewModel = koinViewModel()
+    val suggestRoom by suggestViewModel.room.collectAsState()
+    val suggestState by suggestViewModel.uiState.collectAsState()
     val context = LocalContext.current
+    LaunchedEffect(suggestState.notice, suggestState.error) {
+        val message = suggestState.notice ?: suggestState.error
+        if (message != null) {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            suggestViewModel.consumeNotice()
+            suggestViewModel.clearError()
+        }
+    }
 
     // Refresh on return (e.g. backing out of the player): the ViewModel loads
     // once in init, so without this the Play button keeps the resume label
@@ -635,6 +648,19 @@ fun ItemDetailScreen(
                                         ?: playbackResumePosition(detail.userData),
                                 )
                             },
+                            onSuggestToRoom = if (suggestRoom != null && nextEpisode != null) {
+                                {
+                                    suggestViewModel.suggest(
+                                        contentId = nextEpisode.contentId,
+                                        contentType = "episode",
+                                        title = nextEpisode.title ?: detail.title,
+                                        subtitle = detail.title,
+                                        posterUrl = nextEpisode.stillUrl ?: detail.posterUrl,
+                                    )
+                                }
+                            } else {
+                                null
+                            },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
                                 { onWatchTogether(nextEpisode?.contentId ?: detail.contentId, null) }
                             } else {
@@ -819,6 +845,17 @@ fun ItemDetailScreen(
                                     subtitleTrackIndex = explicitSubtitleIndex,
                                     resumePositionSeconds = playbackResumePosition(detail.userData),
                                 )
+                            },
+                            onSuggestToRoom = suggestRoom?.let {
+                                {
+                                    suggestViewModel.suggest(
+                                        contentId = detail.contentId,
+                                        contentType = detail.type,
+                                        title = detail.title,
+                                        subtitle = detail.seriesTitle?.takeIf { value -> value.isNotBlank() },
+                                        posterUrl = detail.posterUrl,
+                                    )
+                                }
                             },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
                                 { onWatchTogether(detail.contentId, explicitFileId) }

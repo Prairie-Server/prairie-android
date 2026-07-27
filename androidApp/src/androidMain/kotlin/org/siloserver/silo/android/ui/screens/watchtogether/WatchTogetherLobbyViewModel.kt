@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.model.watchtogether.PromoteSuggestionRequest
+import org.siloserver.silo.model.watchtogether.MemberRole
 import org.siloserver.silo.model.watchtogether.RoomPhase
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
 import org.siloserver.silo.model.watchtogether.Suggestion
@@ -22,7 +23,10 @@ import kotlinx.coroutines.launch
  * shared model uses lenient enums, see WatchTogetherModels.kt.
  */
 fun lobbyPlayerDestinationOrNull(room: RoomSnapshot): String? =
-    if (room.phase == RoomPhase.Playing && !room.selectedContentId.isNullOrBlank()) {
+    if (room.phase == RoomPhase.Playing &&
+        !room.selectedContentId.isNullOrBlank() &&
+        !(room.selfRole == MemberRole.Host && room.memberCount <= 1)
+    ) {
         Route.Player(
             contentId = room.selectedContentId!!,
             fileId = room.selectedFileId,

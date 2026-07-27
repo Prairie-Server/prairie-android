@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.model.watchtogether.CreateRoomRequest
 import org.siloserver.silo.model.watchtogether.JoinRoomRequest
+import org.siloserver.silo.model.watchtogether.MemberRole
+import org.siloserver.silo.model.watchtogether.RoomSelectionMode
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
 import org.siloserver.silo.model.watchtogether.SetSelectionRequest
 import org.siloserver.silo.network.ApiResult
@@ -24,7 +26,9 @@ import kotlinx.coroutines.launch
  * Kept top-level + pure so it is unit-testable without Compose or the repo.
  */
 fun watchTogetherDestination(room: RoomSnapshot): String =
-    if (!room.selectedContentId.isNullOrBlank()) {
+    if (!room.selectedContentId.isNullOrBlank() &&
+        !(room.selfRole == MemberRole.Host && room.memberCount <= 1)
+    ) {
         Route.Player(
             contentId = room.selectedContentId!!,
             fileId = room.selectedFileId,
@@ -59,12 +63,24 @@ class WatchTogetherEntryViewModel(
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     /** Host flow: create a room with this title pre-selected as the room selection. */
-    fun host(contentId: String, fileId: Int?) {
+    fun host(
+        contentId: String,
+        fileId: Int?,
+        selectionMode: RoomSelectionMode = RoomSelectionMode.HostPick,
+    ) {
         if (_uiState.value.busy) return
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            when (val created = repository.createRoom(CreateRoomRequest())) {
+            when (
+                val created = repository.createRoom(
+                    CreateRoomRequest(selectionMode = selectionMode.wire),
+                )
+            ) {
                 is ApiResult.Success -> {
+                    if (selectionMode == RoomSelectionMode.Vote) {
+                        finish(created.data.room)
+                        return@launch
+                    }
                     // Set this title as the room selection so everyone lands on it.
                     when (
                         val sel = repository.setSelection(

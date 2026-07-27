@@ -26,6 +26,7 @@ import androidx.tv.material3.Text
 import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import org.siloserver.silo.tv.ui.screens.player.TvDialogActionRow
 import org.siloserver.silo.tv.ui.theme.DarkBackground
+import org.siloserver.silo.watchtogether.canDismissRoomEntry
 
 /**
  * D-pad Watch Together entry dialog. Panel + row idiom mirrors
@@ -38,6 +39,7 @@ fun TvWatchTogetherEntryDialog(
     isBusy: Boolean,
     error: String?,
     onHost: () -> Unit,
+    onHostVote: () -> Unit,
     onJoin: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -45,11 +47,13 @@ fun TvWatchTogetherEntryDialog(
 
     Popup(
         alignment = Alignment.Center,
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (canDismissRoomEntry(isBusy)) onDismiss()
+        },
         properties = PopupProperties(
             focusable = true,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
+            dismissOnBackPress = canDismissRoomEntry(isBusy),
+            dismissOnClickOutside = canDismissRoomEntry(isBusy),
             clippingEnabled = false,
         ),
     ) {
@@ -85,6 +89,12 @@ fun TvWatchTogetherEntryDialog(
                     enabled = !isBusy,
                     onClick = onHost,
                     modifier = Modifier.focusRequester(hostFocus),
+                )
+
+                TvDialogActionRow(
+                    title = if (isBusy) "Working…" else "Host a vote room",
+                    enabled = !isBusy,
+                    onClick = onHostVote,
                 )
 
                 TvDialogActionRow(
